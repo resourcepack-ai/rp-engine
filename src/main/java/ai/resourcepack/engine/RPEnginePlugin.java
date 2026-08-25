@@ -193,8 +193,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
 
-        OverlayDefinitions.Result parsedScreens =
-                OverlayDefinitions.screens(loaded, measureSheets(content, loaded));
+        OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
         OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
         report(to, "screens", parsedScreens.diagnostics());
         report(to, "huds", parsedHuds.diagnostics());
@@ -260,35 +259,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         return measured;
-    }
-
-    /**
-     * Measures every screen's sheet off disk.
-     *
-     * <p>The same measurement the builder makes, from the same file. The
-     * runtime needs it because the negative space it writes into a container
-     * title has to match the ascent the font file was built with, and a screen
-     * placed by two different numbers is a screen in the wrong place.
-     */
-    private java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> measureSheets(
-            Path content, LoadReport loaded) {
-        java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> insets = new java.util.HashMap<>();
-        for (ai.resourcepack.engine.api.OverlayInfo overlay
-                : OverlayDefinitions.screens(loaded).overlays().values()) {
-            Path file = content.resolve(overlay.id().namespace())
-                    .resolve("assets").resolve("textures").resolve("gui")
-                    .resolve(overlay.file() + ".png");
-            if (!Files.isRegularFile(file)) {
-                continue;
-            }
-            try {
-                ai.resourcepack.engine.core.font.GuiSheet.inset(Files.readAllBytes(file))
-                        .ifPresent(inset -> insets.put(overlay.id(), inset));
-            } catch (IOException e) {
-                getLogger().fine("Could not measure " + overlay.id() + ": " + e.getMessage());
-            }
-        }
-        return insets;
     }
 
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {

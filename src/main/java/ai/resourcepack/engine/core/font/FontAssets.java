@@ -61,8 +61,7 @@ public final class FontAssets implements PackContributor {
         }
 
         boolean anyScreen = false;
-        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded, measure(loaded, into))
-                .overlays().values()) {
+        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded).overlays().values()) {
             anyScreen |= addOverlay(overlay, "screens", bundle, into, providers);
         }
         for (OverlayInfo overlay : OverlayDefinitions.huds(loaded).overlays().values()) {
@@ -123,25 +122,6 @@ public final class FontAssets implements PackContributor {
         }
         into.add(VANILLA_LANG,
                 "{\n  \"container.inventory\": \"\"\n}\n".getBytes(StandardCharsets.UTF_8));
-    }
-
-    /**
-     * Measures every screen's sheet, so the placement follows the art.
-     *
-     * <p>Read through {@code source} rather than out of the zip because the
-     * plugin does the same measurement for its own copy of the metrics, and
-     * both have to agree. Deriving the same number two different ways is how
-     * two halves of one feature drift apart.
-     */
-    private static java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> measure(
-            LoadReport loaded, Contribution into) {
-        java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> insets = new java.util.HashMap<>();
-        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded).overlays().values()) {
-            into.source(overlay.id().namespace(), "assets/textures/gui/" + overlay.file() + ".png")
-                    .flatMap(GuiSheet::inset)
-                    .ifPresent(inset -> insets.put(overlay.id(), inset));
-        }
-        return insets;
     }
 
     /** @return whether the overlay actually made it into the bundle */

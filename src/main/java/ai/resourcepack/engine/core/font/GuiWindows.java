@@ -13,6 +13,13 @@ import java.util.Optional;
  * picture that is nearly right, which is worse than one that is obviously
  * wrong because it looks like a rounding bug rather than a missing formula.
  *
+ * <p><strong>The region is the contract, not the ink.</strong> A sheet is
+ * composed by centring the vanilla window on the canvas, and an artist may
+ * draw outside it — a title plate above the window is the usual case.
+ * Measuring the opaque bounding box instead would treat that plate as the top
+ * of the window and push the whole screen down by its height. So a screen
+ * declares which container it is drawn for, and that is what places it.
+ *
  * <p>The shape of it: a GUI sheet is a 256×256 image with the window art
  * centred on it. The glyph's top renders at {@code titleY + 7 - ascent}, so an
  * ascent of {@code 13 + offsetY} pins the sheet's top edge {@code offsetY}
@@ -63,16 +70,6 @@ public final class GuiWindows {
     /** Every container this knows the geometry of. */
     public static java.util.Set<String> containers() {
         return WINDOWS.keySet();
-    }
-
-    /** The ascent for art whose top edge was measured at {@code insetY}. */
-    public static int ascentForInset(int insetY) {
-        return TITLE_Y + 7 + Math.max(0, insetY);
-    }
-
-    /** The negative space for art whose left edge was measured at {@code insetX}. */
-    public static int offsetForInset(int insetX) {
-        return TITLE_X + Math.max(0, insetX);
     }
 
     /**

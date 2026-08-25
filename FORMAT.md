@@ -277,14 +277,20 @@ shop:
   # only for art that is not laid out the usual way.
 ```
 
-**Draw your sheet 256×256 and put the art where you want it on screen.** The
-build measures the opaque part of the image and places the backdrop so it lands
-exactly there — you do not have to state a size, an ascent or an offset, and you
-do not have to match a container's proportions. A short panel with no
-player-inventory section works as well as a full six-row window.
+**Draw your sheet 256×256 with the vanilla window art centred on it**, and say
+which container it was drawn for. That is the whole contract, and everything
+else follows from it: a five-row chest window is 176×204, so it is inset 40
+across and 26 down, so the backdrop needs an ascent of 39 and a shift of 48.
+Nothing to state and nothing to tune.
 
-`container:` therefore chooses how many **slots** the screen has, not where the
-picture sits. The two are independent.
+**`container:` has to be the one the art was drawn for.** It is not just how
+many slots the screen has — it is what positions the picture. Declaring a
+five-row sheet as a six-row chest puts the whole screen 9 pixels out.
+
+**Draw outside the window freely.** A title plate above it, a border around it,
+a character leaning on it: the placement keys off the window region, not off
+where your ink happens to reach, so decoration outside the window does not move
+the window.
 
 **The word "Inventory" disappears** from every container screen while a bundle
 holds any custom GUI. The client draws that label itself and draws it *after*

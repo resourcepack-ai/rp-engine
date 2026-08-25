@@ -21,9 +21,9 @@ group = 'ai.resourcepack'
 //         allocator that finally had to exist.
 // 0.13.0: GUI screens and HUD overlays, on the same glyph mechanism.
 // 0.13.1: a screen is positioned from its window geometry, not from a guess.
-// 0.14.0: a screen is positioned from its own art, and the Inventory label is
-//         blanked while a bundle holds one.
-version = '0.14.0'
+// 0.14.0: the Inventory label is blanked while a bundle holds a screen.
+// 0.14.1: placement comes from the window region, never from the ink.
+version = '0.14.1'
 
 java {
     toolchain {
