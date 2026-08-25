@@ -273,10 +273,15 @@ negative space in front to slide it into place.
 shop:
   file: shop           # assets/textures/gui/shop.png
   container: chest_9x6 # which real container it opens as
-  height: 256          # the picture's pixel height (256 is the maximum)
-  ascent: 13           # how far above the text baseline
-  offset: 128          # how far left, usually half the image width
+  # height, ascent and offset are worked out from the container. State them
+  # only for art that is not laid out the usual way.
 ```
+
+**Draw your sheet 256×256 with the window art centred on it**, which is what
+studio produces and what the placement assumes. Given that, where the backdrop
+goes is arithmetic rather than taste, and the engine does it: a six-row chest
+window is 176×222, so the art is inset 40 across and 17 down, giving an ascent
+of 30 and a shift of 48.
 
 ```yaml
 # huds/overlays.yml
