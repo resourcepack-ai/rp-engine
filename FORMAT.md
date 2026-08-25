@@ -24,7 +24,7 @@ plugins/RPEngine/content/
     huds/        *.yml
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
-      geometry/  **.json     source, never shipped (see below)
+      models/    **.json     Blockbench exports (see below)
       sounds/    **.ogg
       fonts/     **.png
     overrides/               -> assets/minecraft/ in the built pack
@@ -55,17 +55,24 @@ If two packs in a bundle override the same file, the later namespace
 alphabetically wins and both are named in a warning. Arbitrary, but the same on
 every machine, which is the property that matters.
 
-**`assets/geometry/` is source and is never shipped.** A model file there is
-read at build time, rewritten, and written out as
-`assets/<namespace>/models/item/<id>.json`. Copying the source in as well would
-have every player downloading both it and the thing built from it.
+**Models live in `assets/models/`.** An item names one with `model: <name>`,
+for `assets/models/<name>.json`. Export it from Blockbench with **File >
+Export > Java Block/Item model**. With no `model:` an item is a flat sprite,
+which is what a vanilla item is.
 
-An item names one with `geometry: <name>`, for `assets/geometry/<name>.json`.
-Export it from Blockbench with **File > Export > Java Block/Item model**. Bare
-texture paths inside it (`item/sword`) are rewritten into your namespace; one
-that already carries a namespace (`minecraft:item/stick`) is left exactly as
-written. With no `geometry:` an item is a flat sprite, which is what a vanilla
-item is.
+Bare texture paths inside it (`item/sword`) are rewritten into your namespace;
+one that already carries a namespace (`minecraft:item/stick`) is left exactly
+as written, because somebody who typed that meant it.
+
+A model **an item actually uses** does not ship: it is read, rewritten, and
+written out as `assets/<namespace>/models/item/<id>.json`, and the original
+goes rather than having every player download both. A model **nothing
+references** stays exactly where you put it — that is how a shared parent
+model works, and dropping those would break every model that inherits one.
+
+An item can also wear another item's model with `copy-model: mypack:other`.
+Nothing is generated for it; it points at what is already there, which is how
+a pack ships five items that look the same without five copies of one file.
 
 **`pack.png` is offered, not claimed.** A bundle has one icon and takes it from
 the first namespace alphabetically that ships one. The rest get a warning

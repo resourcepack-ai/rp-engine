@@ -46,7 +46,7 @@ class ModelDefinitionsTest {
     /** An item definition with whatever place block the test needs. */
     private void chair(String placeableBlock) throws IOException {
         write("mypack/items/a.yml",
-                "chair:\n  material: PAPER\n  geometry: chair\n" + placeableBlock);
+                "chair:\n  material: PAPER\n  model: chair\n" + placeableBlock);
     }
 
     private ModelDefinitions.Result parse() {

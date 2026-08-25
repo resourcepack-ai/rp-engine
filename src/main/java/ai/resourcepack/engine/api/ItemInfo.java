@@ -18,22 +18,22 @@ public final class ItemInfo {
     private final String name;
     private final List<String> lore;
     private final String texture;
-    private final String geometry;
-    private final ContentId model;
+    private final String modelFile;
+    private final ContentId copiedFrom;
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
-                     String texture, String geometry, ContentId model, int maxStack,
+                     String texture, String modelFile, ContentId copiedFrom, int maxStack,
                      boolean glow, boolean unbreakable) {
         this.id = id;
         this.material = material;
         this.name = name;
         this.lore = lore;
         this.texture = texture;
-        this.geometry = geometry;
-        this.model = model;
+        this.modelFile = modelFile;
+        this.copiedFrom = copiedFrom;
         this.maxStack = maxStack;
         this.glow = glow;
         this.unbreakable = unbreakable;
@@ -41,7 +41,7 @@ public final class ItemInfo {
 
     /** Engine internal; built by the item loader from a definition body. */
     public static ItemInfo of(ContentId id, String material, String name, List<String> lore,
-                              String texture, String geometry, ContentId model, int maxStack,
+                              String texture, String modelFile, ContentId copiedFrom, int maxStack,
                               boolean glow, boolean unbreakable) {
         return new ItemInfo(
                 Objects.requireNonNull(id, "id"),
@@ -49,8 +49,8 @@ public final class ItemInfo {
                 name == null ? "" : name,
                 lore == null ? List.of() : List.copyOf(lore),
                 texture == null ? "" : texture,
-                geometry == null ? "" : geometry,
-                model,
+                modelFile == null ? "" : modelFile,
+                copiedFrom,
                 maxStack,
                 glow,
                 unbreakable);
@@ -86,25 +86,25 @@ public final class ItemInfo {
 
     /**
      * The model file this item is shaped by, under the pack's
-     * {@code assets/geometry/}, without the extension.
+     * {@code assets/models/}, without the extension.
      *
      * <p>Empty means a flat sprite: the texture extruded by
      * {@code minecraft:item/generated}, which is what a vanilla item is. A 3D
      * item names a Blockbench export here instead.
      */
-    public Optional<String> geometry() {
-        return geometry.isEmpty() ? Optional.empty() : Optional.of(geometry);
+    public Optional<String> model() {
+        return modelFile.isEmpty() ? Optional.empty() : Optional.of(modelFile);
     }
 
     /**
-     * Another content id whose model this item borrows, if it said so.
+     * Another content id whose model this item copies, if it said so.
      *
      * <p>Present means no model or texture is emitted for this item: it points
      * at somebody else's. That is how a pack ships five items that look the
      * same without five copies of one PNG.
      */
-    public Optional<ContentId> model() {
-        return Optional.ofNullable(model);
+    public Optional<ContentId> copiedFrom() {
+        return Optional.ofNullable(copiedFrom);
     }
 
     /**
@@ -112,7 +112,7 @@ public final class ItemInfo {
      * borrows one. This is what goes into the {@code item_model} component.
      */
     public ContentId modelId() {
-        return model == null ? id : model;
+        return copiedFrom == null ? id : copiedFrom;
     }
 
     /** Its maximum stack size, or empty for the material's own. */

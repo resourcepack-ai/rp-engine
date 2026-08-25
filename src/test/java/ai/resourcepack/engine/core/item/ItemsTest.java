@@ -164,28 +164,28 @@ class ItemsTest {
     }
 
     @Test
-    void aBorrowedModelIsParsedAndAnythingElseIsRefused() throws IOException {
+    void aCopiedModelIsParsedAndAnythingElseIsRefused() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml",
-                "copy:\n  material: DIAMOND\n  model: mypack:ruby\n"
-                        + "broken:\n  material: DIAMOND\n  model: not an id\n");
+                "copy:\n  material: DIAMOND\n  copy-model: mypack:ruby\n"
+                        + "broken:\n  material: DIAMOND\n  copy-model: not an id\n");
 
         ItemDefinitions.Result result = items();
 
         assertEquals(ContentId.parse("mypack:ruby").orElseThrow(),
-                one(result, "mypack:copy").model().orElseThrow());
+                one(result, "mypack:copy").copiedFrom().orElseThrow());
         assertEquals(ContentId.parse("mypack:ruby").orElseThrow(), one(result, "mypack:copy").modelId());
         assertFalse(result.items().containsKey(ContentId.parse("mypack:broken").orElseThrow()));
     }
 
     @Test
-    void anItemThatBorrowsNothingRendersThroughItsOwnId() throws IOException {
+    void anItemThatCopiesNothingRendersThroughItsOwnId() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\n");
 
         ItemInfo ruby = one(items(), "mypack:ruby");
 
-        assertTrue(ruby.model().isEmpty());
+        assertTrue(ruby.copiedFrom().isEmpty());
         assertEquals(ruby.id(), ruby.modelId());
     }
 
@@ -240,10 +240,10 @@ class ItemsTest {
     }
 
     @Test
-    void aBorrowedModelGeneratesNothing() throws IOException {
+    void aCopiedModelGeneratesNothing() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml",
-                "ruby:\n  material: DIAMOND\ncopy:\n  material: DIAMOND\n  model: mypack:ruby\n");
+                "ruby:\n  material: DIAMOND\ncopy:\n  material: DIAMOND\n  copy-model: mypack:ruby\n");
         write("mypack/assets/textures/item/ruby.png", "PNG");
 
         Map<String, String> zip = buildAndRead();

@@ -39,6 +39,17 @@ public interface PackContributor {
          */
         java.util.Optional<byte[]> source(String namespace, String relativePath);
 
+        /**
+         * Drops a file that was copied in but should not ship.
+         *
+         * <p>How source stops being shipped: a contributor that consumed
+         * {@code assets/mypack/models/chair.json} and wrote a converted model
+         * from it says so, and the original goes. Only what was actually
+         * consumed — a model nobody referenced stays, because it is probably a
+         * shared parent that something else inherits from.
+         */
+        void drop(String zipPath);
+
         /** Reports a problem against a file in the content folder. */
         void warn(String origin, String where, String message);
 

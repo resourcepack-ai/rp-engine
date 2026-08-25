@@ -66,16 +66,6 @@ public final class PackBuilder {
     /** A pack's own icon, offered to the bundle it ships in. */
     static final String ICON = "pack.png";
 
-    /**
-     * Source a contributor reads and the client never sees.
-     *
-     * <p>{@code assets/geometry/} holds Blockbench files, which become vanilla
-     * model JSON at build time. Copying them into the pack as well would have
-     * every player downloading the source of something they were also sent the
-     * output of.
-     */
-    static final String SOURCE_ONLY = "geometry";
-
     private final int packFormat;
     private final String description;
     private final List<PackContributor> contributors = new ArrayList<>();
@@ -132,8 +122,6 @@ public final class PackBuilder {
             Path packFolder = contentRoot.resolve(namespace);
             copyTree(packFolder.resolve(ASSETS), ASSETS + "/" + namespace,
                     namespace, bundle, zip, writtenBy, diagnostics);
-            // assets/geometry/ is source; see SOURCE_ONLY.
-            zip.removeUnder(ASSETS + "/" + namespace + "/" + SOURCE_ONLY + "/");
             copyTree(packFolder.resolve(OVERRIDES), ASSETS + "/minecraft",
                     namespace, bundle, zip, writtenBy, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
@@ -182,6 +170,12 @@ public final class PackBuilder {
         @Override
         public boolean has(String zipPath) {
             return zip.has(zipPath);
+        }
+
+        @Override
+        public void drop(String zipPath) {
+            zip.remove(zipPath);
+            writtenBy.remove(zipPath);
         }
 
         @Override

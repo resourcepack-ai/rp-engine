@@ -72,18 +72,18 @@ public final class ItemDefinitions {
             return Optional.empty();
         }
 
-        // A borrowed model is validated for SHAPE here and for existence later,
+        // A copied model is validated for SHAPE here and for existence later,
         // because the id it names may belong to a pack that has not loaded yet.
-        ContentId model = null;
-        Optional<String> declared = body.string("model");
+        ContentId copiedFrom = null;
+        Optional<String> declared = body.string("copy-model");
         if (declared.isPresent()) {
             Optional<ContentId> parsed = ContentId.parse(declared.get());
             if (parsed.isEmpty()) {
                 diagnostics.add(Diagnostic.error(origin, where,
-                        "model: " + declared.get() + " is not a namespace:id."));
+                        "copy-model: " + declared.get() + " is not a namespace:id."));
                 return Optional.empty();
             }
-            model = parsed.get();
+            copiedFrom = parsed.get();
         }
 
         int maxStack = body.integer("stack").orElse(0);
@@ -99,8 +99,8 @@ public final class ItemDefinitions {
                 body.string("name").orElse(null),
                 body.strings("lore"),
                 body.string("texture").orElse(defaultTexture(definition.id())),
-                body.string("geometry").orElse(null),
-                model,
+                body.string("model").orElse(null),
+                copiedFrom,
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
                 body.bool("unbreakable").orElse(Boolean.FALSE)));

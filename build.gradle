@@ -11,8 +11,10 @@ group = 'ai.resourcepack'
 // 0.5.0: it is an installable plugin. plugin.yml, an entrypoint, /rpengine.
 // 0.6.0: custom items. Definitions, generated model assets, give and lookup.
 // 0.7.0: 3D item models. geometry: names a Blockbench export.
-// 0.8.0: furniture. Items you can put down, and take back.
-version = '0.8.0'
+// 0.8.0: models you can put down, and take back.
+// 0.9.0: the word is model everywhere. model: names the file, place: puts it
+//        down, copy-model: wears somebody else's.
+version = '0.9.0'
 
 java {
     toolchain {

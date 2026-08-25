@@ -44,8 +44,8 @@ public final class ItemAssets implements PackContributor {
             if (!bundle.namespaces().contains(item.id().namespace())) {
                 continue;
             }
-            if (item.model().isPresent()) {
-                // Borrowed. The files are already written under the id it
+            if (item.copiedFrom().isPresent()) {
+                // Copied. The files are already written under the id it
                 // points at, and writing them again here would be two packs
                 // fighting over one path.
                 continue;
@@ -65,8 +65,8 @@ public final class ItemAssets implements PackContributor {
         into.add("assets/" + namespace + "/items/" + id.path() + ".json",
                 json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}}"));
 
-        if (item.geometry().isPresent()) {
-            writeGeometry(item, namespace, modelPath, into);
+        if (item.model().isPresent()) {
+            writeModel(item, namespace, modelPath, into);
         } else {
             writeSprite(item, namespace, modelPath, into);
         }
@@ -81,12 +81,13 @@ public final class ItemAssets implements PackContributor {
     }
 
     /** The 3D case: a model file the author exported from Blockbench. */
-    private void writeGeometry(ItemInfo item, String namespace, String modelPath, Contribution into) {
-        String name = item.geometry().orElseThrow();
-        Optional<byte[]> source = into.source(namespace, "assets/geometry/" + name + ".json");
+    private void writeModel(ItemInfo item, String namespace, String modelPath, Contribution into) {
+        String name = item.model().orElseThrow();
+        String sourcePath = "assets/models/" + name + ".json";
+        Optional<byte[]> source = into.source(namespace, sourcePath);
         if (source.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
-                    "No model at assets/geometry/" + name + ".json. Export it from Blockbench "
+                    "No model at " + sourcePath + ". Export it from Blockbench "
                             + "as a Java block/item model and put it there.");
             // Falls back to the sprite, so the item still exists and still
             // stacks. An item that vanishes because its art is missing is a
@@ -97,11 +98,16 @@ public final class ItemAssets implements PackContributor {
         Optional<Geometry.Model> model = Geometry.read(source.get(), namespace);
         if (model.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
-                    "assets/geometry/" + name + ".json is not a model file. Blockbench writes one "
+                    sourcePath + " is not a model file. Blockbench writes one "
                             + "with File > Export > Java Block/Item model.");
             writeSprite(item, namespace, modelPath, into);
             return;
         }
+        // The source was copied in with the rest of assets/. It has been read
+        // and rewritten now, so the original goes rather than shipping beside
+        // the thing built from it. Only what was consumed: a model nobody
+        // referenced stays, because it is probably a shared parent.
+        into.drop("assets/" + namespace + "/models/" + name + ".json");
         into.add(modelPath, model.get().json());
         for (String texture : model.get().textures()) {
             String textureNamespace = texture.substring(0, texture.indexOf(':'));
