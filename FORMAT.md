@@ -187,6 +187,38 @@ The body of a definition is whatever the layer for that kind understands, and
 is not the loader's business. The loader validates the id and the kind, and
 hands the body along untouched.
 
+## Sounds
+
+```yaml
+# sounds/ambient.yml
+chime:
+  file: bells/chime    # assets/sounds/bells/chime.ogg. Defaults to the id.
+  category: ambient    # which volume slider it answers to
+  subtitle: "A chime rings"
+  volume: 1.0
+  pitch: 1.0
+  stream: false        # true for anything long
+```
+
+Play it with `/rp sound mypack:chime`, or from another plugin through the
+`Sounds` API. The id **is** the sound event name, so
+`playSound(loc, "mypack:chime", ...)` works from anywhere without asking us.
+
+**Ogg Vorbis only.** Minecraft plays nothing else, and an mp3 renamed to `.ogg`
+is silence with nothing in game to say why. Missing audio is a build error that
+names the path.
+
+`category` decides which volume slider it obeys: `master`, `music`, `record`,
+`weather`, `block`, `hostile`, `neutral`, `player`, `ambient`, `voice`. Getting
+it wrong means somebody who turned music down still hears you.
+
+**Write a subtitle.** It becomes a language entry automatically, and without
+one your sound does not exist for anybody playing with subtitles instead of
+audio — which is more people than most server owners expect.
+
+`stream: true` for anything long. A file loaded whole keeps its decompressed
+audio in memory for the session.
+
 ## Errors
 
 Two levels, because they have different blast radii:
