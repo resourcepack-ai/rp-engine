@@ -244,6 +244,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
             case "reload":
+                // config.yml too. Reloading the content but not the settings
+                // is the sort of half-reload that has somebody restarting the
+                // server anyway and wondering why the command exists.
+                reloadConfig();
+                defaultBundle = getConfig().getString("default-bundle", "");
                 rebuild(sender);
                 return true;
             case "bundles":
