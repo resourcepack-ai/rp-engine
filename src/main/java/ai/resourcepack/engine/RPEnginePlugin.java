@@ -16,6 +16,9 @@ import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
+import ai.resourcepack.engine.core.font.IconAssets;
+import ai.resourcepack.engine.core.font.IconDefinitions;
+import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.sound.SoundAssets;
 import ai.resourcepack.engine.core.sound.SoundDefinitions;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
@@ -73,6 +76,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ItemsImpl items;
     private ModelPlacementListener placements;
     private final SoundsImpl sounds = new SoundsImpl();
+    private final IconsImpl icons = new IconsImpl();
 
     private PackHost host;
     private PackDelivery delivery;
@@ -100,6 +104,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** What this server holds. The supported way in for another plugin. */
     public ContentRegistry registry() {
         return registry;
+    }
+
+    /** The icons this server holds, and the way to put one into text. */
+    public ai.resourcepack.engine.api.Icons icons() {
+        return icons;
     }
 
     /** The custom sounds this server holds. */
@@ -177,11 +186,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "sounds", parsedSounds.diagnostics());
         sounds.replace(parsedSounds.sounds());
 
+        IconDefinitions.Result parsedIcons = IconDefinitions.parse(loaded);
+        report(to, "icons", parsedIcons.diagnostics());
+        icons.replace(parsedIcons.icons());
+
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
                 .with(new ItemAssets())
                 .with(new SoundAssets())
+                .with(new IconAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 
@@ -415,6 +429,26 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         : "[RPEngine] No sound called " + args[1] + ".");
                 return true;
             }
+            case "icons":
+                if (icons.ids().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No icons loaded.");
+                }
+                for (ContentId id : icons.ids()) {
+                    sender.sendMessage("[RPEngine] " + id + "  "
+                            + icons.character(id).orElse("?") + "  :" + id + ":");
+                }
+                return true;
+            case "say": {
+                // Proof the placeholder works in ordinary text, which is the
+                // whole point of putting the glyphs in the default font.
+                if (args.length < 2) {
+                    sender.sendMessage("[RPEngine] /rpengine say <text with :namespace:id: in it>");
+                    return true;
+                }
+                sender.sendMessage(icons.format(String.join(" ",
+                        java.util.Arrays.copyOfRange(args, 1, args.length))));
+                return true;
+            }
             case "sounds":
                 if (sounds.ids().isEmpty()) {
                     sender.sendMessage("[RPEngine] No sounds loaded.");
@@ -448,7 +482,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
-                sender.sendMessage("[RPEngine] /rpengine sounds | sound <id>");
+                sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
                 return true;
         }
     }
