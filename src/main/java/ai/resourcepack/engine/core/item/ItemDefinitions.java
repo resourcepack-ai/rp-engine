@@ -99,6 +99,7 @@ public final class ItemDefinitions {
                 body.string("name").orElse(null),
                 body.strings("lore"),
                 body.string("texture").orElse(defaultTexture(definition.id())),
+                body.string("geometry").orElse(null),
                 model,
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),

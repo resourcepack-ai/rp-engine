@@ -18,18 +18,21 @@ public final class ItemInfo {
     private final String name;
     private final List<String> lore;
     private final String texture;
+    private final String geometry;
     private final ContentId model;
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
-                     String texture, ContentId model, int maxStack, boolean glow, boolean unbreakable) {
+                     String texture, String geometry, ContentId model, int maxStack,
+                     boolean glow, boolean unbreakable) {
         this.id = id;
         this.material = material;
         this.name = name;
         this.lore = lore;
         this.texture = texture;
+        this.geometry = geometry;
         this.model = model;
         this.maxStack = maxStack;
         this.glow = glow;
@@ -38,7 +41,7 @@ public final class ItemInfo {
 
     /** Engine internal; built by the item loader from a definition body. */
     public static ItemInfo of(ContentId id, String material, String name, List<String> lore,
-                              String texture, ContentId model, int maxStack,
+                              String texture, String geometry, ContentId model, int maxStack,
                               boolean glow, boolean unbreakable) {
         return new ItemInfo(
                 Objects.requireNonNull(id, "id"),
@@ -46,6 +49,7 @@ public final class ItemInfo {
                 name == null ? "" : name,
                 lore == null ? List.of() : List.copyOf(lore),
                 texture == null ? "" : texture,
+                geometry == null ? "" : geometry,
                 model,
                 maxStack,
                 glow,
@@ -78,6 +82,18 @@ public final class ItemInfo {
      */
     public String texture() {
         return texture;
+    }
+
+    /**
+     * The model file this item is shaped by, under the pack's
+     * {@code assets/geometry/}, without the extension.
+     *
+     * <p>Empty means a flat sprite: the texture extruded by
+     * {@code minecraft:item/generated}, which is what a vanilla item is. A 3D
+     * item names a Blockbench export here instead.
+     */
+    public Optional<String> geometry() {
+        return geometry.isEmpty() ? Optional.empty() : Optional.of(geometry);
     }
 
     /**

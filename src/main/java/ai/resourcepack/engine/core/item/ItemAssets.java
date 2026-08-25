@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * Writes the two files an item needs to render, so nobody has to write them by
@@ -54,24 +55,67 @@ public final class ItemAssets implements PackContributor {
         ContentId id = item.id();
         String namespace = id.namespace();
         String modelRef = namespace + ":item/" + id.path();
+        String modelPath = "assets/" + namespace + "/models/item/" + id.path() + ".json";
 
+        // The item definition is the same either way. What differs is what the
+        // model it points at turns out to be.
         into.add("assets/" + namespace + "/items/" + id.path() + ".json",
                 json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}}"));
 
-        String texture = namespace + ":" + item.texture();
-        into.add("assets/" + namespace + "/models/item/" + id.path() + ".json",
-                json("{\"parent\":\"minecraft:item/generated\","
-                        + "\"textures\":{\"layer0\":\"" + texture + "\"}}"));
-
-        // The assets are already in the bundle by the time a contributor runs,
-        // so a texture nobody shipped can be named here rather than discovered
-        // in game as a purple and black square nobody can trace.
-        String texturePath = "assets/" + namespace + "/textures/" + item.texture() + ".png";
-        if (!into.has(texturePath)) {
-            into.warn(namespace + "/items", id.path(),
-                    "No texture at " + texturePath.substring(("assets/" + namespace + "/").length())
-                            + ". The item works but renders as a missing texture.");
+        if (item.geometry().isPresent()) {
+            writeGeometry(item, namespace, modelPath, into);
+        } else {
+            writeSprite(item, namespace, modelPath, into);
         }
+    }
+
+    /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */
+    private void writeSprite(ItemInfo item, String namespace, String modelPath, Contribution into) {
+        String texture = namespace + ":" + item.texture();
+        into.add(modelPath, json("{\"parent\":\"minecraft:item/generated\","
+                + "\"textures\":{\"layer0\":\"" + texture + "\"}}"));
+        requireTexture(item, namespace, "assets/" + namespace + "/textures/" + item.texture() + ".png", into);
+    }
+
+    /** The 3D case: a model file the author exported from Blockbench. */
+    private void writeGeometry(ItemInfo item, String namespace, String modelPath, Contribution into) {
+        String name = item.geometry().orElseThrow();
+        Optional<byte[]> source = into.source(namespace, "assets/geometry/" + name + ".json");
+        if (source.isEmpty()) {
+            into.error(namespace + "/items", item.id().path(),
+                    "No model at assets/geometry/" + name + ".json. Export it from Blockbench "
+                            + "as a Java block/item model and put it there.");
+            // Falls back to the sprite, so the item still exists and still
+            // stacks. An item that vanishes because its art is missing is a
+            // much worse failure than one that renders wrong.
+            writeSprite(item, namespace, modelPath, into);
+            return;
+        }
+        Optional<Geometry.Model> model = Geometry.read(source.get(), namespace);
+        if (model.isEmpty()) {
+            into.error(namespace + "/items", item.id().path(),
+                    "assets/geometry/" + name + ".json is not a model file. Blockbench writes one "
+                            + "with File > Export > Java Block/Item model.");
+            writeSprite(item, namespace, modelPath, into);
+            return;
+        }
+        into.add(modelPath, model.get().json());
+        for (String texture : model.get().textures()) {
+            requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
+        }
+    }
+
+    /**
+     * The assets are already in the bundle by the time a contributor runs, so a
+     * texture nobody shipped can be named here rather than discovered in game
+     * as a purple and black square nobody can trace back to a file.
+     */
+    private void requireTexture(ItemInfo item, String namespace, String texturePath, Contribution into) {
+        if (into.has(texturePath)) {
+            return;
+        }
+        into.warn(namespace + "/items", item.id().path(),
+                "No texture at " + texturePath + ". The item works but renders as a missing texture.");
     }
 
     private static byte[] json(String text) {
