@@ -262,6 +262,48 @@ different picture after the next reload. Stable codepoints would need a file
 mapping id to number that must never be lost or reordered, which is exactly the
 problem the item scheme was designed to delete.
 
+## Screens and HUDs
+
+A custom GUI and a HUD overlay are the same trick as an icon, scaled up: the
+picture is one enormous glyph, drawn into text the game already renders, with
+negative space in front to slide it into place.
+
+```yaml
+# screens/menus.yml
+shop:
+  file: shop           # assets/textures/gui/shop.png
+  container: chest_9x6 # which real container it opens as
+  height: 256          # the picture's pixel height (256 is the maximum)
+  ascent: 13           # how far above the text baseline
+  offset: 128          # how far left, usually half the image width
+```
+
+```yaml
+# huds/overlays.yml
+mana:
+  file: mana
+  slot: action_bar     # action_bar | boss_bar
+  height: 64
+  ascent: 32
+  offset: 0
+```
+
+`/rp screen mypack:shop` and `/rp hud mypack:mana` open and draw them.
+
+**A GUI is a real container wearing a picture.** The rows and the slots are
+vanilla's; only the backdrop is yours, so `container:` has to name one the game
+actually has. Anything else is refused at load with the list in the message,
+rather than becoming a command that silently does nothing.
+
+**Icons, screens and HUDs share one number line.** They are one mechanism with
+three names, so allocating per kind would hand the same codepoint to an icon
+and a screen — and that failure is a chat message drawing a full-screen GUI
+across somebody's view.
+
+The `offset:` is negative space, built from powers of two, so any shift is at
+most nine characters rather than one per pixel. Without it a backdrop starts
+where the title text starts, which is not where the window is.
+
 ## Errors
 
 Two levels, because they have different blast radii:

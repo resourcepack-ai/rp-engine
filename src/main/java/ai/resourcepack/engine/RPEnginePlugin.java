@@ -16,7 +16,9 @@ import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
-import ai.resourcepack.engine.core.font.IconAssets;
+import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.font.OverlayDefinitions;
+import ai.resourcepack.engine.core.font.Overlays;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.sound.SoundAssets;
@@ -77,6 +79,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelPlacementListener placements;
     private final SoundsImpl sounds = new SoundsImpl();
     private final IconsImpl icons = new IconsImpl();
+    private final Overlays overlays = new Overlays();
 
     private PackHost host;
     private PackDelivery delivery;
@@ -190,12 +193,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
 
+        OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
+        OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
+        report(to, "screens", parsedScreens.diagnostics());
+        report(to, "huds", parsedHuds.diagnostics());
+        overlays.replace(parsedScreens.overlays(), parsedHuds.overlays());
+
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
                 .with(new ItemAssets())
                 .with(new SoundAssets())
-                .with(new IconAssets())
+                .with(new FontAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 
@@ -317,6 +326,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        overlays.clear(event.getPlayer());
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
@@ -449,6 +459,48 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         java.util.Arrays.copyOfRange(args, 1, args.length))));
                 return true;
             }
+            case "screen": {
+                if (args.length < 2 || !(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine screen <id>, as a player.");
+                    return true;
+                }
+                boolean opened = ContentId.parse(args[1])
+                        .flatMap(id -> overlays.open((Player) sender, id)).isPresent();
+                if (!opened) {
+                    sender.sendMessage("[RPEngine] No screen called " + args[1] + ".");
+                }
+                return true;
+            }
+            case "hud": {
+                if (args.length < 2 || !(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine hud <id|clear>, as a player.");
+                    return true;
+                }
+                if (args[1].equalsIgnoreCase("clear")) {
+                    overlays.clear((Player) sender);
+                    sender.sendMessage("[RPEngine] Cleared.");
+                    return true;
+                }
+                boolean drawn = ContentId.parse(args[1])
+                        .map(id -> overlays.draw((Player) sender, id)).orElse(Boolean.FALSE);
+                if (!drawn) {
+                    sender.sendMessage("[RPEngine] No HUD called " + args[1] + ".");
+                }
+                return true;
+            }
+            case "screens":
+                for (ContentId id : overlays.screenIds()) {
+                    sender.sendMessage("[RPEngine] " + id + "  "
+                            + overlays.screen(id).map(o -> o.container()).orElse("?"));
+                }
+                for (ContentId id : overlays.hudIds()) {
+                    sender.sendMessage("[RPEngine] " + id + "  "
+                            + overlays.hud(id).map(o -> o.slot().name().toLowerCase(Locale.ROOT)).orElse("?"));
+                }
+                if (overlays.screenIds().isEmpty() && overlays.hudIds().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No screens or HUDs loaded.");
+                }
+                return true;
             case "sounds":
                 if (sounds.ids().isEmpty()) {
                     sender.sendMessage("[RPEngine] No sounds loaded.");
@@ -483,6 +535,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
+                sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
     }
