@@ -25,6 +25,13 @@ pack:
   # Shown in the client's resource pack list, with the bundle name appended.
   description: "RP Engine"
 
+# Live-testing a pack from ResourcePack AI Studio.
+sync:
+  # Run /rp link <code> with a code from the panel, then push. The pushed pack
+  # is stacked on top of whatever this server's own content gave you, so a pack
+  # under test is tried against the server it will actually run on.
+  url: "wss://sync.resourcepack.ai/connect"
+
 # Which bundle a player is given on join. Leave empty to send nothing and
 # drive it yourself.
 default-bundle: "main"

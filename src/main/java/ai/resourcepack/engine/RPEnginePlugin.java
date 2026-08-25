@@ -27,6 +27,8 @@ import ai.resourcepack.engine.core.sound.SoundDefinitions;
 import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
+import ai.resourcepack.engine.core.sync.StudioPush;
+import ai.resourcepack.engine.core.sync.SyncClient;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -81,6 +83,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ItemsImpl items;
     private ModelPlacementListener placements;
     private Recipes recipes;
+    private SyncClient sync;
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
@@ -100,6 +103,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
+        sync = new SyncClient(
+                getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
+                getLogger(), this::onStudioPush, this::onStudioGive);
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -110,6 +116,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // them behind would outlast the plugin that made them.
         if (recipes != null) {
             recipes.clear();
+        }
+        if (sync != null) {
+            sync.close();
         }
         if (host != null) {
             host.stop();
@@ -283,6 +292,73 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return measured;
     }
 
+    /**
+     * A pack studio pushed: fetch it, serve it, put it on whoever claimed the
+     * code.
+     *
+     * <p>Arrives on the websocket thread, so everything that touches a player
+     * hops back to the main thread. The download deliberately does not: a
+     * pack is megabytes and blocking the server on it would be a lag spike
+     * every time somebody clicks push in the panel.
+     */
+    private void onStudioPush(String code, String payload) {
+        String claimant = sync.claimant(code);
+        if (claimant == null) {
+            sync.failed(code, "unknown-code");
+            return;
+        }
+        Optional<BuiltPack> pack = StudioPush.fetch(payload,
+                getDataFolder().toPath().resolve("output"));
+        if (pack.isEmpty()) {
+            sync.failed(code, StudioPush.reason);
+            return;
+        }
+        getServer().getScheduler().runTask(this, () -> {
+            Player player = getServer().getPlayerExact(claimant);
+            if (player == null) {
+                sync.failed(code, "player-offline");
+                return;
+            }
+            host.register(pack.get());
+            // Stacked ON TOP of whatever the server's own content gave them,
+            // rather than replacing it, so a pack under test is tried against
+            // the server it will actually run on.
+            List<BuiltPack> stack = new ArrayList<>(desiredFor(player));
+            stack.removeIf(held -> held.bundle().equals(StudioPush.BUNDLE));
+            stack.add(pack.get());
+            delivery.apply(player, stack);
+            sync.applied(code);
+            player.sendMessage("[RPEngine] Studio pushed a pack.");
+        });
+    }
+
+    /** A give-command studio asked for, run as the console against that player. */
+    private void onStudioGive(String code, String command) {
+        String claimant = sync.claimant(code);
+        if (claimant == null) {
+            sync.giveFailed(code, "unknown-code");
+            return;
+        }
+        getServer().getScheduler().runTask(this, () -> {
+            Player player = getServer().getPlayerExact(claimant);
+            if (player == null) {
+                sync.giveFailed(code, "player-offline");
+                return;
+            }
+            try {
+                // @p in the command resolves against the player's own position
+                // rather than the console's, which is nowhere.
+                String resolved = command.startsWith("/") ? command.substring(1) : command;
+                getServer().dispatchCommand(getServer().getConsoleSender(),
+                        "execute at " + player.getName() + " run " + resolved);
+                sync.given(code);
+            } catch (RuntimeException e) {
+                getLogger().warning("Studio give failed: " + e.getMessage());
+                sync.giveFailed(code, "exception");
+            }
+        });
+    }
+
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {
         for (Diagnostic diagnostic : diagnostics) {
             // The logger adds its own [RPEngine], so this one does not.
@@ -352,6 +428,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+        // Studio stops offering to push to somebody who is not here.
+        if (sync != null) {
+            sync.forget(event.getPlayer().getName());
+        }
     }
 
     /**
@@ -363,7 +443,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "link", "unlink", "push");
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -574,6 +654,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     sender.sendMessage("[RPEngine] No screens or HUDs loaded.");
                 }
                 return true;
+            case "link": {
+                if (args.length < 2 || !(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine link <code>, as the player who will hold the pack.");
+                    return true;
+                }
+                Player player = (Player) sender;
+                sender.sendMessage(sync.link(args[1], player.getName())
+                        ? "[RPEngine] Claimed " + args[1] + ". Push from studio and it lands here."
+                        : "[RPEngine] Could not reach studio. Check sync.url in config.yml.");
+                return true;
+            }
+            case "unlink":
+                if (args.length < 2) {
+                    sender.sendMessage("[RPEngine] /rpengine unlink <code>");
+                    return true;
+                }
+                sync.unlink(args[1]);
+                sender.sendMessage("[RPEngine] Dropped " + args[1] + ".");
+                return true;
             case "recipes":
                 if (recipes.size() == 0) {
                     sender.sendMessage("[RPEngine] No recipes registered.");
@@ -616,7 +715,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
-                sender.sendMessage("[RPEngine] /rpengine recipes");
+                sender.sendMessage("[RPEngine] /rpengine recipes | link <code> | unlink <code>");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
