@@ -34,8 +34,11 @@ import java.util.Optional;
  */
 public final class ItemAssets implements PackContributor {
 
+    private Bundle bundle;
+
     @Override
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
+        this.bundle = bundle;
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
@@ -101,6 +104,14 @@ public final class ItemAssets implements PackContributor {
         }
         into.add(modelPath, model.get().json());
         for (String texture : model.get().textures()) {
+            String textureNamespace = texture.substring(0, texture.indexOf(':'));
+            // Only textures a pack in this bundle is supposed to ship. A model
+            // that names minecraft:block/black_wool is asking for a vanilla
+            // texture the game already has, and warning about those trains
+            // everybody to ignore the warning that matters.
+            if (bundle != null && !bundle.namespaces().contains(textureNamespace)) {
+                continue;
+            }
             requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
         }
     }
