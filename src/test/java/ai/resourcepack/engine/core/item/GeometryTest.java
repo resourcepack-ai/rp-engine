@@ -81,10 +81,10 @@ class GeometryTest {
         return entries;
     }
 
-    private void aSwordWithGeometry() throws IOException {
+    private void aSwordWithAModel() throws IOException {
         write("mypack/pack.yml", "{}\n");
-        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  geometry: sword\n");
-        write("mypack/assets/geometry/sword.json", EXPORT);
+        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  model: sword\n");
+        write("mypack/assets/models/sword.json", EXPORT);
         write("mypack/assets/textures/item/sword.png", "PNG");
     }
 
@@ -153,8 +153,8 @@ class GeometryTest {
     // ---- building ------------------------------------------------------
 
     @Test
-    void theGeometryBecomesTheItemsModel() throws IOException {
-        aSwordWithGeometry();
+    void theModelFileBecomesTheItemsModel() throws IOException {
+        aSwordWithAModel();
 
         Map<String, String> entries = zip(build());
 
@@ -168,19 +168,35 @@ class GeometryTest {
     }
 
     @Test
-    void theSourceFileNeverReachesTheClient() throws IOException {
-        aSwordWithGeometry();
+    void aModelAnItemUsedDoesNotAlsoShipAsSource() throws IOException {
+        aSwordWithAModel();
 
         Map<String, String> entries = zip(build());
 
         // Every player would otherwise download both the source and the thing
         // built from it.
-        assertFalse(entries.containsKey("assets/mypack/geometry/sword.json"));
+        assertFalse(entries.containsKey("assets/mypack/models/sword.json"));
         assertTrue(entries.containsKey("assets/mypack/models/item/sword.json"));
     }
 
     @Test
-    void anItemWithNoGeometryIsStillAFlatSprite() throws IOException {
+    void aModelNothingReferencesIsLeftWhereItWasPut() throws IOException {
+        aSwordWithAModel();
+        write("mypack/assets/models/shared_parent.json", "{\"textures\":{\"0\":\"item/sword\"}}");
+
+        Map<String, String> entries = zip(build());
+
+        // The reason source removal is per-file rather than a blanket "never
+        // ship assets/models/": a parent model that several models inherit
+        // from is referenced from inside a model file, which nothing here
+        // reads. Dropping it would break every model that inherits it, and the
+        // failure would look like the child model being wrong.
+        assertTrue(entries.containsKey("assets/mypack/models/shared_parent.json"));
+        assertFalse(entries.containsKey("assets/mypack/models/sword.json"));
+    }
+
+    @Test
+    void anItemWithNoModelIsStillAFlatSprite() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\n");
         write("mypack/assets/textures/item/ruby.png", "PNG");
@@ -190,9 +206,9 @@ class GeometryTest {
     }
 
     @Test
-    void aMissingGeometryFileFallsBackToTheSprite() throws IOException {
+    void aMissingModelFileFallsBackToTheSprite() throws IOException {
         write("mypack/pack.yml", "{}\n");
-        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  geometry: nope\n");
+        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  model: nope\n");
         write("mypack/assets/textures/item/sword.png", "PNG");
 
         BuildReport report = build();
@@ -203,14 +219,14 @@ class GeometryTest {
         assertTrue(zip(report).get("assets/mypack/models/item/sword.json")
                 .contains("minecraft:item/generated"));
         assertTrue(report.hasErrors());
-        assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).get(0).message().contains("assets/geometry/nope.json"));
+        assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).get(0).message().contains("assets/models/nope.json"));
     }
 
     @Test
-    void geometryThatIsNotAModelSaysHowToExportOne() throws IOException {
+    void aFileThatIsNotAModelSaysHowToExportOne() throws IOException {
         write("mypack/pack.yml", "{}\n");
-        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  geometry: sword\n");
-        write("mypack/assets/geometry/sword.json", "this is not json");
+        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  model: sword\n");
+        write("mypack/assets/models/sword.json", "this is not json");
         write("mypack/assets/textures/item/sword.png", "PNG");
 
         BuildReport report = build();
@@ -221,8 +237,8 @@ class GeometryTest {
     @Test
     void aTextureTheModelNamesAndNobodyShippedIsReported() throws IOException {
         write("mypack/pack.yml", "{}\n");
-        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  geometry: sword\n");
-        write("mypack/assets/geometry/sword.json", EXPORT);
+        write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  model: sword\n");
+        write("mypack/assets/models/sword.json", EXPORT);
 
         BuildReport report = build();
 
@@ -233,8 +249,8 @@ class GeometryTest {
     }
 
     @Test
-    void aGeometryBuildIsReproducible() throws IOException {
-        aSwordWithGeometry();
+    void aModelBuildIsReproducible() throws IOException {
+        aSwordWithAModel();
 
         assertEquals(build().pack("main").orElseThrow().sha1(),
                 build().pack("main").orElseThrow().sha1());

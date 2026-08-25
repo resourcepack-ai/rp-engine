@@ -202,12 +202,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         java.util.Map<ai.resourcepack.engine.api.ContentId,
                 ai.resourcepack.engine.core.item.Geometry.Bounds> measured = new java.util.HashMap<>();
         for (ai.resourcepack.engine.api.ItemInfo item : parsed.items().values()) {
-            String name = item.geometry().orElse(null);
+            String name = item.model().orElse(null);
             if (name == null) {
                 continue;
             }
             Path file = content.resolve(item.id().namespace())
-                    .resolve("assets").resolve("geometry").resolve(name + ".json");
+                    .resolve("assets").resolve("models").resolve(name + ".json");
             if (!Files.isRegularFile(file)) {
                 continue;
             }
