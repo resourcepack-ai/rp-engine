@@ -83,12 +83,20 @@ public final class ItemAssets implements PackContributor {
     /** The 3D case: a model file the author exported from Blockbench. */
     private void writeModel(ItemInfo item, String namespace, String modelPath, Contribution into) {
         String name = item.model().orElseThrow();
+        // The Blockbench project first. A .bbmodel is what Blockbench SAVES
+        // and a Java model is what it has to be told to EXPORT, so somebody who
+        // forgets the export step gets a build error rather than a model, every
+        // time, for ever. Reading the save file removes the step.
+        if (writeProject(item, namespace, name, modelPath, into)) {
+            return;
+        }
         String sourcePath = "assets/models/" + name + ".json";
         Optional<byte[]> source = into.source(namespace, sourcePath);
         if (source.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
-                    "No model at " + sourcePath + ". Export it from Blockbench "
-                            + "as a Java block/item model and put it there.");
+                    "No model at assets/models/" + name + ".bbmodel or " + sourcePath
+                            + ". Save the Blockbench project into assets/models/ "
+                            + "and it is read directly.");
             // Falls back to the sprite, so the item still exists and still
             // stacks. An item that vanishes because its art is missing is a
             // much worse failure than one that renders wrong.
@@ -120,6 +128,41 @@ public final class ItemAssets implements PackContributor {
             }
             requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
         }
+    }
+
+    /**
+     * A Blockbench project, converted where it stands.
+     *
+     * @return whether one was there
+     */
+    private boolean writeProject(ItemInfo item, String namespace, String name,
+                                 String modelPath, Contribution into) {
+        String sourcePath = "assets/models/" + name + ".bbmodel";
+        Optional<byte[]> source = into.source(namespace, sourcePath);
+        if (source.isEmpty()) {
+            return false;
+        }
+        Optional<BbModel.Converted> converted = BbModel.convert(source.get(), namespace, name);
+        if (converted.isEmpty()) {
+            into.error(namespace + "/items", item.id().path(),
+                    sourcePath + " has no cube geometry in it. A mesh cannot become a "
+                            + "Minecraft model; convert it to cubes in Blockbench first.");
+            return false;
+        }
+
+        // The art rides inside the project file, which is the other half of why
+        // reading it directly is worth doing: a .bbmodel is a whole model,
+        // textures included, in one file somebody can hand to somebody else.
+        for (java.util.Map.Entry<String, byte[]> texture : converted.get().textures().entrySet()) {
+            into.add("assets/" + namespace + "/textures/item/" + texture.getKey() + ".png",
+                    texture.getValue());
+        }
+        // Consumed, so it goes rather than shipping beside what was built from
+        // it. A project file is often the largest thing in a pack, since the
+        // textures are inside it twice over once they are extracted.
+        into.drop("assets/" + namespace + "/models/" + name + ".bbmodel");
+        into.add(modelPath, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
+        return true;
     }
 
     /**
