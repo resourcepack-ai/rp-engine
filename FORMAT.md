@@ -277,11 +277,21 @@ shop:
   # only for art that is not laid out the usual way.
 ```
 
-**Draw your sheet 256×256 with the window art centred on it**, which is what
-studio produces and what the placement assumes. Given that, where the backdrop
-goes is arithmetic rather than taste, and the engine does it: a six-row chest
-window is 176×222, so the art is inset 40 across and 17 down, giving an ascent
-of 30 and a shift of 48.
+**Draw your sheet 256×256 and put the art where you want it on screen.** The
+build measures the opaque part of the image and places the backdrop so it lands
+exactly there — you do not have to state a size, an ascent or an offset, and you
+do not have to match a container's proportions. A short panel with no
+player-inventory section works as well as a full six-row window.
+
+`container:` therefore chooses how many **slots** the screen has, not where the
+picture sits. The two are independent.
+
+**The word "Inventory" disappears** from every container screen while a bundle
+holds any custom GUI. The client draws that label itself and draws it *after*
+the title, so a backdrop cannot cover it, and the open-screen packet carries
+nothing that would move it. Blanking `container.inventory` in a language file is
+the only lever, and it is global: the player's own inventory loses the word too.
+That is a property of the key rather than a choice.
 
 ```yaml
 # huds/overlays.yml

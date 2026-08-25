@@ -44,17 +44,29 @@ public final class OverlayDefinitions {
     private OverlayDefinitions() {
     }
 
-    /** Everything of kind SCREEN, parsed. */
+    /** Everything of kind SCREEN, placed from its container's geometry. */
     public static Result screens(LoadReport loaded) {
-        return parse(loaded, ContentKind.SCREEN);
+        return parse(loaded, ContentKind.SCREEN, Map.of());
+    }
+
+    /**
+     * Everything of kind SCREEN, placed from where the art actually sits.
+     *
+     * @param insets {@code id -> {left, top}} of the opaque part of each
+     *               sheet, from {@link GuiSheet}. Measured beats declared and
+     *               both beat guessed: real art is often not a vanilla window
+     *               of any size, and then no container geometry places it.
+     */
+    public static Result screens(LoadReport loaded, Map<ContentId, int[]> insets) {
+        return parse(loaded, ContentKind.SCREEN, insets);
     }
 
     /** Everything of kind HUD, parsed. */
     public static Result huds(LoadReport loaded) {
-        return parse(loaded, ContentKind.HUD);
+        return parse(loaded, ContentKind.HUD, Map.of());
     }
 
-    private static Result parse(LoadReport loaded, ContentKind kind) {
+    private static Result parse(LoadReport loaded, ContentKind kind, Map<ContentId, int[]> insets) {
         Map<ContentId, OverlayInfo> overlays = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
@@ -69,14 +81,16 @@ public final class OverlayDefinitions {
                                 + "screens and HUDs together."));
                 continue;
             }
-            parseOne(definition, kind, codepoint, diagnostics)
+            parseOne(definition, kind, codepoint,
+                    insets == null ? null : insets.get(definition.id()), diagnostics)
                     .ifPresent(overlay -> overlays.put(overlay.id(), overlay));
         }
         return new Result(Map.copyOf(overlays), List.copyOf(diagnostics));
     }
 
     private static Optional<OverlayInfo> parseOne(ContentDefinition definition, ContentKind kind,
-                                                  int codepoint, List<Diagnostic> diagnostics) {
+                                                  int codepoint, int[] inset,
+                                                  List<Diagnostic> diagnostics) {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
@@ -114,12 +128,27 @@ public final class OverlayDefinitions {
         final String screenContainer = container;
         int height = body.integer("height").orElse(
                 kind == ContentKind.SCREEN ? GuiWindows.SHEET_SIZE : 64);
-        int ascent = body.integer("ascent").orElseGet(() -> kind == ContentKind.SCREEN
-                ? GuiWindows.ascentFor(screenContainer).orElse(30)
-                : 32);
-        int offset = body.integer("offset").orElseGet(() -> kind == ContentKind.SCREEN
-                ? GuiWindows.offsetFor(screenContainer).orElse(48)
-                : 0);
+        // Measured beats declared-by-container beats a default. Where the art
+        // sits on the sheet IS the inset the arithmetic wants, and a sheet
+        // holding something that is not a vanilla window of any size — a short
+        // panel with no player inventory, say — has no container geometry that
+        // would place it.
+        int ascent = body.integer("ascent").orElseGet(() -> {
+            if (kind != ContentKind.SCREEN) {
+                return 32;
+            }
+            return inset != null
+                    ? GuiWindows.ascentForInset(inset[1])
+                    : GuiWindows.ascentFor(screenContainer).orElse(30);
+        });
+        int offset = body.integer("offset").orElseGet(() -> {
+            if (kind != ContentKind.SCREEN) {
+                return 0;
+            }
+            return inset != null
+                    ? GuiWindows.offsetForInset(inset[0])
+                    : GuiWindows.offsetFor(screenContainer).orElse(48);
+        });
 
         if (height < 1 || height > 256) {
             diagnostics.add(Diagnostic.warning(origin, where,
