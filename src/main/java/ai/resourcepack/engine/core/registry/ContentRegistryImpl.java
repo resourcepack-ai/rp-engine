@@ -56,6 +56,23 @@ public final class ContentRegistryImpl implements ContentRegistry, ContentRegist
         return ClaimResult.claimed(fresh);
     }
 
+    /**
+     * Drops everything, as a reload does before reading the folder again.
+     *
+     * <p>Releasing each namespace through its handle would be the same thing
+     * with more ways to go wrong, and the host holding every handle purely so
+     * it could release them is bookkeeping nobody would keep correct. Every
+     * outstanding handle goes inactive, so a loader still mid-flight cannot
+     * define into the registry it was reloaded out of.
+     */
+    public void clear() {
+        for (Handle handle : namespaces.values()) {
+            handle.active = false;
+        }
+        namespaces.clear();
+        entries.clear();
+    }
+
     @Override
     public Set<String> namespaces() {
         return Set.copyOf(namespaces.keySet());
