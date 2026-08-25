@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.event.ModelBreakEvent;
+import ai.resourcepack.engine.api.event.ModelInteractEvent;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -213,6 +214,32 @@ public final class ModelPlacementListener implements Listener {
         return one;
     }
 
+    @EventHandler(ignoreCancelled = true)
+    public void onRightClick(org.bukkit.event.player.PlayerInteractAtEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND || !(event.getRightClicked() instanceof Interaction)) {
+            return;
+        }
+        Interaction hitbox = (Interaction) event.getRightClicked();
+        Optional<ContentId> id = idOf(hitbox);
+        if (id.isEmpty()) {
+            // Somebody else's Interaction entity. Not ours to speak for.
+            return;
+        }
+        // Announced and nothing more. What a click on a chair MEANS is a
+        // decision about somebody's server, and an engine that guessed would
+        // be wrong for every server that wanted something else.
+        Bukkit.getPluginManager().callEvent(
+                new ModelInteractEvent(event.getPlayer(), id.get(), hitbox));
+    }
+
+    /** The model standing as {@code hitbox}, or empty if that is not one of ours. */
+    public Optional<ContentId> idOf(Interaction hitbox) {
+        if (hitbox == null) {
+            return Optional.empty();
+        }
+        return ContentId.parse(hitbox.getPersistentDataContainer().get(idKey, PersistentDataType.STRING));
+    }
+
     // ---- breaking ------------------------------------------------------
 
     @EventHandler(ignoreCancelled = true)
@@ -221,8 +248,7 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
         Interaction hitbox = (Interaction) event.getEntity();
-        String raw = hitbox.getPersistentDataContainer().get(idKey, PersistentDataType.STRING);
-        Optional<ContentId> id = ContentId.parse(raw);
+        Optional<ContentId> id = idOf(hitbox);
         if (id.isEmpty()) {
             // Somebody else's Interaction entity. Not ours to remove.
             return;
@@ -277,6 +303,41 @@ public final class ModelPlacementListener implements Listener {
     private ContentId modelItem(ContentId id) {
         ModelInfo info = model.get(id);
         return info == null ? id : info.item();
+    }
+
+    /**
+     * Every model placed within {@code radius} blocks of {@code centre}.
+     *
+     * <p>There is no index of placed models and deliberately never will be:
+     * they are chunk-saved entities, so the world IS the index and cannot
+     * drift out of step with itself. The cost is that finding them means
+     * asking the world, which is why this takes a radius rather than
+     * pretending a whole-server list is cheap.
+     */
+    public java.util.List<Interaction> near(Location centre, double radius) {
+        java.util.List<Interaction> found = new java.util.ArrayList<>();
+        if (centre == null || centre.getWorld() == null) {
+            return found;
+        }
+        for (Entity entity : centre.getWorld().getNearbyEntities(centre, radius, radius, radius)) {
+            if (entity instanceof Interaction && idOf((Interaction) entity).isPresent()) {
+                found.add((Interaction) entity);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Whether a placed model is one the loaded content still knows about.
+     *
+     * <p>Deleting a content pack does not delete what was placed from it, and
+     * should not: reinstalling the pack brings somebody's build back rather
+     * than leaving a hole in it. But it does leave models standing that
+     * nothing can explain, and being able to ask is the difference between a
+     * mystery and a decision.
+     */
+    public boolean isOrphan(Interaction hitbox) {
+        return idOf(hitbox).filter(model::containsKey).isEmpty();
     }
 
     /** The hitbox of the piece standing in {@code block}, or null. */
