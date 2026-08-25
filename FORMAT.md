@@ -56,9 +56,20 @@ alphabetically wins and both are named in a warning. Arbitrary, but the same on
 every machine, which is the property that matters.
 
 **Models live in `assets/models/`.** An item names one with `model: <name>`,
-for `assets/models/<name>.json`. Export it from Blockbench with **File >
-Export > Java Block/Item model**. With no `model:` an item is a flat sprite,
-which is what a vanilla item is.
+and either form works:
+
+- `assets/models/<name>.bbmodel` — the Blockbench **project**, saved straight
+  out of the editor. Preferred, and the one to use: its textures are inside it,
+  so a model is one file you can hand to somebody.
+- `assets/models/<name>.json` — a Java model **exported** from Blockbench
+  (File > Export > Java Block/Item model), with its PNGs shipped beside it.
+
+With no `model:` an item is a flat sprite, which is what a vanilla item is.
+
+What a `.bbmodel` loses on the way in, because the format cannot express it:
+meshes (convert them to cubes first), and rotations beyond one axis at one of
+-45, -22.5, 0, 22.5, 45 degrees. Animations are carried through untouched;
+nothing plays them yet.
 
 Bare texture paths inside it (`item/sword`) are rewritten into your namespace;
 one that already carries a namespace (`minecraft:item/stick`) is left exactly

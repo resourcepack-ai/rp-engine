@@ -24,7 +24,8 @@ group = 'ai.resourcepack'
 // 0.14.0: the Inventory label is blanked while a bundle holds a screen.
 // 0.14.1: placement comes from the window region, never from the ink.
 // 0.15.0: every command completes every argument.
-version = '0.15.0'
+// 0.16.0: a .bbmodel can be used directly, no export step.
+version = '0.16.0'
 
 java {
     toolchain {
