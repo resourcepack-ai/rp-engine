@@ -14,8 +14,8 @@ import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
-import ai.resourcepack.engine.core.furniture.FurnitureDefinitions;
-import ai.resourcepack.engine.core.furniture.FurnitureListener;
+import ai.resourcepack.engine.core.model.ModelDefinitions;
+import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -68,7 +68,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
-    private FurnitureListener furniture;
+    private ModelPlacementListener model;
 
     private PackHost host;
     private PackDelivery delivery;
@@ -79,9 +79,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         saveDefaultConfig();
         items = new ItemsImpl(this);
-        furniture = new FurnitureListener(this, items);
+        model = new ModelPlacementListener(this, items);
         getServer().getPluginManager().registerEvents(this, this);
-        getServer().getPluginManager().registerEvents(furniture, this);
+        getServer().getPluginManager().registerEvents(model, this);
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -159,10 +159,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "items", ItemDefinitions.checkGivable(parsedItems));
         items.replace(parsedItems.items());
 
-        FurnitureDefinitions.Result parsedFurniture =
-                FurnitureDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
-        report(to, "furniture", parsedFurniture.diagnostics());
-        furniture.replace(parsedFurniture.furniture());
+        ModelDefinitions.Result parsedModels =
+                ModelDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
+        report(to, "model", parsedModels.diagnostics());
+        model.replace(parsedModels.model());
 
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
@@ -189,12 +189,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
-     * Measures every item that has a model, so furniture can default its
+     * Measures every item that has a model, so placed model can default its
      * hitbox to what you can actually see.
      *
      * <p>Reads the geometry a second time, which the builder also does. Worth
      * it: threading measurements out of the build would put the pack builder
-     * in the business of telling the furniture layer things, and these files
+     * in the business of telling the placed model layer things, and these files
      * are small and read once per reload.
      */
     private java.util.Map<ai.resourcepack.engine.api.ContentId, ai.resourcepack.engine.core.item.Geometry.Bounds>

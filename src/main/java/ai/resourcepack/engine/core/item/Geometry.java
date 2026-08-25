@@ -169,7 +169,7 @@ public final class Geometry {
      * <p>Minecraft's model space is 16 units to a block and runs from -16 to
      * 32, so a model may legally be three blocks across and three tall. A
      * character model built to the top of that space is two blocks of height
-     * above the ground, which is why furniture cannot assume one.
+     * above the ground, which is why placed model cannot assume one.
      */
     private static Bounds boundsOf(JsonObject root) {
         JsonElement elements = root.get("elements");

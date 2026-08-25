@@ -76,38 +76,47 @@ yields `BLOCK`, and so on. A folder that is not one of them is ignored with a
 warning rather than an error, so a `README/` or a `.git/` in somebody's pack
 does not stop it loading.
 
-There is deliberately **no `furniture/` folder**. See below.
+There is deliberately **no `furniture/` folder**: putting a model down is
+something an item does, not a kind of content. See below.
 
-## Furniture
+## Placing a model
 
-A piece of furniture is an item you can put down, so it is declared on the
-item:
+An item with a model can be put down in the world. Say so on the item:
 
 ```yaml
 chair:
   material: PAPER
   geometry: chair
-  furniture:
+  place:
     facing: cardinal     # cardinal | diagonal | free | fixed
-    width: 1.0           # hitbox, in blocks
-    height: 1.0
     scale: 1.0
     solid: false         # true puts a barrier behind it
+    # width and height are the hitbox, in blocks. Leave them out and they are
+    # measured off the model, which is almost always what you want.
 ```
 
 Not a category of its own, because an id is unique across the whole registry:
-`mypack:chair` cannot be an item and a piece of furniture at once, and needing
-`mypack:chair` plus `mypack:chair_furniture` for one chair is the sort of tax
-that makes a format feel like paperwork. It also means the item and the
-furniture can never disagree about which model to use.
+`mypack:chair` cannot be an item and a placed model at once, and needing
+`mypack:chair` plus `mypack:chair_placed` for one chair is the sort of tax that
+makes a format feel like paperwork. It also means the item and the thing you
+put down can never disagree about which model to use.
 
-Right-clicking a block with that item puts it down. Punching it takes it back.
-It is two entities — a display for what you see, an interaction for what you
-can hit — both tagged in persistent data, so a placed piece is an ordinary
+Right-clicking a block with that item places it. Punching it takes it back. It
+is two entities — a display for what you see, an interaction for what you can
+hit — both tagged in persistent data, so a placed model is an ordinary
 chunk-saved entity and survives a restart with no file of its own.
 
+**It renders at its real size.** 16 model units to the block, no transform
+applied, so a model built to y=32 stands two blocks tall exactly as authored.
+`scale:` multiplies that if you want it bigger.
+
+**The hitbox is measured from the model** unless you state one. Whoever built
+it already decided how big it is, and a hitbox smaller than what you can see
+means most of a statue cannot be punched and the part that can is buried
+inside it.
+
 `solid: false` by default: a display entity has no collision at all, and
-`solid: true` puts an invisible barrier block behind it, removed when the piece
+`solid: true` puts an invisible barrier block behind it, removed when the model
 is broken.
 
 Category folders are walked recursively, so `items/weapons/swords.yml` is

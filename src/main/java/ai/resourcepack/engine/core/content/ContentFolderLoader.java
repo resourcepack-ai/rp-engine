@@ -46,8 +46,8 @@ public final class ContentFolderLoader {
      * Which top-level folder inside a pack yields which kind.
      *
      * <p>Not every {@link ContentKind} has one. FURNITURE deliberately does
-     * not: a piece of furniture is an item you can put down, declared in a
-     * {@code furniture:} block on the item itself, because an id is unique
+     * not: a placed model is an item you can put down, declared in a
+     * {@code placed model:} block on the item itself, because an id is unique
      * across the registry and one chair cannot be two ids without the format
      * feeling like paperwork.
      */

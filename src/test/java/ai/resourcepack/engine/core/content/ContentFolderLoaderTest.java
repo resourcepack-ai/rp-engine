@@ -90,7 +90,7 @@ class ContentFolderLoaderTest {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby: {}\n");
         write("mypack/blocks/a.yml", "ore: {}\n");
-        write("mypack/furniture/a.yml", "chair: {}\n");
+        write("mypack/README/a.yml", "chair: {}\n");
         write("mypack/models/a.yml", "golem: {}\n");
         write("mypack/emotes/a.yml", "wave: {}\n");
         write("mypack/sounds/a.yml", "chime: {}\n");

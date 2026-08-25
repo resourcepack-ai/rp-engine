@@ -19,10 +19,10 @@ public enum ContentKind {
     /** A custom item: a base material plus an {@code item_model}. */
     ITEM,
 
-    /** A placeable custom block. */
+    /** A custom block. */
     BLOCK,
 
-    /** A placeable display-entity prop with a hitbox. */
+    /** A display-entity prop with a hitbox. */
     FURNITURE,
 
     /** A model, animated or still, that can be placed or bound to an entity. */

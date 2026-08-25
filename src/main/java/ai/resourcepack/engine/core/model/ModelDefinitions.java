@@ -1,11 +1,11 @@
-package ai.resourcepack.engine.core.furniture;
+package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.ContentDefinition;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
-import ai.resourcepack.engine.api.FurnitureInfo;
+import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
 
@@ -17,29 +17,29 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Reads furniture out of the item definitions that declare it.
+ * Reads placed model out of the item definitions that declare it.
  *
- * <p><strong>Furniture is a property of an item, not a thing beside one.</strong>
+ * <p><strong>Placed model is a property of an item, not a thing beside one.</strong>
  * An id is unique across the whole registry, so {@code mypack:chair} cannot be
- * an item and a piece of furniture at the same time — and needing
- * {@code mypack:chair} plus {@code mypack:chair_furniture} for one chair is the
+ * an item and a placed model at the same time — and needing
+ * {@code mypack:chair} plus {@code mypack:chair_placed} for one chair is the
  * sort of tax that makes a format feel like paperwork. So an item that can be
- * put down says so, in a {@code furniture:} block of its own definition.
+ * put down says so, in a {@code placed model:} block of its own definition.
  *
- * <p>It also removes a whole failure mode: the item and the furniture cannot
+ * <p>It also removes a whole failure mode: the item and the placed model cannot
  * disagree about which model to use, because there is only one of each.
  *
  * <p>Free of Bukkit entirely, which is the point: everything about what a piece
- * of furniture IS gets decided here and tested, and the listener that spawns
+ * of placed model IS gets decided here and tested, and the listener that spawns
  * entities is left with nothing to be clever about.
  */
-public final class FurnitureDefinitions {
+public final class ModelDefinitions {
 
     /** Beyond this a hitbox is more likely a typo than a statue. */
     private static final float MAX_SIZE = 16f;
     private static final float MIN_SIZE = 0.1f;
 
-    private FurnitureDefinitions() {
+    private ModelDefinitions() {
     }
 
     /** As {@link #parse(LoadReport, Map, Map)} with no measurements available. */
@@ -48,7 +48,7 @@ public final class FurnitureDefinitions {
     }
 
     /**
-     * Every item that declared a {@code furniture:} block, parsed.
+     * Every item that declared a {@code placed model:} block, parsed.
      *
      * @param bounds how big each item's model turned out to be, so a piece
      *               that did not state a hitbox gets one that matches what you
@@ -58,7 +58,7 @@ public final class FurnitureDefinitions {
      */
     public static Result parse(LoadReport loaded, Map<ContentId, ItemInfo> items,
                                Map<ContentId, ai.resourcepack.engine.core.item.Geometry.Bounds> bounds) {
-        Map<ContentId, FurnitureInfo> furniture = new LinkedHashMap<>();
+        Map<ContentId, ModelInfo> model = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
             return new Result(Map.of(), List.of());
@@ -71,29 +71,29 @@ public final class FurnitureDefinitions {
             if (!known.containsKey(definition.id())) {
                 continue;
             }
-            Optional<DefinitionNode> declared = definition.body().node("furniture");
+            Optional<DefinitionNode> declared = definition.body().node("place");
             if (declared.isEmpty()) {
                 continue;
             }
             parseOne(definition, declared.get(),
                     bounds == null ? null : bounds.get(definition.id()), diagnostics)
-                    .ifPresent(one -> furniture.put(one.id(), one));
+                    .ifPresent(one -> model.put(one.id(), one));
         }
-        return new Result(Map.copyOf(furniture), List.copyOf(diagnostics));
+        return new Result(Map.copyOf(model), List.copyOf(diagnostics));
     }
 
-    private static Optional<FurnitureInfo> parseOne(ContentDefinition definition,
+    private static Optional<ModelInfo> parseOne(ContentDefinition definition,
                                                     DefinitionNode body,
                                                     ai.resourcepack.engine.core.item.Geometry.Bounds measured,
                                                     List<Diagnostic> diagnostics) {
         String origin = definition.origin();
         String where = definition.id().path();
 
-        FurnitureInfo.Facing facing = FurnitureInfo.Facing.CARDINAL;
+        ModelInfo.Facing facing = ModelInfo.Facing.CARDINAL;
         Optional<String> declaredFacing = body.string("facing");
         if (declaredFacing.isPresent()) {
             try {
-                facing = FurnitureInfo.Facing.valueOf(declaredFacing.get().trim().toUpperCase(Locale.ROOT));
+                facing = ModelInfo.Facing.valueOf(declaredFacing.get().trim().toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 diagnostics.add(Diagnostic.warning(origin, where,
                         "facing: " + declaredFacing.get() + " is not one of cardinal, diagonal, free, fixed. "
@@ -112,16 +112,16 @@ public final class FurnitureDefinitions {
         float height = size(body, "height", measured == null ? 1f : measured.height(),
                 origin, where, diagnostics);
 
-        // The item IS the furniture, so the two cannot disagree about which
+        // The item IS the model, so the two cannot disagree about which
         // model to use.
-        return Optional.of(FurnitureInfo.of(definition.id(), definition.id(), facing,
+        return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
                 scale, width, height, body.bool("solid").orElse(Boolean.FALSE)));
     }
 
     /**
      * A size, clamped rather than refused.
      *
-     * <p>A hitbox of 0 is furniture nobody can break, which is worse than a
+     * <p>A hitbox of 0 is placed model nobody can break, which is worse than a
      * hitbox that is the wrong size — the piece would be permanent and there
      * would be no way to find out why.
      */
@@ -149,25 +149,25 @@ public final class FurnitureDefinitions {
         return value;
     }
 
-    /** The furniture, and what was wrong with the pieces that are missing. */
+    /** The model, and what was wrong with the pieces that are missing. */
     public static final class Result {
 
-        private final Map<ContentId, FurnitureInfo> furniture;
+        private final Map<ContentId, ModelInfo> model;
         private final List<Diagnostic> diagnostics;
 
-        Result(Map<ContentId, FurnitureInfo> furniture, List<Diagnostic> diagnostics) {
-            this.furniture = furniture;
+        Result(Map<ContentId, ModelInfo> model, List<Diagnostic> diagnostics) {
+            this.model = model;
             this.diagnostics = diagnostics;
         }
 
         /** Every piece that parsed, keyed by id. */
-        public Map<ContentId, FurnitureInfo> furniture() {
-            return furniture;
+        public Map<ContentId, ModelInfo> model() {
+            return model;
         }
 
         /** The piece placed by {@code item}, if any is. */
-        public Optional<FurnitureInfo> byItem(ContentId item) {
-            for (FurnitureInfo one : furniture.values()) {
+        public Optional<ModelInfo> byItem(ContentId item) {
+            for (ModelInfo one : model.values()) {
                 if (one.item().equals(item)) {
                     return Optional.of(one);
                 }

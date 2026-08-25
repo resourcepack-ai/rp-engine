@@ -8,7 +8,7 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.event.player.PlayerEvent;
 
 /**
- * A player is about to put a piece of furniture down. Cancellable.
+ * A player is about to place a model. Cancellable.
  *
  * <p>The engine decides whether a piece can <em>physically</em> go somewhere —
  * the space is air, nothing is already there. Whether it is <em>allowed</em> to
@@ -17,23 +17,23 @@ import org.bukkit.event.player.PlayerEvent;
  * placed at all: every one of them is a decision a server makes, so this asks
  * rather than guesses.
  */
-public final class FurniturePlaceEvent extends PlayerEvent implements Cancellable {
+public final class ModelPlaceEvent extends PlayerEvent implements Cancellable {
 
     private static final HandlerList HANDLERS = new HandlerList();
 
-    private final ContentId furniture;
+    private final ContentId model;
     private final Block block;
     private boolean cancelled;
 
-    public FurniturePlaceEvent(Player player, ContentId furniture, Block block) {
+    public ModelPlaceEvent(Player player, ContentId model, Block block) {
         super(player);
-        this.furniture = furniture;
+        this.model = model;
         this.block = block;
     }
 
     /** Which piece. */
-    public ContentId furniture() {
-        return furniture;
+    public ContentId model() {
+        return model;
     }
 
     /** The block space it would occupy. */
