@@ -101,9 +101,13 @@ class ContentFolderLoaderTest {
         LoadReport report = load();
 
         assertFalse(report.hasErrors());
-        assertEquals(9, report.definitions().size());
+        assertEquals(8, report.definitions().size());
         for (ContentKind kind : ContentKind.values()) {
-            assertEquals(1, report.definitions(kind).size(), () -> "nothing registered for " + kind);
+            // FURNITURE has no folder: it is a block on an item, not a
+            // category of its own. See ContentFolderLoader.CATEGORIES.
+            int expected = kind == ContentKind.FURNITURE ? 0 : 1;
+            assertEquals(expected, report.definitions(kind).size(),
+                    () -> "wrong count for " + kind);
         }
     }
 

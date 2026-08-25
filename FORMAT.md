@@ -16,7 +16,6 @@ plugins/RPEngine/content/
     pack.yml                 <- required
     items/       *.yml
     blocks/      *.yml
-    furniture/   *.yml
     models/      *.yml
     emotes/      *.yml
     sounds/      *.yml
@@ -73,9 +72,43 @@ the first namespace alphabetically that ships one. The rest get a warning
 saying theirs is unused.
 
 **The category folder decides the kind.** `items/` yields `ITEM`, `blocks/`
-yields `BLOCK`, and so on through `ContentKind`. A folder that is not one of
-the nine is ignored with a warning rather than an error, so a `README/` or a
-`.git/` in somebody's pack does not stop it loading.
+yields `BLOCK`, and so on. A folder that is not one of them is ignored with a
+warning rather than an error, so a `README/` or a `.git/` in somebody's pack
+does not stop it loading.
+
+There is deliberately **no `furniture/` folder**. See below.
+
+## Furniture
+
+A piece of furniture is an item you can put down, so it is declared on the
+item:
+
+```yaml
+chair:
+  material: PAPER
+  geometry: chair
+  furniture:
+    facing: cardinal     # cardinal | diagonal | free | fixed
+    width: 1.0           # hitbox, in blocks
+    height: 1.0
+    scale: 1.0
+    solid: false         # true puts a barrier behind it
+```
+
+Not a category of its own, because an id is unique across the whole registry:
+`mypack:chair` cannot be an item and a piece of furniture at once, and needing
+`mypack:chair` plus `mypack:chair_furniture` for one chair is the sort of tax
+that makes a format feel like paperwork. It also means the item and the
+furniture can never disagree about which model to use.
+
+Right-clicking a block with that item puts it down. Punching it takes it back.
+It is two entities — a display for what you see, an interaction for what you
+can hit — both tagged in persistent data, so a placed piece is an ordinary
+chunk-saved entity and survives a restart with no file of its own.
+
+`solid: false` by default: a display entity has no collision at all, and
+`solid: true` puts an invisible barrier block behind it, removed when the piece
+is broken.
 
 Category folders are walked recursively, so `items/weapons/swords.yml` is
 fine. The subfolder is organisation only: **it contributes nothing to the id**.
