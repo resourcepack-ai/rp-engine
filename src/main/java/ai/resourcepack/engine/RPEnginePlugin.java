@@ -166,9 +166,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             host.register(pack);
         }
 
-        to.sendMessage("[RPEngine] " + loaded.packs().size() + " packs, "
-                + loaded.definitions().size() + " definitions, "
-                + built.size() + " bundles built.");
+        to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
+                + plural(loaded.definitions().size(), "definition") + ", "
+                + plural(built.size(), "bundle") + " built.");
 
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
@@ -180,7 +180,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {
         for (Diagnostic diagnostic : diagnostics) {
-            String line = "[RPEngine] " + diagnostic.severity().name().toLowerCase(Locale.ROOT)
+            // The logger adds its own [RPEngine], so this one does not.
+            String line = diagnostic.severity().name().toLowerCase(Locale.ROOT)
                     + " in " + stage + ": " + diagnostic;
             if (diagnostic.severity() == Diagnostic.Severity.ERROR) {
                 getLogger().warning(line);
@@ -188,9 +189,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getLogger().info(line);
             }
             if (!(to instanceof org.bukkit.command.ConsoleCommandSender)) {
-                to.sendMessage(line);
+                to.sendMessage("[RPEngine] " + line);
             }
         }
+    }
+
+    /** "1 item", "2 items". Cheap, and its absence is the sort of thing that reads as unfinished. */
+    private static String plural(int count, String noun) {
+        return count + " " + noun + (count == 1 ? "" : "s");
     }
 
     /**
@@ -290,13 +296,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ? "Sent." : "Nothing to send."));
                 return true;
             default:
-                sender.sendMessage("[RPEngine] " + registry.ids().size() + " ids across "
-                        + registry.namespaces().size() + " namespaces, " + built.size() + " bundles.");
+                sender.sendMessage("[RPEngine] " + plural(registry.ids().size(), "id") + " across "
+                        + plural(registry.namespaces().size(), "namespace") + ", "
+                        + plural(built.size(), "bundle") + ".");
                 List<String> kinds = new ArrayList<>();
                 for (ContentKind kind : ContentKind.values()) {
                     int count = registry.ids(kind).size();
                     if (count > 0) {
-                        kinds.add(count + " " + kind.name().toLowerCase(Locale.ROOT));
+                        kinds.add(plural(count, kind.name().toLowerCase(Locale.ROOT)));
                     }
                 }
                 sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
