@@ -10,6 +10,7 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.core.command.Completions;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
@@ -330,6 +331,57 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+    }
+
+    /**
+     * Every subcommand, and what each one's first argument can be.
+     *
+     * <p>One list rather than a switch per arity: the subcommands themselves
+     * complete from its keys, so a subcommand cannot be added without also
+     * being discoverable. See {@link Completions} for why that is a rule.
+     */
+    private static final List<String> SUBCOMMANDS = List.of(
+            "reload", "info", "bundles", "items", "give", "models", "purge",
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "push");
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length <= 1) {
+            return Completions.matching(args.length == 0 ? "" : args[0], SUBCOMMANDS);
+        }
+        String sub = args[0].toLowerCase(Locale.ROOT);
+        if (args.length == 2) {
+            switch (sub) {
+                case "give":
+                    return Completions.matchingIds(args[1], items.ids());
+                case "sound":
+                    return Completions.matchingIds(args[1], sounds.ids());
+                case "screen":
+                    return Completions.matchingIds(args[1], overlays.screenIds());
+                case "hud": {
+                    List<String> options = new ArrayList<>(
+                            Completions.matchingIds(args[1], overlays.hudIds()));
+                    options.addAll(Completions.matching(args[1], "clear"));
+                    return options;
+                }
+                case "models":
+                case "purge":
+                    // The radii somebody actually wants, rather than nothing at
+                    // all because the argument is a number.
+                    return Completions.matching(args[1], "8", "16", "32", "64", "128");
+                case "say":
+                    // Every icon as a ready-made placeholder, because the
+                    // colons are the part people get wrong.
+                    return Completions.matchingIds(args[1], icons.ids()).stream()
+                            .map(id -> ":" + id + ":").toList();
+                default:
+                    return List.of();
+            }
+        }
+        if (args.length == 3 && sub.equals("give")) {
+            return Completions.matching(args[2], "1", "8", "16", "64");
+        }
+        return List.of();
     }
 
     @Override
