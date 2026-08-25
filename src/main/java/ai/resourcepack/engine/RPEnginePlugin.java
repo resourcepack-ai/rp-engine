@@ -443,7 +443,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "link", "unlink", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "sync", "unsync", "push");
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -654,9 +654,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     sender.sendMessage("[RPEngine] No screens or HUDs loaded.");
                 }
                 return true;
-            case "link": {
+            case "sync": {
                 if (args.length < 2 || !(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine link <code>, as the player who will hold the pack.");
+                    sender.sendMessage("[RPEngine] /rpengine sync <code>, as the player who will hold the pack.");
                     return true;
                 }
                 Player player = (Player) sender;
@@ -665,9 +665,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         : "[RPEngine] Could not reach studio. Check sync.url in config.yml.");
                 return true;
             }
-            case "unlink":
+            case "unsync":
                 if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine unlink <code>");
+                    sender.sendMessage("[RPEngine] /rpengine unsync <code>");
                     return true;
                 }
                 sync.unlink(args[1]);
@@ -715,7 +715,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
-                sender.sendMessage("[RPEngine] /rpengine recipes | link <code> | unlink <code>");
+                sender.sendMessage("[RPEngine] /rpengine recipes | sync <code> | unsync <code>");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
