@@ -27,7 +27,7 @@ pack:
 
 # Live-testing a pack from ResourcePack AI Studio.
 sync:
-  # Run /rp link <code> with a code from the panel, then push. The pushed pack
+  # Run /rp sync <code> with a code from the panel, then push. The pushed pack
   # is stacked on top of whatever this server's own content gave you, so a pack
   # under test is tried against the server it will actually run on.
   url: "wss://sync.resourcepack.ai/connect"
