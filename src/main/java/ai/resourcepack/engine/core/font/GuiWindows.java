@@ -65,6 +65,16 @@ public final class GuiWindows {
         return WINDOWS.keySet();
     }
 
+    /** The ascent for art whose top edge was measured at {@code insetY}. */
+    public static int ascentForInset(int insetY) {
+        return TITLE_Y + 7 + Math.max(0, insetY);
+    }
+
+    /** The negative space for art whose left edge was measured at {@code insetX}. */
+    public static int offsetForInset(int insetX) {
+        return TITLE_X + Math.max(0, insetX);
+    }
+
     /**
      * The ascent that lands a sheet's top edge on the window's top edge.
      *

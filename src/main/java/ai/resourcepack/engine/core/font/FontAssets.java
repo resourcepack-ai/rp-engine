@@ -30,6 +30,7 @@ import java.util.List;
 public final class FontAssets implements PackContributor {
 
     static final String DEFAULT_FONT = "assets/minecraft/font/default.json";
+    static final String VANILLA_LANG = "assets/minecraft/lang/en_us.json";
 
     /**
      * Codepoints for negative space, one per power of two.
@@ -59,8 +60,10 @@ public final class FontAssets implements PackContributor {
                     icon.height(), icon.ascent(), icon.codepoint()));
         }
 
-        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded).overlays().values()) {
-            addOverlay(overlay, "screens", bundle, into, providers);
+        boolean anyScreen = false;
+        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded, measure(loaded, into))
+                .overlays().values()) {
+            anyScreen |= addOverlay(overlay, "screens", bundle, into, providers);
         }
         for (OverlayInfo overlay : OverlayDefinitions.huds(loaded).overlays().values()) {
             addOverlay(overlay, "huds", bundle, into, providers);
@@ -83,19 +86,77 @@ public final class FontAssets implements PackContributor {
         providers.add(space());
         into.add(DEFAULT_FONT, ("{\n  \"providers\": [\n" + String.join(",\n", providers)
                 + "\n  ]\n}\n").getBytes(StandardCharsets.UTF_8));
+
+        if (anyScreen) {
+            hideInventoryLabel(bundle, into);
+        }
     }
 
-    private void addOverlay(OverlayInfo overlay, String folder, Bundle bundle,
-                            Contribution into, List<String> providers) {
-        if (!bundle.namespaces().contains(overlay.id().namespace())) {
+    /**
+     * Blanks the player-inventory label while the bundle holds any screen.
+     *
+     * <p>The client draws that word itself from {@code container.inventory},
+     * and the server cannot touch it: an open-screen packet carries a window
+     * id, a menu type and the container title, and the title is the one thing
+     * already spent getting the backdrop on screen. Nor can the backdrop cover
+     * it — vanilla draws the title first and the inventory label after, so the
+     * word lands on top of whatever the sheet painted there.
+     *
+     * <p>A language file is the only lever there is. Two things about what it
+     * does, both properties of the key rather than choices made here:
+     *
+     * <ul>
+     *   <li><strong>It is global.</strong> Every container screen loses the
+     *       word, including the player's own inventory, not only the ones a
+     *       plugin opens with our title.</li>
+     *   <li><strong>It is English.</strong> Blanking it in a dozen locales
+     *       nobody asked about is a dozen files to keep correct.</li>
+     * </ul>
+     */
+    private void hideInventoryLabel(Bundle bundle, Contribution into) {
+        if (into.has(VANILLA_LANG)) {
+            into.error("overrides/lang/en_us.json", "",
+                    "A pack in the bundle " + bundle.name() + " ships its own vanilla language file, so "
+                            + "the word Inventory cannot be blanked and will be drawn across every "
+                            + "custom screen. Add an empty container.inventory to it yourself.");
             return;
+        }
+        into.add(VANILLA_LANG,
+                "{\n  \"container.inventory\": \"\"\n}\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Measures every screen's sheet, so the placement follows the art.
+     *
+     * <p>Read through {@code source} rather than out of the zip because the
+     * plugin does the same measurement for its own copy of the metrics, and
+     * both have to agree. Deriving the same number two different ways is how
+     * two halves of one feature drift apart.
+     */
+    private static java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> measure(
+            LoadReport loaded, Contribution into) {
+        java.util.Map<ai.resourcepack.engine.api.ContentId, int[]> insets = new java.util.HashMap<>();
+        for (OverlayInfo overlay : OverlayDefinitions.screens(loaded).overlays().values()) {
+            into.source(overlay.id().namespace(), "assets/textures/gui/" + overlay.file() + ".png")
+                    .flatMap(GuiSheet::inset)
+                    .ifPresent(inset -> insets.put(overlay.id(), inset));
+        }
+        return insets;
+    }
+
+    /** @return whether the overlay actually made it into the bundle */
+    private boolean addOverlay(OverlayInfo overlay, String folder, Bundle bundle,
+                               Contribution into, List<String> providers) {
+        if (!bundle.namespaces().contains(overlay.id().namespace())) {
+            return false;
         }
         String texture = texturePath(overlay.id().namespace(), "gui/" + overlay.file());
         if (missing(texture, overlay.id(), folder, into)) {
-            return;
+            return false;
         }
         providers.add(bitmap(overlay.id().namespace(), "gui/" + overlay.file(),
                 overlay.height(), overlay.ascent(), overlay.codepoint()));
+        return true;
     }
 
     private static String texturePath(String namespace, String path) {
