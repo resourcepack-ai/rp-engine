@@ -336,6 +336,48 @@ The `offset:` is negative space, built from powers of two, so any shift is at
 most nine characters rather than one per pixel. Without it a backdrop starts
 where the title text starts, which is not where the window is.
 
+## Recipes
+
+```yaml
+# recipes/gems.yml
+ruby_cube:
+  type: shaped              # the default
+  result: mypack:ruby_cube  # a content id, or a vanilla material
+  amount: 1
+  pattern:
+    - "RRR"
+    - "RRR"
+    - "RRR"
+  keys:
+    R: mypack:ruby          # a space in the pattern means an empty slot
+
+ruby_from_cube:
+  type: shapeless
+  result: mypack:ruby
+  amount: 9
+  ingredients: [mypack:ruby_cube]
+
+sapphire_from_lapis:
+  type: smelting            # blasting | smoking | campfire | stonecutting
+  result: mypack:sapphire
+  ingredient: LAPIS_LAZULI
+  experience: 0.5
+  time: 100                 # ticks; defaults to vanilla's own per type
+```
+
+**Ingredients and results can be either.** A content id matches that exact item
+— an ordinary diamond will not satisfy a recipe calling for `mypack:ruby`, even
+though a ruby is a diamond underneath. A vanilla material name matches loosely,
+the way a vanilla ingredient should.
+
+**A recipe id is not a content id.** It lives outside the id space, so a recipe
+may be called `ruby_cube` while an item is called `ruby_cube` — which is the
+first thing anybody writes. Two recipes still cannot share a name.
+
+Recipes are removed from the server when the plugin unloads and before every
+reload. A recipe deleted from a content pack stops working immediately, rather
+than lingering until a restart.
+
 ## Errors
 
 Two levels, because they have different blast radii:

@@ -41,5 +41,8 @@ public enum ContentKind {
     SCREEN,
 
     /** A HUD overlay, including meters with fill steps. */
-    HUD
+    HUD,
+
+    /** A crafting, cooking or stonecutting recipe. */
+    RECIPE
 }
