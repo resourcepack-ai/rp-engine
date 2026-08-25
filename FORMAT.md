@@ -23,11 +23,14 @@ plugins/RPEngine/content/
     fonts/       *.yml
     screens/     *.yml
     huds/        *.yml
-    assets/
+    assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       geometry/  **.bbmodel
       sounds/    **.ogg
       fonts/     **.png
+    overrides/               -> assets/minecraft/ in the built pack
+      textures/block/stone.png
+    pack.png                 optional, offered to the bundle
 ```
 
 **The folder name is the namespace**, and it has to satisfy
@@ -39,6 +42,23 @@ named `MyPack` is refused rather than lowercased, because `MyPack` and
 every YAML definition lives in a category folder. That is why `models/` can be
 a folder of YAML while `.bbmodel` files sit in `assets/geometry/` without the
 two ever fighting over a name.
+
+**`assets/` is namespaced and `overrides/` is not.** Everything under
+`assets/` lands under `assets/<your namespace>/` in the built pack, where it
+cannot collide with anybody. Everything under `overrides/` replaces a vanilla
+file, landing under `assets/minecraft/`, and is therefore the **only** way two
+packs in one bundle can fight. Writing `assets/minecraft/` yourself does not
+work and is not meant to: the folder is named for what it does so the risk is
+visible while you are writing it, rather than on the day somebody installs your
+pack next to another one.
+
+If two packs in a bundle override the same file, the later namespace
+alphabetically wins and both are named in a warning. Arbitrary, but the same on
+every machine, which is the property that matters.
+
+**`pack.png` is offered, not claimed.** A bundle has one icon and takes it from
+the first namespace alphabetically that ships one. The rest get a warning
+saying theirs is unused.
 
 **The category folder decides the kind.** `items/` yields `ITEM`, `blocks/`
 yields `BLOCK`, and so on through `ContentKind`. A folder that is not one of

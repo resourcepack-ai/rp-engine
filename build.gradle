@@ -5,7 +5,9 @@ plugins {
 
 group = 'ai.resourcepack'
 // 0.1.0: the id space and the content registry. Nothing loads content yet.
-version = '0.1.0'
+// 0.2.0: the authoring format (FORMAT.md) and its loader.
+// 0.3.0: bundles, and a builder that writes one reproducible zip per bundle.
+version = '0.3.0'
 
 java {
     toolchain {

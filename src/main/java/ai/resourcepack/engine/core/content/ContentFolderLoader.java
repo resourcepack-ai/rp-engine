@@ -45,8 +45,12 @@ public final class ContentFolderLoader {
     /** Which top-level folder inside a pack yields which kind. */
     private static final Map<String, ContentKind> CATEGORIES = categories();
 
-    /** Holds the raw files. Never walked for definitions. */
-    private static final String ASSETS = "assets";
+    /**
+     * Folders that hold raw files rather than definitions, and are never
+     * walked for them. The builder is what reads these; see FORMAT.md for
+     * where each one lands in the built pack.
+     */
+    private static final java.util.Set<String> ASSET_FOLDERS = java.util.Set.of("assets", "overrides");
 
     private static final String PACK_FILE = "pack.yml";
 
@@ -150,7 +154,7 @@ public final class ContentFolderLoader {
             ContentKind kind = CATEGORIES.get(name);
             if (kind != null) {
                 loadCategory(root, child, kind, claimed, definitions, diagnostics);
-            } else if (!name.equals(ASSETS) && !name.startsWith(".")) {
+            } else if (!ASSET_FOLDERS.contains(name) && !name.startsWith(".")) {
                 diagnostics.add(Diagnostic.warning(relative(root, child),
                         "Not a content category, so nothing in it was read. Expected one of " + CATEGORIES.keySet()));
             }
