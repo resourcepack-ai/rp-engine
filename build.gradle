@@ -16,7 +16,8 @@ group = 'ai.resourcepack'
 //        down, copy-model: wears somebody else's.
 // 0.10.0: right-click fires an event, and placed models can be found and
 //         orphans cleaned up.
-version = '0.10.0'
+// 0.11.0: custom sounds.
+version = '0.11.0'
 
 java {
     toolchain {

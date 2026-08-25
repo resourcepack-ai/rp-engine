@@ -16,6 +16,9 @@ import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
+import ai.resourcepack.engine.core.sound.SoundAssets;
+import ai.resourcepack.engine.core.sound.SoundDefinitions;
+import ai.resourcepack.engine.core.sound.SoundsImpl;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -69,6 +72,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
     private ModelPlacementListener placements;
+    private final SoundsImpl sounds = new SoundsImpl();
 
     private PackHost host;
     private PackDelivery delivery;
@@ -96,6 +100,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** What this server holds. The supported way in for another plugin. */
     public ContentRegistry registry() {
         return registry;
+    }
+
+    /** The custom sounds this server holds. */
+    public ai.resourcepack.engine.api.Sounds sounds() {
+        return sounds;
     }
 
     /** The custom items this server holds. */
@@ -164,10 +173,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
 
+        SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
+        report(to, "sounds", parsedSounds.diagnostics());
+        sounds.replace(parsedSounds.sounds());
+
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
                 .with(new ItemAssets())
+                .with(new SoundAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 
@@ -385,6 +399,31 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         + " within " + (int) radius + " blocks. Models a pack still defines were left alone.");
                 return true;
             }
+            case "sound": {
+                if (args.length < 2) {
+                    sender.sendMessage("[RPEngine] /rpengine sound <id>");
+                    return true;
+                }
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] Only a player can be played a sound.");
+                    return true;
+                }
+                boolean played = ContentId.parse(args[1])
+                        .map(id -> sounds.play((Player) sender, id)).orElse(Boolean.FALSE);
+                sender.sendMessage(played
+                        ? "[RPEngine] Played " + args[1] + "."
+                        : "[RPEngine] No sound called " + args[1] + ".");
+                return true;
+            }
+            case "sounds":
+                if (sounds.ids().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No sounds loaded.");
+                }
+                for (ContentId id : sounds.ids()) {
+                    sender.sendMessage("[RPEngine] " + id + "  "
+                            + sounds.info(id).map(s -> s.category()).orElse("?"));
+                }
+                return true;
             case "push":
                 if (!(sender instanceof Player)) {
                     sender.sendMessage("[RPEngine] Only a player can be pushed a pack.");
@@ -409,6 +448,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
+                sender.sendMessage("[RPEngine] /rpengine sounds | sound <id>");
                 return true;
         }
     }
