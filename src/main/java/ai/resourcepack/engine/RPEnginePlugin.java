@@ -14,6 +14,8 @@ import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
+import ai.resourcepack.engine.core.furniture.FurnitureDefinitions;
+import ai.resourcepack.engine.core.furniture.FurnitureListener;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -66,6 +68,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
+    private FurnitureListener furniture;
 
     private PackHost host;
     private PackDelivery delivery;
@@ -76,7 +79,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         saveDefaultConfig();
         items = new ItemsImpl(this);
+        furniture = new FurnitureListener(this, items);
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(furniture, this);
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -153,6 +158,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Needs a running server, so it lives out here rather than in parse().
         report(to, "items", ItemDefinitions.checkGivable(parsedItems));
         items.replace(parsedItems.items());
+
+        FurnitureDefinitions.Result parsedFurniture =
+                FurnitureDefinitions.parse(loaded, parsedItems.items());
+        report(to, "furniture", parsedFurniture.diagnostics());
+        furniture.replace(parsedFurniture.furniture());
 
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),

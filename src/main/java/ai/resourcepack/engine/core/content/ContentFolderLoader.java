@@ -42,7 +42,15 @@ import java.util.stream.Stream;
  */
 public final class ContentFolderLoader {
 
-    /** Which top-level folder inside a pack yields which kind. */
+    /**
+     * Which top-level folder inside a pack yields which kind.
+     *
+     * <p>Not every {@link ContentKind} has one. FURNITURE deliberately does
+     * not: a piece of furniture is an item you can put down, declared in a
+     * {@code furniture:} block on the item itself, because an id is unique
+     * across the registry and one chair cannot be two ids without the format
+     * feeling like paperwork.
+     */
     private static final Map<String, ContentKind> CATEGORIES = categories();
 
     /**
@@ -64,7 +72,6 @@ public final class ContentFolderLoader {
         Map<String, ContentKind> map = new LinkedHashMap<>();
         map.put("items", ContentKind.ITEM);
         map.put("blocks", ContentKind.BLOCK);
-        map.put("furniture", ContentKind.FURNITURE);
         map.put("models", ContentKind.MODEL);
         map.put("emotes", ContentKind.EMOTE);
         map.put("sounds", ContentKind.SOUND);
