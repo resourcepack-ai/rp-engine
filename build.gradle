@@ -14,7 +14,9 @@ group = 'ai.resourcepack'
 // 0.8.0: models you can put down, and take back.
 // 0.9.0: the word is model everywhere. model: names the file, place: puts it
 //        down, copy-model: wears somebody else's.
-version = '0.9.0'
+// 0.10.0: right-click fires an event, and placed models can be found and
+//         orphans cleaned up.
+version = '0.10.0'
 
 java {
     toolchain {

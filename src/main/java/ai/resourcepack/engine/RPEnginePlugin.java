@@ -68,7 +68,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
-    private ModelPlacementListener model;
+    private ModelPlacementListener placements;
 
     private PackHost host;
     private PackDelivery delivery;
@@ -79,9 +79,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         saveDefaultConfig();
         items = new ItemsImpl(this);
-        model = new ModelPlacementListener(this, items);
+        placements = new ModelPlacementListener(this, items);
         getServer().getPluginManager().registerEvents(this, this);
-        getServer().getPluginManager().registerEvents(model, this);
+        getServer().getPluginManager().registerEvents(placements, this);
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -162,7 +162,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         ModelDefinitions.Result parsedModels =
                 ModelDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
         report(to, "model", parsedModels.diagnostics());
-        model.replace(parsedModels.model());
+        placements.replace(parsedModels.model());
 
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
@@ -264,6 +264,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return List.of();
     }
 
+    /** A radius a human typed, kept sane. Scanning a whole world is not a command. */
+    private static double parseRadius(String text) {
+        try {
+            return Math.max(1, Math.min(128, Double.parseDouble(text.trim())));
+        } catch (NumberFormatException e) {
+            return 16;
+        }
+    }
+
     /** An amount a human typed. Anything unparseable is one, never a crash. */
     private static int parseAmount(String text) {
         try {
@@ -336,6 +345,46 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                             + (info.model().isPresent() ? "  model " + info.model().get() : ""));
                 }
                 return true;
+            case "models": {
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] Only a player can look around them.");
+                    return true;
+                }
+                Player looking = (Player) sender;
+                double radius = args.length > 1 ? parseRadius(args[1]) : 16;
+                java.util.List<org.bukkit.entity.Interaction> found =
+                        placements.near(looking.getLocation(), radius);
+                sender.sendMessage("[RPEngine] " + plural(found.size(), "model")
+                        + " within " + (int) radius + " blocks.");
+                for (org.bukkit.entity.Interaction hitbox : found) {
+                    org.bukkit.Location at = hitbox.getLocation();
+                    sender.sendMessage("[RPEngine] " + placements.idOf(hitbox).map(Object::toString).orElse("?")
+                            + "  " + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
+                            + (placements.isOrphan(hitbox) ? "  (orphan)" : ""));
+                }
+                return true;
+            }
+            case "purge": {
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] Only a player can purge around them.");
+                    return true;
+                }
+                Player around = (Player) sender;
+                double radius = args.length > 1 ? parseRadius(args[1]) : 16;
+                int removed = 0;
+                for (org.bukkit.entity.Interaction hitbox : placements.near(around.getLocation(), radius)) {
+                    // Orphans only. Purging models a pack still defines would
+                    // be a demolition command wearing a cleanup command's name.
+                    if (!placements.isOrphan(hitbox)) {
+                        continue;
+                    }
+                    placements.idOf(hitbox).ifPresent(id -> placements.remove(hitbox, id, around, false));
+                    removed++;
+                }
+                sender.sendMessage("[RPEngine] Removed " + plural(removed, "orphan")
+                        + " within " + (int) radius + " blocks. Models a pack still defines were left alone.");
+                return true;
+            }
             case "push":
                 if (!(sender instanceof Player)) {
                     sender.sendMessage("[RPEngine] Only a player can be pushed a pack.");
@@ -358,7 +407,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     }
                 }
                 sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
-                sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n] | push");
+                sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
+                sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 return true;
         }
     }
