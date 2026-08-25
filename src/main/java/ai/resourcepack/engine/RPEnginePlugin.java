@@ -160,7 +160,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         items.replace(parsedItems.items());
 
         FurnitureDefinitions.Result parsedFurniture =
-                FurnitureDefinitions.parse(loaded, parsedItems.items());
+                FurnitureDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
         report(to, "furniture", parsedFurniture.diagnostics());
         furniture.replace(parsedFurniture.furniture());
 
@@ -186,6 +186,42 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (Player player : getServer().getOnlinePlayers()) {
             delivery.apply(player, desiredFor(player));
         }
+    }
+
+    /**
+     * Measures every item that has a model, so furniture can default its
+     * hitbox to what you can actually see.
+     *
+     * <p>Reads the geometry a second time, which the builder also does. Worth
+     * it: threading measurements out of the build would put the pack builder
+     * in the business of telling the furniture layer things, and these files
+     * are small and read once per reload.
+     */
+    private java.util.Map<ai.resourcepack.engine.api.ContentId, ai.resourcepack.engine.core.item.Geometry.Bounds>
+            measure(Path content, ItemDefinitions.Result parsed) {
+        java.util.Map<ai.resourcepack.engine.api.ContentId,
+                ai.resourcepack.engine.core.item.Geometry.Bounds> measured = new java.util.HashMap<>();
+        for (ai.resourcepack.engine.api.ItemInfo item : parsed.items().values()) {
+            String name = item.geometry().orElse(null);
+            if (name == null) {
+                continue;
+            }
+            Path file = content.resolve(item.id().namespace())
+                    .resolve("assets").resolve("geometry").resolve(name + ".json");
+            if (!Files.isRegularFile(file)) {
+                continue;
+            }
+            try {
+                ai.resourcepack.engine.core.item.Geometry
+                        .read(Files.readAllBytes(file), item.id().namespace())
+                        .ifPresent(model -> measured.put(item.id(), model.bounds()));
+            } catch (IOException e) {
+                // The builder reports this properly. Failing to measure just
+                // means the hitbox falls back to one block.
+                getLogger().fine("Could not measure " + item.id() + ": " + e.getMessage());
+            }
+        }
+        return measured;
     }
 
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {
