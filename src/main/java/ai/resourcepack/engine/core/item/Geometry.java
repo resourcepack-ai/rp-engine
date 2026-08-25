@@ -39,15 +39,57 @@ public final class Geometry {
     private Geometry() {
     }
 
-    /** What came out, and the texture ids it wants. */
+    /**
+     * How much room a model actually takes up, in blocks.
+     *
+     * <p>Read off the geometry rather than asked for, because the person who
+     * modelled something already decided how big it is and making them say it
+     * again in YAML is how the two end up disagreeing. A hitbox that is
+     * smaller than what you can see means most of a statue cannot be punched
+     * and the part that can is buried inside it.
+     */
+    public static final class Bounds {
+
+        private final float width;
+        private final float height;
+
+        Bounds(float width, float height) {
+            this.width = width;
+            this.height = height;
+        }
+
+        /** The wider of its two horizontal extents, in blocks. */
+        public float width() {
+            return width;
+        }
+
+        /** Its vertical extent, in blocks. */
+        public float height() {
+            return height;
+        }
+
+        @Override
+        public String toString() {
+            return width + "x" + height;
+        }
+    }
+
+    /** What came out, the texture ids it wants, and how big it is. */
     public static final class Model {
 
         private final byte[] json;
         private final List<String> textures;
+        private final Bounds bounds;
 
-        Model(byte[] json, List<String> textures) {
+        Model(byte[] json, List<String> textures, Bounds bounds) {
             this.json = json;
             this.textures = textures;
+            this.bounds = bounds;
+        }
+
+        /** How much room it takes up. */
+        public Bounds bounds() {
+            return bounds;
         }
 
         /** The rewritten model file. */
@@ -117,7 +159,52 @@ public final class Geometry {
         // file is how a converter starts lying about what it was given.
         return Optional.of(new Model(
                 GSON.toJson(root).getBytes(StandardCharsets.UTF_8),
-                List.copyOf(referenced.stream().distinct().sorted().toList())));
+                List.copyOf(referenced.stream().distinct().sorted().toList()),
+                boundsOf(root)));
+    }
+
+    /**
+     * Measures the elements.
+     *
+     * <p>Minecraft's model space is 16 units to a block and runs from -16 to
+     * 32, so a model may legally be three blocks across and three tall. A
+     * character model built to the top of that space is two blocks of height
+     * above the ground, which is why furniture cannot assume one.
+     */
+    private static Bounds boundsOf(JsonObject root) {
+        JsonElement elements = root.get("elements");
+        if (elements == null || !elements.isJsonArray()) {
+            return new Bounds(1f, 1f);
+        }
+        float[] lo = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
+        float[] hi = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+        boolean any = false;
+        for (JsonElement element : elements.getAsJsonArray()) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            JsonObject cube = element.getAsJsonObject();
+            for (String key : new String[]{"from", "to"}) {
+                JsonElement corner = cube.get(key);
+                if (corner == null || !corner.isJsonArray() || corner.getAsJsonArray().size() < 3) {
+                    continue;
+                }
+                for (int axis = 0; axis < 3; axis++) {
+                    float value = corner.getAsJsonArray().get(axis).getAsFloat();
+                    lo[axis] = Math.min(lo[axis], value);
+                    hi[axis] = Math.max(hi[axis], value);
+                    any = true;
+                }
+            }
+        }
+        if (!any) {
+            return new Bounds(1f, 1f);
+        }
+        // The wider of the two horizontal extents: an Interaction hitbox is a
+        // square column, so the narrow axis has to give.
+        float width = Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 16f;
+        float height = (hi[1] - lo[1]) / 16f;
+        return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height));
     }
 
     /** Where a texture id lands inside a built pack. */

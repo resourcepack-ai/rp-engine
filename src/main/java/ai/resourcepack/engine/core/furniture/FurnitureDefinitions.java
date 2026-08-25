@@ -42,8 +42,22 @@ public final class FurnitureDefinitions {
     private FurnitureDefinitions() {
     }
 
-    /** Every item that declared a {@code furniture:} block, parsed. */
+    /** As {@link #parse(LoadReport, Map, Map)} with no measurements available. */
     public static Result parse(LoadReport loaded, Map<ContentId, ItemInfo> items) {
+        return parse(loaded, items, Map.of());
+    }
+
+    /**
+     * Every item that declared a {@code furniture:} block, parsed.
+     *
+     * @param bounds how big each item's model turned out to be, so a piece
+     *               that did not state a hitbox gets one that matches what you
+     *               can see. Whoever modelled it already decided how big it is;
+     *               making them say it again in YAML is how the two end up
+     *               disagreeing
+     */
+    public static Result parse(LoadReport loaded, Map<ContentId, ItemInfo> items,
+                               Map<ContentId, ai.resourcepack.engine.core.item.Geometry.Bounds> bounds) {
         Map<ContentId, FurnitureInfo> furniture = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
@@ -61,7 +75,8 @@ public final class FurnitureDefinitions {
             if (declared.isEmpty()) {
                 continue;
             }
-            parseOne(definition, declared.get(), diagnostics)
+            parseOne(definition, declared.get(),
+                    bounds == null ? null : bounds.get(definition.id()), diagnostics)
                     .ifPresent(one -> furniture.put(one.id(), one));
         }
         return new Result(Map.copyOf(furniture), List.copyOf(diagnostics));
@@ -69,6 +84,7 @@ public final class FurnitureDefinitions {
 
     private static Optional<FurnitureInfo> parseOne(ContentDefinition definition,
                                                     DefinitionNode body,
+                                                    ai.resourcepack.engine.core.item.Geometry.Bounds measured,
                                                     List<Diagnostic> diagnostics) {
         String origin = definition.origin();
         String where = definition.id().path();
@@ -86,8 +102,15 @@ public final class FurnitureDefinitions {
         }
 
         float scale = size(body, "scale", 1f, origin, where, diagnostics);
-        float width = size(body, "width", 1f, origin, where, diagnostics);
-        float height = size(body, "height", 1f, origin, where, diagnostics);
+        // The model's own size is the default, so a two-block statue is
+        // punchable everywhere you can see it without anybody measuring
+        // anything. A pack that states a hitbox still wins: a chair you are
+        // meant to be able to walk close to is a design decision, not a
+        // measurement.
+        float width = size(body, "width", measured == null ? 1f : measured.width(),
+                origin, where, diagnostics);
+        float height = size(body, "height", measured == null ? 1f : measured.height(),
+                origin, where, diagnostics);
 
         // The item IS the furniture, so the two cannot disagree about which
         // model to use.

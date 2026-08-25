@@ -155,11 +155,21 @@ public final class FurnitureListener implements Listener {
                 ? asOne(source)
                 : items.create(info.item()).orElse(null);
 
+        // Block centre, because an item display renders its model centred on
+        // the entity position: a model built from y=0 upward then sits exactly
+        // on the block floor.
         Location centre = target.getLocation().add(0.5, 0.5, 0.5);
         centre.setYaw(yaw);
         ItemDisplay display = world.spawn(centre, ItemDisplay.class, d -> {
             d.setItemStack(shown);
-            d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
+            // NONE, and this is load-bearing. Every other transform applies the
+            // model's own `display` block, and the vanilla block/block parent
+            // that generated models inherit sets `fixed` to scale 0.5 with a
+            // translation — so a two-block statue renders one block tall and
+            // slightly off the ground. NONE applies nothing, leaving 16 model
+            // units to the block, which is the only scale a placed model can
+            // honestly be.
+            d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.setRotation(yaw, 0f);
             if (info.scale() != 1f) {
                 Transformation transformation = d.getTransformation();
