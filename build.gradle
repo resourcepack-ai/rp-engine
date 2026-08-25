@@ -1,0 +1,59 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '8.3.5'
+}
+
+group = 'ai.resourcepack'
+// 0.1.0: the id space and the content registry. Nothing loads content yet.
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
+}
+
+dependencies {
+    // 1.21.4 is the floor and it is load-bearing, not conservatism: the whole
+    // id scheme rests on the string-valued minecraft:item_model component,
+    // which arrived in 1.21.4. See the design notes, "The id scheme".
+    compileOnly 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
+    testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // Keeps real parameter names in the bytecode, so a consumer's IDE shows
+    // the argument names this API's javadoc talks about.
+    options.compilerArgs << '-parameters'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+processResources {
+    // Load-bearing: expand() reads project.version at execution time and Gradle
+    // cannot see that, so without this input the task stays UP-TO-DATE across a
+    // version bump and ships a plugin.yml claiming the old version.
+    inputs.property('version', project.version)
+    filesMatching('plugin.yml') {
+        expand(version: project.version)
+    }
+}
+
+shadowJar {
+    archiveClassifier.set('')
+}
+
+build {
+    dependsOn shadowJar
+}
