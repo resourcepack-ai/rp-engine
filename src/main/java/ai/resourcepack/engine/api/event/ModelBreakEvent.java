@@ -8,9 +8,9 @@ import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
 /**
- * A piece of furniture is about to be broken. Cancellable.
+ * A placed model is about to be broken. Cancellable.
  *
- * <p>Not a {@code PlayerEvent}, because furniture can be removed by code with
+ * <p>Not a {@code PlayerEvent}, because a model can be removed by code with
  * nobody responsible — {@link #player()} answers null then. Inventing a player
  * to fill the field would hand every listener a lie about who did it.
  *
@@ -18,26 +18,26 @@ import org.bukkit.event.HandlerList;
  * the break and allowing it without a drop are different decisions: a
  * protection plugin wants the first and a creative-mode rule wants the second.
  */
-public final class FurnitureBreakEvent extends Event implements Cancellable {
+public final class ModelBreakEvent extends Event implements Cancellable {
 
     private static final HandlerList HANDLERS = new HandlerList();
 
-    private final ContentId furniture;
+    private final ContentId model;
     private final Location location;
     private final Player player;
     private boolean dropItem;
     private boolean cancelled;
 
-    public FurnitureBreakEvent(ContentId furniture, Location location, Player player, boolean dropItem) {
-        this.furniture = furniture;
+    public ModelBreakEvent(ContentId model, Location location, Player player, boolean dropItem) {
+        this.model = model;
         this.location = location;
         this.player = player;
         this.dropItem = dropItem;
     }
 
     /** Which piece. */
-    public ContentId furniture() {
-        return furniture;
+    public ContentId model() {
+        return model;
     }
 
     /** Where it stands. */

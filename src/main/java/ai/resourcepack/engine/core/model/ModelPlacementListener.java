@@ -1,10 +1,10 @@
-package ai.resourcepack.engine.core.furniture;
+package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.FurnitureInfo;
+import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.Items;
-import ai.resourcepack.engine.api.event.FurnitureBreakEvent;
-import ai.resourcepack.engine.api.event.FurniturePlaceEvent;
+import ai.resourcepack.engine.api.event.ModelBreakEvent;
+import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -33,7 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Makes furniture placeable, breakable, and able to survive a restart.
+ * Makes placed model model, breakable, and able to survive a restart.
  *
  * <p>A placed piece is two entities. An {@link ItemDisplay} is what you see; an
  * {@link Interaction} is what you can hit, because a display entity cannot be
@@ -41,14 +41,14 @@ import java.util.Optional;
  * piece is an ordinary chunk-saved entity and needs no file of its own and no
  * loading step — the world already remembers where everything is.
  *
- * <p>Solid furniture also gets a barrier block at its anchor, which is the only
+ * <p>Solid placed model also gets a barrier block at its anchor, which is the only
  * way a display entity can stop anybody walking through it.
  *
  * <p>The key is namespaced by the plugin, which is the concrete reason this
  * plugin can never be renamed: every piece standing in somebody's world is
  * keyed to it.
  */
-public final class FurnitureListener implements Listener {
+public final class ModelPlacementListener implements Listener {
 
     private final Plugin plugin;
     private final Items items;
@@ -56,23 +56,23 @@ public final class FurnitureListener implements Listener {
     private final NamespacedKey displayKey;
     private final NamespacedKey solidKey;
 
-    private volatile Map<ContentId, FurnitureInfo> furniture = Map.of();
+    private volatile Map<ContentId, ModelInfo> model = Map.of();
 
-    public FurnitureListener(Plugin plugin, Items items) {
+    public ModelPlacementListener(Plugin plugin, Items items) {
         this.plugin = plugin;
         this.items = items;
-        this.idKey = new NamespacedKey(plugin, "furniture");
-        this.displayKey = new NamespacedKey(plugin, "furniture-display");
-        this.solidKey = new NamespacedKey(plugin, "furniture-solid");
+        this.idKey = new NamespacedKey(plugin, "model");
+        this.displayKey = new NamespacedKey(plugin, "model-display");
+        this.solidKey = new NamespacedKey(plugin, "model-solid");
     }
 
     /** Replaces the catalogue, as a reload does. */
-    public void replace(Map<ContentId, FurnitureInfo> loaded) {
-        this.furniture = loaded == null ? Map.of() : Map.copyOf(loaded);
+    public void replace(Map<ContentId, ModelInfo> loaded) {
+        this.model = loaded == null ? Map.of() : Map.copyOf(loaded);
     }
 
-    private Optional<FurnitureInfo> byItem(ContentId item) {
-        for (FurnitureInfo one : furniture.values()) {
+    private Optional<ModelInfo> byItem(ContentId item) {
+        for (ModelInfo one : model.values()) {
             if (one.item().equals(item)) {
                 return Optional.of(one);
             }
@@ -92,7 +92,7 @@ public final class FurnitureListener implements Listener {
         if (id.isEmpty()) {
             return;
         }
-        Optional<FurnitureInfo> found = byItem(id.get());
+        Optional<ModelInfo> found = byItem(id.get());
         if (found.isEmpty()) {
             return;
         }
@@ -102,7 +102,7 @@ public final class FurnitureListener implements Listener {
         }
         // A chest keeps its vanilla click unless the player sneaks, which is
         // the same rule as placing an ordinary block. Anything else and
-        // furniture would make containers unopenable while it is in hand.
+        // placed model would make containers unopenable while it is in hand.
         if (clicked.getType().isInteractable() && !event.getPlayer().isSneaking()) {
             return;
         }
@@ -115,11 +115,11 @@ public final class FurnitureListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        FurnitureInfo info = found.get();
+        ModelInfo info = found.get();
 
         // Everything above is "can this physically go here". Whether it is
         // ALLOWED to is a rule about somebody's server, which we cannot see.
-        FurniturePlaceEvent ask = new FurniturePlaceEvent(player, info.id(), target);
+        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
             return;
@@ -134,7 +134,7 @@ public final class FurnitureListener implements Listener {
     }
 
     /** Snaps the player's yaw the way this piece asked to be faced. */
-    private static float yawFor(Player player, FurnitureInfo info) {
+    private static float yawFor(Player player, ModelInfo info) {
         float yaw = player.getLocation().getYaw();
         switch (info.facing()) {
             case CARDINAL:
@@ -149,7 +149,7 @@ public final class FurnitureListener implements Listener {
     }
 
     /** Puts a piece into a block space. Main thread only. */
-    public Interaction place(Block target, FurnitureInfo info, float yaw, ItemStack source) {
+    public Interaction place(Block target, ModelInfo info, float yaw, ItemStack source) {
         World world = target.getWorld();
         ItemStack shown = source != null && source.getType() != Material.AIR
                 ? asOne(source)
@@ -177,7 +177,7 @@ public final class FurnitureListener implements Listener {
                 d.setTransformation(transformation);
             }
             // Culled otherwise: a large piece disappears when its anchor block
-            // leaves the frustum, which reads as flickering furniture.
+            // leaves the frustum, which reads as flickering model.
             d.setViewRange(1.5f);
             d.setDisplayWidth(Math.max(1f, info.width() * info.scale()));
             d.setDisplayHeight(Math.max(1f, info.height() * info.scale()));
@@ -236,7 +236,7 @@ public final class FurnitureListener implements Listener {
 
     /** Takes a piece apart, dropping its item unless told otherwise. */
     public void remove(Interaction hitbox, ContentId id, Player breaker, boolean dropItem) {
-        FurnitureBreakEvent ask = new FurnitureBreakEvent(id, hitbox.getLocation(), breaker, dropItem);
+        ModelBreakEvent ask = new ModelBreakEvent(id, hitbox.getLocation(), breaker, dropItem);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
             return;
@@ -268,14 +268,14 @@ public final class FurnitureListener implements Listener {
         if (!ask.isDropItem() || world == null) {
             return;
         }
-        ItemStack fallback = drop != null ? drop : items.create(furnitureItem(id)).orElse(null);
+        ItemStack fallback = drop != null ? drop : items.create(modelItem(id)).orElse(null);
         if (fallback != null) {
             world.dropItemNaturally(where.add(0, 0.5, 0), fallback);
         }
     }
 
-    private ContentId furnitureItem(ContentId id) {
-        FurnitureInfo info = furniture.get(id);
+    private ContentId modelItem(ContentId id) {
+        ModelInfo info = model.get(id);
         return info == null ? id : info.item();
     }
 
