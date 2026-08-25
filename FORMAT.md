@@ -219,6 +219,49 @@ audio — which is more people than most server owners expect.
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
 
+## Icons
+
+An icon is a picture that behaves like a letter.
+
+```yaml
+# fonts/icons.yml
+sword:
+  file: sword     # assets/textures/font/sword.png. Defaults to the id.
+  height: 10      # 8 is the height of a capital letter
+  ascent: 8       # how far above the baseline. Never more than height.
+```
+
+Put one into any piece of text with `:namespace:id:`:
+
+```
+/rp say Cheers :mypack:beer:
+```
+
+The engine's `Icons.format(text)` does that substitution, so a plugin can run
+config text through it and let server owners write icons into their own
+messages. An id that names nothing is **left exactly as written** rather than
+removed, because text that silently loses a chunk of itself is much harder to
+diagnose than text that still says `:mypack:sword:`.
+
+**Icons go into the game's default font**, so one renders in chat, an item name
+typed in an anvil, a sign, a scoreboard — anywhere the game draws text. A font
+of our own would only work where a plugin can set the font of a component,
+which is far less of the game than it sounds.
+
+That makes `assets/minecraft/font/default.json` a file every pack would want to
+write, so **nothing may**: it is generated once per bundle from every
+namespace's icons at once. A pack shipping its own copy through `overrides/`
+would delete every icon in the bundle, so that is refused with an error rather
+than silently obeyed.
+
+**Never store the character, store the id.** Codepoints are handed out in id
+order, so adding an icon whose id sorts earlier shifts the ones after it. That
+is invisible to anything resolving the id as it writes the text, and wrong for
+anything that saved the character — a glyph written into a sign or a book is a
+different picture after the next reload. Stable codepoints would need a file
+mapping id to number that must never be lost or reordered, which is exactly the
+problem the item scheme was designed to delete.
+
 ## Errors
 
 Two levels, because they have different blast radii:
