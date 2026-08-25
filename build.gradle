@@ -9,7 +9,8 @@ group = 'ai.resourcepack'
 // 0.3.0: bundles, and a builder that writes one reproducible zip per bundle.
 // 0.4.0: serving the built zips, and the per-player bundle stack.
 // 0.5.0: it is an installable plugin. plugin.yml, an entrypoint, /rpengine.
-version = '0.5.0'
+// 0.6.0: custom items. Definitions, generated model assets, give and lookup.
+version = '0.6.0'
 
 java {
     toolchain {

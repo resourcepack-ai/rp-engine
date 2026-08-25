@@ -68,6 +68,7 @@ public final class PackBuilder {
 
     private final int packFormat;
     private final String description;
+    private final List<PackContributor> contributors = new ArrayList<>();
 
     public PackBuilder() {
         this(PACK_FORMAT, "RP Engine");
@@ -76,6 +77,20 @@ public final class PackBuilder {
     public PackBuilder(int packFormat, String description) {
         this.packFormat = packFormat;
         this.description = description == null ? "RP Engine" : description;
+    }
+
+    /**
+     * Adds something that writes generated files into every bundle.
+     *
+     * <p>Contributors run in the order they were added, after the pack's own
+     * assets are copied. Order is part of the output, so add them in a fixed
+     * order rather than from anything iteration-order-dependent.
+     */
+    public PackBuilder with(PackContributor contributor) {
+        if (contributor != null) {
+            contributors.add(contributor);
+        }
+        return this;
     }
 
     /**
@@ -91,12 +106,12 @@ public final class PackBuilder {
         List<BuiltPack> built = new ArrayList<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         for (Bundle bundle : Bundles.resolve(loaded.packs())) {
-            buildBundle(contentRoot, outputDir, bundle, built, diagnostics);
+            buildBundle(contentRoot, outputDir, bundle, loaded, built, diagnostics);
         }
         return BuildReport.of(built, diagnostics);
     }
 
-    private void buildBundle(Path contentRoot, Path outputDir, Bundle bundle,
+    private void buildBundle(Path contentRoot, Path outputDir, Bundle bundle, LoadReport loaded,
                              List<BuiltPack> built, List<Diagnostic> diagnostics) {
         DeterministicZip zip = new DeterministicZip();
         // Who wrote each zip path, so a collision can name both sides rather
@@ -112,6 +127,12 @@ public final class PackBuilder {
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
 
+        // After the copy, so a contributor can ask whether a texture it is
+        // about to point at was actually shipped.
+        for (PackContributor contributor : contributors) {
+            contributor.contribute(bundle, loaded, new Sink(zip, writtenBy, diagnostics));
+        }
+
         zip.add("pack.mcmeta", mcmeta(bundle).getBytes(StandardCharsets.UTF_8));
 
         Path file = outputDir.resolve(bundle.name() + ".zip");
@@ -121,6 +142,41 @@ public final class PackBuilder {
         } catch (IOException e) {
             diagnostics.add(Diagnostic.error(bundle.name() + ".zip",
                     "Could not be written. " + message(e)));
+        }
+    }
+
+    /** A contributor's view of the bundle being built. */
+    private static final class Sink implements PackContributor.Contribution {
+
+        private final DeterministicZip zip;
+        private final Map<String, String> writtenBy;
+        private final List<Diagnostic> diagnostics;
+
+        private Sink(DeterministicZip zip, Map<String, String> writtenBy, List<Diagnostic> diagnostics) {
+            this.zip = zip;
+            this.writtenBy = writtenBy;
+            this.diagnostics = diagnostics;
+        }
+
+        @Override
+        public void add(String zipPath, byte[] content) {
+            zip.add(zipPath, content);
+            writtenBy.put(zipPath, "generated");
+        }
+
+        @Override
+        public boolean has(String zipPath) {
+            return zip.has(zipPath);
+        }
+
+        @Override
+        public void warn(String origin, String where, String message) {
+            diagnostics.add(Diagnostic.warning(origin, where, message));
+        }
+
+        @Override
+        public void error(String origin, String where, String message) {
+            diagnostics.add(Diagnostic.error(origin, where, message));
         }
     }
 

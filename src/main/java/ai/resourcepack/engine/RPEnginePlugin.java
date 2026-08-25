@@ -7,7 +7,13 @@ import ai.resourcepack.engine.api.ContentRegistry;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
+import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.item.ItemDefinitions;
+import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -16,6 +22,7 @@ import ai.resourcepack.engine.core.serve.PackHost;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -28,6 +35,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * The plugin: loads the content folder, builds a pack per bundle, serves them,
@@ -57,6 +65,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
+    private ItemsImpl items;
 
     private PackHost host;
     private PackDelivery delivery;
@@ -66,6 +75,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        items = new ItemsImpl(this);
         getServer().getPluginManager().registerEvents(this, this);
         startHost();
         rebuild(getServer().getConsoleSender());
@@ -81,6 +91,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** What this server holds. The supported way in for another plugin. */
     public ContentRegistry registry() {
         return registry;
+    }
+
+    /** The custom items this server holds. */
+    public Items items() {
+        return items;
     }
 
     private void startHost() {
@@ -133,9 +148,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         LoadReport loaded = new ContentFolderLoader(registry).load(content, ContentSource.AUTHORED);
         report(to, "content", loaded.diagnostics());
 
+        ItemDefinitions.Result parsedItems = ItemDefinitions.parse(loaded);
+        report(to, "items", parsedItems.diagnostics());
+        // Needs a running server, so it lives out here rather than in parse().
+        report(to, "items", ItemDefinitions.checkGivable(parsedItems));
+        items.replace(parsedItems.items());
+
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
+                .with(new ItemAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 
@@ -190,6 +212,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return List.of();
     }
 
+    /** An amount a human typed. Anything unparseable is one, never a crash. */
+    private static int parseAmount(String text) {
+        try {
+            return Math.max(1, Math.min(99, Integer.parseInt(text.trim())));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
@@ -219,6 +250,35 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                             + "  " + host.url(pack.bundle()).orElse("not served"));
                 }
                 return true;
+            case "give": {
+                if (args.length < 2) {
+                    sender.sendMessage("[RPEngine] /rpengine give <id> [amount]");
+                    return true;
+                }
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] Only a player can be given an item.");
+                    return true;
+                }
+                int amount = args.length > 2 ? parseAmount(args[2]) : 1;
+                Optional<ItemStack> stack = ContentId.parse(args[1]).flatMap(id -> items.create(id, amount));
+                if (stack.isEmpty()) {
+                    sender.sendMessage("[RPEngine] No item called " + args[1] + ".");
+                    return true;
+                }
+                ((Player) sender).getInventory().addItem(stack.get());
+                sender.sendMessage("[RPEngine] Gave " + amount + " " + args[1] + ".");
+                return true;
+            }
+            case "items":
+                if (items.ids().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No items loaded.");
+                }
+                for (ContentId id : items.ids()) {
+                    ItemInfo info = items.info(id).orElseThrow();
+                    sender.sendMessage("[RPEngine] " + id + "  " + info.material()
+                            + (info.model().isPresent() ? "  model " + info.model().get() : ""));
+                }
+                return true;
             case "push":
                 if (!(sender instanceof Player)) {
                     sender.sendMessage("[RPEngine] Only a player can be pushed a pack.");
@@ -240,7 +300,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     }
                 }
                 sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
-                sender.sendMessage("[RPEngine] /rpengine reload | bundles | push");
+                sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n] | push");
                 return true;
         }
     }
