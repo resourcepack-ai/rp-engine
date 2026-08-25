@@ -64,7 +64,7 @@ class IconsTest {
     }
 
     private Map<String, String> zip() throws IOException {
-        BuildReport report = new PackBuilder().with(new IconAssets()).build(content, out, load());
+        BuildReport report = new PackBuilder().with(new FontAssets()).build(content, out, load());
         Map<String, String> entries = new LinkedHashMap<>();
         try (InputStream in = Files.newInputStream(report.pack("main").orElseThrow().file());
              ZipInputStream zin = new ZipInputStream(in)) {
@@ -85,9 +85,9 @@ class IconsTest {
         IconDefinitions.Result result = parse();
 
         // Sorted, so the same content allocates identically on every machine.
-        assertEquals(IconDefinitions.FIRST_CODEPOINT, one(result, "mypack:apple").codepoint());
-        assertEquals(IconDefinitions.FIRST_CODEPOINT + 1, one(result, "mypack:coin").codepoint());
-        assertEquals(IconDefinitions.FIRST_CODEPOINT + 2, one(result, "mypack:sword").codepoint());
+        assertEquals(GlyphAllocator.FIRST_CODEPOINT, one(result, "mypack:apple").codepoint());
+        assertEquals(GlyphAllocator.FIRST_CODEPOINT + 1, one(result, "mypack:coin").codepoint());
+        assertEquals(GlyphAllocator.FIRST_CODEPOINT + 2, one(result, "mypack:sword").codepoint());
     }
 
     @Test
@@ -179,7 +179,7 @@ class IconsTest {
     void anIconWithNoImageIsAnError() throws IOException {
         write("mypack/fonts/a.yml", "sword: {}\n");
 
-        BuildReport report = new PackBuilder().with(new IconAssets()).build(content, out, load());
+        BuildReport report = new PackBuilder().with(new FontAssets()).build(content, out, load());
 
         assertTrue(report.hasErrors());
         assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).get(0).message()
@@ -192,7 +192,7 @@ class IconsTest {
         write("mypack/assets/textures/font/sword.png", "PNG");
         write("mypack/overrides/font/default.json", "{\"providers\":[]}");
 
-        BuildReport report = new PackBuilder().with(new IconAssets()).build(content, out, load());
+        BuildReport report = new PackBuilder().with(new FontAssets()).build(content, out, load());
 
         // It would replace ours and delete every icon in the bundle, while the
         // pack that did it looked fine.

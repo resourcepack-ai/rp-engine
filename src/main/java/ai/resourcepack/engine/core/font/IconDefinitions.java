@@ -13,35 +13,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 
 /**
- * Reads icon definitions and hands each one a codepoint.
+ * Reads icon definitions, taking each one's codepoint from
+ * {@link GlyphAllocator}.
  *
- * <p><strong>The allocator lives here rather than in the builder</strong>, and
- * that is the whole design. Both halves of the engine need the same answer —
- * the build writes the font file, the server writes the character into a chat
- * message — and the only way two pieces of code agree about a number is for
- * one of them to work it out and the other to ask. Deriving it twice is how
- * they drift.
- *
- * <p>Codepoints come out of the Private Use Area in id order. That means they
- * MOVE when content changes, which is a real trade and is documented on
- * {@link IconInfo#codepoint()}: the alternative is a file mapping id to number
- * that must never be lost or reordered, which is exactly the class of problem
- * the item scheme was designed to delete.
+ * <p><strong>Allocation lives with the definitions rather than in the
+ * builder</strong>, and that is the whole design. Both halves of the engine
+ * need the same answer — the build writes the font file, the server writes the
+ * character into a chat message — and the only way two pieces of code agree
+ * about a number is for one of them to work it out and the other to ask.
+ * Deriving it twice is how they drift.
  */
 public final class IconDefinitions {
-
-    /**
-     * The Unicode Private Use Area: {@code U+E000} to {@code U+F8FF}.
-     *
-     * <p>6,400 icons, which is far more than any pack has, and the only range
-     * where a glyph cannot collide with a real character somebody might
-     * legitimately type.
-     */
-    public static final int FIRST_CODEPOINT = 0xE000;
-    public static final int LAST_CODEPOINT = 0xF8FF;
 
     private IconDefinitions() {
     }
@@ -53,27 +37,22 @@ public final class IconDefinitions {
             return new Result(Map.of(), List.of());
         }
 
-        // Sorted by id, so the same content always produces the same
-        // allocation on every machine and every restart.
-        Map<ContentId, ContentDefinition> sorted = new TreeMap<>();
-        for (ContentDefinition definition : loaded.definitions(ContentKind.FONT)) {
-            sorted.put(definition.id(), definition);
-        }
-
+        // The codepoints come from the shared allocator: icons, screens and
+        // HUD overlays are one mechanism wearing three names and share one
+        // number line. See GlyphAllocator.
+        Map<ContentId, Integer> codepoints = GlyphAllocator.allocate(loaded);
         Map<ContentId, IconInfo> icons = new LinkedHashMap<>();
-        int next = FIRST_CODEPOINT;
-        for (ContentDefinition definition : sorted.values()) {
-            if (next > LAST_CODEPOINT) {
+        for (ContentDefinition definition : loaded.definitions(ContentKind.FONT)) {
+            Integer codepoint = codepoints.get(definition.id());
+            if (codepoint == null) {
                 diagnostics.add(Diagnostic.error(definition.origin(), definition.id().path(),
                         "There is no room left in the Private Use Area: "
-                                + (LAST_CODEPOINT - FIRST_CODEPOINT + 1) + " icons is the limit."));
+                                + (GlyphAllocator.LAST_CODEPOINT - GlyphAllocator.FIRST_CODEPOINT + 1)
+                                + " glyphs is the limit, across icons, screens and HUDs together."));
                 continue;
             }
-            Optional<IconInfo> icon = parseOne(definition, next, diagnostics);
-            if (icon.isPresent()) {
-                icons.put(icon.get().id(), icon.get());
-                next++;
-            }
+            parseOne(definition, codepoint, diagnostics)
+                    .ifPresent(icon -> icons.put(icon.id(), icon));
         }
         return new Result(Map.copyOf(icons), List.copyOf(diagnostics));
     }
