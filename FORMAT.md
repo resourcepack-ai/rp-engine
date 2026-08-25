@@ -25,7 +25,7 @@ plugins/RPEngine/content/
     huds/        *.yml
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
-      geometry/  **.bbmodel
+      geometry/  **.json     source, never shipped (see below)
       sounds/    **.ogg
       fonts/     **.png
     overrides/               -> assets/minecraft/ in the built pack
@@ -55,6 +55,18 @@ pack next to another one.
 If two packs in a bundle override the same file, the later namespace
 alphabetically wins and both are named in a warning. Arbitrary, but the same on
 every machine, which is the property that matters.
+
+**`assets/geometry/` is source and is never shipped.** A model file there is
+read at build time, rewritten, and written out as
+`assets/<namespace>/models/item/<id>.json`. Copying the source in as well would
+have every player downloading both it and the thing built from it.
+
+An item names one with `geometry: <name>`, for `assets/geometry/<name>.json`.
+Export it from Blockbench with **File > Export > Java Block/Item model**. Bare
+texture paths inside it (`item/sword`) are rewritten into your namespace; one
+that already carries a namespace (`minecraft:item/stick`) is left exactly as
+written. With no `geometry:` an item is a flat sprite, which is what a vanilla
+item is.
 
 **`pack.png` is offered, not claimed.** A bundle has one icon and takes it from
 the first namespace alphabetically that ships one. The rest get a warning

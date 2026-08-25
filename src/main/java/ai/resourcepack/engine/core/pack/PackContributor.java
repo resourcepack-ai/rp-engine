@@ -29,6 +29,16 @@ public interface PackContributor {
         /** Whether something is already at {@code zipPath}. */
         boolean has(String zipPath);
 
+        /**
+         * Reads a file out of a pack's folder on disk, relative to the pack.
+         *
+         * <p>For source a contributor consumes but the client never sees: a
+         * Blockbench model that becomes vanilla model JSON, an audio file that
+         * gets transcoded. Shipping the source alongside the output would make
+         * every player download both.
+         */
+        java.util.Optional<byte[]> source(String namespace, String relativePath);
+
         /** Reports a problem against a file in the content folder. */
         void warn(String origin, String where, String message);
 

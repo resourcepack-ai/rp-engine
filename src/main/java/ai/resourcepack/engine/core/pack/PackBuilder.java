@@ -66,6 +66,16 @@ public final class PackBuilder {
     /** A pack's own icon, offered to the bundle it ships in. */
     static final String ICON = "pack.png";
 
+    /**
+     * Source a contributor reads and the client never sees.
+     *
+     * <p>{@code assets/geometry/} holds Blockbench files, which become vanilla
+     * model JSON at build time. Copying them into the pack as well would have
+     * every player downloading the source of something they were also sent the
+     * output of.
+     */
+    static final String SOURCE_ONLY = "geometry";
+
     private final int packFormat;
     private final String description;
     private final List<PackContributor> contributors = new ArrayList<>();
@@ -122,6 +132,8 @@ public final class PackBuilder {
             Path packFolder = contentRoot.resolve(namespace);
             copyTree(packFolder.resolve(ASSETS), ASSETS + "/" + namespace,
                     namespace, bundle, zip, writtenBy, diagnostics);
+            // assets/geometry/ is source; see SOURCE_ONLY.
+            zip.removeUnder(ASSETS + "/" + namespace + "/" + SOURCE_ONLY + "/");
             copyTree(packFolder.resolve(OVERRIDES), ASSETS + "/minecraft",
                     namespace, bundle, zip, writtenBy, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
@@ -130,7 +142,7 @@ public final class PackBuilder {
         // After the copy, so a contributor can ask whether a texture it is
         // about to point at was actually shipped.
         for (PackContributor contributor : contributors) {
-            contributor.contribute(bundle, loaded, new Sink(zip, writtenBy, diagnostics));
+            contributor.contribute(bundle, loaded, new Sink(contentRoot, zip, writtenBy, diagnostics));
         }
 
         zip.add("pack.mcmeta", mcmeta(bundle).getBytes(StandardCharsets.UTF_8));
@@ -148,11 +160,14 @@ public final class PackBuilder {
     /** A contributor's view of the bundle being built. */
     private static final class Sink implements PackContributor.Contribution {
 
+        private final Path contentRoot;
         private final DeterministicZip zip;
         private final Map<String, String> writtenBy;
         private final List<Diagnostic> diagnostics;
 
-        private Sink(DeterministicZip zip, Map<String, String> writtenBy, List<Diagnostic> diagnostics) {
+        private Sink(Path contentRoot, DeterministicZip zip,
+                     Map<String, String> writtenBy, List<Diagnostic> diagnostics) {
+            this.contentRoot = contentRoot;
             this.zip = zip;
             this.writtenBy = writtenBy;
             this.diagnostics = diagnostics;
@@ -167,6 +182,25 @@ public final class PackBuilder {
         @Override
         public boolean has(String zipPath) {
             return zip.has(zipPath);
+        }
+
+        @Override
+        public java.util.Optional<byte[]> source(String namespace, String relativePath) {
+            if (namespace == null || relativePath == null) {
+                return java.util.Optional.empty();
+            }
+            Path file = contentRoot.resolve(namespace).resolve(relativePath);
+            // Never outside the pack's own folder, whatever the definition
+            // asked for. A content pack is somebody else's file on your disk.
+            if (!file.normalize().startsWith(contentRoot.resolve(namespace).normalize())
+                    || !Files.isRegularFile(file)) {
+                return java.util.Optional.empty();
+            }
+            try {
+                return java.util.Optional.of(Files.readAllBytes(file));
+            } catch (IOException e) {
+                return java.util.Optional.empty();
+            }
         }
 
         @Override

@@ -78,6 +78,13 @@ public final class DeterministicZip {
         return path != null && entries.containsKey(path);
     }
 
+    /** Drops everything under {@code prefix}. */
+    public void removeUnder(String prefix) {
+        if (prefix != null) {
+            entries.keySet().removeIf(path -> path.startsWith(prefix));
+        }
+    }
+
     /** How many files will be written. */
     public int size() {
         return entries.size();
