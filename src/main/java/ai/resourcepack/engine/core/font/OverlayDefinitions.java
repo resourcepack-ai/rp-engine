@@ -33,11 +33,13 @@ public final class OverlayDefinitions {
      * one that exists. Anything else is refused at load with the list in the
      * message, because the alternative is a command that does nothing and a
      * server owner guessing at spellings.
+     *
+     * <p>The same set {@link GuiWindows} knows the geometry of, and that is not
+     * a coincidence: a container whose window size is unknown is one whose
+     * backdrop cannot be positioned, so accepting it would be accepting a
+     * screen that opens in the wrong place.
      */
-    public static final Set<String> CONTAINERS = Set.of(
-            "chest_9x1", "chest_9x2", "chest_9x3", "chest_9x4", "chest_9x5", "chest_9x6",
-            "dispenser", "hopper", "anvil", "beacon", "brewing", "crafting",
-            "enchanting", "furnace", "grindstone", "loom", "cartography", "stonecutter");
+    public static final Set<String> CONTAINERS = GuiWindows.containers();
 
     private OverlayDefinitions() {
     }
@@ -104,12 +106,20 @@ public final class OverlayDefinitions {
             }
         }
 
-        // 256 is the tallest a single glyph can be, and a full-screen backdrop
-        // wants most of it. The defaults are what a chest GUI needs, so a pack
-        // that says nothing gets something that lines up.
-        int height = body.integer("height").orElse(kind == ContentKind.SCREEN ? 256 : 64);
-        int ascent = body.integer("ascent").orElse(kind == ContentKind.SCREEN ? 13 : 32);
-        int offset = body.integer("offset").orElse(kind == ContentKind.SCREEN ? 8 : 0);
+        // A screen's placement is arithmetic rather than taste: the sheet is
+        // 256 square with the window art centred on it, so where the backdrop
+        // has to go follows from the window's size. See GuiWindows, a port of
+        // the only place this has ever been correct. A pack may still state its
+        // own, for art laid out an unusual way.
+        final String screenContainer = container;
+        int height = body.integer("height").orElse(
+                kind == ContentKind.SCREEN ? GuiWindows.SHEET_SIZE : 64);
+        int ascent = body.integer("ascent").orElseGet(() -> kind == ContentKind.SCREEN
+                ? GuiWindows.ascentFor(screenContainer).orElse(30)
+                : 32);
+        int offset = body.integer("offset").orElseGet(() -> kind == ContentKind.SCREEN
+                ? GuiWindows.offsetFor(screenContainer).orElse(48)
+                : 0);
 
         if (height < 1 || height > 256) {
             diagnostics.add(Diagnostic.warning(origin, where,

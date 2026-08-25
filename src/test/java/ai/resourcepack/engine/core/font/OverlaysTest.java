@@ -94,16 +94,50 @@ class OverlaysTest {
     }
 
     @Test
-    void aScreenDefaultsToWhatAChestNeeds() throws IOException {
+    void aScreenIsPositionedFromItsWindowGeometry() throws IOException {
         write("mypack/screens/a.yml", "shop: {}\n");
 
         OverlayInfo shop = one(OverlayDefinitions.screens(load()), "mypack:shop");
 
-        // A pack that says nothing should get something that lines up.
+        // A six-row chest window is 176x222 centred on a 256 sheet, so the art
+        // is inset 40 across and 17 down: ascent = 13 + 17, offset = 8 + 40.
+        // Guessed numbers give a picture that is NEARLY right, which is worse
+        // than one obviously wrong — it reads as a rounding bug rather than a
+        // missing formula. See GuiWindows.
         assertEquals("chest_9x6", shop.container());
-        assertEquals(256, shop.height());
-        assertEquals(13, shop.ascent());
-        assertEquals(8, shop.offset());
+        assertEquals(GuiWindows.SHEET_SIZE, shop.height());
+        assertEquals(30, shop.ascent());
+        assertEquals(48, shop.offset());
+    }
+
+    @Test
+    void aShorterChestSitsLowerOnTheScreen() throws IOException {
+        write("mypack/screens/a.yml", "small:\n  container: chest_9x1\n");
+
+        OverlayInfo small = one(OverlayDefinitions.screens(load()), "mypack:small");
+
+        // 114 + 18 = 132 tall, so inset (256-132)/2 = 62 down.
+        assertEquals(13 + 62, small.ascent());
+        assertEquals(48, small.offset(), "every chest is the same width, so the shift does not move");
+    }
+
+    @Test
+    void aWiderWindowIsShiftedLess() throws IOException {
+        write("mypack/screens/a.yml", "beacon:\n  container: beacon\n");
+
+        // A beacon window is 230 wide, so it is inset only 13 across.
+        assertEquals(8 + 13, one(OverlayDefinitions.screens(load()), "mypack:beacon").offset());
+    }
+
+    @Test
+    void aPackCanStillStateItsOwnPlacement() throws IOException {
+        write("mypack/screens/a.yml", "shop:\n  ascent: 20\n  offset: 100\n");
+
+        OverlayInfo shop = one(OverlayDefinitions.screens(load()), "mypack:shop");
+
+        // For art that is not laid out the usual way.
+        assertEquals(20, shop.ascent());
+        assertEquals(100, shop.offset());
     }
 
     @Test

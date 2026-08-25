@@ -20,7 +20,8 @@ group = 'ai.resourcepack'
 // 0.12.0: icons. Pictures that behave like letters, and the codepoint
 //         allocator that finally had to exist.
 // 0.13.0: GUI screens and HUD overlays, on the same glyph mechanism.
-version = '0.13.0'
+// 0.13.1: a screen is positioned from its window geometry, not from a guess.
+version = '0.13.1'
 
 java {
     toolchain {
