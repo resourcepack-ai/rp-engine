@@ -1,0 +1,39 @@
+# RP Engine
+
+# Where built packs are served from.
+host:
+  # Port to listen on. 0 picks a free one, which is fine for testing and no
+  # use in production because the address below then has to match it.
+  port: 8181
+
+  # How a CLIENT reaches this server. The plugin cannot work this out for
+  # itself — it may be behind a proxy, a NAT, or a hostname only the outside
+  # world knows — so it is told. Players outside your network need a public
+  # address here, not 127.0.0.1.
+  public-address: "http://127.0.0.1:8181"
+
+  # Set false if you host the built zips yourself (a CDN, a web server) and
+  # only want the plugin to build them.
+  enabled: true
+
+pack:
+  # The pack_format written into pack.mcmeta. It must match the game version
+  # your players are on, or the client shows a "made for a different version"
+  # warning. 46 is 1.21.4, 55 is 1.21.5, 63 is 1.21.6, 64 is 1.21.7 and 1.21.8.
+  format: 46
+
+  # Shown in the client's resource pack list, with the bundle name appended.
+  description: "RP Engine"
+
+# Which bundle a player is given on join. Leave empty to send nothing and
+# drive it yourself.
+default-bundle: "main"
+
+# What the client is told when it is asked to accept a pack.
+prompt:
+  # Shown in the accept dialog. Empty uses the client's own wording.
+  message: ""
+
+  # true disconnects a player who declines. Off by default: kicking somebody
+  # for declining is a decision a server makes, not one a plugin makes for it.
+  force: false
