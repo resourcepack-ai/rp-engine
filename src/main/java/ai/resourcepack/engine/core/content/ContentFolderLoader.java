@@ -60,6 +60,21 @@ public final class ContentFolderLoader {
      */
     private static final java.util.Set<String> ASSET_FOLDERS = java.util.Set.of("assets", "overrides");
 
+    /**
+     * Kinds that are NOT put into the id space.
+     *
+     * <p>A recipe is not content, it is a rule about content: nothing ships in
+     * the pack for it, nothing references it by id, and no asset path derives
+     * from it. Registering one would mean {@code mypack:ruby_cube} could be an
+     * item or a recipe but never both — and naming a recipe after the thing it
+     * makes is the first thing anybody writes.
+     *
+     * <p>They still get a {@link ContentDefinition} and are still unique within
+     * their own kind, so two recipes cannot quietly share a name either.
+     */
+    private static final java.util.Set<ContentKind> UNREGISTERED =
+            java.util.Set.of(ContentKind.RECIPE);
+
     private static final String PACK_FILE = "pack.yml";
 
     private final ContentRegistration registration;
@@ -78,6 +93,7 @@ public final class ContentFolderLoader {
         map.put("fonts", ContentKind.FONT);
         map.put("screens", ContentKind.SCREEN);
         map.put("huds", ContentKind.HUD);
+        map.put("recipes", ContentKind.RECIPE);
         return Map.copyOf(map);
     }
 
@@ -200,6 +216,7 @@ public final class ContentFolderLoader {
 
     private void loadCategory(Path root, Path folder, ContentKind kind, Namespace namespace,
                               List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
+        java.util.Set<ContentId> unregisteredSeen = new java.util.HashSet<>();
         for (Path file : sortedYamlFiles(folder, diagnostics, relative(root, folder))) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
@@ -207,20 +224,36 @@ public final class ContentFolderLoader {
                 continue;
             }
             for (String path : document.get().keys()) {
-                define(kind, namespace, document.get(), path, origin, definitions, diagnostics);
+                define(kind, namespace, document.get(), path, origin,
+                        unregisteredSeen, definitions, diagnostics);
             }
         }
     }
 
     private void define(ContentKind kind, Namespace namespace, DefinitionNode document,
-                        String path, String origin,
+                        String path, String origin, java.util.Set<ContentId> unregisteredSeen,
                         List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
         if (!ContentId.isValidPath(path)) {
             diagnostics.add(Diagnostic.error(origin, path,
                     "Not a valid id. Use lowercase a-z, digits, and _ . - / only."));
             return;
         }
-        Optional<ContentEntry> entry = namespace.define(kind, path);
+
+        Optional<ContentEntry> entry;
+        if (UNREGISTERED.contains(kind)) {
+            // Outside the id space; see UNREGISTERED. Still unique within its
+            // own kind, so two recipes cannot share a name unnoticed.
+            ContentId id = ContentId.of(namespace.name(), path).orElseThrow();
+            if (!unregisteredSeen.add(id)) {
+                diagnostics.add(Diagnostic.error(origin, path,
+                        "Already defined in " + namespace.name() + "."));
+                return;
+            }
+            entry = Optional.of(ContentEntry.of(id, kind, namespace.source()));
+        } else {
+            entry = namespace.define(kind, path);
+        }
+
         if (entry.isEmpty()) {
             diagnostics.add(Diagnostic.error(origin, path,
                     "Already defined in " + namespace.name() + ". Ids are unique across a pack, "

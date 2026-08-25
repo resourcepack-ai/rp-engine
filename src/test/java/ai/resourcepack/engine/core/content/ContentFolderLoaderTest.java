@@ -97,11 +97,12 @@ class ContentFolderLoaderTest {
         write("mypack/fonts/a.yml", "icons: {}\n");
         write("mypack/screens/a.yml", "menu: {}\n");
         write("mypack/huds/a.yml", "mana: {}\n");
+        write("mypack/recipes/a.yml", "ruby_block: {}\n");
 
         LoadReport report = load();
 
         assertFalse(report.hasErrors());
-        assertEquals(8, report.definitions().size());
+        assertEquals(9, report.definitions().size());
         for (ContentKind kind : ContentKind.values()) {
             // FURNITURE has no folder: it is a block on an item, not a
             // category of its own. See ContentFolderLoader.CATEGORIES.

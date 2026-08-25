@@ -24,6 +24,8 @@ import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.sound.SoundAssets;
 import ai.resourcepack.engine.core.sound.SoundDefinitions;
+import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
+import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -78,6 +80,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
     private ModelPlacementListener placements;
+    private Recipes recipes;
+    /** Recipes are outside the id space, so this is the only list of them. */
+    private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
     private final IconsImpl icons = new IconsImpl();
     private final Overlays overlays = new Overlays();
@@ -92,6 +97,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         saveDefaultConfig();
         items = new ItemsImpl(this);
         placements = new ModelPlacementListener(this, items);
+        recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
         startHost();
@@ -100,6 +106,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        // Recipes live in the server's registry rather than ours, so leaving
+        // them behind would outlast the plugin that made them.
+        if (recipes != null) {
+            recipes.clear();
+        }
         if (host != null) {
             host.stop();
         }
@@ -209,6 +220,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 
+        // After the items exist, because a recipe's ingredients and result are
+        // resolved against them.
+        RecipeDefinitions.Result parsedRecipes = RecipeDefinitions.parse(loaded);
+        report(to, "recipes", parsedRecipes.diagnostics());
+        recipeIds = List.copyOf(parsedRecipes.recipes().keySet());
+        for (String problem : recipes.replace(parsedRecipes.recipes())) {
+            getLogger().warning("recipe " + problem);
+        }
+
         built = builtReport.packs();
         for (BuiltPack pack : built) {
             host.register(pack);
@@ -216,7 +236,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
                 + plural(loaded.definitions().size(), "definition") + ", "
-                + plural(built.size(), "bundle") + " built.");
+                + plural(built.size(), "bundle") + " built, "
+                + plural(recipes.size(), "recipe") + ".");
 
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
@@ -342,7 +363,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "push");
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -553,6 +574,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     sender.sendMessage("[RPEngine] No screens or HUDs loaded.");
                 }
                 return true;
+            case "recipes":
+                if (recipes.size() == 0) {
+                    sender.sendMessage("[RPEngine] No recipes registered.");
+                }
+                for (ContentId id : recipeIds) {
+                    sender.sendMessage("[RPEngine] " + id);
+                }
+                return true;
             case "sounds":
                 if (sounds.ids().isEmpty()) {
                     sender.sendMessage("[RPEngine] No sounds loaded.");
@@ -587,6 +616,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
+                sender.sendMessage("[RPEngine] /rpengine recipes");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
