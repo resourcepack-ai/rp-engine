@@ -1475,13 +1475,37 @@ public final class EmoteDirector implements Listener {
         // asking "did we just change a hand" rather than re-running the
         // equality it already ran.
         int slot = player.getInventory().getHeldItemSlot();
-        boolean changed = slot != session.blankedSlot
-            || session.mainHandItem != wasMain
-            || session.offHandItem != wasOff;
-        if (changed) {
-            hideHeldItems(player);
-            session.blankedSlot = slot;
-        }
+        boolean movedSlot = slot != session.blankedSlot;
+        boolean changedItem = session.mainHandItem != wasMain || session.offHandItem != wasOff;
+        if (movedSlot || changedItem) blankHeldSlot(player, session, slot);
+    }
+
+    /**
+     * Blanks the slot they are holding now, and gives back the one they left.
+     *
+     * <p><b>Exactly one slot is ever blank, and it is the one in their hand.</b>
+     * The blank is applied to whatever the client currently has selected — that
+     * is all {@code sendEquipmentChange} can address — so moving to another slot
+     * leaves the old one blank on their screen with a real item still in it.
+     * Scrolling sword, torch, sword during one emote emptied two slots that were
+     * not empty and left them that way until the emote ended.
+     *
+     * <p>There is no packet that un-blanks one slot: once the selection has
+     * moved, {@code MAINHAND} no longer names the slot that needs putting back.
+     * So the whole inventory is resent first and the new hand blanked on top of
+     * it, which lands as "everything true except the one thing in their hand".
+     * The two go out on one connection in order, so the client applies them that
+     * way round.
+     *
+     * <p>The resend is skipped when only the ITEM changed and the slot did not —
+     * a tool losing durability, a stack being eaten down — because then the slot
+     * needing a blank is the slot that already has one, and there is nothing
+     * stale anywhere else to repair.
+     */
+    private static void blankHeldSlot(Player player, Session session, int slot) {
+        if (slot != session.blankedSlot && session.blankedSlot >= 0) showHeldItems(player);
+        hideHeldItems(player);
+        session.blankedSlot = slot;
     }
 
     /**
@@ -1899,10 +1923,10 @@ public final class EmoteDirector implements Listener {
      * the server rather than to us — the same line {@link #onDamage} draws.
      *
      * <p>The cost, and it is a real one: the client applies the packet to its
-     * own inventory, so the selected hotbar slot draws empty while the emote
-     * runs. {@link #showHeldItems} is what puts that right, and it resends the
-     * whole inventory rather than the two slots, because a wearer who scrolled
-     * their hotbar has had every slot they passed through blanked.
+     * own inventory, so the slot in their hand draws empty for the length of
+     * the emote. {@link #blankHeldSlot} is what keeps that to the ONE slot they
+     * are actually holding, and {@link #showHeldItems} is what gives the lot
+     * back at the end.
      */
     private static void hideHeldItems(Player player) {
         ItemStack air = new ItemStack(Material.AIR);
@@ -1913,15 +1937,14 @@ public final class EmoteDirector implements Listener {
     /**
      * Gives the emoter their hotbar back.
      *
-     * <p>A full resync rather than the two equipment slots, because the blank
-     * follows the SELECTED slot: somebody who scrolled from a sword to a torch
-     * to a block during one emote has had three slots blanked on their client
-     * and only one of them is the one they are holding now. Sending the
-     * inventory is one packet and answers all of it.
+     * <p>A full resync rather than the two equipment slots, because there is no
+     * packet that names one inventory slot to put back: {@code MAINHAND} only
+     * ever addresses whatever is selected now. Sending the inventory is one
+     * packet and answers all of it whatever state the client was left in.
      *
      * <p>Called wherever the body comes back — the ending, and a group crossing
-     * into a state it leaves to vanilla — because from that moment the player's
-     * own item is the one that should be on screen.
+     * into a state it leaves to vanilla — and by {@link #blankHeldSlot} on the
+     * way to moving the blank to a different slot.
      */
     private static void showHeldItems(Player player) {
         player.updateInventory();
@@ -3091,6 +3114,33 @@ public final class EmoteDirector implements Listener {
         session.swingTick = player.getWorld().getGameTime();
         session.swingOffHand = player.getMainHand() == org.bukkit.inventory.MainHand.LEFT;
         pose(player.getUniqueId(), session, true);
+    }
+
+    /**
+     * Moves the blank to the slot they just scrolled to, in the same tick.
+     *
+     * <p>The tick loop would find this on its own a moment later, and a moment
+     * is exactly what is wrong with leaving it to the tick loop: for that one
+     * pass the new slot still holds a real item on their screen, so scrolling
+     * flashes the thing that is meant to be hidden. Same reasoning as
+     * {@link #onSwing} — a click and a scroll are both moments, and a poll
+     * finds a moment late by definition.
+     *
+     * <p>{@code getNewSlot} rather than the inventory's own: this fires BEFORE
+     * the server applies the change, so asking the player still answers with the
+     * slot they are leaving. The client has already moved, which is why blanking
+     * the hand here lands on the right one.
+     *
+     * <p>A cancelled scroll is left alone and heals itself — the server puts the
+     * selection back, and the next pass of the tick loop sees a slot that does
+     * not match the blank and repairs both ends.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onHeldSlotChange(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        Player player = event.getPlayer();
+        Session session = active.get(player.getUniqueId());
+        if (session == null || session.rigHidden) return;
+        blankHeldSlot(player, session, event.getNewSlot());
     }
 
     @EventHandler(ignoreCancelled = true)
