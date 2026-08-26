@@ -105,6 +105,21 @@ class ItemsTest {
     }
 
     @Test
+    void anItemCanCarryAPermission() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml",
+                "wand:\n  material: STICK\n  permission: mypack.wand\n"
+                        + "plain:\n  material: STICK\n");
+
+        ItemDefinitions.Result result = items();
+
+        assertEquals("mypack.wand", one(result, "mypack:wand").permission().orElseThrow());
+        // Empty rather than a default node: an item nobody restricted should
+        // not need a grant to use.
+        assertTrue(one(result, "mypack:plain").permission().isEmpty());
+    }
+
+    @Test
     void theTexturePathFallsOutOfTheId() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\nweapons/sword:\n  material: DIAMOND_SWORD\n");

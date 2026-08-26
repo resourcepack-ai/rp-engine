@@ -20,13 +20,14 @@ public final class ItemInfo {
     private final String texture;
     private final String modelFile;
     private final ContentId copiedFrom;
+    private final String permission;
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
-                     String texture, String modelFile, ContentId copiedFrom, int maxStack,
-                     boolean glow, boolean unbreakable) {
+                     String texture, String modelFile, ContentId copiedFrom, String permission,
+                     int maxStack, boolean glow, boolean unbreakable) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -34,6 +35,7 @@ public final class ItemInfo {
         this.texture = texture;
         this.modelFile = modelFile;
         this.copiedFrom = copiedFrom;
+        this.permission = permission;
         this.maxStack = maxStack;
         this.glow = glow;
         this.unbreakable = unbreakable;
@@ -41,8 +43,8 @@ public final class ItemInfo {
 
     /** Engine internal; built by the item loader from a definition body. */
     public static ItemInfo of(ContentId id, String material, String name, List<String> lore,
-                              String texture, String modelFile, ContentId copiedFrom, int maxStack,
-                              boolean glow, boolean unbreakable) {
+                              String texture, String modelFile, ContentId copiedFrom, String permission,
+                              int maxStack, boolean glow, boolean unbreakable) {
         return new ItemInfo(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(material, "material"),
@@ -51,6 +53,7 @@ public final class ItemInfo {
                 texture == null ? "" : texture,
                 modelFile == null ? "" : modelFile,
                 copiedFrom,
+                permission == null ? "" : permission,
                 maxStack,
                 glow,
                 unbreakable);
@@ -113,6 +116,18 @@ public final class ItemInfo {
      */
     public ContentId modelId() {
         return copiedFrom == null ? id : copiedFrom;
+    }
+
+    /**
+     * A permission node somebody needs to use this item, if the pack set one.
+     *
+     * <p>Checked when the item is USED, not when it is given or held. A
+     * permission that stopped somebody holding an item would mean taking it out
+     * of their inventory, which is a thing to do to somebody's stuff and not a
+     * decision an engine makes.
+     */
+    public Optional<String> permission() {
+        return permission.isEmpty() ? Optional.empty() : Optional.of(permission);
     }
 
     /** Its maximum stack size, or empty for the material's own. */

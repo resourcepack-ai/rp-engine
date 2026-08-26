@@ -28,7 +28,9 @@ group = 'ai.resourcepack'
 // 0.17.0: recipes.
 // 0.18.0: studio pairing, so a pack can be live-tested from the panel.
 // 0.19.0: a sync can be shared with other players.
-version = '0.19.0'
+// 0.20.0: items fire an event and can carry a permission; the command's one
+//         permission node became three.
+version = '0.20.0'
 
 java {
     toolchain {

@@ -97,6 +97,28 @@ does not stop it loading.
 There is deliberately **no `furniture/` folder**: putting a model down is
 something an item does, not a kind of content. See below.
 
+## Making an item do something
+
+Nothing in the engine gives an item behaviour, on purpose: a wand that casts, a
+key that opens a door, a compass that points somewhere are all decisions about a
+particular server. What the engine does is say what happened, with
+`ItemUseEvent` — id, stack, action, block. Cancel it and the vanilla use of the
+stack is cancelled too, so an item that is a bucket underneath does not fill
+with water while it is meant to be a wand.
+
+An item can also carry a permission:
+
+```yaml
+wand:
+  material: STICK
+  permission: mypack.wand
+```
+
+Checked when the item is **used**, not when it is given or held — a permission
+that stopped somebody holding an item would mean taking it out of their
+inventory, which is a thing to do to somebody's stuff rather than a decision an
+engine makes.
+
 ## Placing a model
 
 An item with a model can be put down in the world. Say so on the item:

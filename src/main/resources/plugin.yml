@@ -2,18 +2,30 @@ name: RPEngine
 main: ai.resourcepack.engine.RPEnginePlugin
 version: ${version}
 api-version: '1.21'
-description: Custom items, blocks, furniture, models and more, from a content folder.
+description: Custom items, models, sounds, icons, screens and recipes, from a content folder.
 author: ResourcePack AI
 folia-supported: false
 
 commands:
   rpengine:
-    description: Manage RP Engine content and bundles.
-    usage: /rpengine <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|sync|push>
+    description: Manage RP Engine content.
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|sync|push>
     aliases: [rpe, rp]
-    permission: rpengine.admin
+    # Deliberately NO permission here. One node on the command would mean the
+    # person testing a pack also has to be the person who can purge models, and
+    # on a real server those are different people. Each subcommand checks its
+    # own; see PERMISSIONS in RPEnginePlugin.
 
 permissions:
   rpengine.admin:
-    description: Use /rpengine.
+    description: Manage content - reload, inspect, purge.
+    default: op
+    children:
+      rpengine.give: true
+      rpengine.sync: true
+  rpengine.give:
+    description: Give yourself custom items, and play sounds and screens.
+    default: op
+  rpengine.sync:
+    description: Live-test a pack from ResourcePack AI Studio, and share it.
     default: op
