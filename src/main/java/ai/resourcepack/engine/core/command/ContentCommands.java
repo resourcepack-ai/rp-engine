@@ -47,8 +47,19 @@ public final class ContentCommands implements Area {
     }
 
     @Override
-    public List<String> subcommands() {
-        return List.of("reload", "bundles", "items", "give", "recipes", "push");
+    public String title() {
+        return "Content";
+    }
+
+    @Override
+    public List<Help> help() {
+        return List.of(
+                Help.of("reload", "reread the content folder and rebuild every pack"),
+                Help.of("items", "list the custom items"),
+                Help.of("give", "<id> [n]", "give yourself one"),
+                Help.of("recipes", "list the recipes"),
+                Help.of("bundles", "list the built packs, with sizes and hashes"),
+                Help.of("push", "send this server's pack to yourself again"));
     }
 
     @Override

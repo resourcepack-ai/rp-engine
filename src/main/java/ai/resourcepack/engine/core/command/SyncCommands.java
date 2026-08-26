@@ -52,8 +52,17 @@ public final class SyncCommands implements Area {
     }
 
     @Override
-    public List<String> subcommands() {
-        return List.of("sync", "distribute");
+    public String title() {
+        return "Studio";
+    }
+
+    @Override
+    public List<Help> help() {
+        return List.of(
+                Help.of("sync", "<code>", "pair with a pack open in Studio"),
+                Help.of("sync add", "<player>", "share your pushes with somebody"),
+                Help.of("sync", "who|leave|stop", "see, leave or end a sync"),
+                Help.of("distribute", "<code|off>", "serve a published pack to everybody"));
     }
 
     @Override

@@ -29,8 +29,17 @@ public final class ModelCommands implements Area {
     }
 
     @Override
-    public List<String> subcommands() {
-        return List.of("models", "purge", "entities", "spawn");
+    public String title() {
+        return "In the world";
+    }
+
+    @Override
+    public List<Help> help() {
+        return List.of(
+                Help.of("models", "[radius]", "list the placed models around you"),
+                Help.of("purge", "[radius]", "remove the ones whose content is gone"),
+                Help.of("entities", "list the custom entities"),
+                Help.of("spawn", "<id>", "spawn one where you stand"));
     }
 
     @Override

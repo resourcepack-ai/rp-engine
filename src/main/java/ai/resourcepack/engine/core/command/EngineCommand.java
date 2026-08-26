@@ -37,6 +37,9 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
     /** Subcommand to the area that owns it, in the order they are offered. */
     private final Map<String, Area> areas = new LinkedHashMap<>();
 
+    /** The areas themselves, in the order the help reads them out. */
+    private final List<Area> groups;
+
     public EngineCommand(ContentRegistry registry, Supplier<List<BuiltPack>> built,
                          ContentCommands content, ModelCommands models,
                          InterfaceCommands ui, EmoteCommands emote,
@@ -44,7 +47,8 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         this.registry = registry;
         this.built = built;
         this.emote = emote;
-        for (Area area : List.of(content, models, ui, emote, sync, liquid)) {
+        this.groups = List.of(content, models, ui, emote, sync, liquid);
+        for (Area area : groups) {
             for (String sub : area.subcommands()) {
                 areas.put(sub, area);
             }
@@ -131,7 +135,18 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         return allowed(sender, sub) ? areas.get(sub).complete(sender, sub, args) : List.of();
     }
 
-    /** What this server holds, and the shape of every command that reaches it. */
+    /**
+     * What this server holds, and every command that reaches it.
+     *
+     * <p>One subcommand per line, in named groups, with the arguments and a
+     * sentence about what it does. It used to be eight lines of pipe-separated
+     * names — six unrelated commands crammed onto one row because they
+     * happened to fit — which told you what existed and nothing else.
+     *
+     * <p>Only what the reader can actually run, for the same reason the
+     * completer offers only that: a help listing a command that then refuses
+     * is worse than one that leaves it out.
+     */
     private boolean info(CommandSender sender) {
         if (!sender.hasPermission(permissionFor("info"))) {
             Reply.to(sender, "You need " + permissionFor("info") + " for that.");
@@ -150,14 +165,37 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         }
         Reply.to(sender, kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds));
 
-        Reply.to(sender, "/rpengine reload | bundles | items | give <id> [n]");
-        Reply.to(sender, "/rpengine models [radius] | purge [radius] | push");
-        Reply.to(sender, "/rpengine sounds | sound <id> | icons | say <text>");
-        Reply.to(sender, "/rpengine recipes | emotes | emote <name|stop>");
-        Reply.to(sender, "/rpengine entities | spawn <id> | liquid");
-        Reply.to(sender, "/rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
-        Reply.to(sender, "/rpengine distribute <code|off>");
-        Reply.to(sender, "/rpengine screens | screen <id> | hud <id|clear>");
+        // One width across every group, so the descriptions line up down the
+        // whole menu rather than per section.
+        List<Help> mine = new ArrayList<>();
+        for (Area area : groups) {
+            for (Help line : area.help()) {
+                if (allowed(sender, line.command())) {
+                    mine.add(line);
+                }
+            }
+        }
+        if (mine.isEmpty()) {
+            Reply.to(sender, "You have no RP Engine commands. Ask for rpengine.admin.");
+            return true;
+        }
+        int width = Help.width(mine);
+
+        for (Area area : groups) {
+            List<Help> lines = area.help().stream()
+                    .filter(line -> allowed(sender, line.command()))
+                    .toList();
+            if (lines.isEmpty()) {
+                continue;
+            }
+            sender.sendMessage("");
+            sender.sendMessage(Reply.HEADING + area.title());
+            for (Help line : lines) {
+                sender.sendMessage(Reply.BODY + line.render(width));
+            }
+        }
+        sender.sendMessage("");
+        sender.sendMessage(Reply.BODY + "  /emote <name|stop> [player...]     play an emote on yourself");
         return true;
     }
 }
