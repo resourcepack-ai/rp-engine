@@ -54,7 +54,10 @@ public final class LiquidPools {
 
         /** Whether a point is inside. */
         public boolean contains(String inWorld, double x, double y, double z) {
-            return world.equals(inWorld)
+            // The world is only null in a file somebody hand-edited, and this
+            // is asked once a second for every player on the server: a throw
+            // here would be a stack trace a second for ever.
+            return world != null && world.equals(inWorld)
                     && x >= minX && x <= maxX + 1
                     && y >= minY && y <= maxY + 1
                     && z >= minZ && z <= maxZ + 1;
@@ -138,7 +141,17 @@ public final class LiquidPools {
         try {
             Saved saved = gson.fromJson(
                     new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8), Saved.class);
-            pools = saved == null || saved.pools == null ? List.of() : List.copyOf(saved.pools);
+            List<Pool> read = new ArrayList<>();
+            for (Pool pool : saved == null || saved.pools == null ? List.<Pool>of() : saved.pools) {
+                // A pool with no world belongs to no place. Dropped rather than
+                // carried, so the file is the only thing that has to be fixed.
+                if (pool != null && pool.world != null && pool.liquid != null) {
+                    read.add(pool);
+                } else {
+                    logger.warning("liquids.json holds a pool with no world or no liquid. Skipped.");
+                }
+            }
+            pools = List.copyOf(read);
         } catch (IOException | JsonSyntaxException e) {
             // Kept rather than overwritten: a file somebody hand-edited into
             // invalidity is one they can still fix, and rewriting it here would

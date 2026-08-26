@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -104,11 +105,14 @@ class ContentFolderLoaderTest {
         LoadReport report = load();
 
         assertFalse(report.hasErrors());
-        assertEquals(11, report.definitions().size());
+        assertEquals(8, report.definitions().size());
+        // A kind has a folder only if something reads it: there is no
+        // models/, blocks/ or emotes/. See ContentFolderLoader.CATEGORIES.
+        Set<ContentKind> withFolders = Set.of(ContentKind.ITEM, ContentKind.SOUND,
+                ContentKind.FONT, ContentKind.SCREEN, ContentKind.HUD,
+                ContentKind.RECIPE, ContentKind.ENTITY, ContentKind.LIQUID);
         for (ContentKind kind : ContentKind.values()) {
-            // FURNITURE has no folder: it is a block on an item, not a
-            // category of its own. See ContentFolderLoader.CATEGORIES.
-            int expected = kind == ContentKind.FURNITURE ? 0 : 1;
+            int expected = withFolders.contains(kind) ? 1 : 0;
             assertEquals(expected, report.definitions(kind).size(),
                     () -> "wrong count for " + kind);
         }
@@ -274,15 +278,15 @@ class ContentFolderLoaderTest {
     void idsAreUniqueAcrossCategoryFolders() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby: {}\n");
-        write("mypack/blocks/a.yml", "ruby: {}\n");
+        write("mypack/entities/a.yml", "ruby: {}\n");
 
         LoadReport report = load();
 
         assertEquals(List.of("mypack:ruby"), ids(report));
-        // Category folders are walked in sorted order, so blocks/ gets there
+        // Category folders are walked in sorted order, so entities/ gets there
         // first and items/ is the one that loses. Which one wins is not the
         // point; that it is the same one on every machine is.
-        assertEquals(ContentKind.BLOCK, report.definitions().get(0).kind());
+        assertEquals(ContentKind.ENTITY, report.definitions().get(0).kind());
         assertEquals(1, report.diagnostics(Diagnostic.Severity.ERROR).size());
     }
 

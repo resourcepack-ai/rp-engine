@@ -47,11 +47,20 @@ public final class ContentFolderLoader {
     /**
      * Which top-level folder inside a pack yields which kind.
      *
-     * <p>Not every {@link ContentKind} has one. FURNITURE deliberately does
-     * not: a placed model is an item you can put down, declared in a
-     * {@code placed model:} block on the item itself, because an id is unique
-     * across the registry and one chair cannot be two ids without the format
-     * feeling like paperwork.
+     * <p><strong>A category exists only if something reads it.</strong> A
+     * folder that loads, registers ids and is then never looked at is worse
+     * than no folder at all: it is an afternoon spent writing content that
+     * does nothing, with no error to explain why. So there is no
+     * {@code models/} — a placed model is an item you can put down, declared
+     * in a {@code place:} block on the item, because an id is unique across
+     * the registry and one chair cannot be two ids without the format feeling
+     * like paperwork. There is no {@code blocks/}, because custom blocks are
+     * not a feature here. And there is no {@code emotes/} yet: emote keyframes
+     * arrive from a Studio push, and the day they can be hand-written is the
+     * day this gains a line.
+     *
+     * <p>Anything else is warned about by name, which is what tells somebody
+     * they have typed {@code item/} or {@code Sounds/}.
      */
     private static final Map<String, ContentKind> CATEGORIES = categories();
 
@@ -88,9 +97,6 @@ public final class ContentFolderLoader {
     private static Map<String, ContentKind> categories() {
         Map<String, ContentKind> map = new LinkedHashMap<>();
         map.put("items", ContentKind.ITEM);
-        map.put("blocks", ContentKind.BLOCK);
-        map.put("models", ContentKind.MODEL);
-        map.put("emotes", ContentKind.EMOTE);
         map.put("sounds", ContentKind.SOUND);
         map.put("fonts", ContentKind.FONT);
         map.put("screens", ContentKind.SCREEN);

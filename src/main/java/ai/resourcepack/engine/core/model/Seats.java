@@ -101,12 +101,18 @@ public final class Seats implements Listener {
         }
     }
 
-    /** Gets everybody up. Called when the plugin unloads. */
+    /**
+     * Removes every stand. Called when the plugin unloads.
+     *
+     * <p>By stand rather than by player: somebody can be seated and offline for
+     * the moment it takes a quit to be processed, and a stand nobody is riding
+     * is exactly the thing this class exists to not leave behind.
+     */
     public void clear() {
-        for (UUID playerId : Map.copyOf(seated).keySet()) {
-            Player player = plugin.getServer().getPlayer(playerId);
-            if (player != null) {
-                stand(player);
+        for (UUID standId : seated.values()) {
+            Entity stand = plugin.getServer().getEntity(standId);
+            if (stand != null) {
+                stand.remove();
             }
         }
         seated.clear();

@@ -40,9 +40,13 @@ import java.util.UUID;
  *
  * <p><strong>Riding, rather than a task that moves the display every tick.</strong>
  * A passenger is moved by the server, so the model never lags behind the body,
- * never drifts when the chunk is busy, and costs nothing per tick. The display
- * also dies with its mount, which means the failure everybody has with this
- * feature — a field of orphaned displays where mobs used to be — cannot happen.
+ * never drifts when the chunk is busy, and costs nothing per tick.
+ *
+ * <p>The failure this feature usually has is a field of orphaned displays where
+ * mobs used to be. Two things prevent it: the display is removed when its mount
+ * dies, and the mob never despawns — a removed mount <em>ejects</em> its
+ * passengers rather than taking them with it, so a mob that quietly vanished
+ * because somebody walked away would leave the model standing there.
  *
  * <p>What it costs: a passenger cannot be rotated independently of what it
  * rides, so the model faces the way the mob faces. For a character that is
@@ -121,6 +125,14 @@ public final class CustomEntities implements Listener {
             mob.setCustomNameVisible(true);
         });
         mob.setSilent(info.silent());
+        // Kept, both ways. A custom entity that despawned because a player
+        // walked far enough away would take somebody's boss with it — and
+        // worse, leave the display behind, because a removed mount ejects its
+        // passengers rather than taking them.
+        mob.setPersistent(true);
+        if (mob instanceof Mob) {
+            ((Mob) mob).setRemoveWhenFarAway(false);
+        }
 
         if (mob instanceof LivingEntity && info.health() > 0) {
             LivingEntity living = (LivingEntity) mob;

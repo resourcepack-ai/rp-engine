@@ -15,13 +15,13 @@ plugins/RPEngine/content/
   mypack/                    <- the folder name IS the namespace
     pack.yml                 <- required
     items/       *.yml
-    blocks/      *.yml
-    models/      *.yml
-    emotes/      *.yml
     sounds/      *.yml
     fonts/       *.yml
     screens/     *.yml
     huds/        *.yml
+    recipes/     *.yml
+    entities/    *.yml
+    liquids/     *.yml
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -31,6 +31,13 @@ plugins/RPEngine/content/
       textures/block/stone.png
     pack.png                 optional, offered to the bundle
 ```
+
+**A category folder exists only if something reads it.** There is no
+`models/` — a placed model is a `place:` block on the item, below. No
+`blocks/`: custom blocks are not a feature here. No `emotes/` yet: emote
+keyframes arrive from a Studio push, and the day they can be hand-written is
+the day the list above gains a line. Any other folder is warned about by name,
+which is what catches `item/` and `Sounds/`.
 
 **The folder name is the namespace**, and it has to satisfy
 `ContentId.isValidNamespace`: lowercase `a-z`, digits, and `_ . -`. A folder
@@ -131,6 +138,7 @@ chair:
     facing: cardinal     # cardinal | diagonal | free | fixed
     scale: 1.0
     solid: false         # true puts a barrier behind it
+    seat: 0.6            # sit on it, this far above its base. 0 is no seat
     # width and height are the hitbox, in blocks. Leave them out and they are
     # measured off the model, which is almost always what you want.
 ```
@@ -161,6 +169,97 @@ is broken.
 
 Category folders are walked recursively, so `items/weapons/swords.yml` is
 fine. The subfolder is organisation only: **it contributes nothing to the id**.
+
+### Sitting on one
+
+`seat:` is how far above the model's base a player's backside goes, in blocks —
+about `0.6` for a dining chair. Right-click to sit, shift to get up.
+
+The seat itself is a marker armour stand the player rides, which is the only
+way to sit somebody in vanilla. It is **never saved**: gone on dismount, on
+quit, when the model is broken, and when the server stops. That is deliberate,
+because the way this feature usually rots is a world full of invisible stands
+somebody can stand on.
+
+One player per model, and a model with a seat keeps its hitbox.
+
+## Armour
+
+Any item can be worn, with its own art:
+
+```yaml
+crown:
+  material: GOLDEN_HELMET
+  armor: head          # head | chest | legs | feet
+```
+
+Ship one texture, and which one depends on the slot:
+
+- `legs` → `assets/textures/entity/equipment/humanoid_leggings/<id>.png`
+- everything else → `assets/textures/entity/equipment/humanoid/<id>.png`
+
+Leggings are a different layer rather than a second one: the game draws them
+from their own narrower sheet, so art drawn for the wide one puts a belt buckle
+on somebody's knee.
+
+This is vanilla's own equipment path, which arrived in 1.21.4 and is the reason
+the version floor is where it is. It replaces the old tricks outright — dyed
+leather spends a colour that can then never be used for anything else, and
+armour trims are stuck in the trim palette.
+
+## Entities
+
+A real mob wearing a model.
+
+```yaml
+guard:
+  type: ZOMBIE         # required. Chosen for BEHAVIOUR: the looks are replaced
+  model: mypack:guard  # an item id, whose model it wears
+  name: "&cTemple Guard"
+  health: 40
+  scale: 1.2
+  silent: false
+  tags: [temple, boss]
+```
+
+It is genuinely a mob: its own AI, its own loot, found by `@e[tag=boss]`, seen
+by every other plugin. Pick `type` for how it should *behave* — a zombie hunts
+and burns, a villager wanders and flees, an armour stand does nothing at all.
+
+The model is an `ItemDisplay` riding the mob, with the vanilla body made
+invisible rather than removed, so the hitbox stays where the model looks. A
+custom entity never despawns: one that vanished because a player walked away
+would leave its model standing there, because a removed mount ejects its
+passengers rather than taking them.
+
+`/rp spawn mypack:guard` puts one where you stand.
+
+## Liquids
+
+Minecraft has two fluids and a server cannot add a third. A custom liquid is
+**real water or lava with your rules applied to whoever is in it** — it swims,
+flows, floats boats and is seen as water by every other plugin, because it is
+water. What tells acid from ocean is a volume somebody marked out, not the
+blocks in it.
+
+```yaml
+acid:
+  base: water          # water | lava
+  effect: POISON
+  amplifier: 1
+  damage: 1.0          # per second
+  fireproof: false
+```
+
+Marking one out is two corners and a name: `/rp liquid corner`, walk to the
+opposite corner, `/rp liquid fill mypack:acid`. Pools are saved to
+`liquids.json` beside the other stores, in the order they were made, and the
+first one containing a point wins — so a small pool drawn inside a big one only
+counts if it was drawn first.
+
+Boxes rather than a record of every block: a lake is thousands of blocks that
+change shape as it flows, and a per-block record would be wrong within a second
+of somebody breaking a bank.
 
 ## pack.yml
 
