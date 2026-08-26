@@ -24,6 +24,10 @@ import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
+import ai.resourcepack.engine.core.model.RigAnimator;
+import ai.resourcepack.engine.core.model.RigPlacementListener;
+import ai.resourcepack.engine.core.model.ModelsImpl;
+import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.font.OverlayDefinitions;
 import ai.resourcepack.engine.core.font.Overlays;
@@ -96,6 +100,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
+    private RigStore rigs;
+    private RigAnimator animator;
+    private RigPlacementListener rigPlacement;
+    private ModelsImpl models;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -115,6 +123,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
         // so it is what they get.
+        // Animated rigs: studio's own placement path, beside ours. A studio
+        // model is a carrier item dispatched by custom_model_data, so it is
+        // identified and placed differently from a content-folder item — two
+        // paths because there are genuinely two kinds of thing.
+        Host rigHost = new Host(this, getDataFolder(), null, null);
+        rigs = new RigStore(getDataFolder());
+        rigs.load(getLogger());
+        animator = new RigAnimator(rigHost, rigs);
+        rigPlacement = new RigPlacementListener(rigHost, rigs, animator);
+        models = new ModelsImpl(animator, rigs, rigPlacement);
+
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
         emotes = new EmoteDirector(
@@ -129,10 +148,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
                 getLogger(), this::onStudioPush, this::onStudioGive);
         invites = new EmoteInvites(this, emotes());
+        // The handle an event carries, wired both ways at startup exactly as
+        // the library does it.
+        animator.placements(models::handleFor);
+        rigPlacement.placements(models::handleFor);
+        getServer().getPluginManager().registerEvents(rigPlacement, this);
+        animator.start();
+
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
         startHost();
         rebuild(getServer().getConsoleSender());
+    }
+
+    /** The studio models this server holds, and the rigs standing in its worlds. */
+    public ai.resourcepack.engine.api.Models models() {
+        return models;
     }
 
     /** The emotes this server holds. */
@@ -154,6 +185,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
+        }
+        if (animator != null) {
+            animator.stop();
+        }
+        if (rigs != null) {
+            rigs.save(getLogger());
         }
         // Recipes live in the server's registry rather than ours, so leaving
         // them behind would outlast the plugin that made them.
@@ -353,6 +390,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // The manifest first: a pack whose art arrives without its keyframes
         // is a pack somebody can wear and not emote in, and the two came down
         // the same push.
+        // The rigs manifest is what makes a placed studio model animate. Same
+        // push, different slot; see StudioPush.
+        StudioPush.rigsUrl(payload)
+                .flatMap(StudioPush::fetchText)
+                .ifPresent(json -> {
+                    ai.resourcepack.engine.api.MergeResult merged = rigs.updateFromJson(json);
+                    if (merged.ok()) {
+                        rigs.save(getLogger());
+                        getLogger().info("Rigs: " + merged.count() + " from " + merged.packId() + ".");
+                    } else {
+                        getLogger().warning("Rig manifest: " + merged.error());
+                    }
+                });
+
         StudioPush.emotesUrl(payload)
                 .flatMap(StudioPush::fetchText)
                 .ifPresent(json -> {
