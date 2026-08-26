@@ -659,6 +659,56 @@ public final class EmoteDirector implements Listener {
         List<ItemStack> partItems = Collections.emptyList();
         /** Whether the rig is currently swapped out for air. */
         boolean rigHidden;
+        /**
+         * The rig's hands, or null on a participant whose arms this pack has
+         * no bone for. See {@link HeldItem}.
+         *
+         * <p>Spawned once and kept for the emote, like the bones and unlike
+         * the props: what a player is holding changes constantly and the ITEM
+         * is swapped, where a prop's model belongs to an emote and goes away
+         * with it. Respawning an entity every time somebody scrolled their
+         * hotbar would be the same cost {@link #setRigHidden} avoids.
+         */
+        ItemDisplay mainHand;
+        ItemDisplay offHand;
+        /**
+         * What those two were last told to hold.
+         *
+         * <p>The player's inventory is read every pass — a slot change, an
+         * arrow leaving a quiver and a sword breaking are all things nothing
+         * fires a usable event for — but the metadata is only written when the
+         * answer actually changed. Null means "nothing sent yet", which is a
+         * different fact from air.
+         */
+        ItemStack mainHandItem;
+        ItemStack offHandItem;
+        /**
+         * Whether this participant's arms are the slim pair.
+         *
+         * <p>Resolved once at the start from the profile they are wearing,
+         * exactly like the arm models are, so the hand sits on the centre line
+         * of the arm that was actually spawned.
+         */
+        boolean slim;
+        /**
+         * The tick a swing was armed on, or {@link Long#MIN_VALUE} for none.
+         *
+         * <p>Written by the animation event rather than by the tick loop, which
+         * is what keeps it instant — see {@link ArmSwing}. Never cleared: it is
+         * read through {@link ArmSwing#running}, so a swing that has run its six
+         * ticks stops contributing on its own and there is no tidy-up pass that
+         * could miss one.
+         */
+        long swingTick = ArmSwing.NOT_SWINGING;
+        /**
+         * Which arm the armed swing belongs to.
+         *
+         * <p>Left-handedness is a client setting rather than a fact about the
+         * world, so it is read off the player when the swing is armed instead
+         * of being assumed. It decides which bone the overlay lands on and
+         * which way the outward tilt goes.
+         */
+        boolean swingOffHand;
 
         boolean stance() {
             return !triggers.isEmpty() || group != null;
@@ -1274,6 +1324,11 @@ public final class EmoteDirector implements Listener {
         }
 
         spawnProps(session, emote, base, performerId);
+        // The arms this player actually got, so the hand sits on their centre
+        // line rather than on a wide arm's. Resolved here because `variant` is
+        // already the answer the arm models were chosen with.
+        session.slim = SkinModel.SLIM.equals(variant);
+        spawnHands(session, base);
         session.nameTag = spawnNameTag(player, session);
 
         // Invisible, and nothing more — the camera stays where the body was.
@@ -1337,6 +1392,82 @@ public final class EmoteDirector implements Listener {
     }
 
     /**
+     * The two displays that hold what the player is holding.
+     *
+     * <p>Both are spawned whatever the hands contain, including nothing: an
+     * empty one carries air, costs a single metadata field, and is there the
+     * instant somebody draws a sword. Spawning on demand would put an entity
+     * spawn — which a client cannot interpolate into — in front of the first
+     * frame of every draw.
+     *
+     * <p><b>The item display transform is the load-bearing part.</b> Bones are
+     * spawned {@code NONE}, because a bone is raw geometry we have posed
+     * ourselves; a held item is a real item, and {@code THIRDPERSON_*HAND}
+     * makes the client apply that item model's own in-hand display block. So a
+     * sword lies along the hand, a torch stands up in it and a shield turns
+     * side-on, each because its own model file says so — the same data vanilla
+     * reads. Nothing here knows what a sword is.
+     */
+    private void spawnHands(Session session, Location base) {
+        session.mainHand = spawnHand(session, base, false);
+        session.offHand = spawnHand(session, base, true);
+    }
+
+    private ItemDisplay spawnHand(Session session, Location base, boolean offHand) {
+        final boolean carried = session.stance();
+        return base.getWorld().spawn(base, ItemDisplay.class, d -> {
+            d.setItemStack(new ItemStack(Material.AIR));
+            d.setItemDisplayTransform(offHand
+                ? ItemDisplay.ItemDisplayTransform.THIRDPERSON_LEFTHAND
+                : ItemDisplay.ItemDisplayTransform.THIRDPERSON_RIGHTHAND);
+            // Never chunk-saved, for the same reason a bone is not: an emote is
+            // a moment and a hand that outlived the server would be litter.
+            d.setPersistent(false);
+            if (carried) carry(d);
+        });
+    }
+
+    /**
+     * Puts whatever the player is holding into the rig's hands.
+     *
+     * <p>Polled rather than driven by an event, and deliberately: a slot change
+     * has {@code PlayerItemHeldEvent}, but an item being eaten, a tool breaking,
+     * a stack being picked up into the held slot and an arrow leaving a quiver
+     * do not have one between them. One reference comparison per hand per tick
+     * is cheaper than the four listeners that would still miss a case, and
+     * nothing is written unless the answer changed.
+     *
+     * <p><b>An empty hand is air, not a skipped write.</b> Putting a sword away
+     * has to take it out of the rig's hand, and "leave the last thing there"
+     * is what a naive change check does.
+     */
+    private void syncHands(Player player, Session session) {
+        session.mainHandItem = syncHand(
+            session.mainHand, player.getInventory().getItemInMainHand(), session.mainHandItem, session.rigHidden);
+        session.offHandItem = syncHand(
+            session.offHand, player.getInventory().getItemInOffHand(), session.offHandItem, session.rigHidden);
+    }
+
+    /**
+     * One hand, returning what it is now holding.
+     *
+     * <p>A hidden rig holds air whatever the player has: the body is back and
+     * is rendering its own held item, and two copies of somebody's sword is
+     * worse than neither. What is remembered is what was SENT rather than what
+     * the player has, which is what makes the crossing work in both directions
+     * — the pass that puts the rig away sees air against a sword and writes it,
+     * and the pass that brings it back sees the sword against air.
+     */
+    private static ItemStack syncHand(
+            ItemDisplay display, ItemStack held, ItemStack sent, boolean rigHidden) {
+        if (display == null || !display.isValid()) return sent;
+        ItemStack wanted = rigHidden || held == null ? new ItemStack(Material.AIR) : held.clone();
+        if (wanted.equals(sent)) return sent;
+        display.setItemStack(wanted);
+        return wanted;
+    }
+
+    /**
      * Puts the rig away, or brings it back, and swaps the body the other way.
      *
      * <p>Only a group ever calls this, and only for a state it leaves on the
@@ -1365,6 +1496,12 @@ public final class EmoteDirector implements Listener {
             ItemStack item = hidden || i >= session.partItems.size() ? air : session.partItems.get(i);
             display.setItemStack(item);
         }
+        // The hands go with the rig, and for exactly the reason the name does:
+        // while the body is back it is rendering its own held item, so a rig
+        // hand still holding a copy of it is the same duplicate the nametag
+        // would be. `syncHands` reads `rigHidden`, so this only has to be
+        // ordered before it — which the tick loop is.
+        syncHands(player, session);
         // The name goes with the rig: while the body is back, so is its own
         // real nametag, and two of them stacked is worse than neither.
         setNameTagShown(session, !hidden);
@@ -1434,6 +1571,11 @@ public final class EmoteDirector implements Listener {
         for (ItemDisplay display : session.propParts) {
             if (display != null && display.isValid()) display.remove();
         }
+        // The hands are the third list, and the reason this method exists at
+        // all: props were once added as a second one without it and leaked on
+        // two of the three ways out.
+        if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.remove();
+        if (session.offHand != null && session.offHand.isValid()) session.offHand.remove();
         if (session.nameTag != null && session.nameTag.isValid()) session.nameTag.remove();
     }
 
@@ -2505,6 +2647,11 @@ public final class EmoteDirector implements Listener {
             for (ItemDisplay display : session.propParts) {
                 if (display != null && display.isValid()) display.teleport(base);
             }
+            // Carried on the same terms as everything else. A hand left behind
+            // would hold the sword where its owner was standing a moment ago,
+            // which is the drift the lead exists to cancel.
+            if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.teleport(base);
+            if (session.offHand != null && session.offHand.isValid()) session.offHand.teleport(base);
         }
         // The name's height moves with the crouch as well as with the feet, so
         // it is re-placed when either changed. Its x/z follow `base`, which is
@@ -2815,6 +2962,43 @@ public final class EmoteDirector implements Listener {
         return false;
     }
 
+    /**
+     * A swing, on the rig, in the same tick the click arrived.
+     *
+     * <p><b>This listener is the entire reason a swing is not late.</b>
+     * Everything else about a worn emote is discovered by the tick loop asking
+     * the player what they are doing, which costs up to a full tick before
+     * anything is even known — acceptable for a gait, where being a tick behind
+     * a walk is invisible, and not acceptable for a swing, which is over in six.
+     * {@code PlayerAnimationEvent} fires as the client's swing packet is read,
+     * so this is the earliest moment the server can possibly know.
+     *
+     * <p>And it poses straight away rather than leaving it for the next pass,
+     * with {@code immediate} set so the client is told to land the frame instead
+     * of easing into it over {@link #INTERPOLATION_TICKS}. The two together are
+     * what make the round trip the only delay left: the swing goes out on this
+     * tick's packet, at the angle the arm should already be at (see
+     * {@link ArmSwing#progress}), with no interpolation ramp in front of it.
+     *
+     * <p>{@code MONITOR} because this changes nothing about the event, and
+     * {@code ignoreCancelled} because a plugin that cancelled the swing meant
+     * it — an animation nobody else will see should not play on the rig either.
+     */
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSwing(org.bukkit.event.player.PlayerAnimationEvent event) {
+        if (event.getAnimationType() != org.bukkit.event.player.PlayerAnimationType.ARM_SWING) return;
+        Player player = event.getPlayer();
+        Session session = active.get(player.getUniqueId());
+        if (session == null) return;
+        // A rig that is away is the player's own body, and vanilla is already
+        // animating the swing on it. Overlaying ours would be a second swing on
+        // an arm nobody can see.
+        if (session.rigHidden) return;
+        session.swingTick = player.getWorld().getGameTime();
+        session.swingOffHand = player.getMainHand() == org.bukkit.inventory.MainHand.LEFT;
+        pose(player.getUniqueId(), session, true);
+    }
+
     @EventHandler(ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player)) return;
@@ -2871,6 +3055,11 @@ public final class EmoteDirector implements Listener {
                 endTroupe(session, EmoteEndEvent.Cause.QUIT);
                 continue;
             }
+            // What they are holding, before anything is posed. Both kinds of
+            // emote get it: an ordinary one hides the body exactly as a stance
+            // does, so a rig playing a wave with an empty hand is the same
+            // wrong picture standing still as it is walking.
+            syncHands(player, session);
             // A worn emote is the whole of the other branch: it never asks
             // whether they moved, because moving is the point of it.
             if (session.stance()) {
@@ -2929,10 +3118,21 @@ public final class EmoteDirector implements Listener {
     private void pose(UUID playerId, Session session, boolean immediate) {
         double elapsed = 0;
         Player player = Bukkit.getPlayer(playerId);
+        long now = session.startTick;
         if (player != null) {
-            elapsed = Math.max(0, player.getWorld().getGameTime() - session.startTick) / 20.0;
+            now = player.getWorld().getGameTime();
+            elapsed = Math.max(0, now - session.startTick) / 20.0;
         }
         double t = animationTime(session.emote, elapsed);
+
+        // How far through a swing this pose is, or 0 for a rig that is not
+        // mid-swing. Read once rather than per bone: it is the same answer for
+        // the arm, the forearm below it and the hand hanging off that, and the
+        // whole point of an overlay is that one value moves all three.
+        double swing = ArmSwing.running(session.swingTick, now)
+            ? ArmSwing.progress(session.swingTick, now)
+            : 0;
+        String swingBone = session.swingOffHand ? HeldItem.OFF_HAND_ATTACH : HeldItem.MAIN_HAND_ATTACH;
 
         // The root, once, as the matrix every bone starts from. Composing it
         // first is what makes it a PARENT: each bone's own step is appended to
@@ -2954,6 +3154,15 @@ public final class EmoteDirector implements Listener {
             Matrix4f parent = bone.parent != null ? composed.get(bone.parent) : null;
             Matrix4f animation = new Matrix4f(parent != null ? parent : root);
             RigMath.applyStep(animation, session.animators, bone.key, bone.pivot, t);
+            // The swing, on top of what the emote already asked this bone to
+            // do rather than instead of it — so a rig can swing mid-walk and
+            // the walk carries on underneath. It goes on the UPPER arm, which
+            // is what puts it into `composed` before the forearm is built from
+            // it, and is why the elbow and the held item both come along
+            // without either of them knowing a swing exists.
+            if (swing > 0 && swingBone.equalsIgnoreCase(bone.key)) {
+                ArmSwing.applyTo(animation, bone.pivot, swing, session.swingOffHand);
+            }
             composed.put(bone.key, animation);
 
             ItemDisplay display = session.parts.get(i);
@@ -2981,6 +3190,75 @@ public final class EmoteDirector implements Listener {
         }
 
         poseProps(session, root, composed, t, immediate);
+        poseHands(session, composed, immediate);
+    }
+
+    /**
+     * Both hands, wherever the arms they hang off ended up.
+     *
+     * <p>Composed exactly like a prop attached to that arm — the bone chain,
+     * then the hand's own step — because that is what a held item IS. The one
+     * difference is that the step is fixed rather than authored: a prop carries
+     * an offset and its own animator, and a hand carries {@link HeldItem}'s
+     * socket, which does not move relative to the arm.
+     *
+     * <p>A pack with no bone for an arm gets nothing rather than a hand at the
+     * rig's origin: the whole-limb skeleton has no forearm and falls back to the
+     * upper arm, and a table with neither is a manifest whose arms this jar
+     * cannot find at all. A sword floating at somebody's feet is worse than a
+     * sword that is not drawn.
+     */
+    private void poseHands(Session session, Map<String, Matrix4f> composed, boolean immediate) {
+        poseHand(session, session.mainHand, HeldItem.MAIN_HAND_ATTACH, false, composed, immediate);
+        poseHand(session, session.offHand, HeldItem.OFF_HAND_ATTACH, true, composed, immediate);
+    }
+
+    private void poseHand(
+            Session session,
+            ItemDisplay display,
+            String attach,
+            boolean offHand,
+            Map<String, Matrix4f> composed,
+            boolean immediate) {
+        if (display == null || !display.isValid()) return;
+
+        // The hand is on the forearm where the skeleton has one, else on the
+        // arm — the same two-step lookup a prop does, through the same map, so
+        // the two cannot disagree about which end of a limb a hand is on.
+        Matrix4f chain = composed.get(EmoteStore.attachEndBone(attach));
+        if (chain == null) chain = composed.get(attach);
+        if (chain == null) {
+            // Case-insensitively, once, before giving up: `attach` is the
+            // lowercase spelling a manifest's props use and a bone key is
+            // camelCase, and the map above is keyed by bone key. The forearm
+            // lookup hits because ATTACH_END's values are already camelCase;
+            // the whole-limb fallback would not.
+            for (Map.Entry<String, Matrix4f> entry : composed.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(attach)) {
+                    chain = entry.getValue();
+                    break;
+                }
+            }
+        }
+        if (chain == null) return;
+
+        Matrix4f m = new Matrix4f(chain);
+        HeldItem.applyTo(m, offHand, session.slim);
+
+        Matrix4f out = new Matrix4f();
+        if (session.yaw != 0f) out.rotateY((float) Math.toRadians(-session.yaw));
+        // The same scale the bones and the props get, for the same reason: a
+        // hand placed in rig space has to shrink with the rig, or the sword is
+        // sized for a body 6.7% bigger than the one holding it.
+        out.scale(PLAYER_SCALE);
+        out.mul(RigMath.toItemDisplaySpace(m));
+
+        Transformation next = RigMath.toTransformation(out);
+        if (next.equals(display.getTransformation())) return;
+        display.setInterpolationDelay(1);
+        display.setInterpolationDelay(0);
+        display.setInterpolationDuration(immediate ? 0 : INTERPOLATION_TICKS);
+        display.setTransformation(next);
     }
 
     /**

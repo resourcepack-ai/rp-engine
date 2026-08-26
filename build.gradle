@@ -47,7 +47,11 @@ group = 'ai.resourcepack'
 // 0.31.0: the command layer moves out of the plugin class into six areas,
 //         and /emote finally completes its own arguments. The studio
 //         callbacks follow it into StudioRelay; the plugin is wiring again.
-version = '0.31.0'
+// 0.32.0: an emote's rig holds what its wearer is holding, and swings it.
+//         The hand is a display per hand composed through the arm's own bone
+//         chain; the swing is an overlay armed from PlayerAnimationEvent and
+//         posed in that same call, not a movement state resolved by the poll.
+version = '0.32.0'
 
 java {
     toolchain {
