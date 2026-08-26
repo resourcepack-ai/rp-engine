@@ -40,7 +40,8 @@ group = 'ai.resourcepack'
 // 0.25.0: a permission per command, and emotes with a cast ask first.
 // 0.26.0: animated model rigs, and the public Models service.
 // 0.27.0: skins and notifications, the last two protocol messages.
-version = '0.27.0'
+// 0.28.0: pack distribution, and the Bedrock bridge behind a seam.
+version = '0.28.0'
 
 java {
     toolchain {
@@ -52,6 +53,8 @@ java {
 repositories {
     mavenCentral()
     maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
+    // Geyser, for the Bedrock bridge.
+    maven { url = 'https://repo.opencollab.dev/main/' }
 }
 
 dependencies {
@@ -59,6 +62,15 @@ dependencies {
     // id scheme rests on the string-valued minecraft:item_model component,
     // which arrived in 1.21.4. See the design notes, "The id scheme".
     compileOnly 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
+
+    // Geyser for the Bedrock bridge: per-session pack serving and
+    // transfer-based reconnects. compileOnly on purpose — at runtime the
+    // classes come from the server's own Geyser-Spigot, and everything that
+    // touches them goes through BedrockSupport, which answers no on a server
+    // that has none rather than throwing NoClassDefFoundError somewhere
+    // unrelated.
+    compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
+    compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'
 
     // The websocket client for studio pairing. Shaded, so a server owner still
     // installs one jar, and relocated so this plugin cannot be the reason

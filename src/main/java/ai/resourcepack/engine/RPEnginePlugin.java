@@ -11,7 +11,11 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.bedrock.GeyserBridge;
 import ai.resourcepack.engine.core.command.Completions;
+import ai.resourcepack.engine.core.distribution.BedrockSupport;
+import ai.resourcepack.engine.core.distribution.DistributionManager;
+import ai.resourcepack.engine.core.distribution.ProtocolResolver;
 import ai.resourcepack.engine.core.emote.EmoteDirector;
 import ai.resourcepack.engine.core.emote.EmoteStore;
 import ai.resourcepack.engine.core.emote.EmoteInvites;
@@ -105,6 +109,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private RigPlacementListener rigPlacement;
     private ModelsImpl models;
     private ai.resourcepack.engine.core.skin.SkinApplier skins;
+    private DistributionManager distribution;
+    private BedrockSupport bedrock = BedrockSupport.NONE;
+
+    /**
+     * Players whose next quit is a Geyser transfer rather than a departure.
+     *
+     * <p>Serving a Bedrock pack reconnects them, which reaches the server as a
+     * disconnect. Without this their sync pairing is dropped mid-apply.
+     */
+    private final java.util.Set<java.util.UUID> reconnecting =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -130,6 +145,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // paths because there are genuinely two kinds of thing.
         Host rigHost = new Host(this, getDataFolder(), null, null);
         skins = new ai.resourcepack.engine.core.skin.SkinApplier(this);
+
+        // Geyser is a plugin a server may not have, and its classes are simply
+        // not there when it does not. Probed once, and everything that asks
+        // about Bedrock asks through the seam.
+        if (getServer().getPluginManager().getPlugin("Geyser-Spigot") != null) {
+            try {
+                bedrock = new GeyserBridge(this, reconnecting::add);
+                getLogger().info("Geyser found; Bedrock players are served their own pack.");
+            } catch (RuntimeException | NoClassDefFoundError e) {
+                getLogger().warning("Geyser is here but the bridge would not start: " + e.getMessage());
+            }
+        }
+        distribution = new DistributionManager(this, bedrock, new ProtocolResolver(getLogger()),
+                getConfig().getString("distribution.api", "https://studio.resourcepack.ai"));
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
         animator = new RigAnimator(rigHost, rigs);
@@ -160,6 +189,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
+        getServer().getPluginManager().registerEvents(distribution, this);
+        distribution.start();
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -188,6 +219,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
+        }
+        if (distribution != null) {
+            distribution.shutdown();
         }
         if (animator != null) {
             animator.stop();
@@ -886,6 +920,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        if (reconnecting.remove(event.getPlayer().getUniqueId())) {
+            // A Geyser transfer, not a departure. Everything below would undo
+            // an apply that is still in flight.
+            return;
+        }
         overlays.clear(event.getPlayer());
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
@@ -927,7 +966,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "sync", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "sync", "publish", "push");
 
     /** Whether {@code sender} may run {@code sub}. */
     private static boolean allowed(CommandSender sender, String sub) {
@@ -1219,6 +1258,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     sender.sendMessage("[RPEngine] " + id);
                 }
                 return true;
+            case "publish": {
+                if (args.length < 2) {
+                    sender.sendMessage("[RPEngine] /rpengine publish <code>  bind this server to a published pack");
+                    sender.sendMessage("[RPEngine] /rpengine publish off     stop serving it");
+                    return true;
+                }
+                if (args[1].equalsIgnoreCase("off")) {
+                    distribution.unbind(sender);
+                    return true;
+                }
+                distribution.claim(sender, args[1]);
+                return true;
+            }
             case "recipes":
                 if (recipes.size() == 0) {
                     sender.sendMessage("[RPEngine] No recipes registered.");
