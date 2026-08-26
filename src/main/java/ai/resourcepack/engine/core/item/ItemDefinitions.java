@@ -102,9 +102,36 @@ public final class ItemDefinitions {
                 body.string("model").orElse(null),
                 copiedFrom,
                 body.string("permission").orElse(null),
+                armorSlot(body, origin, where, diagnostics),
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
                 body.bool("unbreakable").orElse(Boolean.FALSE)));
+    }
+
+    /** The body slots a piece of armour can be worn in. */
+    private static final List<String> ARMOR_SLOTS = List.of("head", "chest", "legs", "feet");
+
+    /**
+     * Which slot this is worn in, or null for an item that is not armour.
+     *
+     * <p>Refused rather than guessed when it is not one of the four: a slot
+     * the game does not have produces an item that cannot be worn at all, and
+     * finding that out at load beats finding it out while wearing nothing.
+     */
+    private static String armorSlot(DefinitionNode body, String origin, String where,
+                                    List<Diagnostic> diagnostics) {
+        Optional<String> declared = body.string("armor");
+        if (declared.isEmpty()) {
+            return null;
+        }
+        String slot = declared.get().trim().toLowerCase(Locale.ROOT);
+        if (!ARMOR_SLOTS.contains(slot)) {
+            diagnostics.add(Diagnostic.error(origin, where,
+                    "armor: " + declared.get() + " is not a body slot. One of: "
+                            + String.join(", ", ARMOR_SLOTS) + "."));
+            return null;
+        }
+        return slot;
     }
 
     /**

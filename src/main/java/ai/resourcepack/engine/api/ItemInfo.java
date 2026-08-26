@@ -21,12 +21,13 @@ public final class ItemInfo {
     private final String modelFile;
     private final ContentId copiedFrom;
     private final String permission;
+    private final String armor;
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
-                     String texture, String modelFile, ContentId copiedFrom, String permission,
+                     String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                      int maxStack, boolean glow, boolean unbreakable) {
         this.id = id;
         this.material = material;
@@ -36,6 +37,7 @@ public final class ItemInfo {
         this.modelFile = modelFile;
         this.copiedFrom = copiedFrom;
         this.permission = permission;
+        this.armor = armor;
         this.maxStack = maxStack;
         this.glow = glow;
         this.unbreakable = unbreakable;
@@ -43,7 +45,7 @@ public final class ItemInfo {
 
     /** Engine internal; built by the item loader from a definition body. */
     public static ItemInfo of(ContentId id, String material, String name, List<String> lore,
-                              String texture, String modelFile, ContentId copiedFrom, String permission,
+                              String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                               int maxStack, boolean glow, boolean unbreakable) {
         return new ItemInfo(
                 Objects.requireNonNull(id, "id"),
@@ -54,6 +56,7 @@ public final class ItemInfo {
                 modelFile == null ? "" : modelFile,
                 copiedFrom,
                 permission == null ? "" : permission,
+                armor == null ? "" : armor,
                 maxStack,
                 glow,
                 unbreakable);
@@ -128,6 +131,22 @@ public final class ItemInfo {
      */
     public Optional<String> permission() {
         return permission.isEmpty() ? Optional.empty() : Optional.of(permission);
+    }
+
+    /**
+     * Which body slot this is worn in, if it is armour.
+     *
+     * <p>{@code head}, {@code chest}, {@code legs} or {@code feet}. Empty for
+     * everything that is not worn.
+     *
+     * <p>Armour here is the vanilla 1.21.4 path rather than the old dyed-
+     * leather or trim tricks: the item declares an {@code equippable}
+     * component naming an equipment asset, and the pack ships the layers that
+     * asset points at. That means real armour with its own art, on any base
+     * item, without spending the leather colour space.
+     */
+    public Optional<String> armor() {
+        return armor.isEmpty() ? Optional.empty() : Optional.of(armor);
     }
 
     /** Its maximum stack size, or empty for the material's own. */

@@ -43,7 +43,8 @@ group = 'ai.resourcepack'
 // 0.28.0: pack distribution, and the Bedrock bridge behind a seam.
 // 0.28.1: what the ports lost on the way over.
 // 0.29.0: presence, for a server that holds the trusted token.
-version = '0.29.0'
+// 0.30.0: seats, armour, custom entities and liquids.
+version = '0.30.0'
 
 java {
     toolchain {

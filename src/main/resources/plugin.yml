@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|sync|publish|push>
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|liquid|sync|publish|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -47,6 +47,9 @@ permissions:
       rpengine.recipes: true
       rpengine.emote: true
       rpengine.emotes: true
+      rpengine.entities: true
+      rpengine.spawn: true
+      rpengine.liquid: true
       rpengine.sync: true
       rpengine.publish: true
       rpengine.push: true
@@ -103,6 +106,15 @@ permissions:
   rpengine.emotes:
     description: List the emotes.
     default: true
+  rpengine.entities:
+    description: List the custom entities.
+    default: op
+  rpengine.spawn:
+    description: Spawn a custom entity.
+    default: op
+  rpengine.liquid:
+    description: Mark out pools of a custom liquid.
+    default: op
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.
     default: op

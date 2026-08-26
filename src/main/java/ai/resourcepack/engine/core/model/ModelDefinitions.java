@@ -114,8 +114,15 @@ public final class ModelDefinitions {
 
         // The item IS the model, so the two cannot disagree about which
         // model to use.
+        // 0 means nobody sits on it, which is every model that does not say
+        // otherwise. A seat is measured from the block floor, so a chair whose
+        // cushion is drawn 7px up says 0.44.
+        float seat = body.string("seat").isPresent()
+                ? size(body, "seat", 0f, origin, where, diagnostics)
+                : 0f;
+
         return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
-                scale, width, height, body.bool("solid").orElse(Boolean.FALSE)));
+                scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat));
     }
 
     /**

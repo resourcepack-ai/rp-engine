@@ -37,9 +37,10 @@ public final class ModelInfo {
     private final float width;
     private final float height;
     private final boolean solid;
+    private final float seat;
 
     private ModelInfo(ContentId id, ContentId item, Facing facing,
-                          float scale, float width, float height, boolean solid) {
+                          float scale, float width, float height, boolean solid, float seat) {
         this.id = id;
         this.item = item;
         this.facing = facing;
@@ -47,16 +48,17 @@ public final class ModelInfo {
         this.width = width;
         this.height = height;
         this.solid = solid;
+        this.seat = seat;
     }
 
     /** Engine internal; built by the model loader. */
     public static ModelInfo of(ContentId id, ContentId item, Facing facing,
-                                   float scale, float width, float height, boolean solid) {
+                                   float scale, float width, float height, boolean solid, float seat) {
         return new ModelInfo(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(item, "item"),
                 facing == null ? Facing.CARDINAL : facing,
-                scale, width, height, solid);
+                scale, width, height, solid, seat);
     }
 
     /** Its id. */
@@ -93,6 +95,24 @@ public final class ModelInfo {
     /** Hitbox height in blocks. */
     public float height() {
         return height;
+    }
+
+    /**
+     * How high off the block floor somebody sits on it, or 0 for a model
+     * nobody sits on.
+     *
+     * <p>A chair, a bench, a car seat. Sitting is a right-click rather than a
+     * separate kind of content: the model is already a model, and needing a
+     * second id to make one of them sittable is the sort of tax that makes a
+     * format feel like paperwork.
+     */
+    public float seat() {
+        return seat;
+    }
+
+    /** Whether anybody can sit on it at all. */
+    public boolean sittable() {
+        return seat > 0f;
     }
 
     /**

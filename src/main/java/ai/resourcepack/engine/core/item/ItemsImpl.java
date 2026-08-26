@@ -102,6 +102,7 @@ public final class ItemsImpl implements Items {
             }
             meta.setLore(lore);
         }
+        item.armor().ifPresent(slot -> wearable(meta, item, slot));
         item.maxStack().ifPresent(meta::setMaxStackSize);
         if (item.glow()) {
             meta.setEnchantmentGlintOverride(Boolean.TRUE);
@@ -130,6 +131,33 @@ public final class ItemsImpl implements Items {
     @Override
     public boolean is(ItemStack stack, ContentId id) {
         return id != null && idOf(stack).filter(id::equals).isPresent();
+    }
+
+    /**
+     * Makes a stack wearable, with the pack's own art on the body.
+     *
+     * <p>The component names an equipment asset the build wrote; see
+     * {@code ItemAssets.writeEquipment}. Any item can carry it, so a wizard
+     * hat can be a real helmet without also being a leather cap.
+     */
+    private static void wearable(ItemMeta meta, ItemInfo item, String slot) {
+        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        equippable.setSlot(slotOf(slot));
+        equippable.setModel(new NamespacedKey(item.id().namespace(), item.id().path()));
+        meta.setEquippable(equippable);
+    }
+
+    private static org.bukkit.inventory.EquipmentSlot slotOf(String slot) {
+        switch (slot) {
+            case "chest":
+                return org.bukkit.inventory.EquipmentSlot.CHEST;
+            case "legs":
+                return org.bukkit.inventory.EquipmentSlot.LEGS;
+            case "feet":
+                return org.bukkit.inventory.EquipmentSlot.FEET;
+            default:
+                return org.bukkit.inventory.EquipmentSlot.HEAD;
+        }
     }
 
     /**
