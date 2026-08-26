@@ -44,14 +44,13 @@ public final class StudioPush {
      *                the second space" and may be two space-joined urls. The
      *                first is the pack; the second, when present, is the
      *                animation manifest, which nothing here reads yet
-     * @return the pack, or empty with the reason on the other side of the
-     *         {@link #reason} field
+     * @return the pack, or why there is not one, in the vocabulary the
+     *         protocol uses
      */
-    public static Optional<BuiltPack> fetch(String payload, Path outputDir) {
+    public static Fetch fetch(String payload, Path outputDir) {
         String url = packUrl(payload);
         if (url.isEmpty()) {
-            reason = "bad-payload";
-            return Optional.empty();
+            return Fetch.failed("bad-payload");
         }
         Path target = outputDir.resolve(BUNDLE + ".zip");
         Path partial = outputDir.resolve(BUNDLE + ".zip.part");
@@ -62,8 +61,7 @@ public final class StudioPush {
             connection.setReadTimeout(60_000);
             connection.setInstanceFollowRedirects(true);
             if (connection.getResponseCode() / 100 != 2) {
-                reason = "http-" + connection.getResponseCode();
-                return Optional.empty();
+                return Fetch.failed("http-" + connection.getResponseCode());
             }
 
             // Downloaded beside the real file and moved into place, so a push
@@ -78,18 +76,16 @@ public final class StudioPush {
                 while ((read = in.read(buffer)) > 0) {
                     size += read;
                     if (size > MAX_BYTES) {
-                        reason = "too-large";
-                        return Optional.empty();
+                        return Fetch.failed("too-large");
                     }
                     digest.update(buffer, 0, read);
                     out.write(buffer, 0, read);
                 }
             }
             Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
-            return Optional.of(BuiltPack.of(BUNDLE, target, hex(digest.digest()), size, 0));
+            return Fetch.of(BuiltPack.of(BUNDLE, target, hex(digest.digest()), size, 0));
         } catch (IOException | NoSuchAlgorithmException | IllegalArgumentException e) {
-            reason = "exception";
-            return Optional.empty();
+            return Fetch.failed("exception");
         } finally {
             try {
                 Files.deleteIfExists(partial);
@@ -172,14 +168,41 @@ public final class StudioPush {
     }
 
     /**
-     * Why the last {@link #fetch} failed, in the vocabulary the protocol uses.
+     * A downloaded pack, or why there is not one.
      *
-     * <p>Static and therefore not thread-safe, which is fine because pushes
-     * arrive one at a time down one socket — but it is the sort of thing that
-     * stops being fine quietly, so if a second caller ever appears this becomes
-     * a field on a result object.
+     * <p>A returned value rather than a field somebody reads afterwards. The
+     * reason used to live in a mutable static, which was correct only while
+     * pushes arrived one at a time down one socket — the kind of thing that
+     * stops being true without anything failing loudly enough to notice.
      */
-    public static volatile String reason = "exception";
+    public static final class Fetch {
+
+        private final BuiltPack pack;
+        private final String reason;
+
+        private Fetch(BuiltPack pack, String reason) {
+            this.pack = pack;
+            this.reason = reason;
+        }
+
+        static Fetch of(BuiltPack pack) {
+            return new Fetch(pack, "");
+        }
+
+        static Fetch failed(String reason) {
+            return new Fetch(null, reason);
+        }
+
+        /** The pack, or empty. */
+        public Optional<BuiltPack> pack() {
+            return Optional.ofNullable(pack);
+        }
+
+        /** Why there is not one. Empty on success. */
+        public String reason() {
+            return reason;
+        }
+    }
 
     private static String hex(byte[] bytes) {
         StringBuilder out = new StringBuilder(bytes.length * 2);

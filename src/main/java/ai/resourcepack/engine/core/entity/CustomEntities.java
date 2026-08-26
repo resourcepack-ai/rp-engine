@@ -16,11 +16,15 @@ import org.bukkit.entity.Mob;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Transformation;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -66,10 +70,10 @@ public final class CustomEntities implements Listener {
     }
 
     /** Every custom entity id, sorted. */
-    public java.util.Collection<ContentId> ids() {
-        java.util.List<ContentId> sorted = new java.util.ArrayList<>(entities.keySet());
+    public Collection<ContentId> ids() {
+        List<ContentId> sorted = new ArrayList<>(entities.keySet());
         sorted.sort(ContentId::compareTo);
-        return java.util.List.copyOf(sorted);
+        return List.copyOf(sorted);
     }
 
     /** What the pack said an entity is. */
@@ -141,7 +145,7 @@ public final class CustomEntities implements Listener {
         if (mob instanceof Mob) {
             // Otherwise the vanilla armour and held item still render, floating
             // in the middle of whatever the model is.
-            org.bukkit.inventory.EntityEquipment equipment = ((Mob) mob).getEquipment();
+            EntityEquipment equipment = ((Mob) mob).getEquipment();
             if (equipment != null) {
                 equipment.clear();
             }

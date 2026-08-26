@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -33,7 +34,7 @@ public final class Completions {
                 found.add(option);
             }
         }
-        java.util.Collections.sort(found);
+        Collections.sort(found);
         return found;
     }
 
@@ -62,7 +63,7 @@ public final class Completions {
                 found.add(full);
             }
         }
-        java.util.Collections.sort(found);
+        Collections.sort(found);
         return found;
     }
 }

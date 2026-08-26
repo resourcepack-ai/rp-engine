@@ -2,13 +2,18 @@ package ai.resourcepack.engine;
 
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentRegistry;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
-import ai.resourcepack.engine.api.LoadReport;
-import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.Emotes;
+import ai.resourcepack.engine.api.Icons;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.Models;
+import ai.resourcepack.engine.api.Namespace;
+import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
 import ai.resourcepack.engine.core.command.ContentCommands;
@@ -18,50 +23,55 @@ import ai.resourcepack.engine.core.command.InterfaceCommands;
 import ai.resourcepack.engine.core.command.LiquidCommands;
 import ai.resourcepack.engine.core.command.ModelCommands;
 import ai.resourcepack.engine.core.command.SyncCommands;
+import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.distribution.BedrockSupport;
 import ai.resourcepack.engine.core.distribution.DistributionManager;
 import ai.resourcepack.engine.core.distribution.ProtocolResolver;
+import ai.resourcepack.engine.core.emote.EmoteDirector;
+import ai.resourcepack.engine.core.emote.EmoteInvites;
+import ai.resourcepack.engine.core.emote.EmoteStore;
+import ai.resourcepack.engine.core.emote.EmoteWording;
+import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
+import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.font.IconDefinitions;
+import ai.resourcepack.engine.core.font.IconsImpl;
+import ai.resourcepack.engine.core.font.OverlayDefinitions;
+import ai.resourcepack.engine.core.font.Overlays;
+import ai.resourcepack.engine.core.item.Geometry;
+import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.item.ItemDefinitions;
+import ai.resourcepack.engine.core.item.ItemListener;
+import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.liquid.LiquidDefinitions;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
 import ai.resourcepack.engine.core.liquid.Liquids;
-import ai.resourcepack.engine.core.emote.EmoteDirector;
-import ai.resourcepack.engine.core.emote.EmoteStore;
-import ai.resourcepack.engine.core.emote.EmoteInvites;
-import ai.resourcepack.engine.core.emote.EmoteWording;
-import ai.resourcepack.engine.core.emote.EmotesImpl;
-import ai.resourcepack.engine.core.content.ContentFolderLoader;
-import ai.resourcepack.engine.core.item.ItemAssets;
-import ai.resourcepack.engine.core.item.ItemListener;
-import ai.resourcepack.engine.core.item.ItemDefinitions;
-import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
+import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
-import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
-import ai.resourcepack.engine.core.font.FontAssets;
-import ai.resourcepack.engine.core.font.OverlayDefinitions;
-import ai.resourcepack.engine.core.font.Overlays;
-import ai.resourcepack.engine.core.font.IconDefinitions;
-import ai.resourcepack.engine.core.font.IconsImpl;
-import ai.resourcepack.engine.core.sound.SoundAssets;
-import ai.resourcepack.engine.core.sound.SoundDefinitions;
+import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.recipe.Recipes;
-import ai.resourcepack.engine.core.sound.SoundsImpl;
-import ai.resourcepack.engine.core.sync.StudioPush;
-import ai.resourcepack.engine.core.sync.SyncClient;
-import ai.resourcepack.engine.core.sync.SyncGroup;
-import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
 import ai.resourcepack.engine.core.serve.PackHost;
+import ai.resourcepack.engine.core.skin.SkinApplier;
+import ai.resourcepack.engine.core.sound.SoundAssets;
+import ai.resourcepack.engine.core.sound.SoundDefinitions;
+import ai.resourcepack.engine.core.sound.SoundsImpl;
+import ai.resourcepack.engine.core.sync.StudioPush;
+import ai.resourcepack.engine.core.sync.StudioRelay;
+import ai.resourcepack.engine.core.sync.SyncClient;
+import ai.resourcepack.engine.core.sync.SyncGroup;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -75,7 +85,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The plugin: loads the content folder, builds a pack per bundle, serves them,
@@ -109,6 +121,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelPlacementListener placements;
     private Recipes recipes;
     private SyncClient sync;
+    private StudioRelay studio;
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
@@ -121,7 +134,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private LiquidPools pools;
     private Liquids liquids;
     private LiquidCommands liquidCommands;
-    private ai.resourcepack.engine.core.skin.SkinApplier skins;
+    private SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
 
@@ -131,8 +144,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * <p>Serving a Bedrock pack reconnects them, which reaches the server as a
      * disconnect. Without this their sync pairing is dropped mid-apply.
      */
-    private final java.util.Set<java.util.UUID> reconnecting =
-            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Set<UUID> reconnecting = ConcurrentHashMap.newKeySet();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -140,7 +152,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final IconsImpl icons = new IconsImpl();
     private final Overlays overlays = new Overlays();
 
-    private PackHost host;
+    private PackHost packHost;
     private PackDelivery delivery;
     private List<BuiltPack> built = List.of();
     private String defaultBundle = "";
@@ -160,9 +172,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // listeners and key namespace. The rig side never asks for the emote
         // wording or the cast permission, but two Hosts differing only in the
         // fields one of them ignores is a thing to keep in step for no reason.
-        Host host = new Host(this, getDataFolder(), new EmoteWording(),
+        Host library = new Host(this, getDataFolder(), new EmoteWording(),
                 getConfig().getString("emotes.cast-permission", EmoteWording.MULTI_PERMISSION));
-        skins = new ai.resourcepack.engine.core.skin.SkinApplier(this);
+        skins = new SkinApplier(this);
 
         // Geyser is a plugin a server may not have, and its classes are simply
         // not there when it does not. Probed once, and everything that asks
@@ -179,8 +191,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"));
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
-        animator = new RigAnimator(host, rigs);
-        rigPlacement = new RigPlacementListener(host, rigs, animator);
+        animator = new RigAnimator(library, rigs);
+        rigPlacement = new RigPlacementListener(library, rigs, animator);
         models = new ModelsImpl(animator, rigs, rigPlacement);
 
         emoteStore = new EmoteStore(getDataFolder());
@@ -190,7 +202,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // emote ending, and finding on join that the one you were in did not
         // survive a crash — and EmoteMessages' own doc says silence there
         // reads as a bug.
-        emotes = new EmoteDirector(host, emoteStore);
+        emotes = new EmoteDirector(library, emoteStore);
         seats = new Seats(this);
         creatures = new CustomEntities(this, items);
         pools = new LiquidPools(getDataFolder());
@@ -204,11 +216,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
         getServer().getPluginManager().registerEvents(new ItemListener(items), this);
+        // The client and the relay each need the other: the client dispatches
+        // to the relay, the relay answers down the client. Nothing fires until
+        // open() below, so the lambdas can read a field set on the next line.
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
                 getConfig().getString("sync.server-token", ""),
-                getLogger(), this::onStudioPush, this::onStudioGive,
-                this::onStudioSkin, this::onStudioTell);
+                getLogger(),
+                (code, payload) -> studio.onPush(code, payload),
+                (code, payload) -> studio.onGive(code, payload),
+                (code, payload) -> studio.onSkin(code, payload),
+                (code, payload) -> studio.onTell(code, payload));
+        studio = new StudioRelay(this, sync, group, rigs, emoteStore, skins,
+                getDataFolder().toPath().resolve("output"),
+                pack -> packHost.register(pack), this::pushTo);
         invites = new EmoteInvites(this, emotes());
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
@@ -236,7 +257,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /**
      * Hands every command to {@link EngineCommand}.
      *
-     * <p>After {@link #startHost()}, because two of the areas need the host
+     * <p>After {@link #startHost()}, because two of the areas need the pack host
      * and the delivery it makes. The areas take the services they use and
      * nothing else; what they cannot be given is this plugin's own lifecycle,
      * which arrives as the four callbacks below.
@@ -244,7 +265,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private void registerCommands() {
         liquidCommands = new LiquidCommands(liquids, pools, getLogger());
         EngineCommand commands = new EngineCommand(registry, () -> built,
-                new ContentCommands(items, () -> built, host, recipes, () -> recipeIds,
+                new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
                 new ModelCommands(placements, creatures),
                 new InterfaceCommands(sounds, icons, overlays),
@@ -254,7 +275,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 liquidCommands);
 
         for (String name : List.of("rpengine", "emote", "emotereply")) {
-            org.bukkit.command.PluginCommand registered = getCommand(name);
+            PluginCommand registered = getCommand(name);
             if (registered == null) {
                 // plugin.yml and this list disagreeing is a packaging mistake,
                 // and a silent one: the command simply does nothing in game.
@@ -287,12 +308,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /** The studio models this server holds, and the rigs standing in its worlds. */
-    public ai.resourcepack.engine.api.Models models() {
+    public Models models() {
         return models;
     }
 
     /** The emotes this server holds. */
-    public ai.resourcepack.engine.api.Emotes emotes() {
+    public Emotes emotes() {
         return new EmotesImpl(emotes, emoteStore);
     }
 
@@ -345,8 +366,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (sync != null) {
             sync.close();
         }
-        if (host != null) {
-            host.stop();
+        if (packHost != null) {
+            packHost.stop();
         }
     }
 
@@ -361,19 +382,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * <p>Separate from {@link #registry()} because reading what a server holds
      * and adding to it are different privileges, and the great majority of
      * callers only want the first. Claim a namespace, define into the handle,
-     * and release it when your plugin disables — see {@link ai.resourcepack.engine.api.Namespace}.
+     * and release it when your plugin disables — see {@link Namespace}.
      */
-    public ai.resourcepack.engine.api.ContentRegistration registration() {
+    public ContentRegistration registration() {
         return registry;
     }
 
     /** The icons this server holds, and the way to put one into text. */
-    public ai.resourcepack.engine.api.Icons icons() {
+    public Icons icons() {
         return icons;
     }
 
     /** The custom sounds this server holds. */
-    public ai.resourcepack.engine.api.Sounds sounds() {
+    public Sounds sounds() {
         return sounds;
     }
 
@@ -385,8 +406,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private void startHost() {
         defaultBundle = getConfig().getString("default-bundle", "");
         String address = getConfig().getString("host.public-address", "http://127.0.0.1:8181");
-        host = new PackHost(address);
-        delivery = new PackDelivery(sessions, host,
+        packHost = new PackHost(address);
+        delivery = new PackDelivery(sessions, packHost,
                 getConfig().getString("prompt.message", ""),
                 getConfig().getBoolean("prompt.force", false));
 
@@ -395,7 +416,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         try {
-            int port = host.start(getConfig().getInt("host.port", 8181));
+            int port = packHost.start(getConfig().getInt("host.port", 8181));
             getLogger().info("Serving packs on port " + port + " as " + address);
         } catch (IOException e) {
             getLogger().warning("Could not listen on port " + getConfig().getInt("host.port", 8181)
@@ -438,8 +459,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "items", ItemDefinitions.checkGivable(parsedItems));
         items.replace(parsedItems.items());
 
-        ModelDefinitions.Result parsedModels =
-                ModelDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
+        ModelDefinitions.Result parsedModels = ModelDefinitions.parse(loaded, parsedItems.items(),
+                Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
 
@@ -485,7 +506,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         built = builtReport.packs();
         for (BuiltPack pack : built) {
-            host.register(pack);
+            packHost.register(pack);
         }
 
         to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
@@ -499,112 +520,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (Player player : getServer().getOnlinePlayers()) {
             delivery.apply(player, desiredFor(player));
         }
-    }
-
-    /**
-     * Measures every item that has a model, so placed model can default its
-     * hitbox to what you can actually see.
-     *
-     * <p>Reads the geometry a second time, which the builder also does. Worth
-     * it: threading measurements out of the build would put the pack builder
-     * in the business of telling the placed model layer things, and these files
-     * are small and read once per reload.
-     */
-    private java.util.Map<ai.resourcepack.engine.api.ContentId, ai.resourcepack.engine.core.item.Geometry.Bounds>
-            measure(Path content, ItemDefinitions.Result parsed) {
-        java.util.Map<ai.resourcepack.engine.api.ContentId,
-                ai.resourcepack.engine.core.item.Geometry.Bounds> measured = new java.util.HashMap<>();
-        for (ItemInfo item : parsed.items().values()) {
-            String name = item.model().orElse(null);
-            if (name == null) {
-                continue;
-            }
-            Path file = content.resolve(item.id().namespace())
-                    .resolve("assets").resolve("models").resolve(name + ".json");
-            if (!Files.isRegularFile(file)) {
-                continue;
-            }
-            try {
-                ai.resourcepack.engine.core.item.Geometry
-                        .read(Files.readAllBytes(file), item.id().namespace())
-                        .ifPresent(model -> measured.put(item.id(), model.bounds()));
-            } catch (IOException e) {
-                // The builder reports this properly. Failing to measure just
-                // means the hitbox falls back to one block.
-                getLogger().fine("Could not measure " + item.id() + ": " + e.getMessage());
-            }
-        }
-        return measured;
-    }
-
-    /**
-     * A pack studio pushed: fetch it, serve it, put it on whoever claimed the
-     * code.
-     *
-     * <p>Arrives on the websocket thread, so everything that touches a player
-     * hops back to the main thread. The download deliberately does not: a
-     * pack is megabytes and blocking the server on it would be a lag spike
-     * every time somebody clicks push in the panel.
-     */
-    private void onStudioPush(String code, String payload) {
-        String claimant = sync.claimant(code);
-        if (claimant == null) {
-            sync.failed(code, "unknown-code");
-            return;
-        }
-        // The manifest first: a pack whose art arrives without its keyframes
-        // is a pack somebody can wear and not emote in, and the two came down
-        // the same push.
-        // The rigs manifest is what makes a placed studio model animate. Same
-        // push, different slot; see StudioPush.
-        StudioPush.rigsUrl(payload)
-                .flatMap(StudioPush::fetchText)
-                .ifPresent(json -> {
-                    ai.resourcepack.engine.api.MergeResult merged = rigs.updateFromJson(json);
-                    if (merged.ok()) {
-                        rigs.save(getLogger());
-                        getLogger().info("Rigs: " + merged.count() + " from " + merged.packId() + ".");
-                    } else {
-                        getLogger().warning("Rig manifest: " + merged.error());
-                    }
-                });
-
-        StudioPush.emotesUrl(payload)
-                .flatMap(StudioPush::fetchText)
-                .ifPresent(json -> {
-                    ai.resourcepack.engine.api.MergeResult merged = emoteStore.updateFromJson(json);
-                    if (merged.ok()) {
-                        emoteStore.save(getLogger());
-                        getLogger().info("Emotes: " + merged.count() + " from " + merged.packId() + ".");
-                    } else {
-                        getLogger().warning("Emote manifest: " + merged.error());
-                    }
-                });
-
-        Optional<BuiltPack> pack = StudioPush.fetch(payload,
-                getDataFolder().toPath().resolve("output"));
-        if (pack.isEmpty()) {
-            sync.failed(code, StudioPush.reason);
-            return;
-        }
-        getServer().getScheduler().runTask(this, () -> {
-            host.register(pack.get());
-            int reached = 0;
-            for (String name : group.recipients(code)) {
-                Player player = getServer().getPlayerExact(name);
-                if (player == null) {
-                    continue;
-                }
-                pushTo(player, pack.get());
-                player.sendMessage("[RPEngine] Studio pushed a pack.");
-                reached++;
-            }
-            if (reached == 0) {
-                sync.failed(code, "player-offline");
-                return;
-            }
-            sync.applied(code);
-        });
     }
 
     /**
@@ -643,127 +558,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sync.members(code, entries);
     }
 
-    /**
-     * A signed skin studio pushed: the player wears it.
-     *
-     * <p>The value and signature are Mojang's own, fetched and signed by
-     * studio. Nothing here validates them beyond their shape — the game does
-     * that when the profile is applied, and a second opinion invented here
-     * would be a guess about somebody else's cryptography.
-     */
-    private void onStudioSkin(String code, String payload) {
-        String[] texture = payload.split(" ", 2);
-        if (texture.length < 2 || texture[0].isEmpty() || texture[1].isEmpty()) {
-            sync.skinFailed(code, "bad-payload");
-            return;
-        }
-        getServer().getScheduler().runTask(this, () -> {
-            int worn = 0;
-            for (String name : group.recipients(code)) {
-                Player player = getServer().getPlayerExact(name);
-                if (player == null) {
-                    continue;
-                }
-                if (skins.apply(player, texture[0], texture[1]).ok) {
-                    worn++;
-                }
-            }
-            if (worn == 0) {
-                sync.skinFailed(code, "player-offline");
-                return;
-            }
-            sync.skinned(code);
-        });
-    }
-
-    /**
-     * A line of chat studio asked for — usually that a model somebody walked
-     * away from has finished.
-     *
-     * <p>The payload is JSON because a notification is prose and its fields
-     * contain spaces. The shape is the plugin's to own, which is why the
-     * wording below is here and not in the protocol.
-     */
-    private void onStudioTell(String code, String json) {
-        String title = jsonString(json, "title");
-        if (title == null) {
-            sync.tellFailed(code, "bad-payload");
-            return;
-        }
-        String body = jsonString(json, "body");
-        String url = jsonString(json, "url");
-        getServer().getScheduler().runTask(this, () -> {
-            int told = 0;
-            for (String name : group.recipients(code)) {
-                Player player = getServer().getPlayerExact(name);
-                if (player == null) {
-                    continue;
-                }
-                player.sendMessage("[RPEngine] " + title);
-                if (body != null && !body.isEmpty()) {
-                    player.sendMessage("[RPEngine] " + body);
-                }
-                if (url != null && !url.isEmpty()) {
-                    player.sendMessage("[RPEngine] " + url);
-                }
-                told++;
-            }
-            if (told == 0) {
-                sync.tellFailed(code, "player-offline");
-                return;
-            }
-            sync.told(code);
-        });
-    }
-
-    /**
-     * One string field out of a small, known JSON object.
-     *
-     * <p>Gson would do this properly and is already on the classpath, but the
-     * payload is three fields written by us and read by us, and a parse that
-     * throws on a field somebody adds later is worse here than one that simply
-     * does not find it.
-     */
-    private static String jsonString(String json, String field) {
-        try {
-            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(json);
-            if (!parsed.isJsonObject()) {
-                return null;
-            }
-            com.google.gson.JsonElement value = parsed.getAsJsonObject().get(field);
-            return value != null && value.isJsonPrimitive() ? value.getAsString() : null;
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    /** A give-command studio asked for, run as the console against that player. */
-    private void onStudioGive(String code, String command) {
-        String claimant = sync.claimant(code);
-        if (claimant == null) {
-            sync.giveFailed(code, "unknown-code");
-            return;
-        }
-        getServer().getScheduler().runTask(this, () -> {
-            Player player = getServer().getPlayerExact(claimant);
-            if (player == null) {
-                sync.giveFailed(code, "player-offline");
-                return;
-            }
-            try {
-                // @p in the command resolves against the player's own position
-                // rather than the console's, which is nowhere.
-                String resolved = command.startsWith("/") ? command.substring(1) : command;
-                getServer().dispatchCommand(getServer().getConsoleSender(),
-                        "execute at " + player.getName() + " run " + resolved);
-                sync.given(code);
-            } catch (RuntimeException e) {
-                getLogger().warning("Studio give failed: " + e.getMessage());
-                sync.giveFailed(code, "exception");
-            }
-        });
-    }
-
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {
         for (Diagnostic diagnostic : diagnostics) {
             // The logger adds its own [RPEngine], so this one does not.
@@ -774,7 +568,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             } else {
                 getLogger().info(line);
             }
-            if (!(to instanceof org.bukkit.command.ConsoleCommandSender)) {
+            if (!(to instanceof ConsoleCommandSender)) {
                 to.sendMessage("[RPEngine] " + line);
             }
         }

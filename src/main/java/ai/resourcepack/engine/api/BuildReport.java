@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.api;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -58,7 +59,7 @@ public final class BuildReport {
         if (severity == null) {
             return List.of();
         }
-        List<Diagnostic> matching = new java.util.ArrayList<>();
+        List<Diagnostic> matching = new ArrayList<>();
         for (Diagnostic diagnostic : diagnostics) {
             if (diagnostic.severity() == severity) {
                 matching.add(diagnostic);

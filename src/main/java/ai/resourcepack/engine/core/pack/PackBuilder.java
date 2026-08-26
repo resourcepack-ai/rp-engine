@@ -1,8 +1,8 @@
 package ai.resourcepack.engine.core.pack;
 
-import ai.resourcepack.engine.api.Bundle;
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.api.Bundle;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
 

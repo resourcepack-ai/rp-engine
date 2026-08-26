@@ -24,10 +24,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -58,7 +60,7 @@ public final class ContentFolderLoader {
      * walked for them. The builder is what reads these; see FORMAT.md for
      * where each one lands in the built pack.
      */
-    private static final java.util.Set<String> ASSET_FOLDERS = java.util.Set.of("assets", "overrides");
+    private static final Set<String> ASSET_FOLDERS = Set.of("assets", "overrides");
 
     /**
      * Kinds that are NOT put into the id space.
@@ -72,8 +74,8 @@ public final class ContentFolderLoader {
      * <p>They still get a {@link ContentDefinition} and are still unique within
      * their own kind, so two recipes cannot quietly share a name either.
      */
-    private static final java.util.Set<ContentKind> UNREGISTERED =
-            java.util.Set.of(ContentKind.RECIPE);
+    private static final Set<ContentKind> UNREGISTERED =
+            Set.of(ContentKind.RECIPE);
 
     private static final String PACK_FILE = "pack.yml";
 
@@ -218,7 +220,7 @@ public final class ContentFolderLoader {
 
     private void loadCategory(Path root, Path folder, ContentKind kind, Namespace namespace,
                               List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
-        java.util.Set<ContentId> unregisteredSeen = new java.util.HashSet<>();
+        Set<ContentId> unregisteredSeen = new HashSet<>();
         for (Path file : sortedYamlFiles(folder, diagnostics, relative(root, folder))) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
@@ -233,7 +235,7 @@ public final class ContentFolderLoader {
     }
 
     private void define(ContentKind kind, Namespace namespace, DefinitionNode document,
-                        String path, String origin, java.util.Set<ContentId> unregisteredSeen,
+                        String path, String origin, Set<ContentId> unregisteredSeen,
                         List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
         if (!ContentId.isValidPath(path)) {
             diagnostics.add(Diagnostic.error(origin, path,

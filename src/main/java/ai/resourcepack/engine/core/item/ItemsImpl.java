@@ -6,8 +6,10 @@ import ai.resourcepack.engine.api.Items;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.components.EquippableComponent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
@@ -141,22 +143,22 @@ public final class ItemsImpl implements Items {
      * hat can be a real helmet without also being a leather cap.
      */
     private static void wearable(ItemMeta meta, ItemInfo item, String slot) {
-        org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+        EquippableComponent equippable = meta.getEquippable();
         equippable.setSlot(slotOf(slot));
         equippable.setModel(new NamespacedKey(item.id().namespace(), item.id().path()));
         meta.setEquippable(equippable);
     }
 
-    private static org.bukkit.inventory.EquipmentSlot slotOf(String slot) {
+    private static EquipmentSlot slotOf(String slot) {
         switch (slot) {
             case "chest":
-                return org.bukkit.inventory.EquipmentSlot.CHEST;
+                return EquipmentSlot.CHEST;
             case "legs":
-                return org.bukkit.inventory.EquipmentSlot.LEGS;
+                return EquipmentSlot.LEGS;
             case "feet":
-                return org.bukkit.inventory.EquipmentSlot.FEET;
+                return EquipmentSlot.FEET;
             default:
-                return org.bukkit.inventory.EquipmentSlot.HEAD;
+                return EquipmentSlot.HEAD;
         }
     }
 

@@ -1,8 +1,8 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.event.ModelBreakEvent;
 import ai.resourcepack.engine.api.event.ModelInteractEvent;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;

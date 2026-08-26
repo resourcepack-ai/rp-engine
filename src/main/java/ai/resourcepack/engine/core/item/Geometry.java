@@ -7,12 +7,21 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 
+import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ItemInfo;
+
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 
 /**
  * Takes a model file an author exported from Blockbench and makes it fit the
@@ -106,6 +115,43 @@ public final class Geometry {
         public List<String> textures() {
             return textures;
         }
+    }
+
+    /**
+     * Measures every item that names a model, straight off the content folder.
+     *
+     * <p>The files are read a second time here — the pack builder also reads
+     * them — and that is the cheaper of two bad options. Threading measurements
+     * out of the build would put the pack builder in the business of telling
+     * the placement layer things, and these files are small and read once per
+     * reload.
+     *
+     * <p>An item whose model cannot be read is simply absent from the result:
+     * the builder reports the problem properly, and failing to measure only
+     * means the hitbox falls back to one block. {@code onProblem} is for a
+     * debug log, not for a user.
+     */
+    public static Map<ContentId, Bounds> measure(Path content, Collection<ItemInfo> items,
+                                                 Consumer<String> onProblem) {
+        Map<ContentId, Bounds> measured = new HashMap<>();
+        for (ItemInfo item : items) {
+            String name = item.model().orElse(null);
+            if (name == null) {
+                continue;
+            }
+            Path file = content.resolve(item.id().namespace())
+                    .resolve("assets").resolve("models").resolve(name + ".json");
+            if (!Files.isRegularFile(file)) {
+                continue;
+            }
+            try {
+                read(Files.readAllBytes(file), item.id().namespace())
+                        .ifPresent(model -> measured.put(item.id(), model.bounds()));
+            } catch (IOException e) {
+                onProblem.accept("Could not measure " + item.id() + ": " + e.getMessage());
+            }
+        }
+        return measured;
     }
 
     /**
