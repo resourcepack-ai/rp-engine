@@ -48,7 +48,7 @@ public final class StudioPush {
      *         {@link #reason} field
      */
     public static Optional<BuiltPack> fetch(String payload, Path outputDir) {
-        String url = payload == null ? "" : payload.trim().split(" ")[0];
+        String url = packUrl(payload);
         if (url.isEmpty()) {
             reason = "bad-payload";
             return Optional.empty();
@@ -97,6 +97,45 @@ public final class StudioPush {
                 // A leftover .part is untidy and harmless; the next push
                 // overwrites it.
             }
+        }
+    }
+
+    /** The pack half of an {@code APPLY} payload. */
+    public static String packUrl(String payload) {
+        return payload == null ? "" : payload.trim().split(" ")[0];
+    }
+
+    /**
+     * The manifest half, or empty when the push carries none.
+     *
+     * <p>Studio space-joins a second URL when the pack has animated models or
+     * emotes in it. Everything the plugin needs to PLAY an emote is in there —
+     * the keyframes, the bones, and which baked rig belongs to whom — because
+     * a resource pack can carry the art but has nowhere to put the animation.
+     */
+    public static Optional<String> manifestUrl(String payload) {
+        if (payload == null) {
+            return Optional.empty();
+        }
+        String[] parts = payload.trim().split(" ");
+        return parts.length > 1 && !parts[1].isEmpty() ? Optional.of(parts[1]) : Optional.empty();
+    }
+
+    /** Downloads a manifest as text, or empty if it could not be had. */
+    public static Optional<String> fetchText(String url) {
+        try {
+            HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(30_000);
+            connection.setInstanceFollowRedirects(true);
+            if (connection.getResponseCode() / 100 != 2) {
+                return Optional.empty();
+            }
+            try (InputStream in = connection.getInputStream()) {
+                return Optional.of(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            }
+        } catch (IOException | IllegalArgumentException e) {
+            return Optional.empty();
         }
     }
 
