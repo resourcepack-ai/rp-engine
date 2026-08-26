@@ -62,7 +62,9 @@ group = 'ai.resourcepack'
 // 0.34.0: /rp is a help menu rather than eight lines of pipe-separated
 //         names, and the lines come off the areas so a subcommand cannot
 //         exist without one.
-version = '0.34.0'
+// 0.35.0: a pushed pack is served from the address studio signed, not
+//         re-served from a host address nobody configured.
+version = '0.35.0'
 
 java {
     toolchain {

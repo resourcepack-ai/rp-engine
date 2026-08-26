@@ -47,7 +47,14 @@ public final class PackDelivery {
             player.removeResourcePack(held.uuid());
         }
         for (BuiltPack pack : delta.add()) {
-            Optional<String> url = host.url(pack.bundle());
+            // A pushed pack is already served, at an address Studio signed and
+            // the client can reach. Ours are served by us. Asking the host for
+            // a pushed pack's address is how a working push became "failed to
+            // download" on every server whose host.public-address is still the
+            // default — which is every server nobody has configured.
+            Optional<String> url = pack.url().isEmpty()
+                    ? host.url(pack.bundle())
+                    : Optional.of(pack.url());
             if (url.isEmpty()) {
                 // Built but not being served, which happens when hosting is
                 // turned off and the owner publishes the zips themselves. Not

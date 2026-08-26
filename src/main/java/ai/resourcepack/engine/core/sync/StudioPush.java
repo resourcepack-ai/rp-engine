@@ -83,7 +83,8 @@ public final class StudioPush {
                 }
             }
             Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
-            return Fetch.of(BuiltPack.of(BUNDLE, target, hex(digest.digest()), size, 0));
+            // Served from where it came from, not from here. See BuiltPack#url.
+            return Fetch.of(BuiltPack.served(BUNDLE, target, hex(digest.digest()), size, 0, url));
         } catch (IOException | NoSuchAlgorithmException | IllegalArgumentException e) {
             return Fetch.failed("exception");
         } finally {
