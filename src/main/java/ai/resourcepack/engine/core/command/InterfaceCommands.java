@@ -20,8 +20,15 @@ import java.util.Locale;
  * <p>The listing halves are here rather than beside the content commands
  * because they exist to be used with the playing halves — you run
  * {@code /rp icons} to find the one you are about to put in a {@code /rp say}.
+ *
+ * <p>The three that draw something take an optional player, because they have
+ * two callers: somebody testing their own pack, and Studio relaying the same
+ * command through the console. See {@link Targets}.
  */
 public final class InterfaceCommands implements Area {
+
+    /** The three that draw something on one client, and so take a player. */
+    private static final List<String> DRAWS = List.of("sound", "screen", "hud");
 
     private final SoundsImpl sounds;
     private final IconsImpl icons;
@@ -60,6 +67,13 @@ public final class InterfaceCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
+        if (args.length == 3 && DRAWS.contains(sub)) {
+            List<String> online = new ArrayList<>();
+            for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
+                online.add(player.getName());
+            }
+            return Completions.matching(args[2], online);
+        }
         if (args.length != 2) {
             return List.of();
         }
@@ -95,16 +109,24 @@ public final class InterfaceCommands implements Area {
 
     private boolean sound(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine sound <id>");
+            Reply.to(sender, "/rpengine sound <id> [player]");
             return true;
         }
-        if (!(sender instanceof Player)) {
-            Reply.to(sender, "Only a player can be played a sound.");
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine sound <id> <player>");
             return true;
         }
-        boolean played = ContentId.parse(args[1])
-                .map(id -> sounds.play((Player) sender, id)).orElse(Boolean.FALSE);
-        Reply.to(sender, played ? "Played " + args[1] + "." : "No sound called " + args[1] + ".");
+        boolean played = ContentId.parse(args[1]).map(id -> sounds.play(target, id))
+                .orElse(Boolean.FALSE);
+        if (!played) {
+            Reply.to(sender, "No sound called " + args[1] + ".");
+            return true;
+        }
+        // The client silently drops a sound it does not have, so a bare
+        // "played" is a half-truth worth completing.
+        Reply.to(sender, "Played " + args[1] + " to " + target.getName()
+                + ". Heard nothing? The pack has to be on before the sound is in it.");
         return true;
     }
 
@@ -144,30 +166,38 @@ public final class InterfaceCommands implements Area {
     }
 
     private boolean screen(CommandSender sender, String[] args) {
-        if (args.length < 2 || !(sender instanceof Player)) {
-            Reply.to(sender, "/rpengine screen <id>, as a player.");
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine screen <id> [player]");
             return true;
         }
-        boolean opened = ContentId.parse(args[1])
-                .flatMap(id -> overlays.open((Player) sender, id)).isPresent();
-        if (!opened) {
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine screen <id> <player>");
+            return true;
+        }
+        if (ContentId.parse(args[1]).flatMap(id -> overlays.open(target, id)).isEmpty()) {
             Reply.to(sender, "No screen called " + args[1] + ".");
         }
         return true;
     }
 
     private boolean hud(CommandSender sender, String[] args) {
-        if (args.length < 2 || !(sender instanceof Player)) {
-            Reply.to(sender, "/rpengine hud <id|clear>, as a player.");
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine hud <id|clear> [player]");
+            return true;
+        }
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine hud <id|clear> <player>");
             return true;
         }
         if (args[1].equalsIgnoreCase("clear")) {
-            overlays.clear((Player) sender);
+            overlays.clear(target);
             Reply.to(sender, "Cleared.");
             return true;
         }
-        boolean drawn = ContentId.parse(args[1])
-                .map(id -> overlays.draw((Player) sender, id)).orElse(Boolean.FALSE);
+        boolean drawn = ContentId.parse(args[1]).map(id -> overlays.draw(target, id))
+                .orElse(Boolean.FALSE);
         if (!drawn) {
             Reply.to(sender, "No HUD called " + args[1] + ".");
         }

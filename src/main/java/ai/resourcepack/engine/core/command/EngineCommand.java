@@ -156,6 +156,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         Reply.to(sender, "/rpengine recipes | emotes | emote <name|stop>");
         Reply.to(sender, "/rpengine entities | spawn <id> | liquid");
         Reply.to(sender, "/rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
+        Reply.to(sender, "/rpengine distribute <code|off>");
         Reply.to(sender, "/rpengine screens | screen <id> | hud <id|clear>");
         return true;
     }

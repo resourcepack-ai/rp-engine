@@ -56,7 +56,10 @@ group = 'ai.resourcepack'
 //         a packet, so the item is still really in their hand.
 // 0.32.2: the blank follows the slot in their hand, so a slot they scroll
 //         away from gets its item back mid-emote.
-version = '0.32.2'
+// 0.33.0: a pushed pack's sounds and screens are registry content, so the
+//         panel's in-game buttons name an id like everything else. bind
+//         becomes distribute.
+version = '0.33.0'
 
 java {
     toolchain {

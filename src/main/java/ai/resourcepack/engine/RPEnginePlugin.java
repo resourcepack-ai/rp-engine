@@ -13,6 +13,8 @@ import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.Models;
 import ai.resourcepack.engine.api.Namespace;
+import ai.resourcepack.engine.api.OverlayInfo;
+import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
@@ -65,6 +67,7 @@ import ai.resourcepack.engine.core.skin.SkinApplier;
 import ai.resourcepack.engine.core.sound.SoundAssets;
 import ai.resourcepack.engine.core.sound.SoundDefinitions;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
+import ai.resourcepack.engine.core.sync.StudioContent;
 import ai.resourcepack.engine.core.sync.StudioPush;
 import ai.resourcepack.engine.core.sync.StudioRelay;
 import ai.resourcepack.engine.core.sync.SyncClient;
@@ -83,7 +86,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -122,6 +127,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Recipes recipes;
     private SyncClient sync;
     private StudioRelay studio;
+    private StudioContent pushed;
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
@@ -149,6 +155,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
+    /**
+     * What the content folder said, kept apart from what a push added.
+     *
+     * <p>Both end up in one catalogue, and a reload has to be able to rebuild
+     * that catalogue without losing the pushed half or keeping a stale one.
+     */
+    private Map<ContentId, SoundInfo> authoredSounds = Map.of();
+    private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
+    private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
     private final Overlays overlays = new Overlays();
 
@@ -197,6 +212,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
+        // What a pushed pack holds that a command can name. Loaded here rather
+        // than built on the first push, because a player is still wearing the
+        // last one after a restart.
+        pushed = new StudioContent(getDataFolder());
+        pushed.load(getLogger());
         // EmoteWording rather than nothing. Three things an emote has to say
         // happen to somebody who did not run the command — being pulled in, an
         // emote ending, and finding on join that the one you were in did not
@@ -227,9 +247,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 (code, payload) -> studio.onGive(code, payload),
                 (code, payload) -> studio.onSkin(code, payload),
                 (code, payload) -> studio.onTell(code, payload));
-        studio = new StudioRelay(this, sync, group, rigs, emoteStore, skins,
+        studio = new StudioRelay(this, sync, group, rigs, emoteStore, pushed, skins,
                 getDataFolder().toPath().resolve("output"),
                 pack -> packHost.register(pack), this::pushTo);
+        studio.onContent(this::registerPushedContent);
         invites = new EmoteInvites(this, emotes());
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
@@ -300,6 +321,35 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         rebuild(to);
     }
 
+    /**
+     * Puts a pushed pack's named content into the registry, and into the
+     * catalogues the commands read.
+     *
+     * <p>Merged over the content folder's own rather than replacing it: a
+     * server has its own sounds and screens, and a pack under test does not
+     * take them away. The two cannot collide, because {@code studio} is a
+     * namespace the folder loader is not allowed to hand out twice.
+     */
+    private void registerPushedContent() {
+        if (pushed == null) {
+            return;
+        }
+        pushed.register(registry, getLogger());
+
+        Map<ContentId, SoundInfo> allSounds =
+                new LinkedHashMap<>(authoredSounds);
+        allSounds.putAll(pushed.sounds());
+        sounds.replace(allSounds);
+
+        Map<ContentId, OverlayInfo> allScreens =
+                new LinkedHashMap<>(authoredScreens);
+        allScreens.putAll(pushed.screens());
+        Map<ContentId, OverlayInfo> allHuds =
+                new LinkedHashMap<>(authoredHuds);
+        allHuds.putAll(pushed.huds());
+        overlays.replace(allScreens, allHuds);
+    }
+
     /** {@code /rp push}: forget what they are holding and send it again. */
     private void sendPack(Player player) {
         sessions.forget(player.getUniqueId());
@@ -331,6 +381,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
+        }
+        if (pushed != null) {
+            pushed.save(getLogger());
         }
         if (liquids != null) {
             liquids.stop();
@@ -474,7 +527,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
         report(to, "sounds", parsedSounds.diagnostics());
-        sounds.replace(parsedSounds.sounds());
+        authoredSounds = parsedSounds.sounds();
+        sounds.replace(authoredSounds);
 
         IconDefinitions.Result parsedIcons = IconDefinitions.parse(loaded);
         report(to, "icons", parsedIcons.diagnostics());
@@ -484,7 +538,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
         report(to, "screens", parsedScreens.diagnostics());
         report(to, "huds", parsedHuds.diagnostics());
-        overlays.replace(parsedScreens.overlays(), parsedHuds.overlays());
+        authoredScreens = parsedScreens.overlays();
+        authoredHuds = parsedHuds.overlays();
+        overlays.replace(authoredScreens, authoredHuds);
 
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
@@ -503,6 +559,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (String problem : recipes.replace(parsedRecipes.recipes())) {
             getLogger().warning("recipe " + problem);
         }
+
+        // The content folder has just replaced the registry wholesale, which
+        // knows nothing about the pack somebody is already wearing.
+        registerPushedContent();
 
         built = builtReport.packs();
         for (BuiltPack pack : built) {

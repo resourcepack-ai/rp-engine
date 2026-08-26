@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|liquid|sync|publish|push>
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|liquid|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -51,7 +51,7 @@ permissions:
       rpengine.spawn: true
       rpengine.liquid: true
       rpengine.sync: true
-      rpengine.publish: true
+      rpengine.distribute: true
       rpengine.push: true
       rpengine.emote.cast: true
       rpengine.emote.force: true
@@ -118,8 +118,8 @@ permissions:
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.
     default: op
-  rpengine.publish:
-    description: Bind this server to a published pack, so joining players get it.
+  rpengine.distribute:
+    description: Serve a published pack to everybody who joins this server.
     default: op
   rpengine.push:
     description: Re-send this server's pack to yourself.
