@@ -12,6 +12,7 @@ import org.bukkit.plugin.Plugin;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -75,9 +76,9 @@ public final class StudioRelay {
         this.registerContent = register == null ? () -> { } : register;
     }
 
-    /** A pack: fetch it, serve it, put it on whoever is on the code. */
+    /** A pack: fetch it, serve it, put it on whoever is on the ref. */
     public void onPush(String code, String payload) {
-        if (sync.claimant(code) == null) {
+        if (!known(code)) {
             sync.failed(code, "unknown-code");
             return;
         }
@@ -112,15 +113,14 @@ public final class StudioRelay {
         });
     }
 
-    /** A give-command, run as the console against the player who claimed the code. */
+    /** A give-command, run as the console against whoever the ref names. */
     public void onGive(String code, String command) {
-        String claimant = sync.claimant(code);
-        if (claimant == null) {
+        if (!known(code)) {
             sync.giveFailed(code, "unknown-code");
             return;
         }
         onMainThread(() -> {
-            Player player = plugin.getServer().getPlayerExact(claimant);
+            Player player = addressee(code);
             if (player == null) {
                 sync.giveFailed(code, "player-offline");
                 return;
@@ -194,11 +194,45 @@ public final class StudioRelay {
     }
 
     /**
-     * Runs {@code work} for every online recipient of a code.
+     * Whether a ref names anybody at all, which is the whole of
+     * {@code unknown-code}.
+     *
+     * <p><strong>A uuid always does.</strong> It is not checked against the
+     * claimed codes, because reaching a player who never typed one is the
+     * point of it: studio addresses a party by uuid the moment there is more
+     * than one person on a sync, and it addresses a notification or a skin by
+     * uuid always. Answering {@code unknown-code} for somebody standing right
+     * there is what this shape used to do.
+     */
+    private boolean known(String ref) {
+        return SyncCodes.isUuid(ref) || sync.claimant(ref) != null;
+    }
+
+    /**
+     * The one player a ref is aimed at — the uuid itself, or the claimer of a
+     * code. Null if they are not here.
+     */
+    private Player addressee(String ref) {
+        UUID direct = SyncCodes.uuidOf(ref);
+        if (direct != null) {
+            return plugin.getServer().getPlayer(direct);
+        }
+        String claimant = sync.claimant(ref);
+        return claimant == null ? null : plugin.getServer().getPlayerExact(claimant);
+    }
+
+    /**
+     * Runs {@code work} for every online recipient of a ref: the whole sync
+     * group for a code, and exactly that player for a uuid.
      *
      * @return how many it counted, {@code work} deciding whether it counts
      */
     private int eachRecipient(String code, Predicate<Player> work) {
+        UUID direct = SyncCodes.uuidOf(code);
+        if (direct != null) {
+            Player player = plugin.getServer().getPlayer(direct);
+            return player != null && work.test(player) ? 1 : 0;
+        }
         int reached = 0;
         for (String name : group.recipients(code)) {
             Player player = plugin.getServer().getPlayerExact(name);

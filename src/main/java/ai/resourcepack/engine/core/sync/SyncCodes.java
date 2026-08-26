@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.sync;
 
+import java.util.UUID;
+
 /**
  * What a pairing reference can look like.
  *
@@ -34,6 +36,20 @@ public final class SyncCodes {
             }
         }
         return true;
+    }
+
+    /**
+     * The player a uuid ref names, or {@code null} if it is not one.
+     *
+     * <p>The wire writes a uuid as 32 hex with the dashes taken out, so the
+     * dashes go back in before Java will read it.
+     */
+    public static UUID uuidOf(String ref) {
+        if (!isUuid(ref)) {
+            return null;
+        }
+        return UUID.fromString(ref.substring(0, 8) + "-" + ref.substring(8, 12) + "-"
+                + ref.substring(12, 16) + "-" + ref.substring(16, 20) + "-" + ref.substring(20));
     }
 
     /** A 32-hex uuid with the dashes taken out, as the permalink flow uses. */
