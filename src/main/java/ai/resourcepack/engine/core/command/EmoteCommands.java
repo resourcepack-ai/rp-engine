@@ -40,8 +40,8 @@ public final class EmoteCommands implements Area {
     @Override
     public List<Help> help() {
         return List.of(
-                Help.of("emotes", "list them"),
-                Help.of("emote", "<name|stop>", "the same as /emote, for an admin"));
+                Help.of("emotes", "list the emotes"),
+                Help.of("emote", "<name|stop>", "play one on yourself"));
     }
 
     @Override

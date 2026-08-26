@@ -1,16 +1,32 @@
 package ai.resourcepack.engine.core.command;
 
-import java.util.List;
-
 /**
  * One line of {@code /rp}'s help.
  *
- * <p>A subcommand, what it takes, and what it does — three fields rather than
- * one string, so the router can align them into columns instead of printing a
- * ragged list. Minecraft's chat is monospace, which is the only reason that
- * works at all.
+ * <p><strong>No columns, and short lines.</strong> Both are forced by the same
+ * fact: Minecraft's chat font is proportional. An {@code i} is two pixels wide
+ * and a {@code W} is six, so padding a column to an equal number of
+ * <em>characters</em> lines nothing up — it just makes every row a different
+ * length. This class had a {@code width()} and a padding {@code render()} that
+ * did exactly that, on a comment claiming the font was monospace.
+ *
+ * <p>The second fact is that chat wraps at about 53 characters at default
+ * settings, and a wrapped line of help is worse than a shorter description. So
+ * a line is a command, a dash and a few words, and {@link #MAX_WIDTH} is the
+ * budget — asserted by a test, because it is the kind of thing that is only
+ * noticed by someone reading it in game.
  */
 final class Help {
+
+    /**
+     * How wide a line of help may be, in characters.
+     *
+     * <p>Chat is 320 pixels at default width and most glyphs are six pixels,
+     * so about 53 fit. This is under that, because a player may have narrowed
+     * their chat and because the count is characters rather than pixels — a
+     * line full of {@code W} is wider than a line full of {@code i}.
+     */
+    static final int MAX_WIDTH = 50;
 
     private final String sub;
     private final String args;
@@ -44,7 +60,7 @@ final class Help {
         return space < 0 ? sub : sub.substring(0, space);
     }
 
-    /** `give <id> [n]` — the whole left-hand column, without the command. */
+    /** {@code give <id> [n]} — the command without its slash or its root. */
     String signature() {
         return args.isEmpty() ? sub : sub + " " + args;
     }
@@ -53,21 +69,13 @@ final class Help {
         return text;
     }
 
-    /** The width the left column needs to fit all of {@code lines}. */
-    static int width(List<Help> lines) {
-        int widest = 0;
-        for (Help line : lines) {
-            widest = Math.max(widest, line.signature().length());
-        }
-        return widest;
+    /** What a player sees, with no colour in it. What the width test measures. */
+    String plain() {
+        return "  /rp " + signature() + " - " + text;
     }
 
-    /** This line, padded to {@code width}. */
-    String render(int width) {
-        StringBuilder out = new StringBuilder("  ").append(signature());
-        while (out.length() < width + 4) {
-            out.append(' ');
-        }
-        return out.append(text).toString();
+    /** The line as it goes into chat: the command bright, the rest grey. */
+    String render() {
+        return Reply.COMMAND + "  /rp " + signature() + Reply.BODY + " - " + text;
     }
 }

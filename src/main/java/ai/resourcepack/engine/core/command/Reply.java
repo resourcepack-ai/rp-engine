@@ -26,6 +26,9 @@ final class Reply {
     /** A line of the help. Grey, so the headings carry the structure. */
     static final String BODY = "§7";
 
+    /** The command half of a help line. White, so it reads as the thing to type. */
+    static final String COMMAND = "§f";
+
     private Reply() {
     }
 
