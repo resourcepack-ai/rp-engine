@@ -19,8 +19,30 @@ import java.util.List;
  */
 interface Area {
 
-    /** The subcommands this area answers to. Also what the router completes. */
-    List<String> subcommands();
+    /** What to call this group in the help. Two or three words. */
+    String title();
+
+    /**
+     * Every subcommand this area answers to, with its arguments and what it
+     * does — one entry per line of help, in the order they should be read.
+     *
+     * <p>{@link #subcommands()} is derived from this rather than listed
+     * separately, so a subcommand cannot exist without a line of help
+     * explaining it. That is the same rule {@link Completions} states about
+     * tab completion, for the same reason.
+     */
+    List<Help> help();
+
+    /**
+     * The subcommands this area answers to. Also what the router completes.
+     *
+     * <p>Derived, and deduplicated: several lines of help may be about one
+     * subcommand ({@code sync}, {@code sync add}), and the router only ever
+     * dispatches on the first word.
+     */
+    default List<String> subcommands() {
+        return help().stream().map(Help::command).distinct().toList();
+    }
 
     /**
      * Runs one.

@@ -39,8 +39,16 @@ public final class LiquidCommands implements Area {
     }
 
     @Override
-    public List<String> subcommands() {
-        return List.of("liquid");
+    public String title() {
+        return "Liquids";
+    }
+
+    @Override
+    public List<Help> help() {
+        return List.of(
+                Help.of("liquid corner", "mark one corner of a pool"),
+                Help.of("liquid fill", "<id>", "make the box to where you stand that liquid"),
+                Help.of("liquid clear", "remove the pool you are standing in"));
     }
 
     @Override

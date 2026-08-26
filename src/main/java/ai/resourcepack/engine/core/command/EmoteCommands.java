@@ -33,8 +33,15 @@ public final class EmoteCommands implements Area {
     }
 
     @Override
-    public List<String> subcommands() {
-        return List.of("emote", "emotes");
+    public String title() {
+        return "Emotes";
+    }
+
+    @Override
+    public List<Help> help() {
+        return List.of(
+                Help.of("emotes", "list them"),
+                Help.of("emote", "<name|stop>", "the same as /emote, for an admin"));
     }
 
     @Override
