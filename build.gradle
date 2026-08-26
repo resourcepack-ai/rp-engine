@@ -41,7 +41,8 @@ group = 'ai.resourcepack'
 // 0.26.0: animated model rigs, and the public Models service.
 // 0.27.0: skins and notifications, the last two protocol messages.
 // 0.28.0: pack distribution, and the Bedrock bridge behind a seam.
-version = '0.28.0'
+// 0.28.1: what the ports lost on the way over.
+version = '0.28.1'
 
 java {
     toolchain {

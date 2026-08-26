@@ -35,6 +35,18 @@ sync:
   # and it lasts exactly as long as your sync does.
   url: "wss://sync.resourcepack.ai/connect"
 
+# Serving a published pack to everybody who joins. /rp publish <code> binds
+# this server to one; the code comes from the panel.
+distribution:
+  # Where to ask what has been published. Only worth changing to point at a
+  # staging studio.
+  api-url: "https://studio.resourcepack.ai"
+
+emotes:
+  # The node somebody needs to pull other players into an emote. They are
+  # still asked before anything happens to them. Leave empty for no check.
+  cast-permission: "rpengine.emote.cast"
+
 # Which bundle a player is given on join. Leave empty to send nothing and
 # drive it yourself.
 default-bundle: "main"
