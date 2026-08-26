@@ -5,11 +5,12 @@ api-version: '1.21'
 description: Custom items, models, sounds, icons, screens, recipes and emotes.
 author: ResourcePack AI
 folia-supported: false
+softdepend: [Geyser-Spigot]
 
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|sync|push>
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|sync|publish|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -20,9 +21,9 @@ commands:
   emotereply:
     description: Answer an emote invitation.
     usage: /<command> <accept|deny> <token>
-    # Deliberately ungated: it can only ever answer an invitation
-    # somebody was already sent, and a player who cannot reply is a
-    # player who cannot decline being pulled into an emote.
+    # Deliberately ungated: it can only answer an invitation somebody
+    # was already sent, and a player who cannot reply is a player who
+    # cannot decline being pulled into an emote.
 
 permissions:
   rpengine.admin:
@@ -47,6 +48,7 @@ permissions:
       rpengine.emote: true
       rpengine.emotes: true
       rpengine.sync: true
+      rpengine.publish: true
       rpengine.push: true
       rpengine.emote.cast: true
       rpengine.emote.force: true
@@ -104,6 +106,9 @@ permissions:
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.
     default: op
+  rpengine.publish:
+    description: Bind this server to a published pack, so joining players get it.
+    default: op
   rpengine.push:
     description: Re-send this server's pack to yourself.
     default: op
@@ -113,7 +118,6 @@ permissions:
   rpengine.emote.force:
     description: Pull other players in WITHOUT asking them.
     # Not a child of rpengine.emote.cast: holding one is being allowed
-    # to ask, and holding the other is being allowed to skip the
-    # asking. A server that grants the first has not agreed to the
-    # second.
+    # to ask, holding the other is being allowed to skip the asking,
+    # and a server that granted the first has not agreed to the second.
     default: op
