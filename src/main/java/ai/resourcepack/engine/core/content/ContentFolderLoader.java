@@ -94,6 +94,8 @@ public final class ContentFolderLoader {
         map.put("screens", ContentKind.SCREEN);
         map.put("huds", ContentKind.HUD);
         map.put("recipes", ContentKind.RECIPE);
+        map.put("entities", ContentKind.ENTITY);
+        map.put("liquids", ContentKind.LIQUID);
         return Map.copyOf(map);
     }
 

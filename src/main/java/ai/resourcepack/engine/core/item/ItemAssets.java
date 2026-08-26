@@ -70,6 +70,40 @@ public final class ItemAssets implements PackContributor {
         } else {
             writeSprite(item, namespace, modelPath, into);
         }
+
+        item.armor().ifPresent(slot -> writeEquipment(item, namespace, slot, into));
+    }
+
+    /**
+     * The equipment asset that draws armour on a body.
+     *
+     * <p>Vanilla's own path since 1.21.4: an item declares an
+     * {@code equippable} component naming an asset, and the asset names the
+     * layers. Two of them, because the game draws legs from a second, narrower
+     * texture — a single layer would put a belt buckle on somebody's knee.
+     *
+     * <p>This replaces the old tricks entirely. Dyed leather spends a colour
+     * that then cannot be used for anything else and looks wrong on every
+     * other item; armour trims are limited to the trim palette. Neither is
+     * needed now, and neither is worth supporting alongside this.
+     */
+    private void writeEquipment(ItemInfo item, String namespace, String slot, Contribution into) {
+        String name = item.id().path();
+        String layer = "\"texture\": \"" + namespace + ":" + name + "\"";
+        into.add("assets/" + namespace + "/equipment/" + name + ".json",
+                json("{\"layers\":{\"humanoid\":[{" + layer + "}],"
+                        + "\"humanoid_leggings\":[{" + layer + "}]}}"));
+
+        // The two textures the asset just named. Legs are their own file at
+        // its own proportions, so a pack that ships one and not the other is
+        // told which is missing rather than left with a transparent leg.
+        requireTexture(item, namespace,
+                "assets/" + namespace + "/textures/entity/equipment/humanoid/" + name + ".png", into);
+        if (slot.equals("legs")) {
+            requireTexture(item, namespace,
+                    "assets/" + namespace + "/textures/entity/equipment/humanoid_leggings/"
+                            + name + ".png", into);
+        }
     }
 
     /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */

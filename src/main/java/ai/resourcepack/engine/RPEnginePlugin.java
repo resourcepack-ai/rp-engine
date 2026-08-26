@@ -16,6 +16,11 @@ import ai.resourcepack.engine.core.command.Completions;
 import ai.resourcepack.engine.core.distribution.BedrockSupport;
 import ai.resourcepack.engine.core.distribution.DistributionManager;
 import ai.resourcepack.engine.core.distribution.ProtocolResolver;
+import ai.resourcepack.engine.core.entity.CustomEntities;
+import ai.resourcepack.engine.core.entity.EntityDefinitions;
+import ai.resourcepack.engine.core.liquid.LiquidDefinitions;
+import ai.resourcepack.engine.core.liquid.LiquidPools;
+import ai.resourcepack.engine.core.liquid.Liquids;
 import ai.resourcepack.engine.core.emote.EmoteDirector;
 import ai.resourcepack.engine.core.emote.EmoteStore;
 import ai.resourcepack.engine.core.emote.EmoteInvites;
@@ -32,6 +37,7 @@ import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigStore;
+import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.font.OverlayDefinitions;
 import ai.resourcepack.engine.core.font.Overlays;
@@ -108,6 +114,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private RigAnimator animator;
     private RigPlacementListener rigPlacement;
     private ModelsImpl models;
+    private Seats seats;
+    private CustomEntities creatures;
+    private LiquidPools pools;
+    private Liquids liquids;
+    /** Where each player's liquid selection starts, for /rp liquid. */
+    private final java.util.Map<java.util.UUID, int[]> liquidCorner =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private ai.resourcepack.engine.core.skin.SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -178,10 +191,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // survive a crash — and EmoteMessages' own doc says silence there
         // reads as a bug.
         emotes = new EmoteDirector(host, emoteStore);
-        placements = new ModelPlacementListener(this, items);
+        seats = new Seats(this);
+        creatures = new CustomEntities(this, items);
+        pools = new LiquidPools(getDataFolder());
+        pools.load(getLogger());
+        liquids = new Liquids(this, pools);
+        placements = new ModelPlacementListener(this, items, seats);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
+        getServer().getPluginManager().registerEvents(seats, this);
+        getServer().getPluginManager().registerEvents(creatures, this);
+        liquids.start();
         getServer().getPluginManager().registerEvents(new ItemListener(items), this);
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
@@ -235,6 +256,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
+        }
+        if (liquids != null) {
+            liquids.stop();
+        }
+        if (pools != null) {
+            pools.save(getLogger());
+        }
+        if (seats != null) {
+            // Everybody gets up before the plugin goes. A marker stand is not
+            // persistent, so one left behind would survive until its chunk
+            // unloaded — long enough to be a bug report.
+            seats.clear();
         }
         if (distribution != null) {
             distribution.shutdown();
@@ -343,6 +376,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ModelDefinitions.parse(loaded, parsedItems.items(), measure(content, parsedItems));
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
+
+        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
+        report(to, "entities", parsedEntities.diagnostics());
+        creatures.replace(parsedEntities.entities());
+
+        LiquidDefinitions.Result parsedLiquids = LiquidDefinitions.parse(loaded);
+        report(to, "liquids", parsedLiquids.diagnostics());
+        liquids.replace(parsedLiquids.liquids());
 
         SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
         report(to, "sounds", parsedSounds.diagnostics());
@@ -498,6 +539,78 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
             sync.applied(code);
         });
+    }
+
+    /**
+     * The whole of {@code /rp liquid}.
+     *
+     * <p>Two corners and a name, because a pool is a box and a box is two
+     * corners. Deliberately its own tiny selection rather than asking for a
+     * region plugin: needing WorldEdit installed to mark out a pond would make
+     * this a feature most servers cannot use.
+     */
+    private boolean liquid(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("[RPEngine] /rpengine liquid, as a player.");
+            return true;
+        }
+        Player player = (Player) sender;
+        String sub = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "list";
+        org.bukkit.Location standing = player.getLocation();
+        int[] here = {standing.getBlockX(), standing.getBlockY(), standing.getBlockZ()};
+
+        switch (sub) {
+            case "corner":
+                liquidCorner.put(player.getUniqueId(), here);
+                player.sendMessage("[RPEngine] Corner at " + here[0] + " " + here[1] + " " + here[2]
+                        + ". Stand at the opposite one and run /rp liquid fill <id>.");
+                return true;
+            case "fill": {
+                int[] from = liquidCorner.get(player.getUniqueId());
+                if (from == null) {
+                    player.sendMessage("[RPEngine] Mark a corner first with /rp liquid corner.");
+                    return true;
+                }
+                if (args.length < 2) {
+                    player.sendMessage("[RPEngine] /rpengine liquid fill <id>");
+                    return true;
+                }
+                Optional<ContentId> id = ContentId.parse(args[1]);
+                if (id.isEmpty() || liquids.info(id.get()).isEmpty()) {
+                    player.sendMessage("[RPEngine] No liquid called " + args[1] + ".");
+                    return true;
+                }
+                LiquidPools.Pool pool = pools.add(id.get(), standing.getWorld().getName(), from, here);
+                pools.save(getLogger());
+                liquidCorner.remove(player.getUniqueId());
+                player.sendMessage("[RPEngine] " + pool + ".");
+                player.sendMessage("[RPEngine] The blocks are still ordinary water. This says what "
+                        + "being in them means.");
+                return true;
+            }
+            case "clear": {
+                Optional<LiquidPools.Pool> gone = pools.removeAt(standing.getWorld().getName(),
+                        standing.getX(), standing.getY(), standing.getZ());
+                pools.save(getLogger());
+                player.sendMessage(gone.isPresent()
+                        ? "[RPEngine] Removed " + gone.get() + "."
+                        : "[RPEngine] No pool here.");
+                return true;
+            }
+            default:
+                for (ContentId id : liquids.ids()) {
+                    player.sendMessage("[RPEngine] " + id + "  "
+                            + liquids.info(id).map(l -> l.base().name().toLowerCase(Locale.ROOT)).orElse("?"));
+                }
+                if (liquids.ids().isEmpty()) {
+                    player.sendMessage("[RPEngine] No liquids loaded.");
+                }
+                for (LiquidPools.Pool pool : pools.pools()) {
+                    player.sendMessage("[RPEngine] pool: " + pool);
+                }
+                player.sendMessage("[RPEngine] /rpengine liquid corner | fill <id> | clear");
+                return true;
+        }
     }
 
     /**
@@ -1008,7 +1121,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "sync", "publish", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "entities", "spawn", "liquid",
+            "sync", "publish", "push");
 
     /** Whether {@code sender} may run {@code sub}. */
     private static boolean allowed(CommandSender sender, String sub) {
@@ -1046,6 +1160,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     options.addAll(Completions.matching(args[1], "clear"));
                     return options;
                 }
+                case "spawn":
+                    return Completions.matchingIds(args[1], creatures.ids());
+                case "liquid":
+                    return Completions.matching(args[1], "corner", "fill", "clear", "list");
                 case "emote": {
                     List<String> names = new ArrayList<>(emotes.ids());
                     names.add("stop");
@@ -1072,6 +1190,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (args.length == 3 && sub.equals("give")) {
             return Completions.matching(args[2], "1", "8", "16", "64");
+        }
+        if (args.length == 3 && sub.equals("liquid") && args[1].equalsIgnoreCase("fill")) {
+            return Completions.matchingIds(args[2], liquids.ids());
         }
         if (args.length == 3 && sub.equals("sync")) {
             String action = args[1].toLowerCase(Locale.ROOT);
@@ -1313,6 +1434,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 distribution.claim(sender, args[1]);
                 return true;
             }
+            case "spawn": {
+                if (args.length < 2 || !(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine spawn <id>, as a player.");
+                    return true;
+                }
+                Player at = (Player) sender;
+                boolean spawned = ContentId.parse(args[1])
+                        .flatMap(id -> creatures.spawn(at.getLocation(), id)).isPresent();
+                sender.sendMessage(spawned
+                        ? "[RPEngine] Spawned " + args[1] + "."
+                        : "[RPEngine] No entity called " + args[1] + ".");
+                return true;
+            }
+            case "entities":
+                if (creatures.ids().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No entities loaded.");
+                }
+                for (ContentId id : creatures.ids()) {
+                    sender.sendMessage("[RPEngine] " + id + "  "
+                            + creatures.info(id).map(e -> e.type()).orElse("?"));
+                }
+                return true;
+            case "liquid":
+                return liquid(sender, java.util.Arrays.copyOfRange(args, 1, args.length));
             case "recipes":
                 if (recipes.size() == 0) {
                     sender.sendMessage("[RPEngine] No recipes registered.");
@@ -1356,6 +1501,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
                 sender.sendMessage("[RPEngine] /rpengine recipes | emotes | emote <name|stop>");
+                sender.sendMessage("[RPEngine] /rpengine entities | spawn <id> | liquid");
                 sender.sendMessage("[RPEngine] /rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;

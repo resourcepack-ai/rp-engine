@@ -44,5 +44,11 @@ public enum ContentKind {
     HUD,
 
     /** A crafting, cooking or stonecutting recipe. */
-    RECIPE
+    RECIPE,
+
+    /** A real mob wearing a model. */
+    ENTITY,
+
+    /** A pool of liquid somebody can swim in. */
+    LIQUID
 }

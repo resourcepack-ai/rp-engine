@@ -53,15 +53,17 @@ public final class ModelPlacementListener implements Listener {
 
     private final Plugin plugin;
     private final Items items;
+    private final Seats seats;
     private final NamespacedKey idKey;
     private final NamespacedKey displayKey;
     private final NamespacedKey solidKey;
 
     private volatile Map<ContentId, ModelInfo> model = Map.of();
 
-    public ModelPlacementListener(Plugin plugin, Items items) {
+    public ModelPlacementListener(Plugin plugin, Items items, Seats seats) {
         this.plugin = plugin;
         this.items = items;
+        this.seats = seats;
         this.idKey = new NamespacedKey(plugin, "model");
         this.displayKey = new NamespacedKey(plugin, "model-display");
         this.solidKey = new NamespacedKey(plugin, "model-solid");
@@ -225,11 +227,23 @@ public final class ModelPlacementListener implements Listener {
             // Somebody else's Interaction entity. Not ours to speak for.
             return;
         }
-        // Announced and nothing more. What a click on a chair MEANS is a
-        // decision about somebody's server, and an engine that guessed would
-        // be wrong for every server that wanted something else.
-        Bukkit.getPluginManager().callEvent(
-                new ModelInteractEvent(event.getPlayer(), id.get(), hitbox));
+        ModelInteractEvent clicked = new ModelInteractEvent(event.getPlayer(), id.get(), hitbox);
+        Bukkit.getPluginManager().callEvent(clicked);
+        if (clicked.isCancelled()) {
+            return;
+        }
+
+        // Sitting is the one behaviour the engine does provide, because the
+        // model already said it is a seat and there is exactly one sensible
+        // thing to do about that. Everything else a click might mean is still
+        // a decision about somebody's server, which is what the event is for —
+        // and a listener that cancels gets its way before this runs.
+        ModelInfo info = model.get(id.get());
+        if (info != null && info.sittable()) {
+            Location seat = hitbox.getLocation().add(0, info.seat() * info.scale(), 0);
+            seat.setYaw(hitbox.getLocation().getYaw());
+            seats.sit(event.getPlayer(), seat);
+        }
     }
 
     /** The model standing as {@code hitbox}, or empty if that is not one of ours. */
@@ -280,6 +294,14 @@ public final class ModelPlacementListener implements Listener {
                 // piece comes back as itself rather than as a fresh one.
                 drop = ((ItemDisplay) display).getItemStack();
                 display.remove();
+            }
+        }
+
+        // Anybody sitting on it stands up first. A seat that outlives its
+        // chair is an invisible thing a player can stand on for ever.
+        for (Entity rider : hitbox.getWorld().getNearbyEntities(where, 1.5, 2.5, 1.5)) {
+            if (rider instanceof Player && seats.isSeated((Player) rider)) {
+                seats.stand((Player) rider);
             }
         }
 
