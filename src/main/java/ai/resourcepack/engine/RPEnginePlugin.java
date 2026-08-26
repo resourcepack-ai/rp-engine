@@ -34,6 +34,7 @@ import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
 import ai.resourcepack.engine.core.sync.StudioPush;
 import ai.resourcepack.engine.core.sync.SyncClient;
+import ai.resourcepack.engine.core.sync.SyncCodes;
 import ai.resourcepack.engine.core.sync.SyncGroup;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -488,17 +489,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 return true;
             }
             default: {
-                // Anything else is a code, because that is what somebody types
-                // first and asking them to write "sync code 48213097" would be
-                // a word that earns nothing.
+                // Anything else is meant to be a code, because that is what
+                // somebody types first and asking them to write "sync code
+                // 48213097" would be a word that earns nothing. But it has to
+                // LOOK like one: a typo landing here used to be claimed and
+                // reported as synced, which is a lie about a thing that will
+                // never arrive.
+                if (!SyncCodes.isValid(args[1])) {
+                    player.sendMessage("[RPEngine] " + args[1] + " is not a pairing code. "
+                            + "Codes are eight digits, from the sync button in the panel.");
+                    player.sendMessage("[RPEngine] /rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
+                    return true;
+                }
                 if (!sync.link(args[1], player.getName())) {
                     player.sendMessage("[RPEngine] Could not reach studio. Check sync.url in config.yml.");
                     return true;
                 }
                 group.claim(args[1], player.getName());
                 announceMembers(args[1]);
-                player.sendMessage("[RPEngine] Synced " + args[1]
-                        + ". Push from studio and it lands here. /rp sync add <player> to share it.");
+                // "Waiting", not "synced". Nothing here can tell whether a
+                // well-formed code was ever issued — the far end silently
+                // ignores one it does not know and sends nothing back — so the
+                // most that can honestly be said is that we are listening.
+                player.sendMessage("[RPEngine] Waiting for a push on " + args[1]
+                        + ". Hit sync in the panel. /rp sync add <player> to share it.");
                 return true;
             }
         }
