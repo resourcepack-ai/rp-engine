@@ -2,7 +2,6 @@ package ai.resourcepack.engine;
 
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
-import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentRegistry;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
@@ -12,7 +11,13 @@ import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
-import ai.resourcepack.engine.core.command.Completions;
+import ai.resourcepack.engine.core.command.ContentCommands;
+import ai.resourcepack.engine.core.command.EmoteCommands;
+import ai.resourcepack.engine.core.command.EngineCommand;
+import ai.resourcepack.engine.core.command.InterfaceCommands;
+import ai.resourcepack.engine.core.command.LiquidCommands;
+import ai.resourcepack.engine.core.command.ModelCommands;
+import ai.resourcepack.engine.core.command.SyncCommands;
 import ai.resourcepack.engine.core.distribution.BedrockSupport;
 import ai.resourcepack.engine.core.distribution.DistributionManager;
 import ai.resourcepack.engine.core.distribution.ProtocolResolver;
@@ -50,17 +55,14 @@ import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
 import ai.resourcepack.engine.core.sync.StudioPush;
 import ai.resourcepack.engine.core.sync.SyncClient;
-import ai.resourcepack.engine.core.sync.SyncCodes;
 import ai.resourcepack.engine.core.sync.SyncGroup;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
 import ai.resourcepack.engine.core.serve.PackHost;
-import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -118,9 +120,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private CustomEntities creatures;
     private LiquidPools pools;
     private Liquids liquids;
-    /** Where each player's liquid selection starts, for /rp liquid. */
-    private final java.util.Map<java.util.UUID, int[]> liquidCorner =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    private LiquidCommands liquidCommands;
     private ai.resourcepack.engine.core.skin.SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -229,7 +229,61 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
 
         startHost();
+        registerCommands();
         rebuild(getServer().getConsoleSender());
+    }
+
+    /**
+     * Hands every command to {@link EngineCommand}.
+     *
+     * <p>After {@link #startHost()}, because two of the areas need the host
+     * and the delivery it makes. The areas take the services they use and
+     * nothing else; what they cannot be given is this plugin's own lifecycle,
+     * which arrives as the four callbacks below.
+     */
+    private void registerCommands() {
+        liquidCommands = new LiquidCommands(liquids, pools, getLogger());
+        EngineCommand commands = new EngineCommand(registry, () -> built,
+                new ContentCommands(items, () -> built, host, recipes, () -> recipeIds,
+                        this::reloadContent, this::sendPack),
+                new ModelCommands(placements, creatures),
+                new InterfaceCommands(sounds, icons, overlays),
+                new EmoteCommands(emotes, invites),
+                new SyncCommands(getServer(), sync, group, distribution,
+                        this::announceMembers, this::unpush),
+                liquidCommands);
+
+        for (String name : List.of("rpengine", "emote", "emotereply")) {
+            org.bukkit.command.PluginCommand registered = getCommand(name);
+            if (registered == null) {
+                // plugin.yml and this list disagreeing is a packaging mistake,
+                // and a silent one: the command simply does nothing in game.
+                getLogger().warning("plugin.yml declares no /" + name + ".");
+                continue;
+            }
+            registered.setExecutor(commands);
+            registered.setTabCompleter(commands);
+        }
+    }
+
+    /**
+     * {@code /rp reload}: config.yml as well as the content.
+     *
+     * <p>Reloading the content but not the settings is the sort of half-reload
+     * that has somebody restarting the server anyway and wondering why the
+     * command exists.
+     */
+    private void reloadContent(CommandSender to) {
+        reloadConfig();
+        defaultBundle = getConfig().getString("default-bundle", "");
+        rebuild(to);
+    }
+
+    /** {@code /rp push}: forget what they are holding and send it again. */
+    private void sendPack(Player player) {
+        sessions.forget(player.getUniqueId());
+        player.sendMessage("[RPEngine] "
+                + (delivery.apply(player, desiredFor(player)) ? "Sent." : "Nothing to send."));
     }
 
     /** The studio models this server holds, and the rigs standing in its worlds. */
@@ -460,7 +514,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             measure(Path content, ItemDefinitions.Result parsed) {
         java.util.Map<ai.resourcepack.engine.api.ContentId,
                 ai.resourcepack.engine.core.item.Geometry.Bounds> measured = new java.util.HashMap<>();
-        for (ai.resourcepack.engine.api.ItemInfo item : parsed.items().values()) {
+        for (ItemInfo item : parsed.items().values()) {
             String name = item.model().orElse(null);
             if (name == null) {
                 continue;
@@ -551,214 +605,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
             sync.applied(code);
         });
-    }
-
-    /**
-     * The whole of {@code /rp liquid}.
-     *
-     * <p>Two corners and a name, because a pool is a box and a box is two
-     * corners. Deliberately its own tiny selection rather than asking for a
-     * region plugin: needing WorldEdit installed to mark out a pond would make
-     * this a feature most servers cannot use.
-     */
-    private boolean liquid(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("[RPEngine] /rpengine liquid, as a player.");
-            return true;
-        }
-        Player player = (Player) sender;
-        String sub = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "list";
-        org.bukkit.Location standing = player.getLocation();
-        int[] here = {standing.getBlockX(), standing.getBlockY(), standing.getBlockZ()};
-
-        switch (sub) {
-            case "corner":
-                liquidCorner.put(player.getUniqueId(), here);
-                player.sendMessage("[RPEngine] Corner at " + here[0] + " " + here[1] + " " + here[2]
-                        + ". Stand at the opposite one and run /rp liquid fill <id>.");
-                return true;
-            case "fill": {
-                int[] from = liquidCorner.get(player.getUniqueId());
-                if (from == null) {
-                    player.sendMessage("[RPEngine] Mark a corner first with /rp liquid corner.");
-                    return true;
-                }
-                if (args.length < 2) {
-                    player.sendMessage("[RPEngine] /rpengine liquid fill <id>");
-                    return true;
-                }
-                Optional<ContentId> id = ContentId.parse(args[1]);
-                if (id.isEmpty() || liquids.info(id.get()).isEmpty()) {
-                    player.sendMessage("[RPEngine] No liquid called " + args[1] + ".");
-                    return true;
-                }
-                LiquidPools.Pool pool = pools.add(id.get(), standing.getWorld().getName(), from, here);
-                pools.save(getLogger());
-                liquidCorner.remove(player.getUniqueId());
-                player.sendMessage("[RPEngine] " + pool + ".");
-                player.sendMessage("[RPEngine] The blocks are still ordinary water. This says what "
-                        + "being in them means.");
-                return true;
-            }
-            case "clear": {
-                Optional<LiquidPools.Pool> gone = pools.removeAt(standing.getWorld().getName(),
-                        standing.getX(), standing.getY(), standing.getZ());
-                pools.save(getLogger());
-                player.sendMessage(gone.isPresent()
-                        ? "[RPEngine] Removed " + gone.get() + "."
-                        : "[RPEngine] No pool here.");
-                return true;
-            }
-            default:
-                for (ContentId id : liquids.ids()) {
-                    player.sendMessage("[RPEngine] " + id + "  "
-                            + liquids.info(id).map(l -> l.base().name().toLowerCase(Locale.ROOT)).orElse("?"));
-                }
-                if (liquids.ids().isEmpty()) {
-                    player.sendMessage("[RPEngine] No liquids loaded.");
-                }
-                for (LiquidPools.Pool pool : pools.pools()) {
-                    player.sendMessage("[RPEngine] pool: " + pool);
-                }
-                player.sendMessage("[RPEngine] /rpengine liquid corner | fill <id> | clear");
-                return true;
-        }
-    }
-
-    /**
-     * The whole of {@code /rp sync}.
-     *
-     * <p>One verb group rather than a party system beside it, because the
-     * feature is "who else receives my pushes" — a property of a sync, not a
-     * social structure. That is also why there is no disband and no ownership
-     * transfer: the group lives exactly as long as the sync does.
-     */
-    private boolean sync(Player player, String[] args) {
-        String sub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "who";
-        switch (sub) {
-            case "add": {
-                if (args.length < 3) {
-                    player.sendMessage("[RPEngine] /rpengine sync add <player>");
-                    return true;
-                }
-                Player target = getServer().getPlayerExact(args[2]);
-                if (target == null) {
-                    player.sendMessage("[RPEngine] " + args[2] + " is not online.");
-                    return true;
-                }
-                SyncGroup.Result result = group.invite(player.getName(), target.getName());
-                switch (result) {
-                    case OK:
-                        player.sendMessage("[RPEngine] Asked " + target.getName() + ".");
-                        target.sendMessage("[RPEngine] " + player.getName()
-                                + " wants to share a pack with you. /rp sync accept, or deny.");
-                        return true;
-                    case NOT_SYNCED:
-                        player.sendMessage("[RPEngine] You are not synced. /rp sync <code> first.");
-                        return true;
-                    case SELF:
-                        player.sendMessage("[RPEngine] You already get your own pushes.");
-                        return true;
-                    default:
-                        player.sendMessage("[RPEngine] " + target.getName() + " is already on a sync.");
-                        return true;
-                }
-            }
-            case "accept": {
-                Optional<String> joined = group.accept(player.getName());
-                if (joined.isEmpty()) {
-                    player.sendMessage("[RPEngine] Nobody has asked you.");
-                    return true;
-                }
-                announceMembers(joined.get());
-                player.sendMessage("[RPEngine] You will get their pushes.");
-                return true;
-            }
-            case "deny":
-                player.sendMessage(group.deny(player.getName()) == SyncGroup.Result.OK
-                        ? "[RPEngine] Declined."
-                        : "[RPEngine] Nobody has asked you.");
-                return true;
-            case "remove": {
-                if (args.length < 3) {
-                    player.sendMessage("[RPEngine] /rpengine sync remove <player>");
-                    return true;
-                }
-                Optional<String> code = group.remove(player.getName(), args[2]);
-                if (code.isEmpty()) {
-                    player.sendMessage("[RPEngine] " + args[2] + " is not on your sync.");
-                    return true;
-                }
-                // A removal that only stopped FUTURE pushes would leave them
-                // holding what they already had, which is not what remove means.
-                unpush(args[2]);
-                announceMembers(code.get());
-                player.sendMessage("[RPEngine] Removed " + args[2] + ".");
-                return true;
-            }
-            case "leave": {
-                Optional<String> code = group.leave(player.getName());
-                if (code.isEmpty()) {
-                    player.sendMessage("[RPEngine] You are not on anybody's sync.");
-                    return true;
-                }
-                unpush(player.getName());
-                announceMembers(code.get());
-                player.sendMessage("[RPEngine] Left.");
-                return true;
-            }
-            case "stop": {
-                List<String> were = group.stop(player.getName());
-                if (were.isEmpty()) {
-                    player.sendMessage("[RPEngine] You are not synced.");
-                    return true;
-                }
-                for (String name : were) {
-                    unpush(name);
-                }
-                group.codeOf(player.getName()).ifPresent(this::announceMembers);
-                sync.forget(player.getName());
-                player.sendMessage("[RPEngine] Stopped.");
-                return true;
-            }
-            case "who": {
-                Optional<String> code = group.receiving(player.getName());
-                if (code.isEmpty()) {
-                    player.sendMessage("[RPEngine] You are not synced. /rp sync <code> to start.");
-                    return true;
-                }
-                player.sendMessage("[RPEngine] " + code.get() + ": "
-                        + String.join(", ", group.recipients(code.get())));
-                return true;
-            }
-            default: {
-                // Anything else is meant to be a code, because that is what
-                // somebody types first and asking them to write "sync code
-                // 48213097" would be a word that earns nothing. But it has to
-                // LOOK like one: a typo landing here used to be claimed and
-                // reported as synced, which is a lie about a thing that will
-                // never arrive.
-                if (!SyncCodes.isValid(args[1])) {
-                    player.sendMessage("[RPEngine] " + args[1] + " is not a pairing code. "
-                            + "Codes are eight digits, from the sync button in the panel.");
-                    player.sendMessage("[RPEngine] /rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
-                    return true;
-                }
-                if (!sync.link(args[1], player.getName())) {
-                    player.sendMessage("[RPEngine] Could not reach studio. Check sync.url in config.yml.");
-                    return true;
-                }
-                group.claim(args[1], player.getName());
-                announceMembers(args[1]);
-                // "Waiting", not "synced". Nothing here can tell whether a
-                // well-formed code was ever issued — the far end silently
-                // ignores one it does not know and sends nothing back — so the
-                // most that can honestly be said is that we are listening.
-                player.sendMessage("[RPEngine] Waiting for a push on " + args[1]
-                        + ". Hit sync in the panel. /rp sync add <player> to share it.");
-                return true;
-            }
-        }
     }
 
     /**
@@ -959,107 +805,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
-     * {@code /emote}, wherever it was typed.
-     *
-     * <p>A solo emote runs straight off the director exactly as it always did:
-     * there is nobody to ask, and putting a prompt in front of the common case
-     * would make the feature worse to use. One that NAMES people goes through
-     * {@link EmoteInvites} first, because an emote with a cast teleports the
-     * people it names, hides them and holds them for its length — and that
-     * should not happen to somebody because a stranger typed their name.
-     */
-    private boolean emote(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("[RPEngine] /emote <name|stop> [player...], as a player.");
-            return true;
-        }
-        Player player = (Player) sender;
-        if (args.length == 0 || args[0].equalsIgnoreCase("stop")) {
-            emotes.stop(player, false, ai.resourcepack.engine.api.event.EmoteEndEvent.Cause.STOPPED);
-            player.sendMessage("[RPEngine] Stopped.");
-            return true;
-        }
-
-        EmoteInvites.Request request = invites.resolve(args);
-        if (request != null && !request.castNames().isEmpty()) {
-            invites.open(player, request);
-            return true;
-        }
-
-        // The director takes the whole argument list: it owns the rule about
-        // what an emote's arguments mean, and a second copy here would drift.
-        ai.resourcepack.engine.api.EmoteResult result = emotes.perform(player, List.of(args));
-        if (!result.started()) {
-            player.sendMessage("[RPEngine] " + emoteRefusal(result));
-        }
-        return true;
-    }
-
-    /**
-     * Why an emote was refused, in words.
-     *
-     * <p>The engine returns a typed reason and the host writes the sentence —
-     * an engine that chose the wording would be choosing the language for every
-     * server that runs it. This is that choice, made once, here.
-     */
-    private static String emoteRefusal(ai.resourcepack.engine.api.EmoteResult result) {
-        switch (result.reason()) {
-            case UNKNOWN_EMOTE:
-                return "No emote by that name.";
-            case NO_EMOTES:
-                return "This server has no emotes yet.";
-            case NO_RIGS_IN_PACK:
-                return "The pack has no emote rigs in it.";
-            case NO_RIG_FOR_PLAYER:
-                return "There is no rig for you in this pack.";
-            case ALREADY_EMOTING:
-                return "You are already emoting.";
-            case NOT_ON_GROUND:
-                return "You need to be on the ground.";
-            case IN_WATER:
-                return "Not in water.";
-            case FLYING:
-                return "Not while flying.";
-            case GLIDING:
-                return "Not while gliding.";
-            case RIDING:
-                return "Not while riding.";
-            case IN_SPECTATOR:
-                return "Not in spectator.";
-            case NO_ROOM:
-                return "Not enough room here.";
-            case IN_BLOCK:
-                return "Not inside a block.";
-            case SOLO_EMOTE:
-                return "That emote needs other players.";
-            case COOLDOWN:
-                return "Give it a moment.";
-            case CANCELLED:
-                return "Something stopped that.";
-            default:
-                return "Cannot do that here.";
-        }
-    }
-
-    /** A radius a human typed, kept sane. Scanning a whole world is not a command. */
-    private static double parseRadius(String text) {
-        try {
-            return Math.max(1, Math.min(128, Double.parseDouble(text.trim())));
-        } catch (NumberFormatException e) {
-            return 16;
-        }
-    }
-
-    /** An amount a human typed. Anything unparseable is one, never a crash. */
-    private static int parseAmount(String text) {
-        try {
-            return Math.max(1, Math.min(99, Integer.parseInt(text.trim())));
-        } catch (NumberFormatException e) {
-            return 1;
-        }
-    }
-
-    /**
      * Tells studio who is here, on a server that holds the trusted token.
      *
      * <p>What it buys: a push addressed to a player by uuid, with nobody
@@ -1093,6 +838,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         announcePresence(event.getPlayer(), false);
         overlays.clear(event.getPlayer());
+        if (liquidCommands != null) {
+            liquidCommands.forget(event.getPlayer().getUniqueId());
+        }
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
@@ -1108,415 +856,4 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
     }
 
-    /**
-     * Every subcommand, and what each one's first argument can be.
-     *
-     * <p>One list rather than a switch per arity: the subcommands themselves
-     * complete from its keys, so a subcommand cannot be added without also
-     * being discoverable. See {@link Completions} for why that is a rule.
-     */
-    /**
-     * What each subcommand needs: {@code rpengine.<subcommand>}, without
-     * exception.
-     *
-     * <p>A node per command rather than three buckets. Buckets are somebody
-     * else's guess about which permissions belong together, and the guess is
-     * always wrong for some server: the person who may reload content is not
-     * necessarily the person who may purge every model in a hundred blocks.
-     * The parents in {@code plugin.yml} are how a server that does not care
-     * grants them in one line — which is the convenience buckets were reaching
-     * for, without the guess.
-     */
-    private static String permissionFor(String sub) {
-        return "rpengine." + sub;
-    }
-
-    private static final List<String> SUBCOMMANDS = List.of(
-            "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "entities", "spawn", "liquid",
-            "sync", "publish", "push");
-
-    /** Whether {@code sender} may run {@code sub}. */
-    private static boolean allowed(CommandSender sender, String sub) {
-        return SUBCOMMANDS.contains(sub) && sender.hasPermission(permissionFor(sub));
-    }
-
-    @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length <= 1) {
-            // Only what they can actually run. Completing a command that then
-            // refuses is worse than not completing it.
-            List<String> theirs = new ArrayList<>();
-            for (String sub : SUBCOMMANDS) {
-                if (allowed(sender, sub)) {
-                    theirs.add(sub);
-                }
-            }
-            return Completions.matching(args.length == 0 ? "" : args[0], theirs);
-        }
-        if (!allowed(sender, args[0].toLowerCase(Locale.ROOT))) {
-            return List.of();
-        }
-        String sub = args[0].toLowerCase(Locale.ROOT);
-        if (args.length == 2) {
-            switch (sub) {
-                case "give":
-                    return Completions.matchingIds(args[1], items.ids());
-                case "sound":
-                    return Completions.matchingIds(args[1], sounds.ids());
-                case "screen":
-                    return Completions.matchingIds(args[1], overlays.screenIds());
-                case "hud": {
-                    List<String> options = new ArrayList<>(
-                            Completions.matchingIds(args[1], overlays.hudIds()));
-                    options.addAll(Completions.matching(args[1], "clear"));
-                    return options;
-                }
-                case "spawn":
-                    return Completions.matchingIds(args[1], creatures.ids());
-                case "liquid":
-                    return Completions.matching(args[1], "corner", "fill", "clear", "list");
-                case "emote": {
-                    List<String> names = new ArrayList<>(emotes.ids());
-                    names.add("stop");
-                    return Completions.matching(args[1], names);
-                }
-                case "sync":
-                    // A code cannot be completed — it comes off a web page —
-                    // so the words are offered and the code is simply typed.
-                    return Completions.matching(args[1],
-                            "add", "accept", "deny", "remove", "leave", "who", "stop");
-                case "models":
-                case "purge":
-                    // The radii somebody actually wants, rather than nothing at
-                    // all because the argument is a number.
-                    return Completions.matching(args[1], "8", "16", "32", "64", "128");
-                case "say":
-                    // Every icon as a ready-made placeholder, because the
-                    // colons are the part people get wrong.
-                    return Completions.matchingIds(args[1], icons.ids()).stream()
-                            .map(id -> ":" + id + ":").toList();
-                default:
-                    return List.of();
-            }
-        }
-        if (args.length == 3 && sub.equals("give")) {
-            return Completions.matching(args[2], "1", "8", "16", "64");
-        }
-        if (args.length == 3 && sub.equals("liquid") && args[1].equalsIgnoreCase("fill")) {
-            return Completions.matchingIds(args[2], liquids.ids());
-        }
-        if (args.length == 3 && sub.equals("sync")) {
-            String action = args[1].toLowerCase(Locale.ROOT);
-            if (action.equals("add")) {
-                // Only people who could actually accept: somebody already on a
-                // sync cannot be added to a second one, so offering them is
-                // offering a command that will refuse.
-                List<String> free = new ArrayList<>();
-                for (Player online : getServer().getOnlinePlayers()) {
-                    if (group.receiving(online.getName()).isEmpty()) {
-                        free.add(online.getName());
-                    }
-                }
-                return Completions.matching(args[2], free);
-            }
-            if (action.equals("remove")) {
-                return Completions.matching(args[2],
-                        group.codeOf(sender.getName()).map(group::recipients).orElse(List.of()));
-            }
-        }
-        return List.of();
-    }
-
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        String name = command.getName().toLowerCase(Locale.ROOT);
-        if (name.equals("emote")) {
-            return emote(sender, args);
-        }
-        if (name.equals("emotereply")) {
-            if (!(sender instanceof Player) || args.length < 2
-                    || !invites.reply((Player) sender, args[0], args[1])) {
-                sender.sendMessage("[RPEngine] /emotereply <accept|deny> <token>");
-            }
-            return true;
-        }
-        String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
-        if (!allowed(sender, sub)) {
-            if (!SUBCOMMANDS.contains(sub)) {
-                sender.sendMessage("[RPEngine] No such command. /rpengine for the list.");
-                return true;
-            }
-            sender.sendMessage("[RPEngine] You need " + permissionFor(sub) + " for that.");
-            return true;
-        }
-        switch (sub) {
-            case "reload":
-                // config.yml too. Reloading the content but not the settings
-                // is the sort of half-reload that has somebody restarting the
-                // server anyway and wondering why the command exists.
-                reloadConfig();
-                defaultBundle = getConfig().getString("default-bundle", "");
-                rebuild(sender);
-                return true;
-            case "bundles":
-                if (built.isEmpty()) {
-                    sender.sendMessage("[RPEngine] No bundles built.");
-                }
-                for (BuiltPack pack : built) {
-                    sender.sendMessage("[RPEngine] " + pack.bundle() + "  " + pack.entries() + " files, "
-                            + pack.size() + " bytes, " + pack.sha1().substring(0, 8)
-                            + "  " + host.url(pack.bundle()).orElse("not served"));
-                }
-                return true;
-            case "give": {
-                if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine give <id> [amount]");
-                    return true;
-                }
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] Only a player can be given an item.");
-                    return true;
-                }
-                int amount = args.length > 2 ? parseAmount(args[2]) : 1;
-                Optional<ItemStack> stack = ContentId.parse(args[1]).flatMap(id -> items.create(id, amount));
-                if (stack.isEmpty()) {
-                    sender.sendMessage("[RPEngine] No item called " + args[1] + ".");
-                    return true;
-                }
-                ((Player) sender).getInventory().addItem(stack.get());
-                sender.sendMessage("[RPEngine] Gave " + amount + " " + args[1] + ".");
-                return true;
-            }
-            case "items":
-                if (items.ids().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No items loaded.");
-                }
-                for (ContentId id : items.ids()) {
-                    ItemInfo info = items.info(id).orElseThrow();
-                    sender.sendMessage("[RPEngine] " + id + "  " + info.material()
-                            + (info.model().isPresent() ? "  model " + info.model().get() : ""));
-                }
-                return true;
-            case "models": {
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] Only a player can look around them.");
-                    return true;
-                }
-                Player looking = (Player) sender;
-                double radius = args.length > 1 ? parseRadius(args[1]) : 16;
-                java.util.List<org.bukkit.entity.Interaction> found =
-                        placements.near(looking.getLocation(), radius);
-                sender.sendMessage("[RPEngine] " + plural(found.size(), "model")
-                        + " within " + (int) radius + " blocks.");
-                for (org.bukkit.entity.Interaction hitbox : found) {
-                    org.bukkit.Location at = hitbox.getLocation();
-                    sender.sendMessage("[RPEngine] " + placements.idOf(hitbox).map(Object::toString).orElse("?")
-                            + "  " + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
-                            + (placements.isOrphan(hitbox) ? "  (orphan)" : ""));
-                }
-                return true;
-            }
-            case "purge": {
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] Only a player can purge around them.");
-                    return true;
-                }
-                Player around = (Player) sender;
-                double radius = args.length > 1 ? parseRadius(args[1]) : 16;
-                int removed = 0;
-                for (org.bukkit.entity.Interaction hitbox : placements.near(around.getLocation(), radius)) {
-                    // Orphans only. Purging models a pack still defines would
-                    // be a demolition command wearing a cleanup command's name.
-                    if (!placements.isOrphan(hitbox)) {
-                        continue;
-                    }
-                    placements.idOf(hitbox).ifPresent(id -> placements.remove(hitbox, id, around, false));
-                    removed++;
-                }
-                sender.sendMessage("[RPEngine] Removed " + plural(removed, "orphan")
-                        + " within " + (int) radius + " blocks. Models a pack still defines were left alone.");
-                return true;
-            }
-            case "sound": {
-                if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine sound <id>");
-                    return true;
-                }
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] Only a player can be played a sound.");
-                    return true;
-                }
-                boolean played = ContentId.parse(args[1])
-                        .map(id -> sounds.play((Player) sender, id)).orElse(Boolean.FALSE);
-                sender.sendMessage(played
-                        ? "[RPEngine] Played " + args[1] + "."
-                        : "[RPEngine] No sound called " + args[1] + ".");
-                return true;
-            }
-            case "icons":
-                if (icons.ids().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No icons loaded.");
-                }
-                for (ContentId id : icons.ids()) {
-                    sender.sendMessage("[RPEngine] " + id + "  "
-                            + icons.character(id).orElse("?") + "  :" + id + ":");
-                }
-                return true;
-            case "say": {
-                // Proof the placeholder works in ordinary text, which is the
-                // whole point of putting the glyphs in the default font.
-                if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine say <text with :namespace:id: in it>");
-                    return true;
-                }
-                sender.sendMessage(icons.format(String.join(" ",
-                        java.util.Arrays.copyOfRange(args, 1, args.length))));
-                return true;
-            }
-            case "screen": {
-                if (args.length < 2 || !(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine screen <id>, as a player.");
-                    return true;
-                }
-                boolean opened = ContentId.parse(args[1])
-                        .flatMap(id -> overlays.open((Player) sender, id)).isPresent();
-                if (!opened) {
-                    sender.sendMessage("[RPEngine] No screen called " + args[1] + ".");
-                }
-                return true;
-            }
-            case "hud": {
-                if (args.length < 2 || !(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine hud <id|clear>, as a player.");
-                    return true;
-                }
-                if (args[1].equalsIgnoreCase("clear")) {
-                    overlays.clear((Player) sender);
-                    sender.sendMessage("[RPEngine] Cleared.");
-                    return true;
-                }
-                boolean drawn = ContentId.parse(args[1])
-                        .map(id -> overlays.draw((Player) sender, id)).orElse(Boolean.FALSE);
-                if (!drawn) {
-                    sender.sendMessage("[RPEngine] No HUD called " + args[1] + ".");
-                }
-                return true;
-            }
-            case "screens":
-                for (ContentId id : overlays.screenIds()) {
-                    sender.sendMessage("[RPEngine] " + id + "  "
-                            + overlays.screen(id).map(o -> o.container()).orElse("?"));
-                }
-                for (ContentId id : overlays.hudIds()) {
-                    sender.sendMessage("[RPEngine] " + id + "  "
-                            + overlays.hud(id).map(o -> o.slot().name().toLowerCase(Locale.ROOT)).orElse("?"));
-                }
-                if (overlays.screenIds().isEmpty() && overlays.hudIds().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No screens or HUDs loaded.");
-                }
-                return true;
-            case "sync": {
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine sync, as a player.");
-                    return true;
-                }
-                return sync((Player) sender, args);
-            }
-            case "emote":
-                return emote(sender, java.util.Arrays.copyOfRange(args, 1, args.length));
-            case "emotes":
-                if (emotes.ids().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No emotes. They arrive with a studio push.");
-                }
-                for (String id : emotes.ids()) {
-                    sender.sendMessage("[RPEngine] " + id);
-                }
-                return true;
-            case "publish": {
-                if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine publish <code>  bind this server to a published pack");
-                    sender.sendMessage("[RPEngine] /rpengine publish off     stop serving it");
-                    return true;
-                }
-                if (args[1].equalsIgnoreCase("off")) {
-                    distribution.unbind(sender);
-                    return true;
-                }
-                distribution.claim(sender, args[1]);
-                return true;
-            }
-            case "spawn": {
-                if (args.length < 2 || !(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine spawn <id>, as a player.");
-                    return true;
-                }
-                Player at = (Player) sender;
-                boolean spawned = ContentId.parse(args[1])
-                        .flatMap(id -> creatures.spawn(at.getLocation(), id)).isPresent();
-                sender.sendMessage(spawned
-                        ? "[RPEngine] Spawned " + args[1] + "."
-                        : "[RPEngine] No entity called " + args[1] + ".");
-                return true;
-            }
-            case "entities":
-                if (creatures.ids().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No entities loaded.");
-                }
-                for (ContentId id : creatures.ids()) {
-                    sender.sendMessage("[RPEngine] " + id + "  "
-                            + creatures.info(id).map(e -> e.type()).orElse("?"));
-                }
-                return true;
-            case "liquid":
-                return liquid(sender, java.util.Arrays.copyOfRange(args, 1, args.length));
-            case "recipes":
-                if (recipes.size() == 0) {
-                    sender.sendMessage("[RPEngine] No recipes registered.");
-                }
-                for (ContentId id : recipeIds) {
-                    sender.sendMessage("[RPEngine] " + id);
-                }
-                return true;
-            case "sounds":
-                if (sounds.ids().isEmpty()) {
-                    sender.sendMessage("[RPEngine] No sounds loaded.");
-                }
-                for (ContentId id : sounds.ids()) {
-                    sender.sendMessage("[RPEngine] " + id + "  "
-                            + sounds.info(id).map(s -> s.category()).orElse("?"));
-                }
-                return true;
-            case "push":
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] Only a player can be pushed a pack.");
-                    return true;
-                }
-                Player player = (Player) sender;
-                sessions.forget(player.getUniqueId());
-                sender.sendMessage("[RPEngine] " + (delivery.apply(player, desiredFor(player))
-                        ? "Sent." : "Nothing to send."));
-                return true;
-            default:
-                sender.sendMessage("[RPEngine] " + plural(registry.ids().size(), "id") + " across "
-                        + plural(registry.namespaces().size(), "namespace") + ", "
-                        + plural(built.size(), "bundle") + ".");
-                List<String> kinds = new ArrayList<>();
-                for (ContentKind kind : ContentKind.values()) {
-                    int count = registry.ids(kind).size();
-                    if (count > 0) {
-                        kinds.add(plural(count, kind.name().toLowerCase(Locale.ROOT)));
-                    }
-                }
-                sender.sendMessage("[RPEngine] " + (kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds)));
-                sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
-                sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
-                sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
-                sender.sendMessage("[RPEngine] /rpengine recipes | emotes | emote <name|stop>");
-                sender.sendMessage("[RPEngine] /rpengine entities | spawn <id> | liquid");
-                sender.sendMessage("[RPEngine] /rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
-                sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
-                return true;
-        }
-    }
 }

@@ -44,7 +44,9 @@ group = 'ai.resourcepack'
 // 0.28.1: what the ports lost on the way over.
 // 0.29.0: presence, for a server that holds the trusted token.
 // 0.30.0: seats, armour, custom entities and liquids.
-version = '0.30.0'
+// 0.31.0: the command layer moves out of the plugin class into six areas,
+//         and /emote finally completes its own arguments.
+version = '0.31.0'
 
 java {
     toolchain {
