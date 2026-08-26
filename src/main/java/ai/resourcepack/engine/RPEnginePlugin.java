@@ -301,6 +301,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return registry;
     }
 
+    /**
+     * The way a third-party plugin puts content of its own into this server.
+     *
+     * <p>Separate from {@link #registry()} because reading what a server holds
+     * and adding to it are different privileges, and the great majority of
+     * callers only want the first. Claim a namespace, define into the handle,
+     * and release it when your plugin disables — see {@link ai.resourcepack.engine.api.Namespace}.
+     */
+    public ai.resourcepack.engine.api.ContentRegistration registration() {
+        return registry;
+    }
+
     /** The icons this server holds, and the way to put one into text. */
     public ai.resourcepack.engine.api.Icons icons() {
         return icons;
