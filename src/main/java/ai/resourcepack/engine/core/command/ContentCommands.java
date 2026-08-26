@@ -54,12 +54,12 @@ public final class ContentCommands implements Area {
     @Override
     public List<Help> help() {
         return List.of(
-                Help.of("reload", "reread the content folder and rebuild every pack"),
+                Help.of("reload", "reread content and rebuild"),
                 Help.of("items", "list the custom items"),
                 Help.of("give", "<id> [n]", "give yourself one"),
                 Help.of("recipes", "list the recipes"),
-                Help.of("bundles", "list the built packs, with sizes and hashes"),
-                Help.of("push", "send this server's pack to yourself again"));
+                Help.of("bundles", "the built packs and their sizes"),
+                Help.of("push", "send the pack to yourself again"));
     }
 
     @Override

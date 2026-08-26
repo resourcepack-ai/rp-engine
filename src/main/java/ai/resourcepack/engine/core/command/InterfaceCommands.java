@@ -50,11 +50,11 @@ public final class InterfaceCommands implements Area {
         return List.of(
                 Help.of("sounds", "list the custom sounds"),
                 Help.of("sound", "<id> [player]", "play one"),
-                Help.of("icons", "list the icons and the character each became"),
-                Help.of("say", "<text>", "send yourself text, with :pack:icon: resolved"),
-                Help.of("screens", "list the screens and HUD overlays"),
+                Help.of("icons", "list icons and their characters"),
+                Help.of("say", "<text>", "text with :pack:icon: in it"),
+                Help.of("screens", "list the screens and HUDs"),
                 Help.of("screen", "<id> [player]", "open a screen"),
-                Help.of("hud", "<id|clear> [player]", "draw an overlay, or clear it"));
+                Help.of("hud", "<id|clear> [player]", "draw or clear one"));
     }
 
     @Override

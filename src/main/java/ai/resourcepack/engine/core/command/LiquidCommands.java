@@ -47,8 +47,8 @@ public final class LiquidCommands implements Area {
     public List<Help> help() {
         return List.of(
                 Help.of("liquid corner", "mark one corner of a pool"),
-                Help.of("liquid fill", "<id>", "make the box to where you stand that liquid"),
-                Help.of("liquid clear", "remove the pool you are standing in"));
+                Help.of("liquid fill", "<id>", "fill to where you stand"),
+                Help.of("liquid clear", "remove the pool you are in"));
     }
 
     @Override

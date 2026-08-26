@@ -64,7 +64,9 @@ group = 'ai.resourcepack'
 //         exist without one.
 // 0.35.0: a pushed pack is served from the address studio signed, not
 //         re-served from a host address nobody configured.
-version = '0.35.0'
+// 0.36.0: the help fits on a line of chat. Minecraft's font is not
+//         monospace, so there are no columns to line up any more.
+version = '0.36.0'
 
 java {
     toolchain {

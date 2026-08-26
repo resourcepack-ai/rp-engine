@@ -165,22 +165,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         }
         Reply.to(sender, kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds));
 
-        // One width across every group, so the descriptions line up down the
-        // whole menu rather than per section.
-        List<Help> mine = new ArrayList<>();
-        for (Area area : groups) {
-            for (Help line : area.help()) {
-                if (allowed(sender, line.command())) {
-                    mine.add(line);
-                }
-            }
-        }
-        if (mine.isEmpty()) {
-            Reply.to(sender, "You have no RP Engine commands. Ask for rpengine.admin.");
-            return true;
-        }
-        int width = Help.width(mine);
-
+        boolean any = false;
         for (Area area : groups) {
             List<Help> lines = area.help().stream()
                     .filter(line -> allowed(sender, line.command()))
@@ -188,14 +173,16 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             if (lines.isEmpty()) {
                 continue;
             }
+            any = true;
             sender.sendMessage("");
             sender.sendMessage(Reply.HEADING + area.title());
             for (Help line : lines) {
-                sender.sendMessage(Reply.BODY + line.render(width));
+                sender.sendMessage(line.render());
             }
         }
-        sender.sendMessage("");
-        sender.sendMessage(Reply.BODY + "  /emote <name|stop> [player...]     play an emote on yourself");
+        if (!any) {
+            Reply.to(sender, "You have no RP Engine commands. Ask for rpengine.admin.");
+        }
         return true;
     }
 }
