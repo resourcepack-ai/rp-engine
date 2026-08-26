@@ -101,6 +101,7 @@ public final class ItemDefinitions {
                 body.string("texture").orElse(defaultTexture(definition.id())),
                 body.string("model").orElse(null),
                 copiedFrom,
+                body.string("permission").orElse(null),
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
                 body.bool("unbreakable").orElse(Boolean.FALSE)));

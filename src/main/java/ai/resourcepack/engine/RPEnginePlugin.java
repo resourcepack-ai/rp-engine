@@ -13,6 +13,7 @@ import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.command.Completions;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.item.ItemListener;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
@@ -105,6 +106,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
+        getServer().getPluginManager().registerEvents(new ItemListener(items), this);
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
                 getLogger(), this::onStudioPush, this::onStudioGive);
@@ -609,14 +611,58 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * complete from its keys, so a subcommand cannot be added without also
      * being discoverable. See {@link Completions} for why that is a rule.
      */
+    /**
+     * What each subcommand needs.
+     *
+     * <p>Per subcommand rather than one node on the command, because on a real
+     * server the person testing a pack is not necessarily the person who may
+     * purge every model in a hundred-block radius. `rpengine.admin` is a parent
+     * of the other two, so one grant still covers an owner.
+     */
+    private static final java.util.Map<String, String> PERMISSIONS = java.util.Map.ofEntries(
+            java.util.Map.entry("reload", "rpengine.admin"),
+            java.util.Map.entry("info", "rpengine.admin"),
+            java.util.Map.entry("bundles", "rpengine.admin"),
+            java.util.Map.entry("items", "rpengine.admin"),
+            java.util.Map.entry("models", "rpengine.admin"),
+            java.util.Map.entry("purge", "rpengine.admin"),
+            java.util.Map.entry("recipes", "rpengine.admin"),
+            java.util.Map.entry("icons", "rpengine.admin"),
+            java.util.Map.entry("sounds", "rpengine.admin"),
+            java.util.Map.entry("screens", "rpengine.admin"),
+            java.util.Map.entry("give", "rpengine.give"),
+            java.util.Map.entry("sound", "rpengine.give"),
+            java.util.Map.entry("say", "rpengine.give"),
+            java.util.Map.entry("screen", "rpengine.give"),
+            java.util.Map.entry("hud", "rpengine.give"),
+            java.util.Map.entry("push", "rpengine.give"),
+            java.util.Map.entry("sync", "rpengine.sync"));
+
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
             "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "sync", "push");
 
+    /** Whether {@code sender} may run {@code sub}. Unknown subcommands need nothing. */
+    private static boolean allowed(CommandSender sender, String sub) {
+        String node = PERMISSIONS.get(sub);
+        return node == null || sender.hasPermission(node);
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length <= 1) {
-            return Completions.matching(args.length == 0 ? "" : args[0], SUBCOMMANDS);
+            // Only what they can actually run. Completing a command that then
+            // refuses is worse than not completing it.
+            List<String> theirs = new ArrayList<>();
+            for (String sub : SUBCOMMANDS) {
+                if (allowed(sender, sub)) {
+                    theirs.add(sub);
+                }
+            }
+            return Completions.matching(args.length == 0 ? "" : args[0], theirs);
+        }
+        if (!allowed(sender, args[0].toLowerCase(Locale.ROOT))) {
+            return List.of();
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
         if (args.length == 2) {
@@ -680,6 +726,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
+        if (!allowed(sender, sub)) {
+            sender.sendMessage("[RPEngine] You need " + PERMISSIONS.get(sub) + " for that.");
+            return true;
+        }
         switch (sub) {
             case "reload":
                 // config.yml too. Reloading the content but not the settings
