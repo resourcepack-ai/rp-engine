@@ -39,7 +39,8 @@ group = 'ai.resourcepack'
 //         being synced.
 // 0.25.0: a permission per command, and emotes with a cast ask first.
 // 0.26.0: animated model rigs, and the public Models service.
-version = '0.26.0'
+// 0.27.0: skins and notifications, the last two protocol messages.
+version = '0.27.0'
 
 java {
     toolchain {

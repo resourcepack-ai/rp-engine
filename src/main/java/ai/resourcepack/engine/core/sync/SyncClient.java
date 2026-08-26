@@ -37,6 +37,8 @@ public final class SyncClient {
     private final Logger logger;
     private final BiConsumer<String, String> onApply;
     private final BiConsumer<String, String> onGive;
+    private final BiConsumer<String, String> onSkin;
+    private final BiConsumer<String, String> onTell;
 
     /** Codes claimed on this connection, and who claimed each. */
     private final Map<String, String> claimed = new ConcurrentHashMap<>();
@@ -51,11 +53,14 @@ public final class SyncClient {
      * @param onGive  called with the code and the command of a {@code GIVE}
      */
     public SyncClient(String url, Logger logger,
-                      BiConsumer<String, String> onApply, BiConsumer<String, String> onGive) {
+                      BiConsumer<String, String> onApply, BiConsumer<String, String> onGive,
+                      BiConsumer<String, String> onSkin, BiConsumer<String, String> onTell) {
         this.url = url;
         this.logger = logger;
         this.onApply = onApply;
         this.onGive = onGive;
+        this.onSkin = onSkin;
+        this.onTell = onTell;
     }
 
     /** Whether the socket is open. */
@@ -137,6 +142,26 @@ public final class SyncClient {
     /** Tells the far end a give did not run, and why. */
     public void giveFailed(String code, String reason) {
         send("GIVE_FAILED " + code + " " + reason);
+    }
+
+    /** Tells the far end a skin was worn. */
+    public void skinned(String code) {
+        send("SKINNED " + code);
+    }
+
+    /** Tells the far end a skin was not worn, and why. */
+    public void skinFailed(String code, String reason) {
+        send("SKIN_FAILED " + code + " " + reason);
+    }
+
+    /** Tells the far end a notification was shown. */
+    public void told(String code) {
+        send("TOLD " + code);
+    }
+
+    /** Tells the far end a notification was not shown, and why. */
+    public void tellFailed(String code, String reason) {
+        send("TELL_FAILED " + code + " " + reason);
     }
 
     /** Closes the socket and forgets every code. */
@@ -223,6 +248,18 @@ public final class SyncClient {
                 return;
             case "GIVE":
                 onGive.accept(ref, payload);
+                return;
+            case "SKIN":
+                // "<value> <signature>", positional like the rest. Safe to
+                // split on a space because both halves are base64 and the
+                // relay refuses any that carry whitespace.
+                onSkin.accept(ref, payload);
+                return;
+            case "TELL":
+                // JSON rather than positional fields: a notification is prose
+                // and both its fields contain spaces. The plugin owns the
+                // shape; this only carries it.
+                onTell.accept(ref, payload);
                 return;
             default:
                 // Everything else in the protocol is addressed at studio, or is

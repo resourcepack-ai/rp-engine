@@ -104,6 +104,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private RigAnimator animator;
     private RigPlacementListener rigPlacement;
     private ModelsImpl models;
+    private ai.resourcepack.engine.core.skin.SkinApplier skins;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -128,6 +129,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // identified and placed differently from a content-folder item — two
         // paths because there are genuinely two kinds of thing.
         Host rigHost = new Host(this, getDataFolder(), null, null);
+        skins = new ai.resourcepack.engine.core.skin.SkinApplier(this);
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
         animator = new RigAnimator(rigHost, rigs);
@@ -146,7 +148,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new ItemListener(items), this);
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
-                getLogger(), this::onStudioPush, this::onStudioGive);
+                getLogger(), this::onStudioPush, this::onStudioGive,
+                this::onStudioSkin, this::onStudioTell);
         invites = new EmoteInvites(this, emotes());
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
@@ -612,6 +615,100 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         sync.members(code, entries);
+    }
+
+    /**
+     * A signed skin studio pushed: the player wears it.
+     *
+     * <p>The value and signature are Mojang's own, fetched and signed by
+     * studio. Nothing here validates them beyond their shape — the game does
+     * that when the profile is applied, and a second opinion invented here
+     * would be a guess about somebody else's cryptography.
+     */
+    private void onStudioSkin(String code, String payload) {
+        String[] texture = payload.split(" ", 2);
+        if (texture.length < 2 || texture[0].isEmpty() || texture[1].isEmpty()) {
+            sync.skinFailed(code, "bad-payload");
+            return;
+        }
+        getServer().getScheduler().runTask(this, () -> {
+            int worn = 0;
+            for (String name : group.recipients(code)) {
+                Player player = getServer().getPlayerExact(name);
+                if (player == null) {
+                    continue;
+                }
+                if (skins.apply(player, texture[0], texture[1]).ok) {
+                    worn++;
+                }
+            }
+            if (worn == 0) {
+                sync.skinFailed(code, "player-offline");
+                return;
+            }
+            sync.skinned(code);
+        });
+    }
+
+    /**
+     * A line of chat studio asked for — usually that a model somebody walked
+     * away from has finished.
+     *
+     * <p>The payload is JSON because a notification is prose and its fields
+     * contain spaces. The shape is the plugin's to own, which is why the
+     * wording below is here and not in the protocol.
+     */
+    private void onStudioTell(String code, String json) {
+        String title = jsonString(json, "title");
+        if (title == null) {
+            sync.tellFailed(code, "bad-payload");
+            return;
+        }
+        String body = jsonString(json, "body");
+        String url = jsonString(json, "url");
+        getServer().getScheduler().runTask(this, () -> {
+            int told = 0;
+            for (String name : group.recipients(code)) {
+                Player player = getServer().getPlayerExact(name);
+                if (player == null) {
+                    continue;
+                }
+                player.sendMessage("[RPEngine] " + title);
+                if (body != null && !body.isEmpty()) {
+                    player.sendMessage("[RPEngine] " + body);
+                }
+                if (url != null && !url.isEmpty()) {
+                    player.sendMessage("[RPEngine] " + url);
+                }
+                told++;
+            }
+            if (told == 0) {
+                sync.tellFailed(code, "player-offline");
+                return;
+            }
+            sync.told(code);
+        });
+    }
+
+    /**
+     * One string field out of a small, known JSON object.
+     *
+     * <p>Gson would do this properly and is already on the classpath, but the
+     * payload is three fields written by us and read by us, and a parse that
+     * throws on a field somebody adds later is worse here than one that simply
+     * does not find it.
+     */
+    private static String jsonString(String json, String field) {
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(json);
+            if (!parsed.isJsonObject()) {
+                return null;
+            }
+            com.google.gson.JsonElement value = parsed.getAsJsonObject().get(field);
+            return value != null && value.isJsonPrimitive() ? value.getAsString() : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** A give-command studio asked for, run as the console against that player. */
