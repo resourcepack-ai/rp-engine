@@ -38,7 +38,8 @@ group = 'ai.resourcepack'
 // 0.24.2: a code has to look like one, and claiming it is not the same as
 //         being synced.
 // 0.25.0: a permission per command, and emotes with a cast ask first.
-version = '0.25.0'
+// 0.26.0: animated model rigs, and the public Models service.
+version = '0.26.0'
 
 java {
     toolchain {
