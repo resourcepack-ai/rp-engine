@@ -9,7 +9,7 @@ folia-supported: false
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|sync|push>
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|sync|push>
     aliases: [rpe, rp]
     # Deliberately NO permission here. One node on the command would mean the
     # person testing a pack also has to be the person who can purge models, and

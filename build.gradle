@@ -33,7 +33,8 @@ group = 'ai.resourcepack'
 // 0.21.0: the emote migration begins - triggers and the keyframe sampler.
 // 0.22.0: the emote manifest. Nothing plays one yet.
 // 0.23.0: the emote director. Nothing is wired to it yet.
-version = '0.23.0'
+// 0.24.0: emotes are wired up. A studio push brings them and /rp emote plays.
+version = '0.24.0'
 
 java {
     toolchain {

@@ -10,7 +10,11 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.command.Completions;
+import ai.resourcepack.engine.core.emote.EmoteDirector;
+import ai.resourcepack.engine.core.emote.EmoteStore;
+import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemListener;
@@ -86,6 +90,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelPlacementListener placements;
     private Recipes recipes;
     private SyncClient sync;
+    private EmoteStore emoteStore;
+    private EmoteDirector emotes;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -102,6 +108,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     public void onEnable() {
         saveDefaultConfig();
         items = new ItemsImpl(this);
+        // Emotes come over from the previous engine whole: the store, the
+        // director and the maths. Host is the seam they were written against,
+        // so it is what they get.
+        emoteStore = new EmoteStore(getDataFolder());
+        emoteStore.load(getLogger());
+        emotes = new EmoteDirector(
+                new Host(this, getDataFolder(), null, getConfig().getString("emotes.cast-permission", null)),
+                emoteStore);
         placements = new ModelPlacementListener(this, items);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
@@ -110,12 +124,27 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
                 getLogger(), this::onStudioPush, this::onStudioGive);
+        getServer().getPluginManager().registerEvents(emotes, this);
+        emotes.start();
         startHost();
         rebuild(getServer().getConsoleSender());
     }
 
+    /** The emotes this server holds. */
+    public ai.resourcepack.engine.api.Emotes emotes() {
+        return new EmotesImpl(emotes, emoteStore);
+    }
+
     @Override
     public void onDisable() {
+        if (emotes != null) {
+            // Everybody mid-emote is put back before the plugin goes, or they
+            // stay invisible with a rig standing where they were.
+            emotes.stop();
+        }
+        if (emoteStore != null) {
+            emoteStore.save(getLogger());
+        }
         // Recipes live in the server's registry rather than ours, so leaving
         // them behind would outlast the plugin that made them.
         if (recipes != null) {
@@ -311,6 +340,21 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             sync.failed(code, "unknown-code");
             return;
         }
+        // The manifest first: a pack whose art arrives without its keyframes
+        // is a pack somebody can wear and not emote in, and the two came down
+        // the same push.
+        StudioPush.manifestUrl(payload)
+                .flatMap(StudioPush::fetchText)
+                .ifPresent(json -> {
+                    ai.resourcepack.engine.api.MergeResult merged = emoteStore.updateFromJson(json);
+                    if (merged.ok()) {
+                        emoteStore.save(getLogger());
+                        getLogger().info("Emotes: " + merged.count() + " from " + merged.packId() + ".");
+                    } else {
+                        getLogger().warning("Emote manifest: " + merged.error());
+                    }
+                });
+
         Optional<BuiltPack> pack = StudioPush.fetch(payload,
                 getDataFolder().toPath().resolve("output"));
         if (pack.isEmpty()) {
@@ -563,6 +607,52 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return List.of();
     }
 
+    /**
+     * Why an emote was refused, in words.
+     *
+     * <p>The engine returns a typed reason and the host writes the sentence —
+     * an engine that chose the wording would be choosing the language for every
+     * server that runs it. This is that choice, made once, here.
+     */
+    private static String emoteRefusal(ai.resourcepack.engine.api.EmoteResult result) {
+        switch (result.reason()) {
+            case UNKNOWN_EMOTE:
+                return "No emote by that name.";
+            case NO_EMOTES:
+                return "This server has no emotes yet.";
+            case NO_RIGS_IN_PACK:
+                return "The pack has no emote rigs in it.";
+            case NO_RIG_FOR_PLAYER:
+                return "There is no rig for you in this pack.";
+            case ALREADY_EMOTING:
+                return "You are already emoting.";
+            case NOT_ON_GROUND:
+                return "You need to be on the ground.";
+            case IN_WATER:
+                return "Not in water.";
+            case FLYING:
+                return "Not while flying.";
+            case GLIDING:
+                return "Not while gliding.";
+            case RIDING:
+                return "Not while riding.";
+            case IN_SPECTATOR:
+                return "Not in spectator.";
+            case NO_ROOM:
+                return "Not enough room here.";
+            case IN_BLOCK:
+                return "Not inside a block.";
+            case SOLO_EMOTE:
+                return "That emote needs other players.";
+            case COOLDOWN:
+                return "Give it a moment.";
+            case CANCELLED:
+                return "Something stopped that.";
+            default:
+                return "Cannot do that here.";
+        }
+    }
+
     /** A radius a human typed, kept sane. Scanning a whole world is not a command. */
     private static double parseRadius(String text) {
         try {
@@ -636,11 +726,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             java.util.Map.entry("screen", "rpengine.give"),
             java.util.Map.entry("hud", "rpengine.give"),
             java.util.Map.entry("push", "rpengine.give"),
+            java.util.Map.entry("emotes", "rpengine.admin"),
+            java.util.Map.entry("emote", "rpengine.give"),
             java.util.Map.entry("sync", "rpengine.sync"));
 
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "sync", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "sync", "push");
 
     /** Whether {@code sender} may run {@code sub}. Unknown subcommands need nothing. */
     private static boolean allowed(CommandSender sender, String sub) {
@@ -678,6 +770,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                             Completions.matchingIds(args[1], overlays.hudIds()));
                     options.addAll(Completions.matching(args[1], "clear"));
                     return options;
+                }
+                case "emote": {
+                    List<String> names = new ArrayList<>(emotes.ids());
+                    names.add("stop");
+                    return Completions.matching(args[1], names);
                 }
                 case "sync":
                     // A code cannot be completed — it comes off a web page —
@@ -903,6 +1000,36 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 }
                 return sync((Player) sender, args);
             }
+            case "emote": {
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine emote <name|stop>, as a player.");
+                    return true;
+                }
+                Player player = (Player) sender;
+                if (args.length < 2 || args[1].equalsIgnoreCase("stop")) {
+                    emotes.stop(player, false,
+                            ai.resourcepack.engine.api.event.EmoteEndEvent.Cause.STOPPED);
+                    sender.sendMessage("[RPEngine] Stopped.");
+                    return true;
+                }
+                // The director takes the whole argument list: an emote with a
+                // cast names a player per slot, and parsing that here would be
+                // a second copy of a rule it already owns.
+                ai.resourcepack.engine.api.EmoteResult result = emotes.perform(player,
+                        List.of(java.util.Arrays.copyOfRange(args, 1, args.length)));
+                if (!result.started()) {
+                    sender.sendMessage("[RPEngine] " + emoteRefusal(result));
+                }
+                return true;
+            }
+            case "emotes":
+                if (emotes.ids().isEmpty()) {
+                    sender.sendMessage("[RPEngine] No emotes. They arrive with a studio push.");
+                }
+                for (String id : emotes.ids()) {
+                    sender.sendMessage("[RPEngine] " + id);
+                }
+                return true;
             case "recipes":
                 if (recipes.size() == 0) {
                     sender.sendMessage("[RPEngine] No recipes registered.");
@@ -945,7 +1072,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
-                sender.sendMessage("[RPEngine] /rpengine recipes | sync <code|add|accept|deny|remove|leave|who|stop>");
+                sender.sendMessage("[RPEngine] /rpengine recipes | emotes | emote <name|stop>");
+                sender.sendMessage("[RPEngine] /rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
