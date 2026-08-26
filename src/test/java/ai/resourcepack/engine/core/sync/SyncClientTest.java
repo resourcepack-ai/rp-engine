@@ -17,11 +17,15 @@ class SyncClientTest {
 
     private final List<String> applied = new ArrayList<>();
     private final List<String> given = new ArrayList<>();
+    private final List<String> skinned = new ArrayList<>();
+    private final List<String> told = new ArrayList<>();
 
     private SyncClient client() {
         return new SyncClient("wss://example.invalid/connect", Logger.getLogger("test"),
                 (code, payload) -> applied.add(code + "|" + payload),
-                (code, command) -> given.add(code + "|" + command));
+                (code, command) -> given.add(code + "|" + command),
+                (code, texture) -> skinned.add(code + "|" + texture),
+                (code, json) -> told.add(code + "|" + json));
     }
 
     @Test
@@ -50,6 +54,25 @@ class SyncClientTest {
     }
 
     @Test
+    void readsASkin() {
+        // "<value> <signature>", both base64. Safe to split on a space
+        // because the relay refuses either half carrying whitespace.
+        client().handle("SKIN 48213097 eyJ0aW1lc3RhbXAi AKlvWabc==");
+
+        assertEquals(List.of("48213097|eyJ0aW1lc3RhbXAi AKlvWabc=="), skinned);
+    }
+
+    @Test
+    void readsANotification() {
+        // JSON rather than positional: a notification is prose and both its
+        // fields contain spaces.
+        client().handle("TELL 069a79f4a3df4229adc07f26f6c2ec3a {\"title\":\"Ruby Sword is ready\"}");
+
+        assertEquals(1, told.size());
+        assertTrue(told.get(0).contains("Ruby Sword is ready"));
+    }
+
+    @Test
     void aUuidRefWorksTheSameAsACode() {
         // The two shapes do not collide, which is why the protocol carries both
         // without a second set of message types.
@@ -73,6 +96,8 @@ class SyncClientTest {
 
         assertTrue(applied.isEmpty());
         assertTrue(given.isEmpty());
+        assertTrue(skinned.isEmpty());
+        assertTrue(told.isEmpty());
     }
 
     @Test
