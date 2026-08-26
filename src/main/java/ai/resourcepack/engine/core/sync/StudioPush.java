@@ -100,25 +100,57 @@ public final class StudioPush {
         }
     }
 
-    /** The pack half of an {@code APPLY} payload. */
+    /**
+     * Which slot of an {@code APPLY} payload holds what.
+     *
+     * <p><strong>The payload is positional, not "a pack and a manifest".</strong>
+     * Studio space-joins a fixed sequence of URLs and writes {@code -} for a
+     * slot it has nothing for, popping only the trailing empties. Its own
+     * comment says why the order can be relied on: a plugin older than a slot
+     * simply never reads that index, so appending is safe and inserting is not.
+     *
+     * <p>Reading the wrong index does not fail loudly. The rigs manifest is
+     * also JSON with a {@code packId} in it, so merging it as an emote manifest
+     * parses cleanly and yields nothing — which reads as "this pack has no
+     * emotes" for a pack full of them.
+     */
+    private static final int SLOT_PACK = 0;
+    private static final int SLOT_RIGS = 1;
+    private static final int SLOT_BEDROCK = 2;
+    private static final int SLOT_EMOTES = 3;
+
+    /** The pack itself. */
     public static String packUrl(String payload) {
-        return payload == null ? "" : payload.trim().split(" ")[0];
+        return slot(payload, SLOT_PACK).orElse("");
     }
 
     /**
-     * The manifest half, or empty when the push carries none.
+     * The emote manifest, or empty when the push carries none.
      *
-     * <p>Studio space-joins a second URL when the pack has animated models or
-     * emotes in it. Everything the plugin needs to PLAY an emote is in there —
-     * the keyframes, the bones, and which baked rig belongs to whom — because
-     * a resource pack can carry the art but has nowhere to put the animation.
+     * <p>Everything needed to PLAY an emote is in there — the keyframes, the
+     * bones, and which baked rig belongs to whom — because a resource pack can
+     * carry the art and has nowhere to put the animation.
      */
-    public static Optional<String> manifestUrl(String payload) {
+    public static Optional<String> emotesUrl(String payload) {
+        return slot(payload, SLOT_EMOTES);
+    }
+
+    /** The animated-model rigs, on the same terms. Nothing reads these yet. */
+    public static Optional<String> rigsUrl(String payload) {
+        return slot(payload, SLOT_RIGS);
+    }
+
+    /** One slot, with {@code -} and an absent trailing slot both meaning empty. */
+    static Optional<String> slot(String payload, int index) {
         if (payload == null) {
             return Optional.empty();
         }
         String[] parts = payload.trim().split(" ");
-        return parts.length > 1 && !parts[1].isEmpty() ? Optional.of(parts[1]) : Optional.empty();
+        if (index >= parts.length) {
+            return Optional.empty();
+        }
+        String value = parts[index];
+        return value.isEmpty() || value.equals("-") ? Optional.empty() : Optional.of(value);
     }
 
     /** Downloads a manifest as text, or empty if it could not be had. */

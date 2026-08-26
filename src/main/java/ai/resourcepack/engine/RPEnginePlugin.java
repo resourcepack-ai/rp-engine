@@ -343,7 +343,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // The manifest first: a pack whose art arrives without its keyframes
         // is a pack somebody can wear and not emote in, and the two came down
         // the same push.
-        StudioPush.manifestUrl(payload)
+        StudioPush.emotesUrl(payload)
                 .flatMap(StudioPush::fetchText)
                 .ifPresent(json -> {
                     ai.resourcepack.engine.api.MergeResult merged = emoteStore.updateFromJson(json);

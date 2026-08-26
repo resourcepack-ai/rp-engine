@@ -34,7 +34,8 @@ group = 'ai.resourcepack'
 // 0.22.0: the emote manifest. Nothing plays one yet.
 // 0.23.0: the emote director. Nothing is wired to it yet.
 // 0.24.0: emotes are wired up. A studio push brings them and /rp emote plays.
-version = '0.24.0'
+// 0.24.1: the emote manifest is slot 3 of a push, not slot 1.
+version = '0.24.1'
 
 java {
     toolchain {
