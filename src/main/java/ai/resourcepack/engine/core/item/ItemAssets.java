@@ -79,8 +79,13 @@ public final class ItemAssets implements PackContributor {
      *
      * <p>Vanilla's own path since 1.21.4: an item declares an
      * {@code equippable} component naming an asset, and the asset names the
-     * layers. Two of them, because the game draws legs from a second, narrower
-     * texture — a single layer would put a belt buckle on somebody's knee.
+     * layer the game draws it from.
+     *
+     * <p><strong>Legs are a different layer, not a second one.</strong> The
+     * game draws leggings from {@code humanoid_leggings}, at its own narrower
+     * proportions, and everything else from {@code humanoid} — so a slot gets
+     * exactly one layer and exactly one texture is asked for. Declaring both
+     * would name a file the pack has no reason to ship.
      *
      * <p>This replaces the old tricks entirely. Dyed leather spends a colour
      * that then cannot be used for anything else and looks wrong on every
@@ -89,21 +94,13 @@ public final class ItemAssets implements PackContributor {
      */
     private void writeEquipment(ItemInfo item, String namespace, String slot, Contribution into) {
         String name = item.id().path();
-        String layer = "\"texture\": \"" + namespace + ":" + name + "\"";
+        String layer = slot.equals("legs") ? "humanoid_leggings" : "humanoid";
         into.add("assets/" + namespace + "/equipment/" + name + ".json",
-                json("{\"layers\":{\"humanoid\":[{" + layer + "}],"
-                        + "\"humanoid_leggings\":[{" + layer + "}]}}"));
-
-        // The two textures the asset just named. Legs are their own file at
-        // its own proportions, so a pack that ships one and not the other is
-        // told which is missing rather than left with a transparent leg.
+                json("{\"layers\":{\"" + layer + "\":[{\"texture\":\""
+                        + namespace + ":" + name + "\"}]}}"));
         requireTexture(item, namespace,
-                "assets/" + namespace + "/textures/entity/equipment/humanoid/" + name + ".png", into);
-        if (slot.equals("legs")) {
-            requireTexture(item, namespace,
-                    "assets/" + namespace + "/textures/entity/equipment/humanoid_leggings/"
-                            + name + ".png", into);
-        }
+                "assets/" + namespace + "/textures/entity/equipment/" + layer + "/" + name + ".png",
+                into);
     }
 
     /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */
