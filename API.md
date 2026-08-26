@@ -16,6 +16,7 @@ engine.emotes();    // emotes and stances
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
 engine.registry();  // everything this server holds, by id
+engine.registration(); // and how to put content of your own into it
 ```
 
 Add `softdepend: [RPEngine]` to your `plugin.yml` so you load after it.
@@ -119,6 +120,21 @@ public void onPlace(ModelPlaceEvent event) {
     }
 }
 ```
+
+## Content of your own
+
+A plugin can be a content source rather than shipping a folder. Claim a
+namespace, define into the handle, release it when you disable.
+
+```java
+ClaimResult claim = engine.registration().claim("myplugin", ContentSource.EMBEDDED);
+claim.namespace().ifPresent(ns -> ns.define(ContentKind.ITEM, "ruby"));
+```
+
+The handle is what proves ownership: holding `myplugin` cannot define
+`otherpack:thing`, so two sources loading at once cannot corrupt each other's
+half of the id space. `EMBEDDED` content is not second class — same registry,
+same id rules, and the pack builder cannot tell it from a hand-written folder.
 
 ## Threading
 
