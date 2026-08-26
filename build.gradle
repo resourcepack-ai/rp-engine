@@ -27,7 +27,8 @@ group = 'ai.resourcepack'
 // 0.16.0: a .bbmodel can be used directly, no export step.
 // 0.17.0: recipes.
 // 0.18.0: studio pairing, so a pack can be live-tested from the panel.
-version = '0.18.0'
+// 0.19.0: a sync can be shared with other players.
+version = '0.19.0'
 
 java {
     toolchain {

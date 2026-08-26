@@ -108,6 +108,17 @@ public final class SyncClient {
         }
     }
 
+    /**
+     * Tells the far end everybody a push for {@code code} may land on.
+     *
+     * <p>Sent whole on every change, which is what the protocol asks for, and
+     * {@code -} when it is only the claimer. Easy to forget on the removal
+     * path, where the roster shrinking matters as much as it growing.
+     */
+    public void members(String code, java.util.List<String> entries) {
+        send("MEMBERS " + code + " " + (entries.isEmpty() ? "-" : String.join(",", entries)));
+    }
+
     /** Tells the far end a push landed. */
     public void applied(String code) {
         send("APPLIED " + code);

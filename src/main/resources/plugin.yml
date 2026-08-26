@@ -9,7 +9,7 @@ folia-supported: false
 commands:
   rpengine:
     description: Manage RP Engine content and bundles.
-    usage: /rpengine <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|sync|unsync|push>
+    usage: /rpengine <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|sync|push>
     aliases: [rpe, rp]
     permission: rpengine.admin
 

@@ -30,6 +30,9 @@ sync:
   # Run /rp sync <code> with a code from the panel, then push. The pushed pack
   # is stacked on top of whatever this server's own content gave you, so a pack
   # under test is tried against the server it will actually run on.
+  #
+  # /rp sync add <player> shares your pushes with somebody else. They accept,
+  # and it lasts exactly as long as your sync does.
   url: "wss://sync.resourcepack.ai/connect"
 
 # Which bundle a player is given on join. Leave empty to send nothing and
