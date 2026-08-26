@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.command.CommandSender;
 
 /**
  * Serving a published pack to everybody who joins this server.
@@ -115,7 +116,7 @@ public final class DistributionManager implements Listener {
      * {@code /rpai distribute <code>}. Runs the claim off the main thread and
      * reports back in chat.
      */
-    public void claim(org.bukkit.command.CommandSender sender, String code) {
+    public void claim(CommandSender sender, String code) {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
                 DistributionClient.ClaimResult result = client.claim(
@@ -154,7 +155,7 @@ public final class DistributionManager implements Listener {
     }
 
     /** Forget the binding. The studio side is unbound from the tab. */
-    public void unbind(org.bukkit.command.CommandSender sender) {
+    public void unbind(CommandSender sender) {
         this.token = null;
         this.manifest = Manifest.empty();
         writeToken(null);

@@ -1,14 +1,15 @@
 package ai.resourcepack.engine.core.emote;
 
 import ai.resourcepack.engine.api.EmoteTrigger;
-import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Keyframe;
+import ai.resourcepack.engine.api.MergeResult;
 
 import com.google.gson.Gson;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -18,7 +19,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
-import java.nio.file.Files;
 
 /**
  * In-memory store of player emotes, keyed by emote id, plus the baked rig each

@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -43,7 +44,7 @@ public final class EmoteInfo {
         this.castSlots = castSlots == null ? List.of() : List.copyOf(castSlots);
         this.triggers = triggers == null || triggers.isEmpty()
             ? Collections.<EmoteTrigger>emptySet()
-            : Collections.unmodifiableSet(java.util.EnumSet.copyOf(triggers));
+            : Collections.unmodifiableSet(EnumSet.copyOf(triggers));
         this.group = group;
     }
 

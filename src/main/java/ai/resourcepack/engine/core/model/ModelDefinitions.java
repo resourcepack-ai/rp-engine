@@ -5,9 +5,9 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
-import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.ModelInfo;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

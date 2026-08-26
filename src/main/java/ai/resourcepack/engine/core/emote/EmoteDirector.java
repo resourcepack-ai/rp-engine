@@ -1,12 +1,12 @@
 package ai.resourcepack.engine.core.emote;
 
-import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.EmoteResult.Reason;
+import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.EmoteTrigger;
+import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.api.event.EmoteEndEvent;
 import ai.resourcepack.engine.api.event.EmoteStartEvent;
 import ai.resourcepack.engine.core.Host;
-import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.animation.Sampler;
 
@@ -37,8 +37,8 @@ import org.bukkit.util.Vector;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;

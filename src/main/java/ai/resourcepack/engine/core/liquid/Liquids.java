@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LiquidInfo;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.entity.Player;
@@ -12,7 +13,9 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -51,9 +54,9 @@ public final class Liquids {
 
     /** Every liquid id, sorted. */
     public Collection<ContentId> ids() {
-        java.util.List<ContentId> sorted = new java.util.ArrayList<>(liquids.keySet());
+        List<ContentId> sorted = new ArrayList<>(liquids.keySet());
         sorted.sort(ContentId::compareTo);
-        return java.util.List.copyOf(sorted);
+        return List.copyOf(sorted);
     }
 
     /** What the pack said a liquid is. */
@@ -96,7 +99,7 @@ public final class Liquids {
             // Spigot's API has isInWater but no isInLava, so lava is asked of
             // the block the player is standing in.
             if (!player.isInWater()
-                    && player.getLocation().getBlock().getType() != org.bukkit.Material.LAVA) {
+                    && player.getLocation().getBlock().getType() != Material.LAVA) {
                 continue;
             }
             at(player.getLocation()).ifPresent(liquid -> apply(player, liquid));

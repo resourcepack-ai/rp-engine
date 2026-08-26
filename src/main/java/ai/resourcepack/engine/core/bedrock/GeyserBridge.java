@@ -40,6 +40,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -109,7 +110,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     private static final class ItemManifest {
-        java.util.List<ItemInfo> items;
+        List<ItemInfo> items;
     }
 
     // xuid -> (modelId -> slot), parsed from that player's stashed pack, so

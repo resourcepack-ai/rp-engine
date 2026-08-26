@@ -2,6 +2,7 @@ package ai.resourcepack.engine.api;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What a content pack said a sound is.
@@ -22,7 +23,7 @@ public final class SoundInfo {
      * player who turned music down still hears it, which is the sort of thing
      * that gets a server muted rather than reported.
      */
-    public static final java.util.Set<String> CATEGORIES = java.util.Set.of(
+    public static final Set<String> CATEGORIES = Set.of(
             "master", "music", "record", "weather", "block",
             "hostile", "neutral", "player", "ambient", "voice");
 

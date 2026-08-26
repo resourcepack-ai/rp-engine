@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.api;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -85,6 +86,6 @@ public final class IconInfo {
 
     @Override
     public String toString() {
-        return id + " (U+" + Integer.toHexString(codepoint).toUpperCase(java.util.Locale.ROOT) + ")";
+        return id + " (U+" + Integer.toHexString(codepoint).toUpperCase(Locale.ROOT) + ")";
     }
 }
