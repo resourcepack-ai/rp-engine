@@ -54,7 +54,9 @@ group = 'ai.resourcepack'
 // 0.32.1: the grip is lifted the 2px it read low by in a client, and the
 //         wearer's own copy of their held item stops rendering for them —
 //         a packet, so the item is still really in their hand.
-version = '0.32.1'
+// 0.32.2: the blank follows the slot in their hand, so a slot they scroll
+//         away from gets its item back mid-emote.
+version = '0.32.2'
 
 java {
     toolchain {
