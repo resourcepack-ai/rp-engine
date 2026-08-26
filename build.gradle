@@ -66,7 +66,10 @@ group = 'ai.resourcepack'
 //         re-served from a host address nobody configured.
 // 0.36.0: the help fits on a line of chat. Minecraft's font is not
 //         monospace, so there are no columns to line up any more.
-version = '0.36.0'
+// 0.37.0: a push addressed by uuid reaches the player it names. Studio
+//         addresses a sync that way the moment it has more than one
+//         recipient, and always for a skin or a notification.
+version = '0.37.0'
 
 java {
     toolchain {
