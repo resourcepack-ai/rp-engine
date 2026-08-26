@@ -2,7 +2,7 @@ name: RPEngine
 main: ai.resourcepack.engine.RPEnginePlugin
 version: ${version}
 api-version: '1.21'
-description: Custom items, models, sounds, icons, screens and recipes, from a content folder.
+description: Custom items, models, sounds, icons, screens, recipes and emotes.
 author: ResourcePack AI
 folia-supported: false
 
@@ -11,21 +11,109 @@ commands:
     description: Manage RP Engine content.
     usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|sync|push>
     aliases: [rpe, rp]
-    # Deliberately NO permission here. One node on the command would mean the
-    # person testing a pack also has to be the person who can purge models, and
-    # on a real server those are different people. Each subcommand checks its
-    # own; see PERMISSIONS in RPEnginePlugin.
+    # No permission on the command itself. Each subcommand checks its
+    # own rpengine.<name>; see permissionFor in RPEnginePlugin.
+  emote:
+    description: Play an emote.
+    usage: /<command> <name|stop> [player...]
+    permission: rpengine.emote
+  emotereply:
+    description: Answer an emote invitation.
+    usage: /<command> <accept|deny> <token>
+    # Deliberately ungated: it can only ever answer an invitation
+    # somebody was already sent, and a player who cannot reply is a
+    # player who cannot decline being pulled into an emote.
 
 permissions:
   rpengine.admin:
-    description: Manage content - reload, inspect, purge.
+    description: Everything. A convenience parent, not a node anything checks.
     default: op
     children:
+      rpengine.reload: true
+      rpengine.info: true
+      rpengine.bundles: true
+      rpengine.items: true
       rpengine.give: true
+      rpengine.models: true
+      rpengine.purge: true
+      rpengine.sounds: true
+      rpengine.sound: true
+      rpengine.icons: true
+      rpengine.say: true
+      rpengine.screens: true
+      rpengine.screen: true
+      rpengine.hud: true
+      rpengine.recipes: true
+      rpengine.emote: true
+      rpengine.emotes: true
       rpengine.sync: true
-  rpengine.give:
-    description: Give yourself custom items, and play sounds and screens.
+      rpengine.push: true
+      rpengine.emote.cast: true
+      rpengine.emote.force: true
+  rpengine.reload:
+    description: Reload content and config.
     default: op
+  rpengine.info:
+    description: See what this server holds.
+    default: op
+  rpengine.bundles:
+    description: List the built packs.
+    default: op
+  rpengine.items:
+    description: List the custom items.
+    default: op
+  rpengine.give:
+    description: Give yourself a custom item.
+    default: op
+  rpengine.models:
+    description: List placed models nearby.
+    default: op
+  rpengine.purge:
+    description: Remove orphaned placed models.
+    default: op
+  rpengine.sounds:
+    description: List the custom sounds.
+    default: op
+  rpengine.sound:
+    description: Play a custom sound to yourself.
+    default: op
+  rpengine.icons:
+    description: List the icons.
+    default: op
+  rpengine.say:
+    description: Send yourself text with icons in it.
+    default: op
+  rpengine.screens:
+    description: List the screens and HUDs.
+    default: op
+  rpengine.screen:
+    description: Open a custom screen.
+    default: op
+  rpengine.hud:
+    description: Draw a HUD overlay on yourself.
+    default: op
+  rpengine.recipes:
+    description: List the recipes.
+    default: op
+  rpengine.emote:
+    description: Play an emote.
+    default: true
+  rpengine.emotes:
+    description: List the emotes.
+    default: true
   rpengine.sync:
-    description: Live-test a pack from ResourcePack AI Studio, and share it.
+    description: Live-test a pack from Studio, and share it.
+    default: op
+  rpengine.push:
+    description: Re-send this server's pack to yourself.
+    default: op
+  rpengine.emote.cast:
+    description: Pull other players into an emote. They are still asked first.
+    default: op
+  rpengine.emote.force:
+    description: Pull other players in WITHOUT asking them.
+    # Not a child of rpengine.emote.cast: holding one is being allowed
+    # to ask, and holding the other is being allowed to skip the
+    # asking. A server that grants the first has not agreed to the
+    # second.
     default: op

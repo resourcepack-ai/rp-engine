@@ -14,6 +14,8 @@ import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.command.Completions;
 import ai.resourcepack.engine.core.emote.EmoteDirector;
 import ai.resourcepack.engine.core.emote.EmoteStore;
+import ai.resourcepack.engine.core.emote.EmoteInvites;
+import ai.resourcepack.engine.core.emote.EmoteWording;
 import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.item.ItemAssets;
@@ -93,6 +95,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private SyncClient sync;
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
+    private EmoteInvites invites;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -125,6 +128,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
                 getLogger(), this::onStudioPush, this::onStudioGive);
+        invites = new EmoteInvites(this, emotes());
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
         startHost();
@@ -138,6 +142,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (invites != null) {
+            // An invitation nobody can answer is worse than none: the task
+            // that would have expired it goes with the plugin.
+            invites.clear();
+        }
         if (emotes != null) {
             // Everybody mid-emote is put back before the plugin goes, or they
             // stay invisible with a rig standing where they were.
@@ -622,6 +631,43 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
+     * {@code /emote}, wherever it was typed.
+     *
+     * <p>A solo emote runs straight off the director exactly as it always did:
+     * there is nobody to ask, and putting a prompt in front of the common case
+     * would make the feature worse to use. One that NAMES people goes through
+     * {@link EmoteInvites} first, because an emote with a cast teleports the
+     * people it names, hides them and holds them for its length — and that
+     * should not happen to somebody because a stranger typed their name.
+     */
+    private boolean emote(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("[RPEngine] /emote <name|stop> [player...], as a player.");
+            return true;
+        }
+        Player player = (Player) sender;
+        if (args.length == 0 || args[0].equalsIgnoreCase("stop")) {
+            emotes.stop(player, false, ai.resourcepack.engine.api.event.EmoteEndEvent.Cause.STOPPED);
+            player.sendMessage("[RPEngine] Stopped.");
+            return true;
+        }
+
+        EmoteInvites.Request request = invites.resolve(args);
+        if (request != null && !request.castNames().isEmpty()) {
+            invites.open(player, request);
+            return true;
+        }
+
+        // The director takes the whole argument list: it owns the rule about
+        // what an emote's arguments mean, and a second copy here would drift.
+        ai.resourcepack.engine.api.EmoteResult result = emotes.perform(player, List.of(args));
+        if (!result.started()) {
+            player.sendMessage("[RPEngine] " + emoteRefusal(result));
+        }
+        return true;
+    }
+
+    /**
      * Why an emote was refused, in words.
      *
      * <p>The engine returns a typed reason and the host writes the sentence —
@@ -716,42 +762,28 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * being discoverable. See {@link Completions} for why that is a rule.
      */
     /**
-     * What each subcommand needs.
+     * What each subcommand needs: {@code rpengine.<subcommand>}, without
+     * exception.
      *
-     * <p>Per subcommand rather than one node on the command, because on a real
-     * server the person testing a pack is not necessarily the person who may
-     * purge every model in a hundred-block radius. `rpengine.admin` is a parent
-     * of the other two, so one grant still covers an owner.
+     * <p>A node per command rather than three buckets. Buckets are somebody
+     * else's guess about which permissions belong together, and the guess is
+     * always wrong for some server: the person who may reload content is not
+     * necessarily the person who may purge every model in a hundred blocks.
+     * The parents in {@code plugin.yml} are how a server that does not care
+     * grants them in one line — which is the convenience buckets were reaching
+     * for, without the guess.
      */
-    private static final java.util.Map<String, String> PERMISSIONS = java.util.Map.ofEntries(
-            java.util.Map.entry("reload", "rpengine.admin"),
-            java.util.Map.entry("info", "rpengine.admin"),
-            java.util.Map.entry("bundles", "rpengine.admin"),
-            java.util.Map.entry("items", "rpengine.admin"),
-            java.util.Map.entry("models", "rpengine.admin"),
-            java.util.Map.entry("purge", "rpengine.admin"),
-            java.util.Map.entry("recipes", "rpengine.admin"),
-            java.util.Map.entry("icons", "rpengine.admin"),
-            java.util.Map.entry("sounds", "rpengine.admin"),
-            java.util.Map.entry("screens", "rpengine.admin"),
-            java.util.Map.entry("give", "rpengine.give"),
-            java.util.Map.entry("sound", "rpengine.give"),
-            java.util.Map.entry("say", "rpengine.give"),
-            java.util.Map.entry("screen", "rpengine.give"),
-            java.util.Map.entry("hud", "rpengine.give"),
-            java.util.Map.entry("push", "rpengine.give"),
-            java.util.Map.entry("emotes", "rpengine.admin"),
-            java.util.Map.entry("emote", "rpengine.give"),
-            java.util.Map.entry("sync", "rpengine.sync"));
+    private static String permissionFor(String sub) {
+        return "rpengine." + sub;
+    }
 
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
             "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "emote", "emotes", "sync", "push");
 
-    /** Whether {@code sender} may run {@code sub}. Unknown subcommands need nothing. */
+    /** Whether {@code sender} may run {@code sub}. */
     private static boolean allowed(CommandSender sender, String sub) {
-        String node = PERMISSIONS.get(sub);
-        return node == null || sender.hasPermission(node);
+        return SUBCOMMANDS.contains(sub) && sender.hasPermission(permissionFor(sub));
     }
 
     @Override
@@ -836,9 +868,24 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        String name = command.getName().toLowerCase(Locale.ROOT);
+        if (name.equals("emote")) {
+            return emote(sender, args);
+        }
+        if (name.equals("emotereply")) {
+            if (!(sender instanceof Player) || args.length < 2
+                    || !invites.reply((Player) sender, args[0], args[1])) {
+                sender.sendMessage("[RPEngine] /emotereply <accept|deny> <token>");
+            }
+            return true;
+        }
         String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
         if (!allowed(sender, sub)) {
-            sender.sendMessage("[RPEngine] You need " + PERMISSIONS.get(sub) + " for that.");
+            if (!SUBCOMMANDS.contains(sub)) {
+                sender.sendMessage("[RPEngine] No such command. /rpengine for the list.");
+                return true;
+            }
+            sender.sendMessage("[RPEngine] You need " + permissionFor(sub) + " for that.");
             return true;
         }
         switch (sub) {
@@ -1014,28 +1061,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 }
                 return sync((Player) sender, args);
             }
-            case "emote": {
-                if (!(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine emote <name|stop>, as a player.");
-                    return true;
-                }
-                Player player = (Player) sender;
-                if (args.length < 2 || args[1].equalsIgnoreCase("stop")) {
-                    emotes.stop(player, false,
-                            ai.resourcepack.engine.api.event.EmoteEndEvent.Cause.STOPPED);
-                    sender.sendMessage("[RPEngine] Stopped.");
-                    return true;
-                }
-                // The director takes the whole argument list: an emote with a
-                // cast names a player per slot, and parsing that here would be
-                // a second copy of a rule it already owns.
-                ai.resourcepack.engine.api.EmoteResult result = emotes.perform(player,
-                        List.of(java.util.Arrays.copyOfRange(args, 1, args.length)));
-                if (!result.started()) {
-                    sender.sendMessage("[RPEngine] " + emoteRefusal(result));
-                }
-                return true;
-            }
+            case "emote":
+                return emote(sender, java.util.Arrays.copyOfRange(args, 1, args.length));
             case "emotes":
                 if (emotes.ids().isEmpty()) {
                     sender.sendMessage("[RPEngine] No emotes. They arrive with a studio push.");
