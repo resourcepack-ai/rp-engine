@@ -185,6 +185,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new ItemListener(items), this);
         sync = new SyncClient(
                 getConfig().getString("sync.url", "wss://sync.resourcepack.ai/connect"),
+                getConfig().getString("sync.server-token", ""),
                 getLogger(), this::onStudioPush, this::onStudioGive,
                 this::onStudioSkin, this::onStudioTell);
         invites = new EmoteInvites(this, emotes());
@@ -199,6 +200,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emotes.start();
         getServer().getPluginManager().registerEvents(distribution, this);
         distribution.start();
+        // A trusted server holds the socket open from startup: it announces
+        // who is online rather than waiting for somebody to type a code, and
+        // an announcement down a socket that is not there is nothing at all.
+        if (sync.announcesPresence() && !sync.open()) {
+            getLogger().warning("Could not reach studio, so this server is not announcing presence.");
+        }
+
         startHost();
         rebuild(getServer().getConsoleSender());
     }
@@ -926,8 +934,28 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * Tells studio who is here, on a server that holds the trusted token.
+     *
+     * <p>What it buys: a push addressed to a player by uuid, with nobody
+     * typing a code. A server without the token announces nothing and pairs
+     * the ordinary way.
+     */
+    private void announcePresence(Player player, boolean here) {
+        if (sync == null || !sync.announcesPresence()) {
+            return;
+        }
+        if (here) {
+            sync.present(player.getUniqueId(), player.getName(),
+                    bedrock.isBedrock(player.getUniqueId()));
+        } else {
+            sync.gone(player.getUniqueId());
+        }
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
+        announcePresence(event.getPlayer(), true);
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
     }
 
@@ -938,6 +966,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // an apply that is still in flight.
             return;
         }
+        announcePresence(event.getPlayer(), false);
         overlays.clear(event.getPlayer());
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
