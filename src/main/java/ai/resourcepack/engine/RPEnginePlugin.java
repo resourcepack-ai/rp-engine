@@ -29,6 +29,7 @@ import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.sound.SoundsImpl;
 import ai.resourcepack.engine.core.sync.StudioPush;
 import ai.resourcepack.engine.core.sync.SyncClient;
+import ai.resourcepack.engine.core.sync.SyncGroup;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -84,6 +85,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelPlacementListener placements;
     private Recipes recipes;
     private SyncClient sync;
+    private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
@@ -314,22 +316,182 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         getServer().getScheduler().runTask(this, () -> {
-            Player player = getServer().getPlayerExact(claimant);
-            if (player == null) {
+            host.register(pack.get());
+            int reached = 0;
+            for (String name : group.recipients(code)) {
+                Player player = getServer().getPlayerExact(name);
+                if (player == null) {
+                    continue;
+                }
+                pushTo(player, pack.get());
+                player.sendMessage("[RPEngine] Studio pushed a pack.");
+                reached++;
+            }
+            if (reached == 0) {
                 sync.failed(code, "player-offline");
                 return;
             }
-            host.register(pack.get());
-            // Stacked ON TOP of whatever the server's own content gave them,
-            // rather than replacing it, so a pack under test is tried against
-            // the server it will actually run on.
-            List<BuiltPack> stack = new ArrayList<>(desiredFor(player));
-            stack.removeIf(held -> held.bundle().equals(StudioPush.BUNDLE));
-            stack.add(pack.get());
-            delivery.apply(player, stack);
             sync.applied(code);
-            player.sendMessage("[RPEngine] Studio pushed a pack.");
         });
+    }
+
+    /**
+     * The whole of {@code /rp sync}.
+     *
+     * <p>One verb group rather than a party system beside it, because the
+     * feature is "who else receives my pushes" — a property of a sync, not a
+     * social structure. That is also why there is no disband and no ownership
+     * transfer: the group lives exactly as long as the sync does.
+     */
+    private boolean sync(Player player, String[] args) {
+        String sub = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "who";
+        switch (sub) {
+            case "add": {
+                if (args.length < 3) {
+                    player.sendMessage("[RPEngine] /rpengine sync add <player>");
+                    return true;
+                }
+                Player target = getServer().getPlayerExact(args[2]);
+                if (target == null) {
+                    player.sendMessage("[RPEngine] " + args[2] + " is not online.");
+                    return true;
+                }
+                SyncGroup.Result result = group.invite(player.getName(), target.getName());
+                switch (result) {
+                    case OK:
+                        player.sendMessage("[RPEngine] Asked " + target.getName() + ".");
+                        target.sendMessage("[RPEngine] " + player.getName()
+                                + " wants to share a pack with you. /rp sync accept, or deny.");
+                        return true;
+                    case NOT_SYNCED:
+                        player.sendMessage("[RPEngine] You are not synced. /rp sync <code> first.");
+                        return true;
+                    case SELF:
+                        player.sendMessage("[RPEngine] You already get your own pushes.");
+                        return true;
+                    default:
+                        player.sendMessage("[RPEngine] " + target.getName() + " is already on a sync.");
+                        return true;
+                }
+            }
+            case "accept": {
+                Optional<String> joined = group.accept(player.getName());
+                if (joined.isEmpty()) {
+                    player.sendMessage("[RPEngine] Nobody has asked you.");
+                    return true;
+                }
+                announceMembers(joined.get());
+                player.sendMessage("[RPEngine] You will get their pushes.");
+                return true;
+            }
+            case "deny":
+                player.sendMessage(group.deny(player.getName()) == SyncGroup.Result.OK
+                        ? "[RPEngine] Declined."
+                        : "[RPEngine] Nobody has asked you.");
+                return true;
+            case "remove": {
+                if (args.length < 3) {
+                    player.sendMessage("[RPEngine] /rpengine sync remove <player>");
+                    return true;
+                }
+                Optional<String> code = group.remove(player.getName(), args[2]);
+                if (code.isEmpty()) {
+                    player.sendMessage("[RPEngine] " + args[2] + " is not on your sync.");
+                    return true;
+                }
+                // A removal that only stopped FUTURE pushes would leave them
+                // holding what they already had, which is not what remove means.
+                unpush(args[2]);
+                announceMembers(code.get());
+                player.sendMessage("[RPEngine] Removed " + args[2] + ".");
+                return true;
+            }
+            case "leave": {
+                Optional<String> code = group.leave(player.getName());
+                if (code.isEmpty()) {
+                    player.sendMessage("[RPEngine] You are not on anybody's sync.");
+                    return true;
+                }
+                unpush(player.getName());
+                announceMembers(code.get());
+                player.sendMessage("[RPEngine] Left.");
+                return true;
+            }
+            case "stop": {
+                List<String> were = group.stop(player.getName());
+                if (were.isEmpty()) {
+                    player.sendMessage("[RPEngine] You are not synced.");
+                    return true;
+                }
+                for (String name : were) {
+                    unpush(name);
+                }
+                group.codeOf(player.getName()).ifPresent(this::announceMembers);
+                sync.forget(player.getName());
+                player.sendMessage("[RPEngine] Stopped.");
+                return true;
+            }
+            case "who": {
+                Optional<String> code = group.receiving(player.getName());
+                if (code.isEmpty()) {
+                    player.sendMessage("[RPEngine] You are not synced. /rp sync <code> to start.");
+                    return true;
+                }
+                player.sendMessage("[RPEngine] " + code.get() + ": "
+                        + String.join(", ", group.recipients(code.get())));
+                return true;
+            }
+            default: {
+                // Anything else is a code, because that is what somebody types
+                // first and asking them to write "sync code 48213097" would be
+                // a word that earns nothing.
+                if (!sync.link(args[1], player.getName())) {
+                    player.sendMessage("[RPEngine] Could not reach studio. Check sync.url in config.yml.");
+                    return true;
+                }
+                group.claim(args[1], player.getName());
+                announceMembers(args[1]);
+                player.sendMessage("[RPEngine] Synced " + args[1]
+                        + ". Push from studio and it lands here. /rp sync add <player> to share it.");
+                return true;
+            }
+        }
+    }
+
+    /**
+     * Puts a pushed pack on one player.
+     *
+     * <p>Stacked ON TOP of whatever the server's own content gave THEM — their
+     * bundle, not the claimer's, since somebody sharing a sync may be in a
+     * different world with different content — so a pack under test is tried
+     * against the server it will actually run on.
+     */
+    private void pushTo(Player player, BuiltPack pack) {
+        List<BuiltPack> stack = new ArrayList<>(desiredFor(player));
+        stack.removeIf(held -> held.bundle().equals(StudioPush.BUNDLE));
+        stack.add(pack);
+        delivery.apply(player, stack);
+    }
+
+    /** Takes a pushed pack back off somebody, leaving the server's own content. */
+    private void unpush(String name) {
+        Player player = getServer().getPlayerExact(name);
+        if (player != null) {
+            delivery.apply(player, desiredFor(player));
+        }
+    }
+
+    /** Tells studio the roster, which it wants whole on every change. */
+    private void announceMembers(String code) {
+        List<String> entries = new ArrayList<>();
+        for (String name : group.recipients(code)) {
+            Player player = getServer().getPlayerExact(name);
+            if (player != null) {
+                entries.add(player.getUniqueId().toString().replace("-", "")
+                        + ":" + player.getName() + ":java");
+            }
+        }
+        sync.members(code, entries);
     }
 
     /** A give-command studio asked for, run as the console against that player. */
@@ -430,6 +592,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sessions.forget(event.getPlayer().getUniqueId());
         // Studio stops offering to push to somebody who is not here.
         if (sync != null) {
+            // If they owned a sync it ends and everybody on it loses the pack,
+            // because nobody inherits one. That is the whole reason this is a
+            // sync rather than a party.
+            for (String name : group.forget(event.getPlayer().getName())) {
+                unpush(name);
+            }
             sync.forget(event.getPlayer().getName());
         }
     }
@@ -443,7 +611,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private static final List<String> SUBCOMMANDS = List.of(
             "reload", "info", "bundles", "items", "give", "models", "purge",
-            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "sync", "unsync", "push");
+            "sounds", "sound", "icons", "say", "screens", "screen", "hud", "recipes", "sync", "push");
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
@@ -465,6 +633,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     options.addAll(Completions.matching(args[1], "clear"));
                     return options;
                 }
+                case "sync":
+                    // A code cannot be completed — it comes off a web page —
+                    // so the words are offered and the code is simply typed.
+                    return Completions.matching(args[1],
+                            "add", "accept", "deny", "remove", "leave", "who", "stop");
                 case "models":
                 case "purge":
                     // The radii somebody actually wants, rather than nothing at
@@ -481,6 +654,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (args.length == 3 && sub.equals("give")) {
             return Completions.matching(args[2], "1", "8", "16", "64");
+        }
+        if (args.length == 3 && sub.equals("sync")) {
+            String action = args[1].toLowerCase(Locale.ROOT);
+            if (action.equals("add")) {
+                // Only people who could actually accept: somebody already on a
+                // sync cannot be added to a second one, so offering them is
+                // offering a command that will refuse.
+                List<String> free = new ArrayList<>();
+                for (Player online : getServer().getOnlinePlayers()) {
+                    if (group.receiving(online.getName()).isEmpty()) {
+                        free.add(online.getName());
+                    }
+                }
+                return Completions.matching(args[2], free);
+            }
+            if (action.equals("remove")) {
+                return Completions.matching(args[2],
+                        group.codeOf(sender.getName()).map(group::recipients).orElse(List.of()));
+            }
         }
         return List.of();
     }
@@ -655,24 +847,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 }
                 return true;
             case "sync": {
-                if (args.length < 2 || !(sender instanceof Player)) {
-                    sender.sendMessage("[RPEngine] /rpengine sync <code>, as the player who will hold the pack.");
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage("[RPEngine] /rpengine sync, as a player.");
                     return true;
                 }
-                Player player = (Player) sender;
-                sender.sendMessage(sync.link(args[1], player.getName())
-                        ? "[RPEngine] Claimed " + args[1] + ". Push from studio and it lands here."
-                        : "[RPEngine] Could not reach studio. Check sync.url in config.yml.");
-                return true;
+                return sync((Player) sender, args);
             }
-            case "unsync":
-                if (args.length < 2) {
-                    sender.sendMessage("[RPEngine] /rpengine unsync <code>");
-                    return true;
-                }
-                sync.unlink(args[1]);
-                sender.sendMessage("[RPEngine] Dropped " + args[1] + ".");
-                return true;
             case "recipes":
                 if (recipes.size() == 0) {
                     sender.sendMessage("[RPEngine] No recipes registered.");
@@ -715,7 +895,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 sender.sendMessage("[RPEngine] /rpengine reload | bundles | items | give <id> [n]");
                 sender.sendMessage("[RPEngine] /rpengine models [radius] | purge [radius] | push");
                 sender.sendMessage("[RPEngine] /rpengine sounds | sound <id> | icons | say <text>");
-                sender.sendMessage("[RPEngine] /rpengine recipes | sync <code> | unsync <code>");
+                sender.sendMessage("[RPEngine] /rpengine recipes | sync <code|add|accept|deny|remove|leave|who|stop>");
                 sender.sendMessage("[RPEngine] /rpengine screens | screen <id> | hud <id|clear>");
                 return true;
         }
