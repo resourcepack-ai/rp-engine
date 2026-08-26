@@ -33,7 +33,15 @@ public final class BuiltPack {
     private final long size;
     private final int entries;
 
+    private final String url;
+
     private BuiltPack(String bundle, Path file, String sha1, UUID uuid, long size, int entries) {
+        this(bundle, file, sha1, uuid, size, entries, "");
+    }
+
+    private BuiltPack(String bundle, Path file, String sha1, UUID uuid, long size, int entries,
+                      String url) {
+        this.url = url;
         this.bundle = bundle;
         this.file = file;
         this.sha1 = sha1;
@@ -67,6 +75,35 @@ public final class BuiltPack {
     }
 
     /** The bundle this was built from. */
+    /**
+     * A pack this engine did not build, at the address it is already served
+     * from.
+     *
+     * <p>Empty for everything built here, which is served by the plugin's own
+     * {@code PackHost}. A pack pushed from Studio arrives with a signed URL
+     * that a client can already reach, and handing that straight to the player
+     * is both fewer moving parts and the only thing that works on a server
+     * whose {@code host.public-address} is wrong — which is every server that
+     * has not been told what its own address is.
+     */
+    /**
+     * A pack somebody else is already serving.
+     *
+     * <p>The file is still kept — it is what the SHA-1 was computed from, and
+     * a hash is what lets a client cache a pack instead of downloading it
+     * again — but nothing here will serve it.
+     */
+    public static BuiltPack served(String bundle, Path file, String sha1, long size, int entries,
+                                   String url) {
+        BuiltPack pack = of(bundle, file, sha1, size, entries);
+        return new BuiltPack(pack.bundle(), file, pack.sha1(), pack.uuid(), size, entries,
+                url == null ? "" : url);
+    }
+
+    public String url() {
+        return url;
+    }
+
     public String bundle() {
         return bundle;
     }
