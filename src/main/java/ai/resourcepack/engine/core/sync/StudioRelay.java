@@ -38,15 +38,18 @@ public final class StudioRelay {
     private final SyncGroup group;
     private final RigStore rigs;
     private final EmoteStore emotes;
+    private final StudioContent content;
     private final SkinApplier skins;
     private final Path output;
     /** Serves a freshly downloaded pack. */
     private final Consumer<BuiltPack> register;
     /** Puts it on one player, stacked over whatever the server gave them. */
     private final BiConsumer<Player, BuiltPack> deliver;
+    /** Puts a push's named content into the registry. Main thread. */
+    private Runnable registerContent = () -> { };
 
     public StudioRelay(Plugin plugin, SyncClient sync, SyncGroup group, RigStore rigs,
-                       EmoteStore emotes, SkinApplier skins, Path output,
+                       EmoteStore emotes, StudioContent content, SkinApplier skins, Path output,
                        Consumer<BuiltPack> register, BiConsumer<Player, BuiltPack> deliver) {
         this.plugin = plugin;
         this.log = plugin.getLogger();
@@ -54,10 +57,22 @@ public final class StudioRelay {
         this.group = group;
         this.rigs = rigs;
         this.emotes = emotes;
+        this.content = content;
         this.skins = skins;
         this.output = output;
         this.register = register;
         this.deliver = deliver;
+    }
+
+    /**
+     * What to run on the main thread to register a push's named content.
+     *
+     * <p>Set after construction because it is the plugin's registry this
+     * writes into, and the plugin builds this object before it has finished
+     * building itself.
+     */
+    public void onContent(Runnable register) {
+        this.registerContent = register == null ? () -> { } : register;
     }
 
     /** A pack: fetch it, serve it, put it on whoever is on the code. */
@@ -73,6 +88,11 @@ public final class StudioRelay {
                 .ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
         StudioPush.emotesUrl(payload).flatMap(StudioPush::fetchText)
                 .ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
+        // What the pack holds that a command can name. Registered on the main
+        // thread below with everything else that touches shared state.
+        StudioPush.contentUrl(payload).flatMap(StudioPush::fetchText)
+                .ifPresent(json -> merged("Pushed content", content.updateFromJson(json),
+                        () -> content.save(log)));
 
         StudioPush.Fetch fetched = StudioPush.fetch(payload, output);
         if (fetched.pack().isEmpty()) {
@@ -81,6 +101,7 @@ public final class StudioRelay {
         }
         BuiltPack pack = fetched.pack().get();
         onMainThread(() -> {
+            registerContent.run();
             register.accept(pack);
             int reached = eachRecipient(code, player -> {
                 deliver.accept(player, pack);

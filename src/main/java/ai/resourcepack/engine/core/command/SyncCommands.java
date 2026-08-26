@@ -15,15 +15,15 @@ import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
- * Live-testing a pack from Studio: {@code sync} and {@code publish}.
+ * Live-testing a pack from Studio: {@code sync} and {@code distribute}.
  *
  * <p>{@code sync} is one verb group rather than a party system beside it,
  * because the feature is "who else receives my pushes" — a property of a sync,
  * not a social structure. That is also why there is no disband and no
  * ownership transfer: the group lives exactly as long as the sync does.
  *
- * <p>{@code publish} is the other end of the same idea, and the reason it sits
- * here: one binds a pack to a person for as long as they are testing, the
+ * <p>{@code distribute} is the other end of the same idea, and the reason it
+ * sits here: one binds a pack to a person for as long as they are testing, the
  * other binds one to the server for everybody who joins.
  */
 public final class SyncCommands implements Area {
@@ -53,13 +53,13 @@ public final class SyncCommands implements Area {
 
     @Override
     public List<String> subcommands() {
-        return List.of("sync", "publish");
+        return List.of("sync", "distribute");
     }
 
     @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
-        if (sub.equals("publish")) {
-            return publish(sender, args);
+        if (sub.equals("distribute")) {
+            return distribute(sender, args);
         }
         if (!(sender instanceof Player)) {
             Reply.to(sender, "/rpengine sync, as a player.");
@@ -70,8 +70,10 @@ public final class SyncCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
-        if (!sub.equals("sync")) {
-            return List.of();
+        if (sub.equals("distribute")) {
+            // The code comes off a web page, so only the one word can be
+            // offered — but "off" is the one somebody has to guess otherwise.
+            return args.length == 2 ? Completions.matching(args[1], "off") : List.of();
         }
         if (args.length == 2) {
             // A code cannot be completed — it comes off a web page — so the
@@ -101,10 +103,10 @@ public final class SyncCommands implements Area {
         return List.of();
     }
 
-    private boolean publish(CommandSender sender, String[] args) {
+    private boolean distribute(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine publish <code>  bind this server to a published pack");
-            Reply.to(sender, "/rpengine publish off     stop serving it");
+            Reply.to(sender, "/rpengine distribute <code>  serve a published pack to everybody who joins");
+            Reply.to(sender, "/rpengine distribute off     stop serving it");
             return true;
         }
         if (args[1].equalsIgnoreCase("off")) {

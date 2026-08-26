@@ -61,7 +61,7 @@ public final class SoundsImpl implements Sounds {
         // At the player's own position: this is the "only you hear it" call,
         // and giving it a place somebody else could stand near would make it a
         // different method wearing this one's name.
-        player.playSound(player.getLocation(), eventName(id), categoryOf(sound.get()), volume, pitch);
+        player.playSound(player.getLocation(), sound.get().event(), categoryOf(sound.get()), volume, pitch);
         return true;
     }
 
@@ -77,13 +77,8 @@ public final class SoundsImpl implements Sounds {
         if (location == null || location.getWorld() == null || sound.isEmpty()) {
             return false;
         }
-        location.getWorld().playSound(location, eventName(id), categoryOf(sound.get()), volume, pitch);
+        location.getWorld().playSound(location, sound.get().event(), categoryOf(sound.get()), volume, pitch);
         return true;
-    }
-
-    /** The sound event name, which is the content id verbatim. */
-    private static String eventName(ContentId id) {
-        return id.toString();
     }
 
     /**

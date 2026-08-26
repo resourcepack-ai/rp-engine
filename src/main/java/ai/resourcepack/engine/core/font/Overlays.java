@@ -126,6 +126,10 @@ public final class Overlays {
      * space, then the glyph.
      */
     private static String title(OverlayInfo info) {
+        if (!info.title().isEmpty()) {
+            // A pushed pack did its own arithmetic with its own codepoints.
+            return ChatColor.WHITE + info.title();
+        }
         return ChatColor.WHITE + shift(info.offset()) + info.character();
     }
 
@@ -152,24 +156,51 @@ public final class Overlays {
     }
 
     /**
+     * Containers whose name in a pack is not their name in Bukkit.
+     *
+     * <p>Each is a real disagreement rather than an oversight: {@code crafting}
+     * is the workbench, which Bukkit still calls {@code WORKBENCH} long after
+     * the block stopped being called that, and the other three are the game's
+     * own words against Bukkit's longer ones. {@code chest_54} is not here
+     * because it is a size rather than a type — see below.
+     *
+     * <p>Names rather than constants: {@link InventoryType} is registry-backed
+     * now, so naming one in a static field asks Bukkit a question at class-load
+     * time and gets null without a server — which is a test suite that cannot
+     * run for a map it never reads.
+     */
+    private static final Map<String, String> ALIASES = Map.of(
+            "crafting", "WORKBENCH",
+            "enchanting", "ENCHANTING",
+            "brewing", "BREWING",
+            "cartography", "CARTOGRAPHY");
+
+    /**
      * The container a screen opens as.
      *
      * <p>Chest rows are a size rather than a type, which is why they are split
      * out: {@code createInventory(null, 54, title)} is a six-row chest and
-     * there is no {@code InventoryType} that says so.
+     * there is no {@code InventoryType} that says so. {@code chest_54} is the
+     * same thing under the name a pushed Studio pack uses for it.
      */
     private static Inventory create(OverlayInfo info, String title) {
-        String container = info.container();
+        String container = info.container().toLowerCase(Locale.ROOT);
         if (container.startsWith("chest_9x")) {
             int rows = container.charAt(container.length() - 1) - '0';
             return Bukkit.createInventory(null, rows * 9, title);
         }
+        if (container.equals("chest_54")) {
+            return Bukkit.createInventory(null, 54, title);
+        }
+        String named = ALIASES.getOrDefault(container, container.toUpperCase(Locale.ROOT));
         try {
-            InventoryType type = InventoryType.valueOf(container.toUpperCase(Locale.ROOT));
+            InventoryType type = InventoryType.valueOf(named);
             return Bukkit.createInventory(null, type, title);
         } catch (IllegalArgumentException e) {
-            // Validated at load, so this is a container Bukkit spells
-            // differently from the game. Better empty than a stack trace.
+            // Our own screens are validated at load, so this is either a
+            // container Bukkit spells differently from the game — add it above
+            // — or one a pushed pack named that this server is too old for.
+            // Better empty than a stack trace.
             return null;
         }
     }

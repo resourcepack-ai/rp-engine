@@ -114,6 +114,12 @@ public final class StudioPush {
     private static final int SLOT_RIGS = 1;
     private static final int SLOT_BEDROCK = 2;
     private static final int SLOT_EMOTES = 3;
+    private static final int SLOT_CONTENT = 4;
+
+    /** What the pack holds that a command can name. See StudioContent. */
+    public static Optional<String> contentUrl(String payload) {
+        return slot(payload, SLOT_CONTENT);
+    }
 
     /** The pack itself. */
     public static String packUrl(String payload) {
