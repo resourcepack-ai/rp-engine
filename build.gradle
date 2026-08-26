@@ -59,7 +59,10 @@ group = 'ai.resourcepack'
 // 0.33.0: a pushed pack's sounds and screens are registry content, so the
 //         panel's in-game buttons name an id like everything else. bind
 //         becomes distribute.
-version = '0.33.0'
+// 0.34.0: /rp is a help menu rather than eight lines of pipe-separated
+//         names, and the lines come off the areas so a subcommand cannot
+//         exist without one.
+version = '0.34.0'
 
 java {
     toolchain {
