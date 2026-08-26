@@ -34,6 +34,7 @@ public final class SyncClient {
     private static final int PING_SECONDS = 30;
 
     private final String url;
+    private final String serverToken;
     private final Logger logger;
     private final BiConsumer<String, String> onApply;
     private final BiConsumer<String, String> onGive;
@@ -52,15 +53,59 @@ public final class SyncClient {
      *                caller's problem to split rather than ours to interpret
      * @param onGive  called with the code and the command of a {@code GIVE}
      */
-    public SyncClient(String url, Logger logger,
+    public SyncClient(String url, String serverToken, Logger logger,
                       BiConsumer<String, String> onApply, BiConsumer<String, String> onGive,
                       BiConsumer<String, String> onSkin, BiConsumer<String, String> onTell) {
         this.url = url;
+        this.serverToken = serverToken == null ? "" : serverToken;
         this.logger = logger;
         this.onApply = onApply;
         this.onGive = onGive;
         this.onSkin = onSkin;
         this.onTell = onTell;
+    }
+
+    /**
+     * Opens the socket now, without claiming anything.
+     *
+     * <p>For a trusted server, which holds it open permanently because it
+     * announces who is online rather than waiting for somebody to type a code.
+     * Everybody else connects lazily on their first claim.
+     *
+     * @return whether it opened
+     */
+    public boolean open() {
+        return connect();
+    }
+
+    /**
+     * Whether this server announces who is online.
+     *
+     * <p>Only a server holding the token does. Everything below is refused by
+     * the far end from any other socket, so sending it would be noise rather
+     * than a leak — but not sending it is honest and cheaper.
+     */
+    public boolean announcesPresence() {
+        return !serverToken.isEmpty();
+    }
+
+    /** Says a player is here, so studio can push to them without a code. */
+    public void present(java.util.UUID playerId, String name, boolean bedrock) {
+        if (announcesPresence()) {
+            send("PRESENT " + hex(playerId) + " " + name + " " + (bedrock ? "bedrock" : "java"));
+        }
+    }
+
+    /** Says a player has gone. */
+    public void gone(java.util.UUID playerId) {
+        if (announcesPresence()) {
+            send("GONE " + hex(playerId));
+        }
+    }
+
+    /** A uuid the way this protocol writes one: 32 hex, no dashes. */
+    private static String hex(java.util.UUID id) {
+        return id.toString().replace("-", "");
     }
 
     /** Whether the socket is open. */
@@ -179,7 +224,16 @@ public final class SyncClient {
             return true;
         }
         try {
-            WebSocketClient client = new WebSocketClient(new URI(url)) {
+            // The token, when there is one, is what makes this a TRUSTED
+            // server: it may then announce who is online, so studio can push
+            // to a player by uuid without anybody typing a code. A server
+            // without one is an ordinary pairing client and announces nothing.
+            Map<String, String> headers = new java.util.HashMap<>();
+            if (!serverToken.isEmpty()) {
+                headers.put("X-Server-Token", serverToken);
+            }
+            WebSocketClient client = new WebSocketClient(new URI(url), new org.java_websocket.drafts.Draft_6455(),
+                    headers) {
 
                 @Override
                 public void onOpen(ServerHandshake handshake) {

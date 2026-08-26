@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -21,7 +22,7 @@ class SyncClientTest {
     private final List<String> told = new ArrayList<>();
 
     private SyncClient client() {
-        return new SyncClient("wss://example.invalid/connect", Logger.getLogger("test"),
+        return new SyncClient("wss://example.invalid/connect", "", Logger.getLogger("test"),
                 (code, payload) -> applied.add(code + "|" + payload),
                 (code, command) -> given.add(code + "|" + command),
                 (code, texture) -> skinned.add(code + "|" + texture),
@@ -134,6 +135,17 @@ class SyncClientTest {
         client().handle("apply 48213097 https://example.com/pack.zip");
 
         assertEquals(1, applied.size());
+    }
+
+    @Test
+    void onlyATrustedServerAnnouncesPresence() {
+        // Everything a presence announcement says is refused by the far end
+        // from any other socket, so sending it would be noise. Not sending it
+        // is honest and cheaper.
+        assertFalse(client().announcesPresence());
+        assertTrue(new SyncClient("wss://example.invalid/connect", "a-token",
+                Logger.getLogger("test"), (a, b) -> { }, (a, b) -> { },
+                (a, b) -> { }, (a, b) -> { }).announcesPresence());
     }
 
     @Test

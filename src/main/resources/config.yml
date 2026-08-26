@@ -35,6 +35,12 @@ sync:
   # and it lasts exactly as long as your sync does.
   url: "wss://sync.resourcepack.ai/connect"
 
+  # A TRUSTED server's token. With one, this server tells Studio who is
+  # online, so a push can be addressed to a player directly and nobody types
+  # a code. Almost nobody wants this: it is for a server the Studio account
+  # owner also runs. Empty means pair the ordinary way.
+  server-token: ""
+
 # Serving a published pack to everybody who joins. /rp publish <code> binds
 # this server to one; the code comes from the panel.
 distribution:
