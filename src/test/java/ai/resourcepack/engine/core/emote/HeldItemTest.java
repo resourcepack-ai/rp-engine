@@ -27,11 +27,26 @@ class HeldItemTest {
         // Studio's thirdPersonSocketPx with the 22.5-degree arm pose removed:
         // y = 22 - cos(0)*10 + sin(0)*2 = 12, z = -(sin(0)*10 + cos(0)*2) = -2.
         // In rig px, and then through the two conversions to block offsets.
+        // The 2px lift on top of that is HAND_LIFT_PX, which is measured in a
+        // client rather than derived — see its comment, and the test below.
         float[] socket = HeldItem.socketPoint(false, false);
-        assertEquals((12f - 16f) * PX, socket[1], 1e-6,
-            "ten px down from a shoulder at 22 is a hand at 12");
+        assertEquals((12f + 2f - 16f) * PX, socket[1], 1e-6,
+            "ten px down from a shoulder at 22, lifted the 2 it reads low by");
         assertEquals(-2f * PX, socket[2], 1e-6,
             "and two px in front of the arm, which is -z");
+    }
+
+    @Test
+    void theLiftIsALiftAndIsSmall() {
+        // Two properties worth holding onto separately from the exact value,
+        // since that value is expected to be re-tuned in game: it goes UP (a
+        // sign slip here would double the problem it was added to fix), and it
+        // stays within a few px (anything larger is not a calibration, it is
+        // the hand having come off the arm — look at the rotation instead).
+        float pureGeometry = (12f - 16f) * PX;
+        float actual = HeldItem.socketPoint(false, false)[1];
+        assertTrue(actual > pureGeometry, "the correction has to raise the grip, not lower it");
+        assertTrue(actual - pureGeometry <= 4f * PX, "and by a few px, not by a limb's length");
     }
 
     @Test

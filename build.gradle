@@ -51,7 +51,10 @@ group = 'ai.resourcepack'
 //         The hand is a display per hand composed through the arm's own bone
 //         chain; the swing is an overlay armed from PlayerAnimationEvent and
 //         posed in that same call, not a movement state resolved by the poll.
-version = '0.32.0'
+// 0.32.1: the grip is lifted the 2px it read low by in a client, and the
+//         wearer's own copy of their held item stops rendering for them —
+//         a packet, so the item is still really in their hand.
+version = '0.32.1'
 
 java {
     toolchain {

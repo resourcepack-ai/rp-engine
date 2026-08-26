@@ -683,6 +683,16 @@ public final class EmoteDirector implements Listener {
         ItemStack mainHandItem;
         ItemStack offHandItem;
         /**
+         * The hotbar slot whose copy has been blanked on the wearer's own
+         * client, or -1 for none. See {@link #hideHeldItems}.
+         *
+         * <p>Tracked because the blank follows the SELECTED slot rather than
+         * the item: scrolling from one sword to an identical one changes
+         * nothing about what the rig holds, and everything about which slot the
+         * client is drawing an item in.
+         */
+        int blankedSlot = -1;
+        /**
          * Whether this participant's arms are the slim pair.
          *
          * <p>Resolved once at the start from the profile they are wearing,
@@ -1442,10 +1452,36 @@ public final class EmoteDirector implements Listener {
      * is what a naive change check does.
      */
     private void syncHands(Player player, Session session) {
-        session.mainHandItem = syncHand(
-            session.mainHand, player.getInventory().getItemInMainHand(), session.mainHandItem, session.rigHidden);
-        session.offHandItem = syncHand(
-            session.offHand, player.getInventory().getItemInOffHand(), session.offHandItem, session.rigHidden);
+        ItemStack main = player.getInventory().getItemInMainHand();
+        ItemStack off = player.getInventory().getItemInOffHand();
+        ItemStack wasMain = session.mainHandItem;
+        ItemStack wasOff = session.offHandItem;
+        session.mainHandItem = syncHand(session.mainHand, main, wasMain, session.rigHidden);
+        session.offHandItem = syncHand(session.offHand, off, wasOff, session.rigHidden);
+
+        if (session.rigHidden) {
+            // The body is back and rendering its own item, which is the one
+            // that should be on screen. Nothing to blank, and nothing to
+            // remember blanking — `reveal` has already resynced.
+            session.blankedSlot = -1;
+            return;
+        }
+        // Re-blank on either kind of change. The slot is checked as well as the
+        // items because they answer different questions: swapping to a second
+        // identical sword leaves both stacks equal and still moves which slot
+        // the client is drawing.
+        // Reference comparisons, deliberately: syncHand hands back the SAME
+        // object when it wrote nothing and a new one when it wrote, so this is
+        // asking "did we just change a hand" rather than re-running the
+        // equality it already ran.
+        int slot = player.getInventory().getHeldItemSlot();
+        boolean changed = slot != session.blankedSlot
+            || session.mainHandItem != wasMain
+            || session.offHandItem != wasOff;
+        if (changed) {
+            hideHeldItems(player);
+            session.blankedSlot = slot;
+        }
     }
 
     /**
@@ -1526,6 +1562,10 @@ public final class EmoteDirector implements Listener {
             false, // no particles, which is the whole point of using this
             false)); // no inventory icon either — this is not a status they chose
         hideFromOthers(player);
+        // The third thing the other two miss — see hideHeldItems. Their own
+        // view is the only one that needs it: everybody else is not being sent
+        // the entity at all.
+        hideHeldItems(player);
     }
 
     /**
@@ -1553,6 +1593,7 @@ public final class EmoteDirector implements Listener {
                 previous.ambient, previous.particles, previous.icon));
         }
         showToOthers(player);
+        showHeldItems(player);
     }
 
     /**
@@ -1721,6 +1762,11 @@ public final class EmoteDirector implements Listener {
         // leaves somebody standing in the wrong place, which they can walk
         // out of. Getting this wrong leaves them a ghost.
         showToOthers(player);
+        // Their own hotbar back, on the same unconditional terms as the potion
+        // below: a resync of an inventory we never blanked costs one packet,
+        // and one we did blank and did not restore is somebody staring at an
+        // empty hand they still have.
+        showHeldItems(player);
         // Unconditional rather than gated on the marker. The marker is our
         // record of what they had BEFORE; the effect is ours either way, and
         // a state where one exists without the other is exactly the state
@@ -1831,6 +1877,54 @@ public final class EmoteDirector implements Listener {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (!viewer.getUniqueId().equals(player.getUniqueId())) viewer.showPlayer(host.plugin(), player);
         }
+    }
+
+    /**
+     * Takes the emoter's own copy of their held item off their screen.
+     *
+     * <p><b>The last thing the two halves of hiding somebody miss.</b>
+     * {@code hidePlayer} covers everybody else completely — the entity is not
+     * sent, so there is nothing to render. The potion covers the emoter's own
+     * view of their SKIN and nothing else, so their sword goes on rendering: in
+     * front of the camera in first person, and floating at an invisible body in
+     * third. With the rig now holding a copy too, that reads as two swords.
+     *
+     * <p><b>It changes what they SEE, never what they hold.</b>
+     * {@code sendEquipmentChange} is a packet and nothing more — the server's
+     * inventory is untouched, so the sword still swings for full damage, still
+     * mines at its own speed, and cannot be lost to a crash mid-emote. That
+     * distinction is the whole reason this is done this way: emptying the hand
+     * for real would have been fewer lines and would have quietly changed how
+     * hard somebody hits while wearing a stance, and gameplay rules belong to
+     * the server rather than to us — the same line {@link #onDamage} draws.
+     *
+     * <p>The cost, and it is a real one: the client applies the packet to its
+     * own inventory, so the selected hotbar slot draws empty while the emote
+     * runs. {@link #showHeldItems} is what puts that right, and it resends the
+     * whole inventory rather than the two slots, because a wearer who scrolled
+     * their hotbar has had every slot they passed through blanked.
+     */
+    private static void hideHeldItems(Player player) {
+        ItemStack air = new ItemStack(Material.AIR);
+        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND, air);
+        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.OFF_HAND, air);
+    }
+
+    /**
+     * Gives the emoter their hotbar back.
+     *
+     * <p>A full resync rather than the two equipment slots, because the blank
+     * follows the SELECTED slot: somebody who scrolled from a sword to a torch
+     * to a block during one emote has had three slots blanked on their client
+     * and only one of them is the one they are holding now. Sending the
+     * inventory is one packet and answers all of it.
+     *
+     * <p>Called wherever the body comes back — the ending, and a group crossing
+     * into a state it leaves to vanilla — because from that moment the player's
+     * own item is the one that should be on screen.
+     */
+    private static void showHeldItems(Player player) {
+        player.updateInventory();
     }
 
     static String encodeInvisibility(PotionEffect effect, long now) {

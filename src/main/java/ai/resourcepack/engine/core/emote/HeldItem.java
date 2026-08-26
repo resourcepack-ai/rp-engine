@@ -72,6 +72,30 @@ final class HeldItem {
     /** How far down the arm the hand grips — vanilla's 0.625 blocks. */
     private static final float HAND_DOWN_PX = 10f;
 
+    /**
+     * How far the grip is lifted back up, in px. <b>Calibrated in game.</b>
+     *
+     * <p>Everything else in this file is arithmetic against studio's socket and
+     * against vanilla's own offsets, and by that arithmetic the grip belongs at
+     * {@link #HAND_DOWN_PX} below the shoulder and nothing else. In a real
+     * client it sits low, and this is the correction — a measured number rather
+     * than a derived one, which is why it is its own constant instead of being
+     * folded into the ten above. Folding it in would erase the fact that ten is
+     * Mojang's and this is ours.
+     *
+     * <p>Part of the gap is explainable and is not worth trying to remove:
+     * {@code PLAYER_SCALE} shrinks the whole rig to 15/16 about its anchor, so
+     * every point on it — the hand included — sits slightly lower in the world
+     * than the same point on an unscaled body. The hand is correct relative to
+     * the ARM it is on, which is what matters, and chasing the rest of the
+     * difference would move the item off the rig's own hand to line it up with
+     * a body nobody can see.
+     *
+     * <p><b>If it still reads wrong, this is the number to change and the only
+     * one.</b> Positive lifts.
+     */
+    private static final float HAND_LIFT_PX = 2f;
+
     /** How far in front of the arm the item sits — vanilla's 0.125 blocks. */
     private static final float HAND_FORWARD_PX = 2f;
 
@@ -122,7 +146,7 @@ final class HeldItem {
     static float[] socketPoint(boolean offHand, boolean slim) {
         float side = offHand ? -1f : 1f;
         float x = side * (SHOULDER_X_PX + armWidthPx(slim) / 2f);
-        float y = SHOULDER_Y_PX - HAND_DOWN_PX;
+        float y = SHOULDER_Y_PX - HAND_DOWN_PX + HAND_LIFT_PX;
         // Forward is -z: Studio's emote skeleton states the character faces -z,
         // and the entity-model convention its Studio's player rig draws agrees.
         float z = -HAND_FORWARD_PX;
