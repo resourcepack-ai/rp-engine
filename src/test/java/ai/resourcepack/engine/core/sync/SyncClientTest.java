@@ -76,6 +76,35 @@ class SyncClientTest {
     }
 
     @Test
+    void theApplyPayloadIsPositional() {
+        // packUrl rigsUrl bedrockUrl emotesUrl, with - for a slot studio has
+        // nothing for. Reading the wrong index does NOT fail loudly: the rigs
+        // manifest is also JSON with a packId in it, so merging it as an emote
+        // manifest parses cleanly and yields nothing, which reads as "this pack
+        // has no emotes" for a pack full of them. That is a real bug this test
+        // exists to stop coming back.
+        String payload = "https://x/pack.zip https://x/rigs.json - https://x/emotes.json";
+
+        assertEquals("https://x/pack.zip", StudioPush.packUrl(payload));
+        assertEquals("https://x/rigs.json", StudioPush.rigsUrl(payload).orElseThrow());
+        assertEquals("https://x/emotes.json", StudioPush.emotesUrl(payload).orElseThrow());
+    }
+
+    @Test
+    void anEmptySlotIsADashAndTrailingSlotsAreSimplyAbsent() {
+        assertTrue(StudioPush.rigsUrl("https://x/pack.zip - https://x/emotes.json").isEmpty());
+        assertTrue(StudioPush.emotesUrl("https://x/pack.zip https://x/rigs.json").isEmpty());
+        assertTrue(StudioPush.emotesUrl("https://x/pack.zip").isEmpty());
+        assertTrue(StudioPush.emotesUrl(null).isEmpty());
+        assertEquals("", StudioPush.packUrl(null));
+    }
+
+    @Test
+    void aPushWithOnlyAPackStillHasItsPack() {
+        assertEquals("https://x/pack.zip", StudioPush.packUrl("https://x/pack.zip"));
+    }
+
+    @Test
     void aFrameTypeIsMatchedRegardlessOfCase() {
         client().handle("apply 48213097 https://example.com/pack.zip");
 
