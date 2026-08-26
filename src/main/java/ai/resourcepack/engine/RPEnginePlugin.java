@@ -143,7 +143,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // model is a carrier item dispatched by custom_model_data, so it is
         // identified and placed differently from a content-folder item — two
         // paths because there are genuinely two kinds of thing.
-        Host rigHost = new Host(this, getDataFolder(), null, null);
+        // One Host for everything that borrows this plugin's scheduler,
+        // listeners and key namespace. The rig side never asks for the emote
+        // wording or the cast permission, but two Hosts differing only in the
+        // fields one of them ignores is a thing to keep in step for no reason.
+        Host host = new Host(this, getDataFolder(), new EmoteWording(),
+                getConfig().getString("emotes.cast-permission", EmoteWording.MULTI_PERMISSION));
         skins = new ai.resourcepack.engine.core.skin.SkinApplier(this);
 
         // Geyser is a plugin a server may not have, and its classes are simply
@@ -158,18 +163,21 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         distribution = new DistributionManager(this, bedrock, new ProtocolResolver(getLogger()),
-                getConfig().getString("distribution.api", "https://studio.resourcepack.ai"));
+                getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"));
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
-        animator = new RigAnimator(rigHost, rigs);
-        rigPlacement = new RigPlacementListener(rigHost, rigs, animator);
+        animator = new RigAnimator(host, rigs);
+        rigPlacement = new RigPlacementListener(host, rigs, animator);
         models = new ModelsImpl(animator, rigs, rigPlacement);
 
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
-        emotes = new EmoteDirector(
-                new Host(this, getDataFolder(), null, getConfig().getString("emotes.cast-permission", null)),
-                emoteStore);
+        // EmoteWording rather than nothing. Three things an emote has to say
+        // happen to somebody who did not run the command — being pulled in, an
+        // emote ending, and finding on join that the one you were in did not
+        // survive a crash — and EmoteMessages' own doc says silence there
+        // reads as a bug.
+        emotes = new EmoteDirector(host, emoteStore);
         placements = new ModelPlacementListener(this, items);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
@@ -222,6 +230,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (distribution != null) {
             distribution.shutdown();
+        }
+        if (bedrock instanceof GeyserBridge) {
+            // Unsubscribes from Geyser's event bus. Without it a reload leaves
+            // a dead listener wired to a live bus.
+            ((GeyserBridge) bedrock).shutdown();
         }
         if (animator != null) {
             animator.stop();
