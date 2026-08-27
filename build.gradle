@@ -69,7 +69,12 @@ group = 'ai.resourcepack'
 // 0.37.0: a push addressed by uuid reaches the player it names. Studio
 //         addresses a sync that way the moment it has more than one
 //         recipient, and always for a skin or a notification.
-version = '0.37.0'
+// 0.38.0: an emote leaves the wearer's own hand alone. Their item is really
+//         in it — a bow draws, a potion drinks, the hotbar slot is theirs —
+//         because the rig's copy is hidden from them rather than theirs from
+//         everyone. The rig also casts a shadow and its cape trails, both
+//         from vanilla's own numbers.
+version = '0.38.0'
 
 java {
     toolchain {
