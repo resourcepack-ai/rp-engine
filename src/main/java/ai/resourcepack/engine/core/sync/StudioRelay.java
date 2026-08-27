@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.sync;
 
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.MergeResult;
+import ai.resourcepack.engine.core.command.EngineCommand;
 import ai.resourcepack.engine.core.emote.EmoteStore;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.skin.SkinApplier;
@@ -106,7 +107,7 @@ public final class StudioRelay {
             register.accept(pack);
             int reached = eachRecipient(code, player -> {
                 deliver.accept(player, pack);
-                player.sendMessage("[RPEngine] Studio pushed a pack.");
+                player.sendMessage(EngineCommand.prefix() + "Studio pushed a pack.");
                 return true;
             });
             answer(reached, () -> sync.applied(code), why -> sync.failed(code, why));
@@ -180,7 +181,7 @@ public final class StudioRelay {
             int told = eachRecipient(code, player -> {
                 for (String line : List.of(title, body == null ? "" : body, url == null ? "" : url)) {
                     if (!line.isEmpty()) {
-                        player.sendMessage("[RPEngine] " + line);
+                        player.sendMessage(EngineCommand.prefix() + line);
                     }
                 }
                 return true;

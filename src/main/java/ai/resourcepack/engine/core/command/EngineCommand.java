@@ -56,6 +56,25 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
+     * Adopts a chat palette. Called on enable and on every reload.
+     *
+     * <p>Static, and on the router rather than on {@link Reply}, because Reply
+     * is package-private: this is the command layer's one public door for it,
+     * and the plugin walks through it before anything can talk.
+     */
+    public static void style(ChatStyle style) {
+        Reply.style(style);
+    }
+
+    /**
+     * The tag in front of every line, for the handful of places outside this
+     * package that write to a player directly.
+     */
+    public static String prefix() {
+        return Reply.style().prefix();
+    }
+
+    /**
      * What a subcommand needs: {@code rpengine.<subcommand>}, without
      * exception.
      *
@@ -175,7 +194,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             }
             any = true;
             sender.sendMessage("");
-            sender.sendMessage(Reply.HEADING + area.title());
+            sender.sendMessage(Reply.style().heading() + area.title());
             for (Help line : lines) {
                 sender.sendMessage(line.render());
             }
