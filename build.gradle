@@ -86,7 +86,9 @@ group = 'ai.resourcepack'
 //         rig's shadow also takes the same lead as the rig, having trailed
 //         it by up to two thirds of a block for as long as a set was walked
 //         around.
-version = '0.40.1'
+// 0.41.0: the chat palette is config rather than four hard-coded prefixes,
+//         and #3670f8 by default.
+version = '0.41.0'
 
 java {
     toolchain {
