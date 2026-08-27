@@ -3540,6 +3540,14 @@ public final class EmoteDirector implements Listener {
         // sized for a body 6.7% bigger than the one holding it.
         out.scale(PLAYER_SCALE);
         out.mul(RigMath.toItemDisplaySpace(m));
+        // The hand's turn goes on OUTSIDE the conjugation, which is the whole
+        // of the fix for an item that hung beside the rig instead of in it.
+        // `toItemDisplaySpace` rewrites every rotation inside it — it turns the
+        // -90 of vanilla's in-hand chain into a +90 — so an orientation applied
+        // in model space arrived pitched a half-turn wrong. Here it is in the
+        // item's own frame, which is where `ItemInHandLayer` applies it and the
+        // only place it means what it says. See HeldItem.applyTo.
+        HeldItem.orient(out);
 
         Transformation next = RigMath.toTransformation(out);
         if (next.equals(display.getTransformation())) return;
