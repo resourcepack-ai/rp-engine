@@ -75,7 +75,12 @@ group = 'ai.resourcepack'
 //         everyone. The rig also casts a shadow and its cape trails, both
 //         from vanilla's own numbers, and it tells studio which cape that
 //         is — the one answer to that only a game server holds.
-version = '0.38.0'
+// 0.39.0: a worn set is hidden from its wearer rather than its wearer from
+//         the world, so their first person is vanilla and the rig is what
+//         everybody else sees. The rig's own held item is turned in the
+//         item's frame, not in model space, where the display-space
+//         conjugation was pitching it a half turn off the grip.
+version = '0.39.0'
 
 java {
     toolchain {

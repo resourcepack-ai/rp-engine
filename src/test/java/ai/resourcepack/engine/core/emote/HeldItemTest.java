@@ -110,6 +110,54 @@ class HeldItemTest {
         assertEquals(socket[1] + 1f, at.y, 1e-6);
     }
 
+    /**
+     * <b>Why {@link HeldItem#orient} may not be composed in model space.</b>
+     *
+     * <p>This is the arithmetic behind an item that hung beside the rig
+     * instead of in its hand, and it is pinned here so nobody folds the turn
+     * back into {@code applyTo} where it obviously belongs and quietly breaks
+     * it again. {@code RigMath.toItemDisplaySpace} conjugates by a half turn
+     * about Y to get from model space into the space an ItemDisplay reads its
+     * transformation in — and a conjugation does not leave rotations alone. It
+     * takes vanilla's in-hand {@code Rx(-90)} to {@code Rx(+90)}, so the item
+     * came out of that door pitched a half turn backwards along itself, and
+     * its own thirdperson display translation then carried it clear of the
+     * grip.
+     *
+     * <p>The socket survives the same conjugation, which is why the PLACE may
+     * still be composed in model space and only the turn moved out: a
+     * translation's y is untouched and its x and z are negated, which is
+     * exactly what a prop's offset already relies on.
+     */
+    @Test
+    void theDisplaySpaceConjugationFlipsAnOrientationsPitch() {
+        Matrix4f inModelSpace = new Matrix4f();
+        HeldItem.orient(inModelSpace);
+        Matrix4f conjugated = ai.resourcepack.engine.core.animation.RigMath
+            .toItemDisplaySpace(inModelSpace);
+
+        // What the turn becomes if it is composed before the conjugation: the
+        // same half-turn about Y, and the opposite quarter-turn about X.
+        Matrix4f flipped = new Matrix4f()
+            .rotateX((float) (Math.PI / 2.0))
+            .rotateY((float) Math.PI);
+        for (int i = 0; i < 16; i++) {
+            assertEquals(flipped.get(i / 4, i % 4), conjugated.get(i / 4, i % 4), 1e-5);
+        }
+
+        // And the point of the whole test: that is NOT the orientation asked
+        // for, so applying it in model space is applying a different one.
+        // Compared over every entry rather than one — the two differ only in
+        // the pitch's sine terms, and both quarter turns share every cosine,
+        // so picking a single element is how this assertion passes vacuously.
+        double worst = 0;
+        for (int i = 0; i < 16; i++) {
+            worst = Math.max(worst,
+                Math.abs(inModelSpace.get(i / 4, i % 4) - conjugated.get(i / 4, i % 4)));
+        }
+        assertTrue(worst > 1e-3, "the conjugated turn should differ from the one orient() states");
+    }
+
     @Test
     void bothHandsUseTheAttachNamesAPropWouldUse() {
         // Load-bearing: EmoteStore.attachEndBone lowercases its input and looks

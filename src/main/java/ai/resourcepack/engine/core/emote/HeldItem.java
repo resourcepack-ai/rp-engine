@@ -181,16 +181,32 @@ final class HeldItem {
     }
 
     /**
-     * The whole hand step, appended to whatever the arm chain has already done.
+     * The hand's PLACE, appended to whatever the arm chain has already done.
      *
-     * <p>Translate to the socket, then turn about where that landed — the same
-     * shape and the same order as {@link EmoteDirector#applyPropStep}, so a
-     * held item and a prop attached to the same arm are composed identically
-     * and cannot drift apart.
+     * <p>Translation only — exactly the shape of {@link
+     * EmoteDirector#applyPropStep}'s offset, so a held item and a prop
+     * attached to the same arm are placed identically and cannot drift apart.
+     *
+     * <p><b>The turn is deliberately not done here any more, and that was a
+     * real bug.</b> Everything in this method happens in MODEL space, and
+     * {@code RigMath.toItemDisplaySpace} then conjugates the whole composed
+     * matrix by 180 degrees about Y to get into the space an ItemDisplay's
+     * transformation is read in. Conjugation leaves a translation's y alone
+     * and negates its x and z — which is what the socket wants, since a prop's
+     * offset goes through the same door — but it also rewrites every rotation
+     * inside it, and {@code Ry(180) · Rx(-90) · Ry(-180)} is {@code Rx(+90)}.
+     * So the hand's turn came out of that door pitched a half-turn the wrong
+     * way: the item landed on the grip and then pointed backwards along itself,
+     * which its own {@code thirdperson} display translation then dragged clear
+     * of the hand entirely. It read as an item floating beside the rig.
+     *
+     * <p>So {@link #orient} is applied by {@link EmoteDirector#poseHand}
+     * AFTER the conjugation instead, in the item's own frame — which is
+     * exactly where vanilla's {@code ItemInHandLayer} applies it, and is the
+     * one place it means what it says.
      */
     static void applyTo(Matrix4f m, boolean offHand, boolean slim) {
         float[] socket = socketPoint(offHand, slim);
         m.translate(socket[0], socket[1], socket[2]);
-        orient(m);
     }
 }
