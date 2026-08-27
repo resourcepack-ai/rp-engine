@@ -5,36 +5,46 @@ import org.bukkit.command.CommandSender;
 /**
  * How this plugin talks in chat.
  *
- * <p>One prefix, in one place. It was a literal at every call site until the
- * fourth area class copied it, which is exactly how a plugin ends up with two
- * spellings of its own name in the same chat window.
+ * <p>One prefix and one palette, in one place. It was a literal at every call
+ * site until the fourth area class copied it, which is exactly how a plugin
+ * ends up with two spellings of its own name in the same chat window.
+ *
+ * <p><strong>The style is static, and set once at startup.</strong> Every area
+ * writes to chat, so threading a {@link ChatStyle} through all of them would
+ * be a parameter on every call for a value that is server-wide and changes
+ * only on a reload. It is replaced whole rather than mutated, so a message
+ * mid-flight reads one palette or the other and never half of each.
  */
 final class Reply {
 
-    static final String PREFIX = "[RPEngine] ";
-
-    /**
-     * A group heading in the help: the brand blue, in bold.
-     *
-     * <p>Spelled as section signs rather than built from {@code ChatColor.of},
-     * which needs a server to resolve a hex colour and so cannot be a constant
-     * a test can load. The digits are #3670f8, one section sign each, which is
-     * how the game has taken hex colours since 1.16.
-     */
-    static final String HEADING = "§x§3§6§7§0§f§8§l";
-
-    /** A line of the help. Grey, so the headings carry the structure. */
-    static final String BODY = "§7";
-
-    /** The command half of a help line. White, so it reads as the thing to type. */
-    static final String COMMAND = "§f";
+    private static volatile ChatStyle style = ChatStyle.defaults();
 
     private Reply() {
     }
 
-    /** One line, prefixed. */
+    /** Adopts what the config said. Called on enable and on every reload. */
+    static void style(ChatStyle configured) {
+        style = configured == null ? ChatStyle.defaults() : configured;
+    }
+
+    /** The palette, for the few places that colour a line themselves. */
+    static ChatStyle style() {
+        return style;
+    }
+
+    /** One line, prefixed, in the body colour. */
     static void to(CommandSender who, String line) {
-        who.sendMessage(PREFIX + line);
+        who.sendMessage(style.prefix() + line);
+    }
+
+    /** One line that reports a failure. */
+    static void error(CommandSender who, String line) {
+        who.sendMessage(style.prefix() + style.error() + line);
+    }
+
+    /** Something worth picking out of a sentence — a name, a count, a code. */
+    static String accent(Object value) {
+        return style.accent() + value + style.body();
     }
 
     /** "1 item", "2 items". Its absence is the sort of thing that reads as unfinished. */

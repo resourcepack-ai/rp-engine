@@ -18,6 +18,7 @@ import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
+import ai.resourcepack.engine.core.command.ChatStyle;
 import ai.resourcepack.engine.core.command.ContentCommands;
 import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -175,6 +176,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        // Before anything can talk, including the load diagnostics below.
+        applyChatStyle();
         items = new ItemsImpl(this);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
@@ -317,6 +320,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private void reloadContent(CommandSender to) {
         reloadConfig();
+        applyChatStyle();
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }
@@ -350,10 +354,31 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         overlays.replace(allScreens, allHuds);
     }
 
+    /**
+     * Reads the chat palette out of the config.
+     *
+     * <p>Here rather than inside {@link ChatStyle} because that class is free
+     * of Bukkit — it turns hex into section signs and nothing else, which is
+     * what lets it be tested without a server.
+     */
+    private void applyChatStyle() {
+        // Read with no fallbacks: an absent key arrives as null and ChatStyle
+        // falls back to its own default, so the defaults live in one place
+        // rather than being restated here and in config.yml.
+        EngineCommand.style(ChatStyle.of(
+                getConfig().getString("chat.prefix"),
+                getConfig().getString("chat.colour.prefix"),
+                getConfig().getString("chat.colour.brackets"),
+                getConfig().getString("chat.colour.body"),
+                getConfig().getString("chat.colour.accent"),
+                getConfig().getString("chat.colour.error"),
+                getConfig().getString("chat.colour.success")));
+    }
+
     /** {@code /rp push}: forget what they are holding and send it again. */
     private void sendPack(Player player) {
         sessions.forget(player.getUniqueId());
-        player.sendMessage("[RPEngine] "
+        player.sendMessage(EngineCommand.prefix()
                 + (delivery.apply(player, desiredFor(player)) ? "Sent." : "Nothing to send."));
     }
 
@@ -638,7 +663,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getLogger().info(line);
             }
             if (!(to instanceof ConsoleCommandSender)) {
-                to.sendMessage("[RPEngine] " + line);
+                to.sendMessage(EngineCommand.prefix() + line);
             }
         }
     }
