@@ -93,7 +93,11 @@ group = 'ai.resourcepack'
 //         with it. Root motion moves the rig by transform, which geometry
 //         follows and an entity-positioned shadow or a billboarded name
 //         cannot, so both stayed on the start line until the emote ended.
-version = '0.40.2'
+// 0.40.3: the rig's held item stops facing backwards. Vanilla's in-hand turn
+//         ends with a half turn about Y that an ItemDisplay already does for
+//         itself, so copying the pair whole spent it twice — invisible on a
+//         rig standing still, a sword held backwards once an arm swung.
+version = '0.40.3'
 
 java {
     toolchain {

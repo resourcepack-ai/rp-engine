@@ -157,8 +157,23 @@ final class HeldItem {
      * Turns the item the way a hand holds it.
      *
      * <p>Vanilla's {@code ItemInHandLayer.renderArmWithItem} orients a held
-     * stack with an X turn of -90 followed by a Y turn of 180, and that pair is
-     * reproduced here in that order. It is NOT taken from studio's
+     * stack with an X turn of -90 followed by a Y turn of 180. <b>Only the X
+     * turn belongs here, and taking vanilla's pair whole is what left every
+     * held item facing backwards.</b> The Y half of it exists because vanilla
+     * composes into a frame with no half-turn in it; an ItemDisplay has one
+     * built in — {@code ItemDisplayRenderer} spins the rendered item 180
+     * degrees about Y after the display transformation, which is the entire
+     * reason {@link ai.resourcepack.engine.core.animation.RigMath#toItemDisplaySpace}
+     * exists. Since this is now composed OUTSIDE that conjugation, in the
+     * item's displayed frame, the client's own half turn has already been
+     * spent, and repeating it here spent it twice.
+     *
+     * <p>It was invisible on a rig standing still, which is why it shipped: a
+     * half turn about a hanging item's own long axis barely reads. An arm
+     * swinging through a walk cycle is where it becomes a sword held
+     * backwards, so a worn set showed it and a one-shot did not.
+     *
+     * <p>It is NOT taken from studio's
      * {@code slotBaseFrame}, which states {@code [-90 + 22.5, 0, 0]} — that
      * value has the third-person arm POSE folded into it, because studio is
      * drawing an item on a still figure whose arm it also has to place. Here
@@ -177,7 +192,6 @@ final class HeldItem {
      */
     static void orient(Matrix4f m) {
         m.rotateX((float) (-Math.PI / 2.0));
-        m.rotateY((float) Math.PI);
     }
 
     /**
