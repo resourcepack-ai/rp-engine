@@ -235,6 +235,17 @@ public final class EmoteStore {
     private static final Set<String> VARIANT_BONES =
         Set.of("rightarm", "leftarm", "rightforearm", "leftforearm");
 
+    /**
+     * The key the cape's bone carries. Mirrors {@code CAPE_BONE_KEY} in
+     * Studio's emote skeleton.
+     *
+     * <p>Named here rather than matched as a literal at the one place that
+     * needs it, because two of them are two chances for the physics in
+     * {@link CapeSway} to be applied to a bone that isn't a cape, or to no
+     * bone at all — and either is invisible until somebody with a cape emotes.
+     */
+    static final String CAPE_BONE = "cape";
+
     /** Bone keys, lowercased, whose end a held prop actually rides — the hand
      *  is on the forearm, the foot on the shin. Mirrors `attachBone` in
      *  Studio's emote skeleton. Only meaningful on the jointed skeleton; on the

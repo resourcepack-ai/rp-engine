@@ -257,6 +257,21 @@ public final class EmoteDirector implements Listener {
     private static final double RIG_BASE_Y = PLAYER_SCALE;
 
     /**
+     * How wide the rig's shadow is — vanilla's own for a player.
+     *
+     * <p>{@code PlayerRenderer} sets {@code shadowRadius = 0.5}, and a display
+     * entity's radius is the same quantity in the same units, so this is the
+     * player's shadow rather than an approximation of it. Deliberately NOT
+     * scaled by {@link #PLAYER_SCALE}: the rig is shrunk to fit the block-model
+     * bounds and the body it stands in for is full size, and the shadow belongs
+     * to the person.
+     */
+    private static final float SHADOW_RADIUS = 0.5f;
+
+    /** How dark it is. Vanilla's player shadow is drawn at full strength. */
+    private static final float SHADOW_STRENGTH = 1f;
+
+    /**
      * How high above the feet the name floats, in blocks.
      *
      * <p>Vanilla draws a nametag at the entity's height plus half a block, and
@@ -672,6 +687,15 @@ public final class EmoteDirector implements Listener {
         ItemDisplay mainHand;
         ItemDisplay offHand;
         /**
+         * The blob of shade the rig stands on. See {@link #spawnShadow}.
+         *
+         * <p>Its own display rather than a property of a bone, because a
+         * shadow belongs at the FEET and every bone stands a block above them
+         * — see {@link #RIG_BASE_Y} — and a display's shadow fades with its
+         * height off the ground.
+         */
+        ItemDisplay shadow;
+        /**
          * What those two were last told to hold.
          *
          * <p>The player's inventory is read every pass — a slot change, an
@@ -683,15 +707,14 @@ public final class EmoteDirector implements Listener {
         ItemStack mainHandItem;
         ItemStack offHandItem;
         /**
-         * The hotbar slot whose copy has been blanked on the wearer's own
-         * client, or -1 for none. See {@link #hideHeldItems}.
+         * This wearer's cape, chasing them a tick behind. See {@link CapeSway}.
          *
-         * <p>Tracked because the blank follows the SELECTED slot rather than
-         * the item: scrolling from one sword to an identical one changes
-         * nothing about what the rig holds, and everything about which slot the
-         * client is drawing an item in.
+         * <p>Per session rather than per player: it is state about an emote
+         * that is running, and a rig that is put away and brought back should
+         * pick the cape up from where the body is rather than from where the
+         * rig was left. Stepped once per pass by the tick loop.
          */
-        int blankedSlot = -1;
+        final CapeSway cape = new CapeSway();
         /**
          * Whether this participant's arms are the slim pair.
          *
@@ -1338,7 +1361,8 @@ public final class EmoteDirector implements Listener {
         // line rather than on a wide arm's. Resolved here because `variant` is
         // already the answer the arm models were chosen with.
         session.slim = SkinModel.SLIM.equals(variant);
-        spawnHands(session, base);
+        spawnHands(player, session, base);
+        session.shadow = spawnShadow(session, player.getLocation());
         session.nameTag = spawnNameTag(player, session);
 
         // Invisible, and nothing more — the camera stays where the body was.
@@ -1417,21 +1441,81 @@ public final class EmoteDirector implements Listener {
      * sword lies along the hand, a torch stands up in it and a shield turns
      * side-on, each because its own model file says so — the same data vanilla
      * reads. Nothing here knows what a sword is.
+     *
+     * <p><b>The wearer is not sent either of them</b>, and that is what pays
+     * for their own item still being real on their own screen — see
+     * {@link #conceal}.
      */
-    private void spawnHands(Session session, Location base) {
-        session.mainHand = spawnHand(session, base, false);
-        session.offHand = spawnHand(session, base, true);
+    private void spawnHands(Player player, Session session, Location base) {
+        session.mainHand = spawnHand(player, session, base, false);
+        session.offHand = spawnHand(player, session, base, true);
     }
 
-    private ItemDisplay spawnHand(Session session, Location base, boolean offHand) {
+    private ItemDisplay spawnHand(Player player, Session session, Location base, boolean offHand) {
         final boolean carried = session.stance();
-        return base.getWorld().spawn(base, ItemDisplay.class, d -> {
+        ItemDisplay display = base.getWorld().spawn(base, ItemDisplay.class, d -> {
             d.setItemStack(new ItemStack(Material.AIR));
             d.setItemDisplayTransform(offHand
                 ? ItemDisplay.ItemDisplayTransform.THIRDPERSON_LEFTHAND
                 : ItemDisplay.ItemDisplayTransform.THIRDPERSON_RIGHTHAND);
             // Never chunk-saved, for the same reason a bone is not: an emote is
             // a moment and a hand that outlived the server would be litter.
+            d.setPersistent(false);
+            if (carried) carry(d);
+        });
+        // Everybody else sees the rig holding the sword; the wearer sees the
+        // sword they are really holding, in their own hand, where their client
+        // put it. Hiding the ENTITY is what lets both be true at once — the
+        // duplicate this used to solve by taking the item off their screen. It
+        // is never undone: while the rig is away these hold air anyway, and the
+        // displays go with the emote.
+        player.hideEntity(host.plugin(), display);
+        return display;
+    }
+
+    /**
+     * The shadow the rig stands on.
+     *
+     * <p><b>Hiding the body takes its shadow with it</b>, and that turned out
+     * to be most of why a rig read as pasted onto the world rather than
+     * standing in it: {@code hidePlayer} does not send the entity, and a
+     * display entity casts no shadow unless it is asked to, so a stance walked
+     * around lit from every angle with nothing underneath it. The class note
+     * already listed the shadow among the things invisibility does not hide —
+     * this is the other half of that sentence.
+     *
+     * <p>One display, holding the rig's own first bone with its scale taken to
+     * nothing. Three things about that are deliberate:
+     *
+     * <ul>
+     *   <li><b>At the feet, not at the base.</b> Every bone stands a block up
+     *       ({@link #RIG_BASE_Y}), and a display's shadow fades over the couple
+     *       of blocks between it and the ground — so a shadow hung off a bone
+     *       would be a permanently faint one.</li>
+     *   <li><b>Real content, scaled to zero</b>, rather than air. The shadow is
+     *       drawn beside the item rather than instead of it, so a display the
+     *       client has nothing to render may have nothing to hang it on; a
+     *       degenerate transform is the one way to be sure there is a model and
+     *       still see none of it.</li>
+     *   <li><b>Its own entity</b>, so exactly one shadow is cast. Asking the
+     *       bones for it would stack six or ten of them into a blot.</li>
+     * </ul>
+     *
+     * <p>Null when this pack's rig has no bones to borrow an item from, which
+     * is the same condition that leaves the wearer with no rig worth shading.
+     */
+    private ItemDisplay spawnShadow(Session session, Location feet) {
+        ItemStack item = session.partItems.isEmpty() ? null : session.partItems.get(0);
+        if (item == null || feet.getWorld() == null) return null;
+        final boolean carried = session.stance();
+        return feet.getWorld().spawn(feet, ItemDisplay.class, d -> {
+            d.setItemStack(item);
+            d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
+            d.setTransformation(new Transformation(
+                new org.joml.Vector3f(), new org.joml.Quaternionf(),
+                new org.joml.Vector3f(0f, 0f, 0f), new org.joml.Quaternionf()));
+            d.setShadowRadius(SHADOW_RADIUS);
+            d.setShadowStrength(SHADOW_STRENGTH);
             d.setPersistent(false);
             if (carried) carry(d);
         });
@@ -1450,6 +1534,10 @@ public final class EmoteDirector implements Listener {
      * <p><b>An empty hand is air, not a skipped write.</b> Putting a sword away
      * has to take it out of the rig's hand, and "leave the last thing there"
      * is what a naive change check does.
+     *
+     * <p>Nothing is sent to the WEARER's client here, and that is the whole of
+     * the change that fixed using items while emoting — see {@link #conceal}.
+     * This writes entity metadata on two displays the wearer is not sent.
      */
     private void syncHands(Player player, Session session) {
         ItemStack main = player.getInventory().getItemInMainHand();
@@ -1458,54 +1546,6 @@ public final class EmoteDirector implements Listener {
         ItemStack wasOff = session.offHandItem;
         session.mainHandItem = syncHand(session.mainHand, main, wasMain, session.rigHidden);
         session.offHandItem = syncHand(session.offHand, off, wasOff, session.rigHidden);
-
-        if (session.rigHidden) {
-            // The body is back and rendering its own item, which is the one
-            // that should be on screen. Nothing to blank, and nothing to
-            // remember blanking — `reveal` has already resynced.
-            session.blankedSlot = -1;
-            return;
-        }
-        // Re-blank on either kind of change. The slot is checked as well as the
-        // items because they answer different questions: swapping to a second
-        // identical sword leaves both stacks equal and still moves which slot
-        // the client is drawing.
-        // Reference comparisons, deliberately: syncHand hands back the SAME
-        // object when it wrote nothing and a new one when it wrote, so this is
-        // asking "did we just change a hand" rather than re-running the
-        // equality it already ran.
-        int slot = player.getInventory().getHeldItemSlot();
-        boolean movedSlot = slot != session.blankedSlot;
-        boolean changedItem = session.mainHandItem != wasMain || session.offHandItem != wasOff;
-        if (movedSlot || changedItem) blankHeldSlot(player, session, slot);
-    }
-
-    /**
-     * Blanks the slot they are holding now, and gives back the one they left.
-     *
-     * <p><b>Exactly one slot is ever blank, and it is the one in their hand.</b>
-     * The blank is applied to whatever the client currently has selected — that
-     * is all {@code sendEquipmentChange} can address — so moving to another slot
-     * leaves the old one blank on their screen with a real item still in it.
-     * Scrolling sword, torch, sword during one emote emptied two slots that were
-     * not empty and left them that way until the emote ended.
-     *
-     * <p>There is no packet that un-blanks one slot: once the selection has
-     * moved, {@code MAINHAND} no longer names the slot that needs putting back.
-     * So the whole inventory is resent first and the new hand blanked on top of
-     * it, which lands as "everything true except the one thing in their hand".
-     * The two go out on one connection in order, so the client applies them that
-     * way round.
-     *
-     * <p>The resend is skipped when only the ITEM changed and the slot did not —
-     * a tool losing durability, a stack being eaten down — because then the slot
-     * needing a blank is the slot that already has one, and there is nothing
-     * stale anywhere else to repair.
-     */
-    private static void blankHeldSlot(Player player, Session session, int slot) {
-        if (slot != session.blankedSlot && session.blankedSlot >= 0) showHeldItems(player);
-        hideHeldItems(player);
-        session.blankedSlot = slot;
     }
 
     /**
@@ -1562,6 +1602,12 @@ public final class EmoteDirector implements Listener {
         // would be. `syncHands` reads `rigHidden`, so this only has to be
         // ordered before it — which the tick loop is.
         syncHands(player, session);
+        // And so does the shadow, for the same reason and with the same fix as
+        // the nametag: while the body is back it is casting its own, and two
+        // shadows on one pair of feet is a smear rather than a shadow.
+        if (session.shadow != null && session.shadow.isValid()) {
+            session.shadow.setShadowRadius(hidden ? 0f : SHADOW_RADIUS);
+        }
         // The name goes with the rig: while the body is back, so is its own
         // real nametag, and two of them stacked is worse than neither.
         setNameTagShown(session, !hidden);
@@ -1576,6 +1622,40 @@ public final class EmoteDirector implements Listener {
      * The potion is INFINITE rather than the emote's length, because a looping
      * emote has no length to expire at and a duration that ran out mid-pose
      * would pop the body back into the middle of its own rig.
+     *
+     * <h2>What is deliberately NOT hidden: the wearer's own held item</h2>
+     *
+     * <p>There used to be a third half here. The potion hides a SKIN and leaves
+     * the held item rendering, so the wearer saw their own sword next to the
+     * copy in the rig's hand — and the fix was to send THEM an empty-hand
+     * equipment packet. It worked, and it cost more than it was worth:
+     *
+     * <ul>
+     *   <li>A client applies that packet to its own inventory, so the slot in
+     *       their hand drew empty. There is no packet that says "empty for
+     *       rendering only", and the elaborate machinery that used to follow
+     *       the blank from slot to slot as they scrolled was all downstream of
+     *       that one fact.</li>
+     *   <li><b>It broke every item with a use action.</b> A client that
+     *       believes it is holding air does not start a bow draw, does not
+     *       raise a shield, does not begin eating or drinking, and does not
+     *       load a crossbow — the server had the real item throughout, so these
+     *       half-worked and read as the plugin being broken rather than as the
+     *       hand being empty. Bows and potions were the complaint; the list is
+     *       every use action in the game.</li>
+     *   <li>In first person it removed the last thing left to look at. The
+     *       potion already hides the arm, so a wearer saw nothing at all in
+     *       front of the camera and an empty hotbar slot under it.</li>
+     * </ul>
+     *
+     * <p><b>So the duplicate is solved from the other end</b>: the rig's two
+     * hand displays are not sent to the wearer at all ({@link #spawnHand}),
+     * and their own item is left alone — really in their hand, drawn by their
+     * own client, predicted like vanilla. The cost is honest and small: in F5
+     * the wearer sees their item where their own invisible body holds it rather
+     * than on the rig's animated hand. Nobody else sees any of this — everybody
+     * else is not sent the body at all, so for them the rig's hand is the only
+     * one there has ever been.
      */
     private void conceal(Player player) {
         player.addPotionEffect(new PotionEffect(
@@ -1586,10 +1666,6 @@ public final class EmoteDirector implements Listener {
             false, // no particles, which is the whole point of using this
             false)); // no inventory icon either — this is not a status they chose
         hideFromOthers(player);
-        // The third thing the other two miss — see hideHeldItems. Their own
-        // view is the only one that needs it: everybody else is not being sent
-        // the entity at all.
-        hideHeldItems(player);
     }
 
     /**
@@ -1617,7 +1693,6 @@ public final class EmoteDirector implements Listener {
                 previous.ambient, previous.particles, previous.icon));
         }
         showToOthers(player);
-        showHeldItems(player);
     }
 
     /**
@@ -1641,6 +1716,7 @@ public final class EmoteDirector implements Listener {
         // two of the three ways out.
         if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.remove();
         if (session.offHand != null && session.offHand.isValid()) session.offHand.remove();
+        if (session.shadow != null && session.shadow.isValid()) session.shadow.remove();
         if (session.nameTag != null && session.nameTag.isValid()) session.nameTag.remove();
     }
 
@@ -1787,10 +1863,12 @@ public final class EmoteDirector implements Listener {
         // out of. Getting this wrong leaves them a ghost.
         showToOthers(player);
         // Their own hotbar back, on the same unconditional terms as the potion
-        // below: a resync of an inventory we never blanked costs one packet,
-        // and one we did blank and did not restore is somebody staring at an
-        // empty hand they still have.
-        showHeldItems(player);
+        // below. Nothing blanks it any more (see `conceal`), so in the ordinary
+        // case this is one wasted packet — but a player who was mid-emote when
+        // a jar older than this change was swapped out is carrying a blank
+        // their new session will never clear, and one packet is a cheap price
+        // for that not being permanent.
+        player.updateInventory();
         // Unconditional rather than gated on the marker. The marker is our
         // record of what they had BEFORE; the effect is ours either way, and
         // a state where one exists without the other is exactly the state
@@ -1901,53 +1979,6 @@ public final class EmoteDirector implements Listener {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (!viewer.getUniqueId().equals(player.getUniqueId())) viewer.showPlayer(host.plugin(), player);
         }
-    }
-
-    /**
-     * Takes the emoter's own copy of their held item off their screen.
-     *
-     * <p><b>The last thing the two halves of hiding somebody miss.</b>
-     * {@code hidePlayer} covers everybody else completely — the entity is not
-     * sent, so there is nothing to render. The potion covers the emoter's own
-     * view of their SKIN and nothing else, so their sword goes on rendering: in
-     * front of the camera in first person, and floating at an invisible body in
-     * third. With the rig now holding a copy too, that reads as two swords.
-     *
-     * <p><b>It changes what they SEE, never what they hold.</b>
-     * {@code sendEquipmentChange} is a packet and nothing more — the server's
-     * inventory is untouched, so the sword still swings for full damage, still
-     * mines at its own speed, and cannot be lost to a crash mid-emote. That
-     * distinction is the whole reason this is done this way: emptying the hand
-     * for real would have been fewer lines and would have quietly changed how
-     * hard somebody hits while wearing a stance, and gameplay rules belong to
-     * the server rather than to us — the same line {@link #onDamage} draws.
-     *
-     * <p>The cost, and it is a real one: the client applies the packet to its
-     * own inventory, so the slot in their hand draws empty for the length of
-     * the emote. {@link #blankHeldSlot} is what keeps that to the ONE slot they
-     * are actually holding, and {@link #showHeldItems} is what gives the lot
-     * back at the end.
-     */
-    private static void hideHeldItems(Player player) {
-        ItemStack air = new ItemStack(Material.AIR);
-        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND, air);
-        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.OFF_HAND, air);
-    }
-
-    /**
-     * Gives the emoter their hotbar back.
-     *
-     * <p>A full resync rather than the two equipment slots, because there is no
-     * packet that names one inventory slot to put back: {@code MAINHAND} only
-     * ever addresses whatever is selected now. Sending the inventory is one
-     * packet and answers all of it whatever state the client was left in.
-     *
-     * <p>Called wherever the body comes back — the ending, and a group crossing
-     * into a state it leaves to vanilla — and by {@link #blankHeldSlot} on the
-     * way to moving the blank to a different slot.
-     */
-    private static void showHeldItems(Player player) {
-        player.updateInventory();
     }
 
     static String encodeInvisibility(PotionEffect effect, long now) {
@@ -2770,6 +2801,19 @@ public final class EmoteDirector implements Listener {
             if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.teleport(base);
             if (session.offHand != null && session.offHand.isValid()) session.offHand.teleport(base);
         }
+        // The shadow follows the FEET rather than the base, and it follows them
+        // on their own terms: no lead, because a shadow that ran ahead of the
+        // body it belongs to is the one part of this a player would read as
+        // wrong straight away, and no `moved` gate, because it is one entity
+        // rather than a dozen. It keeps moving while the rig is away too — its
+        // radius is what was zeroed, and a shadow left behind would be a blot
+        // waiting where the rig came back.
+        if (session.shadow != null && session.shadow.isValid()) {
+            Location feet = now.clone();
+            feet.setYaw(0);
+            feet.setPitch(0);
+            if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
+        }
         // The name's height moves with the crouch as well as with the feet, so
         // it is re-placed when either changed. Its x/z follow `base`, which is
         // the same point a block lower.
@@ -3116,32 +3160,11 @@ public final class EmoteDirector implements Listener {
         pose(player.getUniqueId(), session, true);
     }
 
-    /**
-     * Moves the blank to the slot they just scrolled to, in the same tick.
-     *
-     * <p>The tick loop would find this on its own a moment later, and a moment
-     * is exactly what is wrong with leaving it to the tick loop: for that one
-     * pass the new slot still holds a real item on their screen, so scrolling
-     * flashes the thing that is meant to be hidden. Same reasoning as
-     * {@link #onSwing} — a click and a scroll are both moments, and a poll
-     * finds a moment late by definition.
-     *
-     * <p>{@code getNewSlot} rather than the inventory's own: this fires BEFORE
-     * the server applies the change, so asking the player still answers with the
-     * slot they are leaving. The client has already moved, which is why blanking
-     * the hand here lands on the right one.
-     *
-     * <p>A cancelled scroll is left alone and heals itself — the server puts the
-     * selection back, and the next pass of the tick loop sees a slot that does
-     * not match the blank and repairs both ends.
-     */
-    @EventHandler(ignoreCancelled = true)
-    public void onHeldSlotChange(org.bukkit.event.player.PlayerItemHeldEvent event) {
-        Player player = event.getPlayer();
-        Session session = active.get(player.getUniqueId());
-        if (session == null || session.rigHidden) return;
-        blankHeldSlot(player, session, event.getNewSlot());
-    }
+    // There was a PlayerItemHeldEvent listener here, whose whole job was moving
+    // the wearer's blanked hotbar slot along as they scrolled. Nothing blanks a
+    // slot any more — see `conceal` — so scrolling is now just scrolling, and
+    // the rig picks up whatever landed in their hand on the next pass of
+    // `syncHands` like every other way an item can change.
 
     @EventHandler(ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
@@ -3204,6 +3227,12 @@ public final class EmoteDirector implements Listener {
             // does, so a rig playing a wave with an empty hand is the same
             // wrong picture standing still as it is walking.
             syncHands(player, session);
+            // The cape chases the body, one step per tick and only here.
+            // `pose` reads what this leaves and is called from the swing
+            // listener too, so stepping it there as well would run the
+            // integrator twice in a tick somebody happened to click in — a
+            // cape that flinched when you hit something.
+            session.cape.step(player);
             // A worn emote is the whole of the other branch: it never asks
             // whether they moved, because moving is the point of it.
             if (session.stance()) {
@@ -3306,6 +3335,14 @@ public final class EmoteDirector implements Listener {
             // without either of them knowing a swing exists.
             if (swing > 0 && swingBone.equalsIgnoreCase(bone.key)) {
                 ArmSwing.applyTo(animation, bone.pivot, swing, session.swingOffHand);
+            }
+            // The cape's physics, on the same terms as the swing: after the
+            // emote's own keys rather than instead of them, so an emote that
+            // authors a cape keeps what it authored and gets the trailing on
+            // top. The bone hangs off the body, so it is already carrying
+            // whatever the torso did before this is appended.
+            if (EmoteStore.CAPE_BONE.equalsIgnoreCase(bone.key)) {
+                session.cape.applyTo(animation, bone.pivot);
             }
             composed.put(bone.key, animation);
 
