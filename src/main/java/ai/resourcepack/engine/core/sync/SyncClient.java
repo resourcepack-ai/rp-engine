@@ -89,10 +89,19 @@ public final class SyncClient {
         return !serverToken.isEmpty();
     }
 
-    /** Says a player is here, so studio can push to them without a code. */
-    public void present(java.util.UUID playerId, String name, boolean bedrock) {
+    /**
+     * Says a player is here, so studio can push to them without a code.
+     *
+     * <p>The cape hash is a fourth field on a message that had three, and the
+     * far end reads the first three positionally — so an older sync ignores it
+     * and an older plugin simply sends nothing there. See {@link PlayerCape}
+     * for why studio cannot work this out for itself. {@code -} for a player
+     * with no cape.
+     */
+    public void present(java.util.UUID playerId, String name, boolean bedrock, String capeHash) {
         if (announcesPresence()) {
-            send("PRESENT " + hex(playerId) + " " + name + " " + (bedrock ? "bedrock" : "java"));
+            send("PRESENT " + hex(playerId) + " " + name + " " + (bedrock ? "bedrock" : "java")
+                + " " + (capeHash == null || capeHash.isEmpty() ? PlayerCape.NONE : capeHash));
         }
     }
 

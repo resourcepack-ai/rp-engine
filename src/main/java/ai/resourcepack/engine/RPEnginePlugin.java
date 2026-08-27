@@ -605,14 +605,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
     }
 
-    /** Tells studio the roster, which it wants whole on every change. */
+    /**
+     * Tells studio the roster, which it wants whole on every change.
+     *
+     * <p>Each entry gained a fourth colon-separated field, the cape hash, for
+     * the reason {@code PlayerCape} gives: this server holds the only
+     * uncached copy of which cape somebody is wearing, and studio bakes that
+     * into a pack people then wear. Positional and last, so a sync that has
+     * never heard of it reads the first three and drops it.
+     */
     private void announceMembers(String code) {
         List<String> entries = new ArrayList<>();
         for (String name : group.recipients(code)) {
             Player player = getServer().getPlayerExact(name);
             if (player != null) {
                 entries.add(player.getUniqueId().toString().replace("-", "")
-                        + ":" + player.getName() + ":java");
+                        + ":" + player.getName() + ":java"
+                        + ":" + ai.resourcepack.engine.core.sync.PlayerCape.token(player));
             }
         }
         sync.members(code, entries);
@@ -671,7 +680,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (here) {
             sync.present(player.getUniqueId(), player.getName(),
-                    bedrock.isBedrock(player.getUniqueId()));
+                    bedrock.isBedrock(player.getUniqueId()),
+                    ai.resourcepack.engine.core.sync.PlayerCape.token(player));
         } else {
             sync.gone(player.getUniqueId());
         }
