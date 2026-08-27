@@ -134,8 +134,15 @@ final class CapeSway {
     /** The bob's amplitude, chasing the walk speed. See {@link #BOB_CHASE}. */
     private double bob;
 
-    /** The three angles the last step resolved, in degrees. */
-    private double lean = REST_LEAN;
+    /**
+     * The three angles the last step resolved, in degrees.
+     *
+     * <p>All three start at zero and a still cape is all three at zero:
+     * {@link #REST_LEAN} is added once, in {@link #applyTo}, and seeding one
+     * of these with it as well is how a motionless cape ends up nine degrees
+     * off the back instead of six.
+     */
+    private double lean;
     private double rise;
     private double sway;
 
@@ -180,16 +187,6 @@ final class CapeSway {
         double lagY = cloakY - now.getY();
         double lagZ = cloakZ - now.getZ();
 
-        // Resolved into the body's own axes. Minecraft's yaw has the player
-        // facing +z at zero, so forward is (-sin, cos) and their right hand is
-        // at (-cos, -sin) — the same pair vanilla's CapeLayer builds, written
-        // out rather than as its two unnamed doubles.
-        double yaw = Math.toRadians(now.getYaw());
-        double forwardX = -Math.sin(yaw);
-        double forwardZ = Math.cos(yaw);
-        double behind = -(lagX * forwardX + lagZ * forwardZ);
-        double rightward = -(lagX * Math.cos(yaw) + lagZ * Math.sin(yaw));
-
         // The walk cycle, for the bob. Both halves are Mojang's: the phase
         // accumulates scaled distance, and the amplitude chases the speed and
         // is cut to nothing off the ground, so a fall bobs from the vertical
@@ -201,16 +198,47 @@ final class CapeSway {
         double wanted = player.isOnGround() ? Math.min(speed, MAX_BOB_SPEED) : 0;
         bob += (wanted - bob) * BOB_CHASE;
 
-        lean = clamp(behind * LAG_TO_DEGREES, 0, MAX_LEAN);
-        rise = clamp(lagY * RISE_TO_DEGREES, MIN_RISE, MAX_RISE)
-            + Math.sin(walked * STRIDE_TO_PHASE) * BOB_DEGREES * bob;
-        sway = clamp(rightward * LAG_TO_DEGREES, -MAX_SWAY, MAX_SWAY);
+        double[] resolved = angles(lagX, lagY, lagZ, now.getYaw(),
+            Math.sin(walked * STRIDE_TO_PHASE) * BOB_DEGREES * bob, player.isSneaking());
+        lean = resolved[0];
+        rise = resolved[1];
+        sway = resolved[2];
+
+        previous = now.clone();
+    }
+
+    /**
+     * The lag vector as three angles, in degrees: lean, rise, sway.
+     *
+     * <p>Split out of {@link #step} and free of the Bukkit interfaces so it
+     * can be tested, exactly like {@code EmoteDirector.leadFor} and
+     * {@code movedHorizontally} — and it is the half worth testing, because
+     * it is where a sign or an axis being wrong produces a cape that behaves
+     * plausibly and backwards.
+     *
+     * @param bobOffset the walk cycle's contribution to the rise, already
+     *     scaled — passed in rather than computed here because it is the one
+     *     term that depends on state this method deliberately does not hold.
+     */
+    static double[] angles(
+            double lagX, double lagY, double lagZ, float yawDegrees,
+            double bobOffset, boolean sneaking) {
+        // Resolved into the body's own axes. Minecraft's yaw has the player
+        // facing +z at zero, so forward is (-sin, cos) and their right hand is
+        // at (-cos, -sin) — the same pair vanilla's CapeLayer builds, written
+        // out rather than as its two unnamed doubles.
+        double yaw = Math.toRadians(yawDegrees);
+        double behind = -(lagX * -Math.sin(yaw) + lagZ * Math.cos(yaw));
+        double rightward = -(lagX * Math.cos(yaw) + lagZ * Math.sin(yaw));
+
+        double lean = clamp(behind * LAG_TO_DEGREES, 0, MAX_LEAN);
+        double rise = clamp(lagY * RISE_TO_DEGREES, MIN_RISE, MAX_RISE) + bobOffset;
+        double sway = clamp(rightward * LAG_TO_DEGREES, -MAX_SWAY, MAX_SWAY);
         // On the vertical term rather than the lean, and unhalved, exactly
         // where vanilla puts it — which is what makes a crouch lift the hem
         // clear of the body instead of merely leaning it a little further out.
-        if (player.isSneaking()) rise += CROUCH_LEAN;
-
-        previous = now.clone();
+        if (sneaking) rise += CROUCH_LEAN;
+        return new double[] {lean, rise, sway};
     }
 
     /** Puts the cloak on the body and stops it dead. See {@link #SNAP_DISTANCE}. */
@@ -221,7 +249,7 @@ final class CapeSway {
         cloakZ = now.getZ();
         previous = now.clone();
         bob = 0;
-        lean = REST_LEAN;
+        lean = 0;
         rise = 0;
         sway = 0;
     }
@@ -262,6 +290,11 @@ final class CapeSway {
      * manifest.
      */
     void applyTo(Matrix4f m, float[] pivot) {
+        applyTo(m, pivot, lean, rise, sway);
+    }
+
+    /** The same, from three angles rather than from this cape's own. Testable. */
+    static void applyTo(Matrix4f m, float[] pivot, double lean, double rise, double sway) {
         if (pivot == null || pivot.length != 3) return;
         // Mojang's `6 + f2/2 + f1`: the lean is halved and the vertical term is
         // not. Reversing the two is an easy and very visible mistake — it makes
