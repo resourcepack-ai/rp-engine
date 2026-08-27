@@ -1338,7 +1338,20 @@ public final class EmoteDirector implements Listener {
         session.partItems = new ArrayList<>(bones.size());
         for (int i = 0; i < bones.size(); i++) {
             EmoteStore.Bone bone = bones.get(i);
-            if (bone == null || bone.key == null) continue;
+            if (bone == null || bone.key == null) {
+                // <b>A null slot, never a skipped one.</b> `pose` walks
+                // `parts` and `bones` together by index, so dropping an entry
+                // from one list and not the other shifts every bone after it
+                // onto its neighbour's model — the forearm's geometry posed by
+                // the shin's bone, and limbs that bend in the wrong places
+                // with nothing in a log to say why. `spawnProps` already pads
+                // for exactly this reason; this loop did not, and the two
+                // lists had no way to disagree only because a well-formed
+                // manifest never took this branch.
+                session.parts.add(null);
+                session.partItems.add(null);
+                continue;
+            }
             final int index = i;
             ItemStack item = boneItem(EmoteStore.boneItemId(rig, bone.key, variant, jointed));
             final boolean carried = session.stance();
