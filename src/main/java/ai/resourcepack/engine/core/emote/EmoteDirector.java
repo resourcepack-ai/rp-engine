@@ -1362,7 +1362,15 @@ public final class EmoteDirector implements Listener {
         // already the answer the arm models were chosen with.
         session.slim = SkinModel.SLIM.equals(variant);
         spawnHands(player, session, base);
-        session.shadow = spawnShadow(session, player.getLocation());
+        // `session.origin` rather than the player's location, and they are not
+        // the same thing: a performer is teleported to a computed spot AFTER
+        // this runs, so their shadow would otherwise be left lying where they
+        // were standing when the command was typed. The origin is the feet the
+        // rig stands on either way — `base` is this point a block higher.
+        Location feet = session.origin.clone();
+        feet.setYaw(0);
+        feet.setPitch(0);
+        session.shadow = spawnShadow(session, feet);
         session.nameTag = spawnNameTag(player, session);
 
         // Invisible, and nothing more — the camera stays where the body was.
