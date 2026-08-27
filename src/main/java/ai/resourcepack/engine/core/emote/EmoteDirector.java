@@ -2908,15 +2908,28 @@ public final class EmoteDirector implements Listener {
             if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.teleport(base);
             if (session.offHand != null && session.offHand.isValid()) session.offHand.teleport(base);
         }
-        // The shadow follows the FEET rather than the base, and it follows them
-        // on their own terms: no lead, because a shadow that ran ahead of the
-        // body it belongs to is the one part of this a player would read as
-        // wrong straight away, and no `moved` gate, because it is one entity
-        // rather than a dozen. It keeps moving while the rig is away too — its
-        // radius is what was zeroed, and a shadow left behind would be a blot
-        // waiting where the rig came back.
+        // The shadow follows the FEET rather than the base: the same point a
+        // block lower, lead and all.
+        //
+        // It used to take NO lead, on the reasoning that a shadow running ahead
+        // of the body it belongs to is the one part of this a player would read
+        // as wrong straight away. That was the wrong body. Nobody who can see
+        // this shadow can see the wearer's: a stance hides it from its own
+        // wearer along with everything else the emote owns (see
+        // hideFromWearer), and for every other player hidePlayer has taken the
+        // body off the screen entirely. What is left to judge the shadow
+        // against is the RIG, and the rig is led — so an un-led shadow trailed
+        // it by as much as MAX_LEAD for as long as a set was walked around,
+        // which is what "the shadow lags behind" was. A one-shot emote ends the
+        // moment its wearer moves, so its lead is nothing and none of this ever
+        // showed up there.
+        //
+        // No `moved` gate, because it is one entity rather than a dozen, and it
+        // keeps moving while the rig is away — its radius is what was zeroed,
+        // and a shadow left behind would be a blot waiting where the rig came
+        // back.
         if (session.shadow != null && session.shadow.isValid()) {
-            Location feet = now.clone();
+            Location feet = now.clone().add(session.lead.getX(), 0, session.lead.getZ());
             feet.setYaw(0);
             feet.setPitch(0);
             if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
