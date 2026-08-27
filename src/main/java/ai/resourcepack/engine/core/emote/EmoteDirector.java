@@ -642,6 +642,28 @@ public final class EmoteDirector implements Listener {
          */
         EmoteStore.Group group;
         /**
+         * Whether this set's wearer asked to watch it themselves.
+         *
+         * <p>Off by default, and the default is the whole design — see
+         * {@link #hideFromWearer}. Turning it on gives the wearer the ONE-SHOT
+         * treatment instead: the potion goes on and none of the rig is hidden
+         * from them, so they look at their own set rather than at their own
+         * body.
+         *
+         * <p><b>Inert unless this is a worn set.</b> Every place that reads it
+         * is already inside a {@code stance()} branch, so a one-shot emote —
+         * which shows its wearer the rig regardless — is unaffected whatever
+         * this says. That is what makes the flag safe to accept on any emote
+         * and ignore where it means nothing.
+         *
+         * <p>It costs what {@code hideFromWearer} buys: the rig is a server
+         * entity carried on a lead sized for OTHER people's latency, so the
+         * wearer watches their own set answer their own input a round trip
+         * late, and their first person stops being vanilla. Testing, not
+         * playing.
+         */
+        boolean showSelf;
+        /**
          * The states this group wears something in, resolved once at the start.
          *
          * <p>A state that is not a key here is the player's own body: the rig
@@ -763,6 +785,25 @@ public final class EmoteDirector implements Listener {
             return !triggers.isEmpty() || group != null;
         }
 
+        /**
+         * Whether the rig is kept off its own wearer's screen.
+         *
+         * <p>The one place the rule is written, and it is read from BOTH ends:
+         * the displays are hidden when it is true, and the invisibility potion
+         * goes on when it is false. Those are the two halves of one decision —
+         * somebody has to be looking at either the rig or the body, never at
+         * both and never at neither — so a single predicate answering both is
+         * what stops a later edit to one of them leaving a wearer standing
+         * inside their own set, or invisible with nothing to show for it.
+         *
+         * <p>False for a one-shot emote whatever {@link #showSelf} says, which
+         * is what makes the flag inert there: that path already shows its
+         * wearer the rig.
+         */
+        boolean hideFromOwnWearer() {
+            return stance() && !showSelf;
+        }
+
         /** The name to report this by: the SET's, never the member's. */
         String label() {
             if (group != null && group.name != null) return group.name;
@@ -804,6 +845,20 @@ public final class EmoteDirector implements Listener {
 
     public boolean isEmoting(UUID playerId) {
         return active.containsKey(playerId);
+    }
+
+    /**
+     * Whether this player is being shown their own rig by request.
+     *
+     * <p>Exists so the command can warn about a flag it actually honoured
+     * rather than one that was merely typed: {@code --showYourself} means
+     * nothing on a one-shot emote, and a warning about latency in front of
+     * something that changed nothing is noise. False for everybody who did not
+     * ask, and false for everybody who asked on an emote it does not apply to.
+     */
+    public boolean showingSelf(UUID playerId) {
+        Session session = active.get(playerId);
+        return session != null && session.showSelf && session.stance();
     }
 
     /** Every emote held, in manifest order. An emote's id is its name. */
@@ -897,6 +952,23 @@ public final class EmoteDirector implements Listener {
      * and a player and there is no separator to tell them apart.
      */
     public EmoteResult perform(Player player, List<String> args) {
+        return perform(player, args, false);
+    }
+
+    /**
+     * The same, for a caller that has already read a {@code --showYourself} off
+     * the words it was given.
+     *
+     * <p>The flag is stripped by whoever owns the command surface rather than
+     * here, because it is a token in its own right and needs none of
+     * {@link #resolve}'s knowledge of where an emote name ends. What this
+     * method must not do is see it: an unstripped flag would be taken for the
+     * tail of a name, or for a cast member who is not online.
+     *
+     * @param showSelf whether the wearer asked to watch their own set. Means
+     *                 nothing on a one-shot emote — see {@link Session#showSelf}.
+     */
+    public EmoteResult perform(Player player, List<String> args, boolean showSelf) {
         // Asked before the name is even resolved, and start() asks it again:
         // somebody already emoting who mistypes a name is better told the
         // state they are in than told about the typo, because the state is
@@ -919,7 +991,7 @@ public final class EmoteDirector implements Listener {
             if (!query.castNames.isEmpty()) {
                 return EmoteResult.refused(Reason.SOLO_EMOTE, query.group.name);
             }
-            return startGroup(player, query.group);
+            return startGroup(player, query.group, showSelf);
         }
         // The shape of the cast first, from the count alone: naming somebody
         // in a solo emote is answered by "it takes no other players" rather
@@ -940,17 +1012,22 @@ public final class EmoteDirector implements Listener {
             }
             cast.add(other);
         }
-        return start(player, query.emote, cast);
+        return start(player, query.emote, cast, showSelf);
     }
 
-    /** Starts a named emote — or a movement group — with the cast resolved. */
+    /**
+     * Starts a named emote — or a movement group — with the cast resolved.
+     *
+     * <p>Never shows the wearer their own set: this is what the published
+     * {@code Emotes} API calls, and that option is not on it yet.
+     */
     public EmoteResult play(Player player, String name, List<Player> cast) {
         EmoteStore.Group group = emotes.findGroup(name);
         if (group != null) {
             if (cast != null && !cast.isEmpty()) {
                 return EmoteResult.refused(Reason.SOLO_EMOTE, group.name);
             }
-            return startGroup(player, group);
+            return startGroup(player, group, false);
         }
         EmoteStore.Emote emote = emotes.find(name);
         if (emote == null) {
@@ -959,7 +1036,7 @@ public final class EmoteDirector implements Listener {
                 ? EmoteResult.refused(Reason.NO_EMOTES)
                 : EmoteResult.refused(Reason.UNKNOWN_EMOTE, name, known);
         }
-        return start(player, emote, cast == null ? Collections.<Player>emptyList() : cast);
+        return start(player, emote, cast == null ? Collections.<Player>emptyList() : cast, false);
     }
 
     /**
@@ -976,7 +1053,7 @@ public final class EmoteDirector implements Listener {
      * it changes as the player moves, and the bones are the same bones either
      * way. {@link #tickStance} does that swap.
      */
-    private EmoteResult startGroup(Player player, EmoteStore.Group group) {
+    private EmoteResult startGroup(Player player, EmoteStore.Group group, boolean showSelf) {
         if (active.containsKey(player.getUniqueId())) {
             return EmoteResult.refused(Reason.ALREADY_EMOTING);
         }
@@ -1018,7 +1095,7 @@ public final class EmoteDirector implements Listener {
         Location origin = player.getLocation().clone();
         Session session = begin(player, restEmote(group), Collections.emptyMap(), null, emotes.bones(),
             rig, origin, Math.round(origin.getYaw()), player.getWorld().getGameTime(),
-            Collections.singletonList(player.getUniqueId()), null, group);
+            Collections.singletonList(player.getUniqueId()), null, group, showSelf);
         if (session == null) {
             return EmoteResult.refused(Reason.NO_RIG_FOR_PLAYER);
         }
@@ -1057,7 +1134,7 @@ public final class EmoteDirector implements Listener {
      * destination has been checked. A cast half-placed and then refused would
      * leave two people standing in each other and one emote that never started.
      */
-    private EmoteResult start(Player player, EmoteStore.Emote emote, List<Player> cast) {
+    private EmoteResult start(Player player, EmoteStore.Emote emote, List<Player> cast, boolean showSelf) {
         if (active.containsKey(player.getUniqueId())) {
             return EmoteResult.refused(Reason.ALREADY_EMOTING);
         }
@@ -1152,7 +1229,7 @@ public final class EmoteDirector implements Listener {
         for (Player member : troupeCast) troupe.add(member.getUniqueId());
 
         begin(player, emote, emote.animators, emote.root, bones, rig, leadOrigin, leadYaw,
-            startTick, troupe, null, null);
+            startTick, troupe, null, null, showSelf);
         for (int i = 0; i < troupeCast.size(); i++) {
             Player member = troupeCast.get(i);
             EmoteStore.Performer performer = performers.get(i);
@@ -1162,9 +1239,11 @@ public final class EmoteDirector implements Listener {
             // other is not the emote that was authored.
             spot.setYaw(performerYaw(leadYaw, performer.yaw));
             spot.setPitch(0);
+            // Never for a cast member: they did not type the command, and a
+            // flag on somebody else's is not theirs to be given.
             begin(member, emote, performer.animators, performer.root, bones,
                 emotes.rigFor(member.getUniqueId()), spot, Math.round(spot.getYaw()), startTick, troupe,
-                performer.id, null);
+                performer.id, null, false);
             if (host.messages() != null) host.messages().pulledIn(member, player, emote.name);
         }
 
@@ -1285,7 +1364,9 @@ public final class EmoteDirector implements Listener {
             /** This participant's performer id, or null if they are the lead. */
             String performerId,
             /** The set being worn, or null for an ordinary emote or a stance. */
-            EmoteStore.Group group) {
+            EmoteStore.Group group,
+            /** Whether the wearer asked to watch their own set. See {@link Session#showSelf}. */
+            boolean showSelf) {
         if (rig == null) return null;
         boolean isLead = performerId == null;
 
@@ -1294,6 +1375,11 @@ public final class EmoteDirector implements Listener {
         // on that answer: whether the displays are carried, whether root motion
         // may run, and whether an origin marker is written.
         session.group = group;
+        // Recorded whatever kind of emote this is. Every reader is inside a
+        // `stance()` branch, so it decides nothing on a one-shot — which is how
+        // the flag is accepted on any emote and quietly means nothing on one
+        // that already shows its wearer the rig.
+        session.showSelf = showSelf;
         session.rest = group != null ? emote : null;
         session.emote = emote;
         session.animators = animators == null ? Collections.<String, Map<String, List<Keyframe>>>emptyMap() : animators;
@@ -1383,8 +1469,9 @@ public final class EmoteDirector implements Listener {
             });
             session.parts.add(display);
             session.partItems.add(item);
-            // A worn set is not for its wearer's own eyes. See hideFromWearer.
-            if (session.stance()) hideFromWearer(player, display);
+            // A worn set is not for its wearer's own eyes, unless they asked
+            // for it. See hideFromWearer and Session.showSelf.
+            if (session.hideFromOwnWearer()) hideFromWearer(player, display);
         }
 
         spawnProps(player, session, emote, base, performerId);
@@ -1403,7 +1490,7 @@ public final class EmoteDirector implements Listener {
         feet.setPitch(0);
         session.shadow = spawnShadow(session, feet);
         session.nameTag = spawnNameTag(player, session);
-        if (session.stance()) {
+        if (session.hideFromOwnWearer()) {
             // The shadow and the name go with everything else. A wearer whose
             // own body is back is casting their own shadow and wearing their
             // own nameplate, so leaving either of the rig's on their screen is
@@ -1473,7 +1560,7 @@ public final class EmoteDirector implements Listener {
             // Respawned on every member swap of a group, so this is not a
             // one-time hide at the start: a prop that arrived with the walk
             // cycle has to be hidden from the wearer exactly as the bones were.
-            if (session.stance()) hideFromWearer(player, display);
+            if (session.hideFromOwnWearer()) hideFromWearer(player, display);
         }
     }
 
@@ -1713,7 +1800,12 @@ public final class EmoteDirector implements Listener {
         // A WORN set is not hidden from its own wearer. See `hideFromWearer`:
         // their first person stays vanilla and the rig is somebody else's view
         // of them, so there is nothing to hide from and no potion to apply.
-        if (!session.stance()) {
+        //
+        // Unless they asked to watch it (`--showYourself`), which puts them
+        // back on the one-shot path — the rig is left on their screen, so the
+        // body underneath it has to come off or they are standing inside their
+        // own set. The two are one decision; see `hideFromOwnWearer`.
+        if (!session.hideFromOwnWearer()) {
             player.addPotionEffect(new PotionEffect(
                 PotionEffectType.INVISIBILITY,
                 PotionEffect.INFINITE_DURATION,
@@ -1782,12 +1874,13 @@ public final class EmoteDirector implements Listener {
      * the tick it was captured at, and the remainder is worked out from now.
      */
     private void reveal(Player player, Session session) {
-        // Only a group ever crosses this boundary, and a group is a stance —
-        // so in practice this branch is always taken and the potion half is
-        // dead for it. It is written the same way round as `conceal` anyway,
-        // because the pair being symmetrical is what stops a later change to
-        // one of them leaving somebody invisible.
-        if (!session.stance()) {
+        // Only a group ever crosses this boundary, and a group is a stance, so
+        // the potion half is dead for it — until its wearer asks to watch it,
+        // which is exactly when `conceal` DID apply one and this has to take it
+        // off again. Reading the same predicate as `conceal` is what makes that
+        // free: the pair being symmetrical is what stops a later change to one
+        // of them leaving somebody invisible.
+        if (!session.hideFromOwnWearer()) {
             player.removePotionEffect(PotionEffectType.INVISIBILITY);
             String invis = player.getPersistentDataContainer().get(previousInvisKey, PersistentDataType.STRING);
             StoredEffect previous = invis == null
