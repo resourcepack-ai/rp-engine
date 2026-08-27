@@ -80,7 +80,13 @@ group = 'ai.resourcepack'
 //         everybody else sees. The rig's own held item is turned in the
 //         item's frame, not in model space, where the display-space
 //         conjugation was pitching it a half turn off the grip.
-version = '0.39.0'
+// 0.40.0: /emote <name> --showYourself lets a set's wearer watch it, for
+//         authoring one without a second account — testing only, since a
+//         rig is a server entity and the body it stands in for is not. The
+//         rig's shadow also takes the same lead as the rig, having trailed
+//         it by up to two thirds of a block for as long as a set was walked
+//         around.
+version = '0.40.0'
 
 java {
     toolchain {
