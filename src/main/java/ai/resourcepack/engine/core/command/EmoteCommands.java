@@ -83,7 +83,14 @@ public final class EmoteCommands implements Area {
             return true;
         }
 
-        EmoteInvites.Request request = invites.resolve(args);
+        // Read off the words before anything else looks at them. A flag is a
+        // token in its own right — it needs none of the director's knowledge of
+        // where a free-text emote name ends — and leaving it in is how
+        // "Sprint --showYourself" becomes a hunt for a player by that name.
+        boolean showYourself = hasShowYourself(args);
+        String[] rest = withoutFlags(args);
+
+        EmoteInvites.Request request = invites.resolve(rest);
         if (request != null && !request.castNames().isEmpty()) {
             invites.open(player, request);
             return true;
@@ -91,11 +98,67 @@ public final class EmoteCommands implements Area {
 
         // The director takes the whole argument list: it owns the rule about
         // what an emote's arguments mean, and a second copy here would drift.
-        EmoteResult result = emotes.perform(player, List.of(args));
+        EmoteResult result = emotes.perform(player, List.of(rest), showYourself);
         if (!result.started()) {
             Reply.to(player, refusal(result));
+            return true;
+        }
+        // Asked of the director rather than worked out here, so the warning
+        // follows what was actually done: the flag means nothing on a one-shot
+        // emote, and a caution about latency in front of an emote that ignored
+        // it is noise somebody learns to skip.
+        if (emotes.showingSelf(player.getUniqueId())) {
+            for (String line : SHOW_YOURSELF_WARNING) Reply.to(player, line);
         }
         return true;
+    }
+
+    /**
+     * The flag that lets a set's wearer watch it themselves.
+     *
+     * <p>Spelled with the two dashes a flag is usually spelled with, so it
+     * cannot collide with an emote name — those are free text and a server
+     * could genuinely have one called "show yourself".
+     */
+    private static final String SHOW_YOURSELF = "--showyourself";
+
+    /**
+     * Why this is a testing tool, in the words a player needs.
+     *
+     * <p><b>The delay is real and is not a bug to be fixed later</b>, which is
+     * why the warning names it rather than hedging: the rig is a server entity
+     * moved a tick at a time and interpolated, while the body it stands in for
+     * is drawn by the wearer's own client the instant they press a key. Nothing
+     * on this side closes that gap for the person wearing it — the lead the rig
+     * is carried on is sized for the people WATCHING them.
+     */
+    private static final List<String> SHOW_YOURSELF_WARNING = List.of(
+            "Showing you your own set. For testing only —",
+            "it will lag behind you, because your rig is a server",
+            "entity and your body is not. Don't leave it on in production.");
+
+    /** Whether the flag is among these words, in any position and any case. */
+    static boolean hasShowYourself(String[] args) {
+        for (String word : args) {
+            if (word.equalsIgnoreCase(SHOW_YOURSELF)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * The words with every flag taken out.
+     *
+     * <p>Anything starting with {@code --} goes, not only the one flag we know:
+     * an unrecognised flag left in the list would be resolved as part of an
+     * emote name or as a cast member and refused with a sentence about the
+     * wrong thing entirely.
+     */
+    static String[] withoutFlags(String[] args) {
+        List<String> kept = new ArrayList<>(args.length);
+        for (String word : args) {
+            if (!word.startsWith("--")) kept.add(word);
+        }
+        return kept.toArray(new String[0]);
     }
 
     /**
