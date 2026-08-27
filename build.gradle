@@ -73,7 +73,8 @@ group = 'ai.resourcepack'
 //         in it — a bow draws, a potion drinks, the hotbar slot is theirs —
 //         because the rig's copy is hidden from them rather than theirs from
 //         everyone. The rig also casts a shadow and its cape trails, both
-//         from vanilla's own numbers.
+//         from vanilla's own numbers, and it tells studio which cape that
+//         is — the one answer to that only a game server holds.
 version = '0.38.0'
 
 java {
