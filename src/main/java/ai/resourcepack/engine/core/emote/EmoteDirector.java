@@ -1646,7 +1646,10 @@ public final class EmoteDirector implements Listener {
     private ItemDisplay spawnShadow(Session session, Location feet) {
         ItemStack item = session.partItems.isEmpty() ? null : session.partItems.get(0);
         if (item == null || feet.getWorld() == null) return null;
-        final boolean carried = session.stance();
+        // A following emote moves this every tick too — see carryFollowers —
+        // so it needs the interpolation window as much as a stance does, or a
+        // walked shadow steps twenty times a second instead of sliding.
+        final boolean carried = session.stance() || session.following;
         return feet.getWorld().spawn(feet, ItemDisplay.class, d -> {
             d.setItemStack(item);
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
@@ -2431,6 +2434,52 @@ public final class EmoteDirector implements Listener {
         target.setPitch(player.getLocation().getPitch());
         session.expected = target;
         player.teleport(target);
+        carryFollowers(session, target, player.isSneaking());
+    }
+
+    /**
+     * The two displays root motion would otherwise leave on the start line.
+     *
+     * <p><b>The rig walks by TRANSFORM and these two cannot.</b> A moving
+     * emote never teleports its bones — they are spawned once and the root
+     * track is folded into each bone's matrix, so the body travels while the
+     * display entities holding it stand still. That works because a bone is
+     * geometry and geometry is what a transformation moves. A shadow is not:
+     * it is drawn by the client at the ENTITY's position, radius and all, and
+     * a nametag is billboarded at the entity's position too. So both sat at
+     * the spot the emote started from for its whole length and only appeared
+     * to catch up at the end, when the emote ended and the player's own real
+     * shadow and nameplate came back at wherever they had walked to.
+     *
+     * <p>Called from {@link #follow} rather than the tick loop, so it moves on
+     * exactly the steps that were accepted: a refused step ends following and
+     * leaves the player where they are, and these stay with them.
+     *
+     * <p>A stance has its own version of this in {@link #tickStance} and does
+     * not come through here — it moves the whole rig by teleport, so the two
+     * are already carried with everything else.
+     */
+    private void carryFollowers(Session session, Location target, boolean sneaking) {
+        // Facing zeroed on both, for the reason the stance path states: a
+        // shadow is a circle and a billboarded name turns to its reader, so a
+        // yaw in the packet changes nothing on screen and is only a rotation
+        // to send.
+        if (session.shadow != null && session.shadow.isValid()) {
+            Location feet = target.clone();
+            feet.setYaw(0);
+            feet.setPitch(0);
+            if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
+        }
+        if (session.nameTag != null && session.nameTag.isValid()) {
+            Location tagAt = target.clone().add(0, nameTagY(sneaking), 0);
+            tagAt.setYaw(0);
+            tagAt.setPitch(0);
+            if (!tagAt.equals(session.nameTag.getLocation())
+                    || session.nameTagSneaking != sneaking) {
+                session.nameTag.teleport(tagAt);
+                session.nameTagSneaking = sneaking;
+            }
+        }
     }
 
     /**
@@ -2447,9 +2496,11 @@ public final class EmoteDirector implements Listener {
      * so a packet a few milliseconds late leaves the rig standing still and
      * then jumping. See {@link #INTERPOLATION_TICKS}.
      *
-     * <p>Only ever set on a stance. An ordinary emote's displays are spawned
-     * where they will stand and never moved, and a teleport duration on one
-     * would be a promise about a packet that is never sent.
+     * <p>Set on a stance, and on the two displays a FOLLOWING emote moves —
+     * its shadow and its nametag (see {@link #carryFollowers}). Everything
+     * else an ordinary emote spawns stands where it was put and is never
+     * moved, and a teleport duration on one of those would be a promise about
+     * a packet that is never sent.
      *
      * <p>Takes a {@link Display} rather than an ItemDisplay because the name
      * over the rig is carried on exactly the same terms as the bones under it.
@@ -2481,7 +2532,9 @@ public final class EmoteDirector implements Listener {
         Location at = session.origin.clone().add(0, nameTagY(player.isSneaking()), 0);
         at.setYaw(0);
         at.setPitch(0);
-        final boolean carried = session.stance();
+        // Carried by a following emote as well as by a stance, for the reason
+        // spawnShadow states: carryFollowers moves this every accepted step.
+        final boolean carried = session.stance() || session.following;
         final boolean sneaking = player.isSneaking();
         TextDisplay tag = at.getWorld().spawn(at, TextDisplay.class, d -> {
             d.setText(label);
