@@ -86,11 +86,14 @@ group = 'ai.resourcepack'
 //         rig's shadow also takes the same lead as the rig, having trailed
 //         it by up to two thirds of a block for as long as a set was walked
 //         around.
-// 0.40.1: an emote that walks its player carries its shadow and its nametag
+// 0.40.1: no code change over 0.40.0 — a version-only republish. Recorded
+//         rather than left as a gap, since a missing number in this list
+//         reads as a lost entry.
+// 0.40.2: an emote that walks its player carries its shadow and its nametag
 //         with it. Root motion moves the rig by transform, which geometry
 //         follows and an entity-positioned shadow or a billboarded name
 //         cannot, so both stayed on the start line until the emote ended.
-version = '0.40.1'
+version = '0.40.2'
 
 java {
     toolchain {
