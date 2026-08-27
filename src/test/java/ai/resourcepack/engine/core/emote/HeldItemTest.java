@@ -137,10 +137,11 @@ class HeldItemTest {
             .toItemDisplaySpace(inModelSpace);
 
         // What the turn becomes if it is composed before the conjugation: the
-        // same half-turn about Y, and the opposite quarter-turn about X.
+        // opposite quarter-turn about X. (A half-turn about Y would survive the
+        // conjugation untouched, which is why the turn that IS here is the one
+        // this test can speak about.)
         Matrix4f flipped = new Matrix4f()
-            .rotateX((float) (Math.PI / 2.0))
-            .rotateY((float) Math.PI);
+            .rotateX((float) (Math.PI / 2.0));
         for (int i = 0; i < 16; i++) {
             assertEquals(flipped.get(i / 4, i % 4), conjugated.get(i / 4, i % 4), 1e-5);
         }
@@ -156,6 +157,50 @@ class HeldItemTest {
                 Math.abs(inModelSpace.get(i / 4, i % 4) - conjugated.get(i / 4, i % 4)));
         }
         assertTrue(worst > 1e-3, "the conjugated turn should differ from the one orient() states");
+    }
+
+    /**
+     * <b>The half turn about Y that vanilla does and this must not.</b>
+     *
+     * <p>{@code ItemInHandLayer.renderArmWithItem} turns a held stack by
+     * {@code Rx(-90)} and then {@code Ry(180)}, and taking that pair whole is
+     * the obvious thing to do — it is what this did, and every held item came
+     * out facing backwards. An ItemDisplay already has that half turn: the
+     * client spins the rendered item 180 degrees about Y after applying the
+     * display transformation, which is the whole reason
+     * {@code RigMath.toItemDisplaySpace} exists. {@code orient} is composed
+     * outside that conjugation, in the item's displayed frame, so the client's
+     * half turn has already been spent and repeating it spends it twice.
+     *
+     * <p>Pinned because it cost a release to find and is invisible in the one
+     * place anybody checks: a rig standing still holds an item along its own
+     * long axis, where a half turn about that axis barely reads. It only
+     * became a sword held backwards once an arm swung through a walk cycle,
+     * which is why a worn set showed it and a one-shot did not.
+     */
+    @Test
+    void theTurnIsThePitchAloneBecauseTheClientAlreadyDoesTheYaw() {
+        Matrix4f actual = new Matrix4f();
+        HeldItem.orient(actual);
+
+        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
+        for (int i = 0; i < 16; i++) {
+            assertEquals(pitchOnly.get(i / 4, i % 4), actual.get(i / 4, i % 4), 1e-6,
+                "orient() is the -90 pitch and nothing else");
+        }
+
+        // Stated the other way round as well, so the assertion above cannot be
+        // "fixed" by making both sides carry the same wrong turn.
+        Matrix4f withVanillasYaw = new Matrix4f()
+            .rotateX((float) (-Math.PI / 2.0))
+            .rotateY((float) Math.PI);
+        double worst = 0;
+        for (int i = 0; i < 16; i++) {
+            worst = Math.max(worst,
+                Math.abs(withVanillasYaw.get(i / 4, i % 4) - actual.get(i / 4, i % 4)));
+        }
+        assertTrue(worst > 1e-3,
+            "adding vanilla's Ry(180) back is the bug this test exists to catch");
     }
 
     @Test
