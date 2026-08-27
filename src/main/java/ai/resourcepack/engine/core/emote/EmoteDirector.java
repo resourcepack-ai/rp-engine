@@ -96,6 +96,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * nothing here has to decide what a performer held in place around a lead who
  * walks off would mean.
  *
+ * <h2>Who the rig is FOR decides how the body is hidden</h2>
+ *
+ * <b>The two kinds want opposite things, and each gets the opposite
+ * treatment.</b> A one-shot emote is a performance you trigger and then watch:
+ * you stand still, it plays, it ends the moment you move. So the wearer is
+ * hidden behind their own rig and looks at it, which is what the rest of this
+ * section describes.
+ *
+ * <p>A stance is worn for an hour while you play, and is a thing OTHER people
+ * see you as. Its wearer spends that hour in first person, where being replaced
+ * by a rig buys them nothing — so <b>a stance hides the rig from its wearer
+ * instead of hiding the wearer from the world</b>, and their own view stays
+ * vanilla down to the arm, the item and the hotbar. Everybody else sees exactly
+ * what they saw before. See {@link #hideFromWearer}, which has the trade
+ * written out; the paragraphs below are the one-shot path.
+ *
  * <h2>Invisibility, not spectator</h2>
  *
  * The player is made invisible for the duration — particle-free and icon-free,
@@ -1367,9 +1383,11 @@ public final class EmoteDirector implements Listener {
             });
             session.parts.add(display);
             session.partItems.add(item);
+            // A worn set is not for its wearer's own eyes. See hideFromWearer.
+            if (session.stance()) hideFromWearer(player, display);
         }
 
-        spawnProps(session, emote, base, performerId);
+        spawnProps(player, session, emote, base, performerId);
         // The arms this player actually got, so the hand sits on their centre
         // line rather than on a wide arm's. Resolved here because `variant` is
         // already the answer the arm models were chosen with.
@@ -1385,6 +1403,14 @@ public final class EmoteDirector implements Listener {
         feet.setPitch(0);
         session.shadow = spawnShadow(session, feet);
         session.nameTag = spawnNameTag(player, session);
+        if (session.stance()) {
+            // The shadow and the name go with everything else. A wearer whose
+            // own body is back is casting their own shadow and wearing their
+            // own nameplate, so leaving either of the rig's on their screen is
+            // the doubling `setRigHidden` avoids for everybody else.
+            hideFromWearer(player, session.shadow);
+            hideFromWearer(player, session.nameTag);
+        }
 
         // Invisible, and nothing more — the camera stays where the body was.
         // A third-person shot was tried here and taken back out at the owner's
@@ -1397,7 +1423,7 @@ public final class EmoteDirector implements Listener {
         // pop the body back into the middle of its own rig. Every path out of
         // an emote removes it, and a crash is covered by the marker written
         // above — the same guarantee the game-mode swap had.
-        conceal(player);
+        conceal(player, session);
         if (!isLead) player.teleport(session.origin);
         active.put(player.getUniqueId(), session);
         return session;
@@ -1422,7 +1448,8 @@ public final class EmoteDirector implements Listener {
      * old one's models away and stand up the new one's — the bones are shared
      * and the props never are.
      */
-    private void spawnProps(Session session, EmoteStore.Emote emote, Location base, String performerId) {
+    private void spawnProps(
+            Player player, Session session, EmoteStore.Emote emote, Location base, String performerId) {
         for (ItemDisplay display : session.propParts) {
             if (display != null && display.isValid()) display.remove();
         }
@@ -1443,6 +1470,10 @@ public final class EmoteDirector implements Listener {
                 if (carried) carry(d);
             });
             session.propParts.add(display);
+            // Respawned on every member swap of a group, so this is not a
+            // one-time hide at the start: a prop that arrived with the walk
+            // cycle has to be hidden from the wearer exactly as the bones were.
+            if (session.stance()) hideFromWearer(player, display);
         }
     }
 
@@ -1632,8 +1663,8 @@ public final class EmoteDirector implements Listener {
         // The name goes with the rig: while the body is back, so is its own
         // real nametag, and two of them stacked is worse than neither.
         setNameTagShown(session, !hidden);
-        if (hidden) reveal(player);
-        else conceal(player);
+        if (hidden) reveal(player, session);
+        else conceal(player, session);
     }
 
     /**
@@ -1678,15 +1709,63 @@ public final class EmoteDirector implements Listener {
      * else is not sent the body at all, so for them the rig's hand is the only
      * one there has ever been.
      */
-    private void conceal(Player player) {
-        player.addPotionEffect(new PotionEffect(
-            PotionEffectType.INVISIBILITY,
-            PotionEffect.INFINITE_DURATION,
-            0,
-            false, // not ambient: ambient is the beacon look, dimmer but still swirling
-            false, // no particles, which is the whole point of using this
-            false)); // no inventory icon either — this is not a status they chose
+    private void conceal(Player player, Session session) {
+        // A WORN set is not hidden from its own wearer. See `hideFromWearer`:
+        // their first person stays vanilla and the rig is somebody else's view
+        // of them, so there is nothing to hide from and no potion to apply.
+        if (!session.stance()) {
+            player.addPotionEffect(new PotionEffect(
+                PotionEffectType.INVISIBILITY,
+                PotionEffect.INFINITE_DURATION,
+                0,
+                false, // not ambient: ambient is the beacon look, dimmer but still swirling
+                false, // no particles, which is the whole point of using this
+                false)); // no inventory icon either — this is not a status they chose
+        }
         hideFromOthers(player);
+    }
+
+    /**
+     * Takes the rig off the WEARER's screen, so their own view stays vanilla.
+     *
+     * <h2>The two kinds of emote want opposite things, and that is the whole
+     * of this</h2>
+     *
+     * <p>A one-shot emote is a performance you trigger and then watch: you
+     * stand still, it plays, it ends the moment you move or get hit. Being
+     * hidden behind your own rig is the point of it, so that path is unchanged
+     * — the wearer is made invisible and looks at the rig.
+     *
+     * <p>A <b>worn set is the opposite</b>. You put it on and then go and play
+     * with it on for an hour: walking, mining, fighting, using items. It is a
+     * thing OTHER people see you as, and the wearer spends that hour in first
+     * person, where being replaced by a rig buys them nothing and costs them
+     * everything about the game feeling normal. Every artefact this subsystem
+     * has fought — the missing arm, the empty hand, the item floating at an
+     * invisible body — exists only in the wearer's own view of a rig that is
+     * not for them.
+     *
+     * <p>So a stance hides the rig from its wearer instead of hiding the wearer
+     * from the world. Their first person is vanilla, byte for byte: their real
+     * arm, their real item, their real swing, their real hotbar. Everybody else
+     * is unaffected — {@code hidePlayer} still takes the body off their screens
+     * and the rig is still all they see, animated and holding what its wearer
+     * holds.
+     *
+     * <p><b>The cost is real and is the reason this is a choice rather than an
+     * improvement</b>: pressing F5 shows the wearer their own body doing
+     * vanilla's animations, not the set they are wearing. They cannot watch
+     * their own walk cycle. That is the trade — a normal hour of play against
+     * being able to admire yourself — and for something worn all day it is the
+     * right way round.
+     *
+     * <p>Applied to every display an emote owns, and it has to be every one:
+     * a bone left visible is a limb hanging in the air, and a nametag left
+     * visible is the wearer's own name floating over their head.
+     */
+    private void hideFromWearer(Player player, org.bukkit.entity.Entity display) {
+        if (player == null || display == null) return;
+        player.hideEntity(host.plugin(), display);
     }
 
     /**
@@ -1702,16 +1781,23 @@ public final class EmoteDirector implements Listener {
      * not drift what a player's own potion has left on it: the marker carries
      * the tick it was captured at, and the remainder is worked out from now.
      */
-    private void reveal(Player player) {
-        player.removePotionEffect(PotionEffectType.INVISIBILITY);
-        String invis = player.getPersistentDataContainer().get(previousInvisKey, PersistentDataType.STRING);
-        StoredEffect previous = invis == null
-            ? null
-            : decodeInvisibility(invis, player.getWorld().getGameTime());
-        if (previous != null) {
-            player.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY,
-                previous.duration, previous.amplifier,
-                previous.ambient, previous.particles, previous.icon));
+    private void reveal(Player player, Session session) {
+        // Only a group ever crosses this boundary, and a group is a stance —
+        // so in practice this branch is always taken and the potion half is
+        // dead for it. It is written the same way round as `conceal` anyway,
+        // because the pair being symmetrical is what stops a later change to
+        // one of them leaving somebody invisible.
+        if (!session.stance()) {
+            player.removePotionEffect(PotionEffectType.INVISIBILITY);
+            String invis = player.getPersistentDataContainer().get(previousInvisKey, PersistentDataType.STRING);
+            StoredEffect previous = invis == null
+                ? null
+                : decodeInvisibility(invis, player.getWorld().getGameTime());
+            if (previous != null) {
+                player.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY,
+                    previous.duration, previous.amplifier,
+                    previous.ambient, previous.particles, previous.icon));
+            }
         }
         showToOthers(player);
     }
@@ -2767,7 +2853,7 @@ public final class EmoteDirector implements Listener {
                 // Props belong to the emote, not to the set, so the old one's
                 // models go away and the new one's stand up. Bones are shared
                 // and are never respawned.
-                spawnProps(session, session.emote, base, null);
+                spawnProps(player, session, session.emote, base, null);
                 boolean wasHidden = session.rigHidden;
                 setRigHidden(player, session, member == null);
                 // <b>Only where a tween would be wrong, not on every swap.</b>
