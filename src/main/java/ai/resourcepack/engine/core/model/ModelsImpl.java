@@ -49,6 +49,55 @@ public final class ModelsImpl implements Models {
      */
     private final RigPlacementListener placements;
 
+    /**
+     * Set after construction, because binding needs Items and Items is built
+     * on top of this. A null one answers false to everything rather than
+     * throwing: the plugin wires it at startup, and nothing else can.
+     */
+    private volatile BoundModels bound;
+
+    /** Wires the bind half. Called once at startup. */
+    public void bound(BoundModels bound) {
+        this.bound = bound;
+    }
+
+    @Override
+    public boolean bind(org.bukkit.entity.Entity host, ai.resourcepack.engine.api.ContentId model) {
+        return bind(host, model, 1f);
+    }
+
+    @Override
+    public boolean bind(org.bukkit.entity.Entity host, ai.resourcepack.engine.api.ContentId model, float scale) {
+        BoundModels models = bound;
+        return models != null && models.bind(host, model, scale);
+    }
+
+    @Override
+    public boolean unbind(org.bukkit.entity.Entity host) {
+        BoundModels models = bound;
+        return models != null && models.unbind(host);
+    }
+
+    @Override
+    public java.util.Optional<ai.resourcepack.engine.api.ContentId> modelOn(org.bukkit.entity.Entity host) {
+        BoundModels models = bound;
+        return models == null ? java.util.Optional.empty() : models.modelOn(host);
+    }
+
+    @Override
+    public boolean animate(org.bukkit.entity.Entity host, String animation) {
+        BoundModels models = bound;
+        // restart: an API call asks for this animation NOW, unlike a trigger,
+        // which may be one of several players clicking the same thing.
+        return models != null && models.play(host, animation, true);
+    }
+
+    @Override
+    public boolean stopAnimating(org.bukkit.entity.Entity host) {
+        BoundModels models = bound;
+        return models != null && models.stop(host);
+    }
+
     public ModelsImpl(RigAnimator animator, RigStore rigs, RigPlacementListener placements) {
         this.animator = animator;
         this.rigs = rigs;

@@ -305,6 +305,42 @@ passengers rather than taking them.
 
 `/rp spawn mypack:guard` puts one where you stand.
 
+## Putting a model on a mob
+
+Any entity on the server can wear a model — one MythicMobs spawned, a Citizens
+NPC, a shopkeeper, a mob another plugin owns. It is **not replaced**: it keeps
+its AI, its loot, its health and its hitbox, and every plugin holding a
+reference to it still has the same entity. Its vanilla body is just made
+invisible.
+
+Look at one and:
+
+```
+/rp bind mypack:golem
+/rp unbind
+```
+
+From MythicMobs, which is where this is usually wanted:
+
+```yaml
+Skills:
+- rpmodel{model=mypack:golem} @self ~onSpawn
+- rpanimate{animation=roar} @self ~onDamaged
+- rpunmodel @self ~onDeath
+```
+
+From a plugin, `Models.bind(entity, id)`, `unbind`, `animate` and
+`modelOn`.
+
+The model is an **item id** — the same id a `place:` block names — so one model
+can be stood in a world and worn by a mob without being written twice. If it
+animates, the bound copy animates: it faces wherever its host is facing, and
+`rpanimate` plays an animation by name.
+
+The difference from `entities:` above is who spawns the thing. That defines a
+mob **we** spawn, with a model, from a content file. This puts a model on a mob
+that already exists and belongs to somebody else.
+
 ## Liquids
 
 Minecraft has two fluids and a server cannot add a third. A custom liquid is

@@ -38,6 +38,7 @@ import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.hook.MythicHook;
 import ai.resourcepack.engine.core.hook.Placeholders;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
@@ -58,6 +59,7 @@ import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
 import ai.resourcepack.engine.api.MergeResult;
+import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
@@ -146,6 +148,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private static final String AUTHORED_RIGS = "content-folder";
 
+    private BoundModels boundModels;
     private RigStore rigs;
     private RigAnimator animator;
     private RigPlacementListener rigPlacement;
@@ -269,11 +272,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getDataFolder().toPath().resolve("output"),
                 pack -> packHost.register(pack), this::pushTo);
         studio.onContent(this::registerPushedContent);
+        boundModels = new BoundModels(library, items, rigs, animator);
+        models.bound(boundModels);
         invites = new EmoteInvites(this, emotes());
         // Optional, and the only place PlaceholderAPI is named. A server
         // without it loads this plugin exactly as before.
         if (Placeholders.register(this, registry, emotes(), items, seats, sessions, group)) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
+        }
+        if (MythicHook.register(this, boundModels)) {
+            getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");
         }
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
@@ -311,7 +319,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
-                new ModelCommands(placements, creatures),
+                new ModelCommands(placements, creatures, boundModels, items),
                 new InterfaceCommands(sounds, icons, overlays),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
