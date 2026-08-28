@@ -5,7 +5,7 @@ api-version: '1.21'
 description: Custom items, models, sounds, icons, screens, recipes and emotes.
 author: ResourcePack AI
 folia-supported: false
-softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs]
+softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard]
 
 commands:
   rpengine:

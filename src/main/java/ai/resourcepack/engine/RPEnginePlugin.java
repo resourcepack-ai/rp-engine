@@ -41,6 +41,7 @@ import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.hook.MythicHook;
 import ai.resourcepack.engine.core.hook.Placeholders;
+import ai.resourcepack.engine.core.hook.WorldGuardHook;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.font.OverlayDefinitions;
@@ -193,6 +194,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private String defaultBundle = "";
 
     @Override
+    public void onLoad() {
+        // Before onEnable, and it has to be: WorldGuard parses its regions
+        // between the two, and a flag registered after that is not merely
+        // ignored — every region that set it has already dropped the value.
+        WorldGuardHook.registerFlags(this);
+    }
+
+    @Override
     public void onEnable() {
         saveDefaultConfig();
         // Before anything can talk, including the load diagnostics below.
@@ -286,6 +295,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // without it loads this plugin exactly as before.
         if (Placeholders.register(this, registry, emotes(), items, seats, sessions, group)) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
+        }
+        if (WorldGuardHook.listen(this)) {
+            getLogger().info("WorldGuard found: rpengine-place and rpengine-use are available.");
         }
         if (MythicHook.register(this, boundModels)) {
             getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");
