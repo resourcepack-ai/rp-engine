@@ -104,6 +104,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 
 /**
  * The plugin: loads the content folder, builds a pack per bundle, serves them,
@@ -199,7 +200,55 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Before onEnable, and it has to be: WorldGuard parses its regions
         // between the two, and a flag registered after that is not merely
         // ignored — every region that set it has already dropped the value.
-        WorldGuardHook.registerFlags(this);
+        //
+        // Guarded from OUT HERE rather than inside the hook. See `optional`:
+        // this exact call took the whole plugin down on a server with no
+        // WorldGuard, and the null check inside registerFlags was correct and
+        // never got to run.
+        optional("WorldGuard", () -> {
+            WorldGuardHook.registerFlags(this);
+            return true;
+        });
+    }
+
+    /**
+     * Starts an optional plugin's integration, if that plugin is installed.
+     *
+     * <p><b>The presence check has to be here, at the call site, and not
+     * inside the hook class.</b> Each hook in {@code core.hook} names its
+     * plugin's types in its field types and its exception tables, so merely
+     * CALLING a method on one makes the JVM resolve, load and verify that
+     * class — which throws {@link NoClassDefFoundError} on a server that does
+     * not have the plugin, before a single line of the hook's own guard can
+     * execute. A check inside the hook can only ever run on a server that did
+     * not need it.
+     *
+     * <p>That is not a hypothetical. {@code WorldGuardHook.registerFlags}
+     * opened with exactly the right null check and the plugin still died in
+     * {@code onLoad} with {@code NoClassDefFoundError:
+     * .../FlagConflictException} on a server with no WorldGuard — taking every
+     * other plugin on the box with it, because a plugin that throws from
+     * onLoad is never enabled. The hooks keep their internal checks; they are
+     * the second belt, for a plugin that is present but the wrong version.
+     *
+     * <p>Deliberately a {@link BooleanSupplier} rather than a direct call:
+     * the lambda's body is not executed until it is invoked below, which is
+     * after the plugin has been found, so the hook class is never touched on a
+     * server that lacks it.
+     */
+    private boolean optional(String pluginName, BooleanSupplier start) {
+        if (getServer().getPluginManager().getPlugin(pluginName) == null) {
+            return false;
+        }
+        try {
+            return start.getAsBoolean();
+        } catch (NoClassDefFoundError | RuntimeException e) {
+            // Present but not usable — a version whose classes moved. Said once
+            // and otherwise ignored: an optional integration is optional, and
+            // it must not be the reason a server loses its whole plugin.
+            getLogger().info(pluginName + " is present, but its integration could not be started.");
+            return false;
+        }
     }
 
     @Override
@@ -294,19 +343,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         invites = new EmoteInvites(this, emotes());
         // Optional, and the only place PlaceholderAPI is named. A server
         // without it loads this plugin exactly as before.
-        if (Placeholders.register(this, registry, emotes(), items, seats, sessions, group)) {
+        // All four go through `optional`, which is what keeps a server that
+        // has none of them from ever loading their classes. See its note.
+        if (optional("PlaceholderAPI",
+                () -> Placeholders.register(this, registry, emotes(), items, seats, sessions, group))) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
         }
-        if (WorldGuardHook.listen(this)) {
+        if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {
             getLogger().info("WorldGuard found: rpengine-place and rpengine-use are available.");
         }
-        if (CitizensTrait.register(this, boundModels)) {
+        if (optional("Citizens", () -> CitizensTrait.register(this, boundModels))) {
             // So a bind on an NPC survives it being despawned and respawned,
             // which Citizens does on every chunk unload and restart.
             boundModels.remembersWith(CitizensTrait::remember);
             getLogger().info("Citizens found: a bound NPC keeps its model.");
         }
-        if (MythicHook.register(this, boundModels)) {
+        if (optional("MythicMobs", () -> MythicHook.register(this, boundModels))) {
             getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");
         }
         // The handle an event carries, wired both ways at startup exactly as
