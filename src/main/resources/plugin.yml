@@ -114,6 +114,9 @@ permissions:
   rpengine.spawn:
     description: Spawn a custom entity.
     default: op
+  rpengine.chat.icons:
+    description: Use :name: shortcodes for icons in chat.
+    default: true
   rpengine.bind:
     description: Put a model on a mob that already exists.
     default: op

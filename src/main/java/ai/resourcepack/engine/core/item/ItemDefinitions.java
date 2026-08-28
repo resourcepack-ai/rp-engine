@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.ItemStats;
 import ai.resourcepack.engine.api.LoadReport;
 
 import java.util.ArrayList;
@@ -113,7 +114,87 @@ public final class ItemDefinitions {
                 body.bool("glow").orElse(Boolean.FALSE),
                 body.bool("unbreakable").orElse(Boolean.FALSE))
                 .withActions(actions)
-                .withAnimations(animations(body, definition.id(), origin, diagnostics)));
+                .withAnimations(animations(body, definition.id(), origin, diagnostics))
+                .withStats(stats(body, definition.id(), origin, diagnostics)));
+    }
+
+    /**
+     * The vanilla numbers: {@code damage}, {@code durability},
+     * {@code enchantments}, {@code food}.
+     *
+     * <pre>
+     * sword:
+     *   material: IRON_SWORD
+     *   durability: 500
+     *   enchantments: { sharpness: 3, unbreaking: 2 }
+     *   attributes:
+     *     - attack_damage: 9
+     *     - attack_speed: -2.4
+     *   food: { nutrition: 6, saturation: 7.2, always: false }
+     * </pre>
+     *
+     * <p>Names are vanilla's, unprefixed, because that is what an author has
+     * in front of them on the wiki. They are resolved against the server's own
+     * registries at CREATE time rather than here \u2014 the registries need a
+     * running server, and this parser is deliberately testable without one.
+     * The consequence is honest: a misspelled enchantment is one line in the
+     * console the first time the item is given, not at load.
+     */
+    private static ItemStats stats(DefinitionNode body, ContentId id,
+                                   String origin, List<Diagnostic> diagnostics) {
+        Map<String, Integer> enchantments = new LinkedHashMap<>();
+        body.node("enchantments").ifPresent(node -> {
+            for (String name : node.keys()) {
+                Optional<Integer> level = node.integer(name);
+                if (level.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "enchantments." + name + " is not a level."));
+                    continue;
+                }
+                enchantments.put(name, Math.max(1, level.get()));
+            }
+        });
+
+        List<ItemStats.Modifier> modifiers = new ArrayList<>();
+        for (DefinitionNode entry : body.nodes("attributes")) {
+            for (String name : entry.keys()) {
+                // Either "attack_damage: 9" or a block with an operation and
+                // a slot on it. The short form is what almost everybody wants
+                // and the long one is there when they do not.
+                Optional<DefinitionNode> detailed = entry.node(name);
+                if (detailed.isPresent()) {
+                    Optional<Double> amount = detailed.get().decimal("amount");
+                    if (amount.isEmpty()) {
+                        diagnostics.add(Diagnostic.warning(origin, id.path(),
+                                "attributes." + name + " has no amount."));
+                        continue;
+                    }
+                    modifiers.add(ItemStats.Modifier.of(name, amount.get(),
+                            detailed.get().string("operation").orElse(null),
+                            detailed.get().string("slot").orElse(null)));
+                    continue;
+                }
+                Optional<Double> amount = entry.decimal(name);
+                if (amount.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "attributes." + name + " is not a number."));
+                    continue;
+                }
+                modifiers.add(ItemStats.Modifier.of(name, amount.get(), null, null));
+            }
+        }
+
+        Integer maxDamage = body.integer("durability").filter(value -> value > 0).orElse(null);
+        ItemStats.Food food = body.node("food")
+                .map(node -> ItemStats.Food.of(
+                        node.integer("nutrition").orElse(0),
+                        node.decimal("saturation").orElse(0d).floatValue(),
+                        node.bool("always").orElse(Boolean.FALSE)))
+                .orElse(null);
+
+        return enchantments.isEmpty() && modifiers.isEmpty() && maxDamage == null && food == null
+                ? ItemStats.none()
+                : ItemStats.of(enchantments, modifiers, maxDamage, food);
     }
 
     /**

@@ -37,7 +37,19 @@ public final class ItemAction {
         DROP,
 
         /** Eaten or drunk, for an item whose material is food or a potion. */
-        CONSUME;
+        CONSUME,
+
+        /** Used to break a block. */
+        BLOCK_BREAK,
+
+        /** Shot, for an item whose material is a bow or a crossbow. */
+        SHOOT,
+
+        /** Run out of durability and broken. */
+        BREAK,
+
+        /** Picked up off the ground. */
+        PICKUP;
 
         /** The name an author writes, or empty if it is not one of these. */
         public static Optional<Trigger> parse(String written) {

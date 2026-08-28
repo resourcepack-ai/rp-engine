@@ -73,6 +73,11 @@ prompt:
 # hex, #rrggbb, with or without the hash. Anything that is not a hex triple
 # falls back to its default rather than printing the digits at you.
 chat:
+  # Typing :wave: in chat draws the icon called "wave", for anybody with
+  # rpengine.chat.icons. Off by default: a plugin that starts rewriting what
+  # people type the moment it is installed is one somebody has to find the
+  # setting for in a hurry.
+  icons: false
   # The word inside the brackets, in front of everything this plugin says.
   prefix: "RPEngine"
 
