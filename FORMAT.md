@@ -201,6 +201,24 @@ packs use one name.
 Off by default. A name that is not an icon is left exactly as typed, so
 `10:30`, `:)` and a URL all survive.
 
+Two more flags, both of them things vanilla nearly does already:
+
+```yaml
+crown:
+  material: GOLDEN_APPLE
+  hat: true             # right-click to wear it, any item at all
+  keep-on-death: true   # survives dying
+```
+
+`hat` is the click that saves a drag — vanilla already lets anybody wear
+anything by dragging it into the helmet slot. A head that is already wearing
+something is left alone rather than swapped.
+
+**There is no `gun`, `vehicle` or `music_disc` here**, and that is the same
+line as the actions list: those are whole games rather than item properties,
+and an engine that shipped a half-opinionated gun would be one every server
+has to fight. `ItemUseEvent` is what they are built on.
+
 An item can also carry a permission:
 
 ```yaml

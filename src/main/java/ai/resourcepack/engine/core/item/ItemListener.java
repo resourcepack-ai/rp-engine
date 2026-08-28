@@ -39,8 +39,10 @@ public final class ItemListener implements Listener {
 
     private final Items items;
     private final ActionRunner actions;
+    private final org.bukkit.plugin.Plugin plugin;
 
-    public ItemListener(Items items, ActionRunner actions) {
+    public ItemListener(org.bukkit.plugin.Plugin plugin, Items items, ActionRunner actions) {
+        this.plugin = plugin;
         this.items = items;
         this.actions = actions;
     }
@@ -87,6 +89,10 @@ public final class ItemListener implements Listener {
 
         boolean rightClick = action == ItemUseEvent.Action.RIGHT_CLICK
                 || action == ItemUseEvent.Action.RIGHT_CLICK_BLOCK;
+        if (rightClick && info.map(ItemInfo::hat).orElse(false) && wear(player, stack)) {
+            event.setCancelled(true);
+            return;
+        }
         if (actions.run(player, id.get(),
                 rightClick ? ItemAction.Trigger.RIGHT_CLICK : ItemAction.Trigger.LEFT_CLICK, stack)) {
             event.setCancelled(true);
@@ -189,6 +195,66 @@ public final class ItemListener implements Listener {
         // Cooldowns are seconds long and live in memory. Keeping them for
         // somebody who has gone is a map that only grows.
         actions.forget(event.getPlayer().getUniqueId());
+    }
+
+    /**
+     * Puts an item on somebody's head, if their head is free.
+     *
+     * <p>Vanilla already lets anybody wear anything by dragging it into the
+     * helmet slot; this is the click that saves the drag, and nothing more.
+     * A head that is already wearing something is left alone rather than
+     * swapped: a click that silently takes your helmet off in a fight is a
+     * worse outcome than a click that does nothing.
+     *
+     * @return whether it went on
+     */
+    private static boolean wear(Player player, ItemStack stack) {
+        ItemStack worn = player.getInventory().getHelmet();
+        if (worn != null && worn.getType() != org.bukkit.Material.AIR) {
+            return false;
+        }
+        ItemStack one = stack.clone();
+        one.setAmount(1);
+        player.getInventory().setHelmet(one);
+        stack.setAmount(stack.getAmount() - 1);
+        return true;
+    }
+
+    /**
+     * Items that survive dying.
+     *
+     * <p>Taken out of the drops and given straight back, which is the only
+     * way to do it: vanilla has no per-item keep flag, and keepInventory is
+     * all or nothing for the whole server.
+     */
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onDeath(org.bukkit.event.entity.PlayerDeathEvent event) {
+        if (event.getKeepInventory()) {
+            return;
+        }
+        java.util.List<ItemStack> kept = new java.util.ArrayList<>();
+        event.getDrops().removeIf(dropped -> {
+            boolean keep = items.idOf(dropped)
+                    .flatMap(items::info)
+                    .map(ItemInfo::keepOnDeath)
+                    .orElse(false);
+            if (keep) {
+                kept.add(dropped);
+            }
+            return keep;
+        });
+        if (kept.isEmpty()) {
+            return;
+        }
+        // Given back on the next tick: the inventory is cleared AFTER this
+        // event, so anything put in it here goes with everything else.
+        Player player = event.getEntity();
+        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+            for (ItemStack one : kept) {
+                player.getInventory().addItem(one).values()
+                        .forEach(over -> player.getWorld().dropItemNaturally(player.getLocation(), over));
+            }
+        });
     }
 
     private static ItemUseEvent.Action actionOf(Action action) {
