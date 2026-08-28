@@ -244,6 +244,12 @@ public final class ItemAssets implements PackContributor {
             into.add("assets/" + namespace + "/models/item/" + path + ".json",
                     ModelRigs.partModel(model, part).toString().getBytes(StandardCharsets.UTF_8));
         }
+        // The author's own settings for how these play, baked in now rather
+        // than reconciled later.
+        for (String unknown : ModelRigs.apply(rig.get(), item.animations())) {
+            into.warn(namespace + "/items", item.id().path(),
+                    "place.animations." + unknown + " names no animation in this model.");
+        }
         rigs.put(item.id().toString(), rig.get());
     }
 

@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.engine.api.AnimationSettings;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -112,7 +114,13 @@ public final class ModelRigs {
             return parts;
         }
 
-        /** The animations, in the shape {@link RigStore} reads. */
+        /**
+         * The animations, in the shape {@link RigStore} reads.
+         *
+         * <p>A copy, so a caller cannot reach in and change a rig that has
+         * already been registered. {@link #apply} edits the real one, which is
+         * why it is a method here and not something a caller does itself.
+         */
         public JsonArray animations() {
             return animations.deepCopy();
         }
@@ -242,6 +250,61 @@ public final class ModelRigs {
             out.add("render_type", renderType);
         }
         return out;
+    }
+
+    /**
+     * Writes an author's settings onto the animations of a computed rig.
+     *
+     * <p>Applied here, at the moment the rig is built, rather than reconciled
+     * later: a rig that already carries how it plays is one thing to hand to
+     * the store, and there is no window in which the two disagree.
+     *
+     * <p>A name that matches no animation is ignored. The names live in a
+     * {@code .bbmodel} the definition parser never opened, so it cannot warn
+     * about one, and this is where both halves are finally in the same room —
+     * which makes it the one place that CAN.
+     *
+     * @return the names that matched nothing, for a caller that wants to say so
+     */
+    public static List<String> apply(Rig rig, Map<String, AnimationSettings> settings) {
+        List<String> unmatched = new ArrayList<>();
+        if (rig == null || settings == null || settings.isEmpty()) {
+            return unmatched;
+        }
+        for (Map.Entry<String, AnimationSettings> entry : settings.entrySet()) {
+            boolean matched = false;
+            for (JsonElement raw : rig.animations) {
+                if (!raw.isJsonObject()) {
+                    continue;
+                }
+                JsonObject animation = raw.getAsJsonObject();
+                JsonElement name = animation.get("name");
+                if (name == null || !name.isJsonPrimitive() || !entry.getKey().equals(name.getAsString())) {
+                    continue;
+                }
+                matched = true;
+                AnimationSettings one = entry.getValue();
+                if (one.mode() != null) {
+                    animation.addProperty("mode", one.mode().written());
+                    // The boolean is what a plugin older than modes reads, so
+                    // it has to keep agreeing with the mode beside it.
+                    animation.addProperty("loop", one.mode() == AnimationSettings.Mode.LOOP);
+                }
+                if (one.speed() > 0) {
+                    animation.addProperty("speed", one.speed());
+                }
+                if (one.priority() != 0) {
+                    animation.addProperty("priority", one.priority());
+                }
+                if (one.blend() > 0) {
+                    animation.addProperty("blend", one.blend());
+                }
+            }
+            if (!matched) {
+                unmatched.add(entry.getKey());
+            }
+        }
+        return unmatched;
     }
 
     /**

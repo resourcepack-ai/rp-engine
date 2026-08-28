@@ -102,6 +102,22 @@ public final class DefinitionNode {
         return Optional.empty();
     }
 
+    /** A number that may have a fraction, or empty if it is absent or not one. */
+    public Optional<Double> decimal(String key) {
+        Object value = raw(key);
+        if (value instanceof Number) {
+            return Optional.of(((Number) value).doubleValue());
+        }
+        if (value instanceof String) {
+            try {
+                return Optional.of(Double.parseDouble(((String) value).trim()));
+            } catch (NumberFormatException ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     /** A boolean value, or empty if it is absent or not one. */
     public Optional<Boolean> bool(String key) {
         Object value = raw(key);

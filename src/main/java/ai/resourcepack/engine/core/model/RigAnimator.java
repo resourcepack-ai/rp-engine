@@ -72,6 +72,11 @@ public final class RigAnimator implements Listener {
     static final String TRIGGER_RANGE = "range";
     static final String TRIGGER_PLACE = "place";
 
+    /** What an animation does when it reaches its end. */
+    static final String MODE_LOOP = "loop";
+    static final String MODE_HOLD = "hold";
+    static final String MODE_ONCE = "once";
+
     private static final int RANGE_SCAN_INTERVAL = 5;
 
     private static final float[] ZERO = { 0f, 0f, 0f };
@@ -98,6 +103,41 @@ public final class RigAnimator implements Listener {
     // tracked hitbox's id list to find the one that claims it. Built from the
     // hitbox's own list when it's tracked, so it needs nothing at spawn time.
     private final Map<UUID, UUID> hitboxOfDisplay = new ConcurrentHashMap<>();
+
+    /**
+     * A crossfade in progress, per part display.
+     *
+     * <p><strong>In memory on purpose.</strong> A blend is a fraction of a
+     * second, so a chunk unload or a restart in the middle of one costs
+     * nothing worth persisting — the part arrives at the new pose the moment
+     * it is tracked again, which is where it was going anyway. Writing it to
+     * persistent data would be ten floats on every part on every tick of every
+     * transition, saved to a world, to smooth something already over.
+     */
+    private final Map<UUID, Blend> blends = new ConcurrentHashMap<>();
+
+    /** Which animation each display was last posed for, so a change is visible. */
+    private final Map<UUID, Integer> lastPosed = new ConcurrentHashMap<>();
+
+    /** Where a part was when its animation changed, and how long it has to arrive. */
+    private static final class Blend {
+
+        private final Transformation from;
+        private final long startedTick;
+        private final double ticks;
+
+        Blend(Transformation from, long startedTick, double seconds) {
+            this.from = from;
+            this.startedTick = startedTick;
+            this.ticks = seconds * 20;
+        }
+
+        /** 0 at the moment it started, 1 when it is over. */
+        float progress(long now) {
+            if (ticks <= 0) return 1f;
+            return (float) Math.min(1, Math.max(0, (now - startedTick) / ticks));
+        }
+    }
     private int taskId = -1;
     private int rangeScanCountdown;
     /**
@@ -148,6 +188,8 @@ public final class RigAnimator implements Listener {
         hitboxes.clear();
         rangeOccupants.clear();
         hitboxOfDisplay.clear();
+        blends.clear();
+        lastPosed.clear();
     }
 
     /** Registers an entity if it's one of our moving rig part displays. */
@@ -184,6 +226,8 @@ public final class RigAnimator implements Listener {
 
     void untrack(UUID id) {
         tracked.remove(id);
+        blends.remove(id);
+        lastPosed.remove(id);
     }
 
     void untrackHitbox(UUID id) {
@@ -317,8 +361,27 @@ public final class RigAnimator implements Listener {
         // changed" is false the moment the mob turns its head. The transform
         // is compared below anyway, so a host standing still still sends
         // nothing.
+        // A change of what is playing — including to and from nothing — is
+        // where a crossfade starts. Reading it off the last pose rather than
+        // off the animation start means going BACK to rest eases out too,
+        // which is the half a "lerp out" setting usually means.
+        long tick = display.getWorld().getGameTime();
+        Integer posedFor = lastPosed.get(display.getUniqueId());
+        if (posedFor == null || posedFor != playbackIndex) {
+            double seconds = Math.max(
+                    blendOf(animationAt(rig, playbackIndex)),
+                    posedFor == null ? 0 : blendOf(animationAt(rig, posedFor)));
+            if (seconds > 0 && posedFor != null) {
+                blends.put(display.getUniqueId(), new Blend(display.getTransformation(), tick, seconds));
+            }
+            lastPosed.put(display.getUniqueId(), playbackIndex);
+        }
+        Blend blend = blends.get(display.getUniqueId());
+
         boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
-        if (!bound && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
+        // A blend has to keep sending frames even where nothing else would:
+        // the animation is not changing, the pose on the way to it is.
+        if (!bound && blend == null && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
             pdc.remove(activeAnimationKey);
@@ -339,6 +402,14 @@ public final class RigAnimator implements Listener {
         applyRigScale(m, pdc);
 
         Transformation next = toTransformation(m);
+        if (blend != null) {
+            float progress = blend.progress(tick);
+            if (progress >= 1f) {
+                blends.remove(display.getUniqueId());
+            } else {
+                next = mix(blend.from, next, progress);
+            }
+        }
         // Keyframe holds sample to an identical transform - nothing to send,
         // and skipping keeps the delay toggle below from re-arming idle parts.
         if (next.equals(display.getTransformation())) return;
@@ -461,10 +532,17 @@ public final class RigAnimator implements Listener {
                 }
             }
         }
+        // Highest priority among the claimants, and rig order between equals
+        // — which is exactly what this did before priority existed, since
+        // every animation then had the same one.
+        int best = -1;
         for (int i = 0; i < rig.animations.size(); i++) {
-            if (hasTrigger(rig.animations.get(i), triggerType)) return i;
+            if (!hasTrigger(rig.animations.get(i), triggerType)) continue;
+            if (best < 0 || priorityOf(rig.animations.get(i)) > priorityOf(rig.animations.get(best))) {
+                best = i;
+            }
         }
-        return -1;
+        return best;
     }
 
     /**
@@ -523,7 +601,11 @@ public final class RigAnimator implements Listener {
 
     static int playbackAnimationIndex(RigStore.Rig rig, Integer activeIndex, double elapsed, String chosenName) {
         RigStore.Animation active = animationAt(rig, activeIndex);
-        if (active != null && (loops(active) || elapsed <= Math.max(0, active.length))) {
+        // A held animation never runs out: it stops on its last frame and
+        // stays there until something else is asked for. That is what makes
+        // an open door stay open rather than swinging shut on its own.
+        if (active != null && (loops(active) || holds(active)
+                || elapsed * speedOf(active) <= Math.max(0, active.length))) {
             return activeIndex;
         }
         return findAnimationIndex(rig, TRIGGER_LOOP, chosenName);
@@ -548,11 +630,39 @@ public final class RigAnimator implements Listener {
 
     static double animationTime(RigStore.Animation animation, double elapsed) {
         if (animation.length <= 0) return 0;
-        return loops(animation) ? elapsed % animation.length : Math.min(elapsed, animation.length);
+        double at = elapsed * speedOf(animation);
+        return loops(animation) ? at % animation.length : Math.min(at, animation.length);
     }
 
     private static boolean loops(RigStore.Animation animation) {
+        if (MODE_LOOP.equals(animation.mode)) return true;
+        if (MODE_HOLD.equals(animation.mode) || MODE_ONCE.equals(animation.mode)) return false;
         return animation.triggers == null ? animation.loop : hasTrigger(animation, TRIGGER_LOOP);
+    }
+
+    /**
+     * How fast it plays. Absent or nonsensical is 1 rather than a refusal:
+     * every manifest written before this has no speed at all, and a rig that
+     * froze because somebody typed a zero would be worse than one that runs
+     * at the speed it was authored.
+     */
+    static double speedOf(RigStore.Animation animation) {
+        return animation == null || animation.speed <= 0 ? 1 : animation.speed;
+    }
+
+    /** Higher wins. Equal falls back to rig order, as it always did. */
+    static int priorityOf(RigStore.Animation animation) {
+        return animation == null ? 0 : animation.priority;
+    }
+
+    /** Seconds of ease in and out. 0, the old behaviour, is a hard cut. */
+    static double blendOf(RigStore.Animation animation) {
+        return animation == null || animation.blend <= 0 ? 0 : Math.min(5, animation.blend);
+    }
+
+    /** Whether it stops on its last frame instead of going back to rest. */
+    static boolean holds(RigStore.Animation animation) {
+        return animation != null && MODE_HOLD.equals(animation.mode);
     }
 
     private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex,
@@ -926,6 +1036,24 @@ public final class RigAnimator implements Listener {
         if (Float.isNaN(scale)) return MIN_SCALE;
         if (Math.abs(scale) >= MIN_SCALE) return scale;
         return scale < 0 ? -MIN_SCALE : MIN_SCALE;
+    }
+
+    /**
+     * A pose {@code amount} of the way from {@code from} to {@code to}.
+     *
+     * <p><strong>Rotations are slerped, not lerped.</strong> A component-wise
+     * average of two quaternions is not a rotation: it shortens as the two
+     * diverge, which shows up as a limb shrinking into itself halfway through
+     * a transition and springing back out. Position and scale are ordinary
+     * linear interpolation, where an average IS the answer.
+     */
+    static Transformation mix(Transformation from, Transformation to, float amount) {
+        float t = Math.min(1f, Math.max(0f, amount));
+        return new Transformation(
+                new Vector3f(from.getTranslation()).lerp(to.getTranslation(), t),
+                new Quaternionf(from.getLeftRotation()).slerp(to.getLeftRotation(), t),
+                new Vector3f(from.getScale()).lerp(to.getScale(), t),
+                new Quaternionf(from.getRightRotation()).slerp(to.getRightRotation(), t));
     }
 
     // Decompose into Bukkit's Transformation. Exact for a single program step;

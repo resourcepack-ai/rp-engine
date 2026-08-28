@@ -241,6 +241,38 @@ Three things worth knowing:
 Right-clicking a piece that animates plays it rather than sitting on it.
 Shift-right-click still sits, if it has a `seat`.
 
+#### How an animation plays
+
+Blockbench's own **loop / hold / once** comes across as authored. `hold` is the
+one worth knowing: it stops on the last frame and stays there, which is what a
+door, a lid and a drawbridge all are — without it they spring shut the moment
+they finish opening.
+
+The rest is a decision about your server rather than about the model, so it
+lives here:
+
+```yaml
+chair:
+  material: PAPER
+  model: chair
+  place:
+    animations:
+      spin:
+        mode: loop      # loop | hold | once, overriding the .bbmodel
+        speed: 0.5      # half the authored speed
+        priority: 10    # wins when two animations claim one trigger
+        blend: 0.25     # seconds to ease in and out of it
+```
+
+- **`blend`** is the difference between a model that snaps between poses and
+  one that moves. A quarter of a second covers most things.
+- **`priority`** matters once a model has more than one animation on the same
+  trigger. Higher wins; equal falls back to the order they are in the file.
+- The same walk cycle is a stroll on one server and a sprint on another, which
+  is why `speed` is here and not a second Blockbench file.
+
+An animation nobody mentions plays exactly as authored.
+
 ### Sitting on one
 
 `seat:` is how far above the model's base a player's backside goes, in blocks —

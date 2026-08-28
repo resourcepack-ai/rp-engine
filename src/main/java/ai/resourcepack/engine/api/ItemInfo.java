@@ -27,11 +27,13 @@ public final class ItemInfo {
     private final boolean glow;
     private final boolean unbreakable;
     private final Map<ItemAction.Trigger, List<ItemAction>> actions;
+    private final Map<String, AnimationSettings> animations;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                      int maxStack, boolean glow, boolean unbreakable,
-                     Map<ItemAction.Trigger, List<ItemAction>> actions) {
+                     Map<ItemAction.Trigger, List<ItemAction>> actions,
+                     Map<String, AnimationSettings> animations) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -45,6 +47,7 @@ public final class ItemInfo {
         this.glow = glow;
         this.unbreakable = unbreakable;
         this.actions = actions;
+        this.animations = animations;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -64,6 +67,7 @@ public final class ItemInfo {
                 maxStack,
                 glow,
                 unbreakable,
+                Map.of(),
                 Map.of());
     }
 
@@ -78,7 +82,28 @@ public final class ItemInfo {
     public ItemInfo withActions(Map<ItemAction.Trigger, List<ItemAction>> actions) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
-                actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions));
+                actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
+                animations);
+    }
+
+    /**
+     * The same item, with how its model's animations should play.
+     *
+     * <p>Written under {@code place:}, because they are settings about the
+     * thing you put down. Kept here rather than on {@link ModelInfo} because
+     * this is what the pack builder has in hand when it works out the rig, and
+     * a rig with its settings already in it needs nothing to reconcile them
+     * afterwards.
+     */
+    public ItemInfo withAnimations(Map<String, AnimationSettings> animations) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions,
+                animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations));
+    }
+
+    /** How this piece's animations play, by animation name. Usually empty. */
+    public Map<String, AnimationSettings> animations() {
+        return animations;
     }
 
     /** What this item does, by trigger. Empty for almost every item. */
