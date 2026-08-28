@@ -64,6 +64,15 @@ public final class RigStore {
         int priority;
         /** Seconds to ease in and out of this animation. 0 is a hard cut. */
         double blend;
+        /**
+         * Which layer it plays on. 0 is the base and is what everything
+         * written before layers existed is.
+         *
+         * <p>One animation at a time per layer; layers above the base compose
+         * ON TOP of it, which is what lets a wave play over a walk cycle
+         * instead of replacing it.
+         */
+        int layer;
         List<Trigger> triggers;
         // animator target ("3" or "g:0") -> channel ("rotation"/"position"/"scale") -> keyframes.
         Map<String, Map<String, List<Keyframe>>> animators;

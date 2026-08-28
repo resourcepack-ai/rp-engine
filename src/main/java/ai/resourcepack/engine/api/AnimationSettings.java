@@ -57,12 +57,14 @@ public final class AnimationSettings {
     private final double speed;
     private final int priority;
     private final double blend;
+    private final int layer;
 
-    private AnimationSettings(Mode mode, double speed, int priority, double blend) {
+    private AnimationSettings(Mode mode, double speed, int priority, double blend, int layer) {
         this.mode = mode;
         this.speed = speed;
         this.priority = priority;
         this.blend = blend;
+        this.layer = layer;
     }
 
     /**
@@ -71,7 +73,16 @@ public final class AnimationSettings {
      * @param blend    seconds to ease in and out; 0 is a hard cut
      */
     public static AnimationSettings of(Mode mode, double speed, int priority, double blend) {
-        return new AnimationSettings(mode, speed, priority, Math.max(0, blend));
+        return of(mode, speed, priority, blend, 0);
+    }
+
+    /**
+     * @param layer 0 is the base animation, which is what everything is unless
+     *              it says otherwise. Above 0 it plays OVER the base rather
+     *              than replacing it \u2014 a wave over a walk cycle.
+     */
+    public static AnimationSettings of(Mode mode, double speed, int priority, double blend, int layer) {
+        return new AnimationSettings(mode, speed, priority, Math.max(0, blend), Math.max(0, layer));
     }
 
     /** Null where the model's own answer stands. */
@@ -94,9 +105,15 @@ public final class AnimationSettings {
         return blend;
     }
 
+    /** Which layer it plays on. 0 is the base. */
+    public int layer() {
+        return layer;
+    }
+
     @Override
     public String toString() {
         return "AnimationSettings[" + (mode == null ? "as authored" : mode.written())
-                + ", speed=" + speed + ", priority=" + priority + ", blend=" + blend + "]";
+                + ", speed=" + speed + ", priority=" + priority + ", blend=" + blend
+                + ", layer=" + layer + "]";
     }
 }

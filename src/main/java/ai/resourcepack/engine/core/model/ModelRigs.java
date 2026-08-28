@@ -350,6 +350,9 @@ public final class ModelRigs {
                 if (one.blend() > 0) {
                     animation.addProperty("blend", one.blend());
                 }
+                if (one.layer() > 0) {
+                    animation.addProperty("layer", one.layer());
+                }
             }
             if (!matched) {
                 unmatched.add(entry.getKey());

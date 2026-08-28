@@ -28,6 +28,7 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -71,6 +72,18 @@ public final class RigAnimator implements Listener {
      * binding is a flag on a part rather than a second animator.
      */
     static final String BOUND_KEY = "rig-bound";
+
+    /**
+     * PDC key holding the overlays a part is playing: {@code index:startTick}
+     * pairs, semicolon separated.
+     *
+     * <p>Its own key rather than a second copy of the base machinery, and the
+     * base path is untouched. A rig with no overlays behaves byte for byte as
+     * it did before layers existed \u2014 which matters, because this is the most
+     * load-bearing code in the plugin and every pushed rig in the world runs
+     * through it.
+     */
+    static final String OVERLAY_KEY = "rig-overlays";
     static final String TRIGGER_LOOP = "loop";
     static final String TRIGGER_RIGHT_CLICK = "right_click";
     static final String TRIGGER_LEFT_CLICK = "left_click";
@@ -108,6 +121,7 @@ public final class RigAnimator implements Listener {
     private final NamespacedKey displayKey;
     private final NamespacedKey displaysKey;
     private final NamespacedKey boundKey;
+    private final NamespacedKey overlayKey;
 
     private final Map<UUID, ItemDisplay> tracked = new ConcurrentHashMap<>();
     private final Map<UUID, Interaction> hitboxes = new ConcurrentHashMap<>();
@@ -177,6 +191,7 @@ public final class RigAnimator implements Listener {
         this.displayKey = host.key("display-uuid");
         this.displaysKey = host.key("display-uuids");
         this.boundKey = host.key(BOUND_KEY);
+        this.overlayKey = host.key(OVERLAY_KEY);
     }
 
     public void placements(java.util.function.Function<Interaction, Placement> placements) {
@@ -410,10 +425,14 @@ public final class RigAnimator implements Listener {
         }
         Blend blend = blends.get(display.getUniqueId());
 
+        // An overlay plays over a base that may itself be at rest, so
+        // "nothing is animating" is not a reason to stop sending frames.
+        boolean overlaid = pdc.has(overlayKey, PersistentDataType.STRING);
         boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
         // A blend has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
-        if (!bound && blend == null && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
+        if (!bound && !overlaid && blend == null
+                && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
             pdc.remove(activeAnimationKey);
@@ -427,7 +446,13 @@ public final class RigAnimator implements Listener {
                 applyStep(animationTransform, animation.animators, step.target, step.pivot, t);
             }
         }
-        // After the animation, not instead of it: a head bone still plays
+        // Layers above the base, composed on top of it in layer order. A
+        // wave over a walk cycle: the arm's rotation from the wave multiplies
+        // into whatever the walk had already done to it, rather than
+        // replacing it.
+        applyOverlays(animationTransform, rig, part, pdc, display.getWorld().getGameTime());
+
+        // After the animations, not instead of them: a head bone still plays
         // whatever the walk cycle does to it, and looking around is composed
         // on top. Doing it the other way makes an idle animation drag the
         // head back off whatever it was looking at.
@@ -762,6 +787,9 @@ public final class RigAnimator implements Listener {
         int index = findAnimationIndexByName(rig, animationName);
         RigStore.Animation animation = animationAt(rig, index);
         if (animation == null || displays.isEmpty()) return false;
+        if (animation.layer > 0) {
+            return playOverlay(displays, modelId, animationName);
+        }
 
         long now = displays.get(0).getWorld().getGameTime();
         if (!restart && isMidOneShot(displays, animation, index, now)) return true;
@@ -778,6 +806,10 @@ public final class RigAnimator implements Listener {
 
     /** Puts those displays back to rest, or to their idle loop. */
     void stopOn(List<ItemDisplay> displays) {
+        // Overlays go too: "stop" means stop, and a wave still playing over a
+        // rig that has been told to stop is exactly the sort of thing that
+        // reads as the plugin ignoring you.
+        clearOverlays(displays);
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
@@ -847,6 +879,13 @@ public final class RigAnimator implements Listener {
         int index = findAnimationIndexByName(rig, animationName);
         if (index < 0) return false;
         List<ItemDisplay> displays = displaysOf(hitbox);
+        // An animation that says which layer it belongs on is asking to play
+        // OVER whatever is running, not instead of it. Routed here rather than
+        // through a second method, so every caller gets it and none of them
+        // has to know layers exist.
+        if (animationAt(rig, index).layer > 0) {
+            return playOverlay(displays, modelIdOf(hitbox), animationName);
+        }
         // A model with no rig parts places as one still display: it has a
         // hitbox and a model id like any rig, so without this the PDC below
         // would be written and success reported for something that cannot
@@ -871,6 +910,7 @@ public final class RigAnimator implements Listener {
      */
     boolean stop(Interaction hitbox) {
         if (hitbox == null || !hitbox.isValid()) return false;
+        clearOverlays(displaysOf(hitbox));
         boolean wasPlaying = false;
         for (ItemDisplay display : displaysOf(hitbox)) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
@@ -1028,6 +1068,119 @@ public final class RigAnimator implements Listener {
             if (trigger != null && triggerType.equals(trigger.type)) return trigger;
         }
         return null;
+    }
+
+    /**
+     * Composes every overlay this part is playing, in layer order.
+     *
+     * <p>An overlay that has run out is skipped rather than removed here:
+     * this is called from the pose loop, and writing persistent data on every
+     * tick of every part to tidy up something that costs one comparison is a
+     * worse trade than leaving it. {@link #playOverlay} rewrites the list.
+     */
+    private void applyOverlays(Matrix4f m, RigStore.Rig rig, RigStore.Part part,
+                               PersistentDataContainer pdc, long now) {
+        String written = pdc.get(overlayKey, PersistentDataType.STRING);
+        if (written == null || written.isEmpty()) {
+            return;
+        }
+        List<long[]> playing = new ArrayList<>();
+        for (String one : written.split(";")) {
+            int colon = one.indexOf(':');
+            if (colon <= 0) {
+                continue;
+            }
+            try {
+                int index = Integer.parseInt(one.substring(0, colon));
+                long started = Long.parseLong(one.substring(colon + 1));
+                RigStore.Animation animation = animationAt(rig, index);
+                if (animation == null) {
+                    continue;
+                }
+                double elapsed = Math.max(0, now - started) / 20.0;
+                if (!loops(animation) && !holds(animation)
+                        && elapsed * speedOf(animation) > Math.max(0, animation.length)) {
+                    continue;
+                }
+                playing.add(new long[]{animation.layer, index, started});
+            } catch (NumberFormatException ignored) {
+                // One malformed entry costs that overlay and nothing else.
+            }
+        }
+        if (playing.isEmpty()) {
+            return;
+        }
+        playing.sort((a, b) -> Long.compare(a[0], b[0]));
+
+        for (long[] one : playing) {
+            RigStore.Animation animation = animationAt(rig, (int) one[1]);
+            double t = animationTime(animation, Math.max(0, now - one[2]) / 20.0);
+            for (RigStore.Step step : part.program) {
+                applyStep(m, animation.animators, step.target, step.pivot, t);
+            }
+        }
+    }
+
+    /**
+     * Starts an animation on its own layer, over whatever the base is doing.
+     *
+     * <p>One animation per layer: starting a second on the same one replaces
+     * the first, which is what a layer IS. An animation on layer 0 is not an
+     * overlay at all and goes through the ordinary path instead \u2014 asking for
+     * one here is a caller confusing "play this as well" with "play this".
+     *
+     * @return whether it started
+     */
+    boolean playOverlay(List<ItemDisplay> displays, String modelId, String animationName) {
+        RigStore.Rig rig = rigs.get(modelId);
+        int index = findAnimationIndexByName(rig, animationName);
+        RigStore.Animation animation = animationAt(rig, index);
+        if (animation == null || animation.layer <= 0 || displays.isEmpty()) {
+            return false;
+        }
+        long now = displays.get(0).getWorld().getGameTime();
+
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) {
+                continue;
+            }
+            StringBuilder next = new StringBuilder();
+            String written = pdc.get(overlayKey, PersistentDataType.STRING);
+            if (written != null) {
+                for (String one : written.split(";")) {
+                    int colon = one.indexOf(':');
+                    if (colon <= 0) {
+                        continue;
+                    }
+                    try {
+                        RigStore.Animation other = animationAt(rig, Integer.parseInt(one.substring(0, colon)));
+                        // Anything on another layer is kept; this layer is
+                        // being taken over.
+                        if (other != null && other.layer != animation.layer) {
+                            next.append(one).append(';');
+                        }
+                    } catch (NumberFormatException ignored) {
+                        continue;
+                    }
+                }
+            }
+            next.append(index).append(':').append(now);
+            pdc.set(overlayKey, PersistentDataType.STRING, next.toString());
+            pose(display, false);
+        }
+        return true;
+    }
+
+    /** Clears every overlay, leaving the base animation alone. */
+    void clearOverlays(List<ItemDisplay> displays) {
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (pdc.has(overlayKey, PersistentDataType.STRING)) {
+                pdc.remove(overlayKey);
+                pose(display, true);
+            }
+        }
     }
 
     /**

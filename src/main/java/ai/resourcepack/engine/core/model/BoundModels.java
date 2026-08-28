@@ -54,6 +54,26 @@ public final class BoundModels {
     private final NamespacedKey boundKey;
     private final NamespacedKey scaleKey;
 
+    /**
+     * Somewhere a bind can be WRITTEN DOWN, for a host that outlives its own
+     * entity.
+     *
+     * <p>A Citizens NPC is despawned and respawned on a chunk unload, a reload
+     * and a restart, and the entity that comes back is a new one — so a model
+     * bound to the old one is simply gone. The NPC itself survives, and can
+     * hold the id.
+     *
+     * <p>A function rather than a Citizens call, because this class must not
+     * name a type from a plugin that may not be installed. It answers whether
+     * it took responsibility; nothing else here has to know what it is.
+     */
+    private volatile java.util.function.BiPredicate<Entity, ContentId> remember = (host, id) -> false;
+
+    /** Wires the place a bind is remembered. Called once at startup. */
+    public void remembersWith(java.util.function.BiPredicate<Entity, ContentId> remember) {
+        this.remember = remember == null ? (host, id) -> false : remember;
+    }
+
     public BoundModels(Host host, Items items, RigStore rigs, RigAnimator animator) {
         this.items = items;
         this.rigs = rigs;
@@ -84,7 +104,11 @@ public final class BoundModels {
         if (whole == null) {
             return false;
         }
+        // AFTER the unbind, never before it: unbind clears the remembered id,
+        // so writing first and clearing second leaves an NPC that wears a
+        // model until the next respawn and then forgets it.
         unbind(host);
+        remember.test(host, modelId);
 
         float size = scale > 0 ? scale : 1f;
         String id = modelId.toString();
@@ -147,6 +171,9 @@ public final class BoundModels {
         if (had) {
             conceal(host, false);
         }
+        // Cleared whether or not anything was on: an NPC asked to take its
+        // model off must not put it back on when it next respawns.
+        remember.test(host, null);
         return had;
     }
 
