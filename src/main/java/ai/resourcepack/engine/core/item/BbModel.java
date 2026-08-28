@@ -311,7 +311,8 @@ public final class BbModel {
                 continue;
             }
 
-            boolean loops = loops(source.get("loop"));
+            String mode = mode(source.get("loop"));
+            boolean loops = "loop".equals(mode);
             JsonObject trigger = new JsonObject();
             trigger.addProperty("type", loops ? "loop" : "right_click");
             JsonArray triggers = new JsonArray();
@@ -321,6 +322,11 @@ public final class BbModel {
             animation.addProperty("name", name);
             animation.addProperty("length", length.getAsFloat());
             animation.addProperty("loop", loops);
+            // Blockbench's third answer, which the boolean cannot hold: stop
+            // on the last frame and stay there. It is what a door, a lid and
+            // a drawbridge all are, and without it every one of them sprang
+            // shut the moment it finished opening.
+            animation.addProperty("mode", mode);
             animation.add("triggers", triggers);
             animation.add("animators", animators);
             out.add(animation);
@@ -394,15 +400,23 @@ public final class BbModel {
         }
     }
 
-    /** Blockbench writes {@code "loop"} or a boolean, depending on its age. */
-    private static boolean loops(JsonElement value) {
+    /**
+     * What happens at the end: {@code loop}, {@code hold} or {@code once}.
+     *
+     * <p>Blockbench writes a boolean on an old project and one of three
+     * strings on a new one. Anything unrecognised is {@code once}, which is
+     * what a boolean {@code false} meant and therefore what every project
+     * written before the three-way choice means.
+     */
+    private static String mode(JsonElement value) {
         if (value == null || !value.isJsonPrimitive()) {
-            return false;
+            return "once";
         }
         if (value.getAsJsonPrimitive().isBoolean()) {
-            return value.getAsBoolean();
+            return value.getAsBoolean() ? "loop" : "once";
         }
-        return "loop".equals(value.getAsString());
+        String written = value.getAsString();
+        return "loop".equals(written) || "hold".equals(written) ? written : "once";
     }
 
     /** Whether {@code source} looks like a Blockbench project at all. */

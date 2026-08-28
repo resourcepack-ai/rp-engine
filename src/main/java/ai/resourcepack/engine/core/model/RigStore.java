@@ -41,6 +41,21 @@ public final class RigStore {
         String name;
         double length;
         boolean loop;
+        /**
+         * What happens at the end: "loop", "hold" (stay on the last frame) or
+         * "once" (back to rest). Null on a manifest older than this, where
+         * {@link #loop} is the whole answer.
+         */
+        String mode;
+        /** Playback rate. 0 or absent is 1, which is what an old manifest has. */
+        double speed;
+        /**
+         * Which animation wins when two could play. Higher wins; equal falls
+         * back to rig order, which is what every manifest before this had.
+         */
+        int priority;
+        /** Seconds to ease in and out of this animation. 0 is a hard cut. */
+        double blend;
         List<Trigger> triggers;
         // animator target ("3" or "g:0") -> channel ("rotation"/"position"/"scale") -> keyframes.
         Map<String, Map<String, List<Keyframe>>> animators;

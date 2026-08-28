@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.item;
 
+import ai.resourcepack.engine.api.AnimationSettings;
 import ai.resourcepack.engine.api.ContentDefinition;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
@@ -111,7 +112,58 @@ public final class ItemDefinitions {
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
                 body.bool("unbreakable").orElse(Boolean.FALSE))
-                .withActions(actions));
+                .withActions(actions)
+                .withAnimations(animations(body, definition.id(), origin, diagnostics)));
+    }
+
+    /**
+     * {@code place.animations}, which says how a model's animations play.
+     *
+     * <pre>
+     * chair:
+     *   place:
+     *     animations:
+     *       spin: { mode: loop, speed: 0.5, priority: 10, blend: 0.25 }
+     * </pre>
+     *
+     * <p>Under {@code place:} because these are settings about the thing you
+     * put down. A name nobody recognises is left alone rather than refused:
+     * the animation names live in a {@code .bbmodel} this parser has never
+     * opened, so it is in no position to say one is wrong.
+     */
+    private static Map<String, AnimationSettings> animations(DefinitionNode body, ContentId id,
+                                                             String origin, List<Diagnostic> diagnostics) {
+        DefinitionNode place = body.node("place").orElse(null);
+        DefinitionNode declared = place == null ? null : place.node("animations").orElse(null);
+        if (declared == null) {
+            return Map.of();
+        }
+        Map<String, AnimationSettings> out = new LinkedHashMap<>();
+        for (String name : declared.keys()) {
+            DefinitionNode settings = declared.node(name).orElse(null);
+            if (settings == null) {
+                diagnostics.add(Diagnostic.error(origin, id.path(),
+                        "place.animations." + name + " should be a block of settings, "
+                                + "like { mode: hold, blend: 0.25 }."));
+                continue;
+            }
+            AnimationSettings.Mode mode = null;
+            Optional<String> writtenMode = settings.string("mode");
+            if (writtenMode.isPresent()) {
+                mode = AnimationSettings.Mode.parse(writtenMode.get()).orElse(null);
+                if (mode == null) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "place.animations." + name + ".mode: " + writtenMode.get()
+                                    + " is not loop, hold or once. The model's own was kept."));
+                }
+            }
+            out.put(name, AnimationSettings.of(
+                    mode,
+                    settings.decimal("speed").orElse(0d),
+                    settings.integer("priority").orElse(0),
+                    settings.decimal("blend").orElse(0d)));
+        }
+        return Map.copyOf(out);
     }
 
     /** The body slots a piece of armour can be worn in. */
