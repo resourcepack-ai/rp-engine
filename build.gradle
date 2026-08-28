@@ -141,7 +141,15 @@ group = 'ai.resourcepack'
 //         cut from a branch that had not seen 0.41.0 onwards, so no released
 //         jar has carried both the moving rig's shadow and nametag and the
 //         corrected in-hand turn until this one.
-version = '0.46.2'
+// 0.46.3: the rig's held item stops reading flipped to everybody but its
+//         wearer. 0.40.3 deleted the Y half of vanilla's in-hand turn on the
+//         grounds that an ItemDisplay already carries it — but that half turn
+//         commutes with the conjugation it was said to be doubled by, so it
+//         contributed the same 180 either side of the move that supposedly
+//         made it redundant. It is a roll about the item's own length, which
+//         cannot cause the backwards-facing item it was deleted over, and its
+//         absence is the horizontal flip everybody else could see.
+version = '0.46.3'
 
 java {
     toolchain {
