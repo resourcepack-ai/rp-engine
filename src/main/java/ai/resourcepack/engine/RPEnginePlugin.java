@@ -39,6 +39,7 @@ import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.hook.CitizensTrait;
 import ai.resourcepack.engine.core.hook.MythicHook;
 import ai.resourcepack.engine.core.hook.Placeholders;
 import ai.resourcepack.engine.core.hook.WorldGuardHook;
@@ -298,6 +299,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (WorldGuardHook.listen(this)) {
             getLogger().info("WorldGuard found: rpengine-place and rpengine-use are available.");
+        }
+        if (CitizensTrait.register(this, boundModels)) {
+            // So a bind on an NPC survives it being despawned and respawned,
+            // which Citizens does on every chunk unload and restart.
+            boundModels.remembersWith(CitizensTrait::remember);
+            getLogger().info("Citizens found: a bound NPC keeps its model.");
         }
         if (MythicHook.register(this, boundModels)) {
             getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");

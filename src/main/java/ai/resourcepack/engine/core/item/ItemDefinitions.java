@@ -244,7 +244,8 @@ public final class ItemDefinitions {
                     mode,
                     settings.decimal("speed").orElse(0d),
                     settings.integer("priority").orElse(0),
-                    settings.decimal("blend").orElse(0d)));
+                    settings.decimal("blend").orElse(0d),
+                    settings.integer("layer").orElse(0)));
         }
         return Map.copyOf(out);
     }

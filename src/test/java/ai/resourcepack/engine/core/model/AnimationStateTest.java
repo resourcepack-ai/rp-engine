@@ -236,6 +236,45 @@ class AnimationStateTest {
                 RigAnimator.behaviourOf(part));
     }
 
+    // ---- layers ----------------------------------------------------------
+
+    @Test
+    void anAnimationIsOnTheBaseLayerUnlessItSaysOtherwise() {
+        // Every rig pushed before layers existed, which is all of them: the
+        // absent field reads as 0, and 0 is the ordinary path.
+        assertEquals(0, animation(named("wave", "")).layer);
+        assertEquals(2, animation(named("wave", ",\"layer\":2")).layer);
+    }
+
+    @Test
+    void aLayeredSettingReachesTheManifest() {
+        JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
+                + "\"groups\":[{\"name\":\"arm\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"
+                + "\"animations\":[{\"name\":\"wave\",\"length\":1,\"loop\":false,"
+                + "\"triggers\":[{\"type\":\"right_click\"}],\"animators\":{\"g:0\":{\"rotation\":["
+                + "{\"time\":0,\"value\":[0,0,0]},{\"time\":1,\"value\":[0,90,0]}]}}}]}").getAsJsonObject();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", model).orElseThrow();
+
+        ModelRigs.apply(rig, Map.of("wave",
+                AnimationSettings.of(null, 0, 0, 0, 3)));
+
+        assertEquals(3, rig.animations().get(0).getAsJsonObject().get("layer").getAsInt());
+    }
+
+    @Test
+    void layerZeroIsNotWrittenBecauseItIsTheDefault() {
+        JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
+                + "\"groups\":[{\"name\":\"arm\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"
+                + "\"animations\":[{\"name\":\"wave\",\"length\":1,\"loop\":false,"
+                + "\"triggers\":[{\"type\":\"right_click\"}],\"animators\":{\"g:0\":{\"rotation\":["
+                + "{\"time\":0,\"value\":[0,0,0]},{\"time\":1,\"value\":[0,90,0]}]}}}]}").getAsJsonObject();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", model).orElseThrow();
+
+        ModelRigs.apply(rig, Map.of("wave", AnimationSettings.of(null, 0, 0, 0, 0)));
+
+        assertFalse(rig.animations().get(0).getAsJsonObject().has("layer"));
+    }
+
     // ---- an author's settings reaching the manifest ----------------------
 
     @Test

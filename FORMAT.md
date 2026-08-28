@@ -353,6 +353,7 @@ chair:
         speed: 0.5      # half the authored speed
         priority: 10    # wins when two animations claim one trigger
         blend: 0.25     # seconds to ease in and out of it
+        layer: 0        # 0 plays instead of what is running; 1+ plays OVER it
 ```
 
 - **`blend`** is the difference between a model that snaps between poses and
@@ -363,6 +364,15 @@ chair:
   is why `speed` is here and not a second Blockbench file.
 
 An animation nobody mentions plays exactly as authored.
+
+**`layer` is how two animations play at once.** Layer 0 is the base — a walk
+cycle, an idle — and only one plays at a time. Anything above it composes on
+top, so a wave on layer 1 plays over whichever gait is running rather than
+replacing it. One animation per layer, so waving twice replaces the first wave
+and not the walk.
+
+Nothing needs to know about this to use it: `/rp` and the API play an animation
+by name, and an animation that names a layer goes on that layer.
 
 ### Sitting on one
 
