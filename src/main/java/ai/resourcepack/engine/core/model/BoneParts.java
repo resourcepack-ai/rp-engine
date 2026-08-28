@@ -16,7 +16,6 @@ import org.bukkit.persistence.PersistentDataType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * The bones that put something in the world besides a picture.
@@ -57,10 +56,7 @@ final class BoneParts {
      */
     private final NamespacedKey damageKey;
 
-    private final Host host;
-
     BoneParts(Host host) {
-        this.host = host;
         this.ownerKey = host.key("bone-owner");
         this.roleKey = host.key("bone-role");
         this.damageKey = host.key("bone-damage");
@@ -103,8 +99,11 @@ final class BoneParts {
      * rebind picks it up.
      */
     private void spawnNametag(ItemDisplay display) {
-        Entity host = display.getVehicle();
-        String name = host == null ? null : host.getCustomName();
+        // "wearer", not "host": this class already has a Host field, and a
+        // local shadowing it is the exact mistake that cost this project a
+        // compile once already.
+        Entity wearer = display.getVehicle();
+        String name = wearer == null ? null : wearer.getCustomName();
         if (name == null || name.isEmpty()) {
             // Nothing to show. A blank tag is an invisible entity that costs a
             // packet per player per tick for ever.
@@ -115,14 +114,15 @@ final class BoneParts {
             text.setBillboard(Display.Billboard.CENTER);
             text.setDefaultBackground(false);
             text.setSeeThrough(false);
+            text.setPersistent(false);
             text.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING,
                     display.getUniqueId().toString());
         });
         display.addPassenger(tag);
         // And vanilla's own is turned off, or there are two names: one at the
         // bone and one in the model's knee.
-        if (host != null) {
-            host.setCustomNameVisible(false);
+        if (wearer != null) {
+            wearer.setCustomNameVisible(false);
         }
     }
 
@@ -133,6 +133,12 @@ final class BoneParts {
             box.setInteractionWidth(size);
             box.setInteractionHeight(size);
             box.setResponsive(true);
+            // Never saved with the chunk. These are derived from the rig and
+            // rebuilt whenever a part is tracked, so persisting them risks the
+            // one failure that accumulates silently: a chunk load where the
+            // old passengers are not visible yet spawns a second set, and the
+            // first are invisible entities nobody can find.
+            box.setPersistent(false);
             box.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING,
                     display.getUniqueId().toString());
             box.getPersistentDataContainer().set(roleKey, PersistentDataType.STRING, behaviour.name());
@@ -172,24 +178,37 @@ final class BoneParts {
     /** Takes them off again. True if there were any. */
     boolean detach(ItemDisplay display) {
         List<Entity> mine = of(display);
+        boolean hadNametag = mine.stream().anyMatch(TextDisplay.class::isInstance);
         mine.forEach(Entity::remove);
+        if (hadNametag) {
+            // The host's own name was hidden so there would not be two. It has
+            // to come back, or unbinding a model leaves a nameless mob and
+            // nothing anywhere says why.
+            Entity wearer = display.getVehicle();
+            if (wearer != null && wearer.getCustomName() != null) {
+                wearer.setCustomNameVisible(true);
+            }
+        }
         return !mine.isEmpty();
     }
 
-    /** The part display a sub-hitbox belongs to, or empty if it is not one of ours. */
+    /**
+     * The part display a sub-hitbox belongs to, or empty if it is not one of
+     * ours.
+     *
+     * <p>Its VEHICLE, because that is what it is: these are spawned as
+     * passengers of the display so they follow the animation. The id written
+     * on them says they are ours; it is not how they are found. Looking one up
+     * by uuid would be a server-wide entity search in the damage path, for an
+     * answer already in hand.
+     */
     Optional<ItemDisplay> ownerOf(Entity hitbox) {
-        String owner = hitbox == null
-                ? null
-                : hitbox.getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING);
-        if (owner == null) {
+        if (hitbox == null
+                || !hitbox.getPersistentDataContainer().has(ownerKey, PersistentDataType.STRING)) {
             return Optional.empty();
         }
-        try {
-            Entity display = host.plugin().getServer().getEntity(UUID.fromString(owner));
-            return display instanceof ItemDisplay ? Optional.of((ItemDisplay) display) : Optional.empty();
-        } catch (IllegalArgumentException e) {
-            return Optional.empty();
-        }
+        Entity vehicle = hitbox.getVehicle();
+        return vehicle instanceof ItemDisplay ? Optional.of((ItemDisplay) vehicle) : Optional.empty();
     }
 
     /**

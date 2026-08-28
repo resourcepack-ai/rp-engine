@@ -356,6 +356,11 @@ public final class RigAnimator implements Listener {
             // drop it; a chunk reload re-tracks via EntitiesLoadEvent.
             if (!display.isValid()) {
                 it.remove();
+                // And the bookkeeping that hangs off it. Both are keyed by
+                // entity id and nothing else prunes them, so a server whose
+                // rigs load and unload all day would grow two maps for ever.
+                blends.remove(display.getUniqueId());
+                lastPosed.remove(display.getUniqueId());
                 continue;
             }
             pose(display, false);
@@ -440,10 +445,11 @@ public final class RigAnimator implements Listener {
         }
 
         RigStore.Animation animation = animationAt(rig, playbackIndex);
-        if (animation != null) {
+        if (animation != null && moves(animation, part)) {
             double t = animationTime(animation, elapsed);
+            float weight = weightOf(animation);
             for (RigStore.Step step : part.program) {
-                applyStep(animationTransform, animation.animators, step.target, step.pivot, t);
+                applyStep(animationTransform, animation.animators, step.target, step.pivot, t, weight);
             }
         }
         // Layers above the base, composed on top of it in layer order. A

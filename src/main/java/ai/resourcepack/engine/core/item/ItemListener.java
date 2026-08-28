@@ -23,7 +23,12 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Turns a click with a custom item into an event, and enforces the permission
@@ -40,6 +45,15 @@ public final class ItemListener implements Listener {
     private final Items items;
     private final ActionRunner actions;
     private final org.bukkit.plugin.Plugin plugin;
+
+    /**
+     * What each dead player is owed, until they are standing up again.
+     *
+     * <p>In memory: a server restart between somebody dying and respawning is
+     * a case where they have not lost anything anyway, since the world was
+     * saved before they died.
+     */
+    private final Map<UUID, List<ItemStack>> keeping = new ConcurrentHashMap<>();
 
     public ItemListener(org.bukkit.plugin.Plugin plugin, Items items, ActionRunner actions) {
         this.plugin = plugin;
@@ -195,6 +209,10 @@ public final class ItemListener implements Listener {
         // Cooldowns are seconds long and live in memory. Keeping them for
         // somebody who has gone is a map that only grows.
         actions.forget(event.getPlayer().getUniqueId());
+        // Somebody who logs out on the respawn screen: their kept items went
+        // with the death, and holding them for a player who may never come
+        // back is the same growing map.
+        keeping.remove(event.getPlayer().getUniqueId());
     }
 
     /**
@@ -232,7 +250,7 @@ public final class ItemListener implements Listener {
         if (event.getKeepInventory()) {
             return;
         }
-        java.util.List<ItemStack> kept = new java.util.ArrayList<>();
+        List<ItemStack> kept = new ArrayList<>();
         event.getDrops().removeIf(dropped -> {
             boolean keep = items.idOf(dropped)
                     .flatMap(items::info)
@@ -246,9 +264,23 @@ public final class ItemListener implements Listener {
         if (kept.isEmpty()) {
             return;
         }
-        // Given back on the next tick: the inventory is cleared AFTER this
-        // event, so anything put in it here goes with everything else.
-        Player player = event.getEntity();
+        // Held until they RESPAWN, not handed back a tick later. The
+        // inventory is cleared as part of dying and the player is sitting on
+        // a respawn screen after it, so anything put in it before they are
+        // back in the world is racing something that will win.
+        keeping.put(event.getEntity().getUniqueId(), kept);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onRespawn(org.bukkit.event.player.PlayerRespawnEvent event) {
+        List<ItemStack> kept = keeping.remove(event.getPlayer().getUniqueId());
+        if (kept == null) {
+            return;
+        }
+        Player player = event.getPlayer();
+        // One tick later even here: the respawn event fires before the player
+        // is fully in the world, and an inventory change made during it does
+        // not always reach the client.
         org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
             for (ItemStack one : kept) {
                 player.getInventory().addItem(one).values()
