@@ -11,8 +11,12 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerItemBreakEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -126,6 +130,55 @@ public final class ItemListener implements Listener {
         ItemStack eaten = event.getItem();
         items.idOf(eaten).ifPresent(id -> {
             if (actions.run(event.getPlayer(), id, ItemAction.Trigger.CONSUME, eaten)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onBlockBreak(BlockBreakEvent event) {
+        ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
+        items.idOf(held).ifPresent(id -> {
+            if (actions.run(event.getPlayer(), id, ItemAction.Trigger.BLOCK_BREAK, held)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onShoot(EntityShootBowEvent event) {
+        if (!(event.getEntity() instanceof Player)) {
+            return;
+        }
+        ItemStack bow = event.getBow();
+        items.idOf(bow).ifPresent(id -> {
+            if (actions.run((Player) event.getEntity(), id, ItemAction.Trigger.SHOOT, bow)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    /**
+     * The item has already broken by the time this fires and the event cannot
+     * be cancelled, so a {@code cancel} step on this trigger does nothing.
+     * That is vanilla's shape rather than ours; the trigger is still worth
+     * having, for the sound and the message.
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onItemBreak(PlayerItemBreakEvent event) {
+        ItemStack broken = event.getBrokenItem();
+        items.idOf(broken).ifPresent(id ->
+                actions.run(event.getPlayer(), id, ItemAction.Trigger.BREAK, broken));
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onPickup(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player)) {
+            return;
+        }
+        ItemStack picked = event.getItem().getItemStack();
+        items.idOf(picked).ifPresent(id -> {
+            if (actions.run((Player) event.getEntity(), id, ItemAction.Trigger.PICKUP, picked)) {
                 event.setCancelled(true);
             }
         });

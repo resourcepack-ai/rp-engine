@@ -2,20 +2,29 @@ package ai.resourcepack.engine.core.item;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.ItemStats;
 import ai.resourcepack.engine.api.Items;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.EquippableComponent;
+import org.bukkit.inventory.meta.components.FoodComponent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -33,10 +42,12 @@ import java.util.Optional;
  */
 public final class ItemsImpl implements Items {
 
+    private final Plugin plugin;
     private final NamespacedKey key;
     private volatile Map<ContentId, ItemInfo> items;
 
     public ItemsImpl(Plugin plugin) {
+        this.plugin = plugin;
         this.key = new NamespacedKey(plugin, "id");
         this.items = Map.of();
     }
@@ -112,9 +123,107 @@ public final class ItemsImpl implements Items {
         if (item.unbreakable()) {
             meta.setUnbreakable(true);
         }
+        if (!item.stats().isEmpty()) {
+            stats(meta, item);
+        }
 
         stack.setItemMeta(meta);
         return Optional.of(stack);
+    }
+
+    /**
+     * The vanilla numbers, resolved against this server's own registries.
+     *
+     * <p>Here rather than in the parser because every lookup below needs a
+     * running server, and the parser is deliberately testable without one.
+     * The cost is stated in {@code ItemDefinitions.stats}: a misspelled
+     * enchantment is one console line the first time the item is given rather
+     * than one at load.
+     *
+     * <p>Each is skipped on its own if it does not resolve. An item that comes
+     * out with three of its four enchantments is traceable; one that refuses
+     * to exist because of a typo in a fourth is not.
+     */
+    private void stats(ItemMeta meta, ItemInfo item) {
+        ItemStats stats = item.stats();
+
+        for (Map.Entry<String, Integer> entry : stats.enchantments().entrySet()) {
+            NamespacedKey key = NamespacedKey.fromString(entry.getKey().toLowerCase(Locale.ROOT));
+            Enchantment enchantment = key == null ? null : Registry.ENCHANTMENT.get(key);
+            if (enchantment == null) {
+                warn(item, "no enchantment called " + entry.getKey());
+                continue;
+            }
+            // Ignoring the level restrictions on purpose: a pack asking for
+            // Sharpness X is asking for it, and the game applies it happily.
+            meta.addEnchant(enchantment, entry.getValue(), true);
+        }
+
+        for (ItemStats.Modifier modifier : stats.modifiers()) {
+            NamespacedKey key = NamespacedKey.fromString(modifier.attribute().toLowerCase(Locale.ROOT));
+            Attribute attribute = key == null ? null : Registry.ATTRIBUTE.get(key);
+            if (attribute == null) {
+                warn(item, "no attribute called " + modifier.attribute());
+                continue;
+            }
+            AttributeModifier.Operation operation = operation(modifier.operation());
+            if (operation == null) {
+                warn(item, modifier.operation() + " is not add, multiply_base or multiply");
+                continue;
+            }
+            EquipmentSlotGroup slot = EquipmentSlotGroup.getByName(modifier.slot().toLowerCase(Locale.ROOT));
+            if (slot == null) {
+                warn(item, modifier.slot() + " is not a slot");
+                continue;
+            }
+            // The key names the item and the attribute, so two modifiers on
+            // one item do not overwrite each other and a modifier from this
+            // pack is distinguishable from anybody else's.
+            meta.addAttributeModifier(attribute, new AttributeModifier(
+                    new NamespacedKey(plugin, item.id().namespace() + "." + item.id().path()
+                            + "." + attribute.getKey().getKey()),
+                    modifier.amount(), operation, slot));
+        }
+
+        stats.maxDamage().ifPresent(max -> {
+            // Durability lives on Damageable rather than on ItemMeta, and a
+            // material that cannot take damage simply has none — a paper
+            // carrier with a durability line is a mistake worth naming rather
+            // than a silent no-op.
+            if (meta instanceof Damageable) {
+                ((Damageable) meta).setMaxDamage(max);
+            } else {
+                warn(item, "durability on " + item.material() + ", which cannot be damaged");
+            }
+        });
+
+        stats.food().ifPresent(food -> {
+            FoodComponent component = meta.getFood();
+            component.setNutrition(food.nutrition());
+            component.setSaturation(food.saturation());
+            component.setCanAlwaysEat(food.alwaysEdible());
+            meta.setFood(component);
+        });
+    }
+
+    private static AttributeModifier.Operation operation(String written) {
+        switch (written.toLowerCase(Locale.ROOT)) {
+            case "add":
+            case "add_value":
+                return AttributeModifier.Operation.ADD_NUMBER;
+            case "multiply_base":
+            case "add_multiplied_base":
+                return AttributeModifier.Operation.ADD_SCALAR;
+            case "multiply":
+            case "add_multiplied_total":
+                return AttributeModifier.Operation.MULTIPLY_SCALAR_1;
+            default:
+                return null;
+        }
+    }
+
+    private void warn(ItemInfo item, String problem) {
+        plugin.getLogger().warning(item.id() + ": " + problem + ".");
     }
 
     @Override

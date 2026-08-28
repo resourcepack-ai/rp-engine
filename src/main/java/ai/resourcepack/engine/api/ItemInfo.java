@@ -28,12 +28,13 @@ public final class ItemInfo {
     private final boolean unbreakable;
     private final Map<ItemAction.Trigger, List<ItemAction>> actions;
     private final Map<String, AnimationSettings> animations;
+    private final ItemStats stats;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                      int maxStack, boolean glow, boolean unbreakable,
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
-                     Map<String, AnimationSettings> animations) {
+                     Map<String, AnimationSettings> animations, ItemStats stats) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -48,6 +49,7 @@ public final class ItemInfo {
         this.unbreakable = unbreakable;
         this.actions = actions;
         this.animations = animations;
+        this.stats = stats;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -68,7 +70,8 @@ public final class ItemInfo {
                 glow,
                 unbreakable,
                 Map.of(),
-                Map.of());
+                Map.of(),
+                ItemStats.none());
     }
 
     /**
@@ -83,7 +86,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations);
+                animations, stats);
     }
 
     /**
@@ -98,7 +101,25 @@ public final class ItemInfo {
     public ItemInfo withAnimations(Map<String, AnimationSettings> animations) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
-                animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations));
+                animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats);
+    }
+
+    /** The same item, with the vanilla numbers it carries. */
+    public ItemInfo withStats(ItemStats stats) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations,
+                stats == null ? ItemStats.none() : stats);
+    }
+
+    /**
+     * Its damage, durability, enchantments and food value.
+     *
+     * <p>{@link ItemStats#none()} for nearly every item, which is the point:
+     * an item here is a vanilla item wearing a different model, and most of
+     * them want the vanilla numbers underneath.
+     */
+    public ItemStats stats() {
+        return stats;
     }
 
     /** How this piece's animations play, by animation name. Usually empty. */

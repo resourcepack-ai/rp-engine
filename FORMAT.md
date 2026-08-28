@@ -122,7 +122,16 @@ A trigger holds a **list of steps**, run in order. Each step is one key, so it
 needs its own `-`; two keys in one entry is a missing dash, and that is a load
 error rather than a step that quietly never runs.
 
-Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`.
+Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`,
+`block_break`, `shoot`, `break` (durability ran out), `pickup`.
+
+`break` fires after the item is already gone and cannot be cancelled — that is
+vanilla's shape, not ours. It is still worth having for the sound and the
+message.
+
+There is deliberately no `wear`/`unwear`: Spigot has no equip event, and the
+alternatives are a Paper dependency or polling everybody's armour every tick.
+Neither is worth it for a trigger.
 
 | Step | What it does |
 |---|---|
@@ -151,6 +160,46 @@ language and a bad one. Anything past these verbs is a plugin's job, and
 `ItemUseEvent` — id, stack, action, block — is what it listens to. Cancel that
 event and the vanilla use is cancelled too, and the item's own actions do not
 run either: the event is the stronger statement of the two.
+
+## The numbers on an item
+
+An item here is a vanilla item wearing a different model, which is what makes
+the whole id scheme work — and it left a custom sword hitting exactly as hard
+as the stick underneath it. These are the vanilla components that fix that:
+
+```yaml
+sword:
+  material: IRON_SWORD
+  model: sword
+  durability: 500                     # replaces the material's own
+  enchantments: { sharpness: 3, unbreaking: 2 }
+  attributes:
+    - attack_damage: 9
+    - attack_speed: -2.4
+    - max_health: { amount: 4, operation: add, slot: hand }
+  food: { nutrition: 6, saturation: 7.2, always: false }
+```
+
+- Names are **vanilla's, unprefixed** — `sharpness`, `attack_damage` — because
+  that is what is written on the wiki you are reading them off.
+- An attribute is `name: amount` for the usual case, or a block with an
+  `operation` (`add`, `multiply_base`, `multiply`) and a `slot` (`hand`,
+  `head`, `chest`, `legs`, `feet`, `any`).
+- **Every one of these is a real item component.** The game applies them, other
+  plugins read them, and an item that leaves your server in somebody's
+  inventory keeps them. Nothing here needs the plugin present to work.
+- A name that resolves to nothing is one line in the console the first time the
+  item is given, not a load error — the registries need a running server, and
+  the definition parser deliberately does not have one.
+
+## Icons in chat
+
+Set `chat.icons: true` in `config.yml` and anybody with `rpengine.chat.icons`
+can type `:wave:` to get the icon called `wave`. `:mypack:wave:` where two
+packs use one name.
+
+Off by default. A name that is not an icon is left exactly as typed, so
+`10:30`, `:)` and a URL all survive.
 
 An item can also carry a permission:
 

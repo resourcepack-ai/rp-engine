@@ -37,6 +37,7 @@ import ai.resourcepack.engine.core.emote.EmoteWording;
 import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
+import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.hook.MythicHook;
 import ai.resourcepack.engine.core.hook.Placeholders;
@@ -257,6 +258,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquids.start();
         getServer().getPluginManager().registerEvents(
                 new ItemListener(items, new ActionRunner(items, sounds)), this);
+        // Off unless a server asks for it: a plugin that starts rewriting
+        // what people type in chat the moment it is installed is a plugin
+        // somebody has to find the setting for in a hurry.
+        getServer().getPluginManager().registerEvents(
+                new ChatIcons(icons, getConfig().getBoolean("chat.icons", false)), this);
         // The client and the relay each need the other: the client dispatches
         // to the relay, the relay answers down the client. Nothing fires until
         // open() below, so the lambdas can read a field set on the next line.
