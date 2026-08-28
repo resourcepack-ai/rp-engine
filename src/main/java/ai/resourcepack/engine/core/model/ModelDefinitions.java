@@ -121,8 +121,39 @@ public final class ModelDefinitions {
                 ? size(body, "seat", 0f, origin, where, diagnostics)
                 : 0f;
 
+        int light = body.integer("light").orElse(0);
+        if (light < 0 || light > 15) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "light: " + light + " is outside 0-15 and was clamped."));
+        }
+
+        ModelInfo.Surface surface = ModelInfo.Surface.FLOOR;
+        Optional<String> declaredSurface = body.string("surface");
+        if (declaredSurface.isPresent()) {
+            try {
+                surface = ModelInfo.Surface.valueOf(
+                        declaredSurface.get().trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "surface: " + declaredSurface.get()
+                                + " is not floor, wall, ceiling or any. It stays on the floor."));
+            }
+        }
+
+        ContentId drop = null;
+        Optional<String> declaredDrop = body.string("drop");
+        if (declaredDrop.isPresent()) {
+            drop = ContentId.parse(declaredDrop.get()).orElse(null);
+            if (drop == null) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "drop: " + declaredDrop.get() + " is not a namespace:id. "
+                                + "It gives back the item it was placed from."));
+            }
+        }
+
         return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
-                scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat));
+                scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat,
+                light, surface, drop));
     }
 
     /**

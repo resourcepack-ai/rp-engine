@@ -227,6 +227,9 @@ chair:
     scale: 1.0
     solid: false         # true puts a barrier behind it
     seat: 0.6            # sit on it, this far above its base. 0 is no seat
+    light: 0            # 0-15, what it gives off. A lamp wants 14.
+    surface: floor      # floor | wall | ceiling | any
+    drop: mypack:shard  # what breaking it gives back. Default: itself
     # width and height are the hitbox, in blocks. Leave them out and they are
     # measured off the model, which is almost always what you want.
 ```
@@ -254,6 +257,14 @@ inside it.
 `solid: false` by default: a display entity has no collision at all, and
 `solid: true` puts an invisible barrier block behind it, removed when the model
 is broken.
+
+`light:` works the same way and for the same reason — a display entity emits
+nothing, so a real light block goes in the anchor and is taken away when the
+piece is broken. **A solid piece cannot also be a lamp**: one block cannot be a
+barrier and a light at once, and the barrier wins.
+
+`surface:` refuses a placement rather than turning it sideways. A torch on a
+wall, a chandelier under a ceiling, and a chair on neither.
 
 Category folders are walked recursively, so `items/weapons/swords.yml` is
 fine. The subfolder is organisation only: **it contributes nothing to the id**.
