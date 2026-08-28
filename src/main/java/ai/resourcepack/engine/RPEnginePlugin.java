@@ -256,6 +256,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         saveDefaultConfig();
         // Before anything can talk, including the load diagnostics below.
         applyChatStyle();
+        applyHeldItemTurn();
         items = new ItemsImpl(this);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
@@ -429,6 +430,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private void reloadContent(CommandSender to) {
         reloadConfig();
         applyChatStyle();
+        applyHeldItemTurn();
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }
@@ -487,6 +489,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (!merged.ok()) {
             getLogger().warning("content rigs: " + merged.error());
         }
+    }
+
+    /**
+     * How a rig's held item is turned in its hand. <b>Calibration only.</b>
+     *
+     * <p>The defaults here are the answer as far as anybody knows, and a server
+     * owner has no reason to set these. They exist because this turn has been
+     * wrong four times and no test can see a rig: they make it something that
+     * can be found by looking, with {@code /rpengine reload} between tries,
+     * rather than one rebuild per guess. See {@code HeldItem.orient}.
+     *
+     * <p>Defaulted to the field values rather than to literals, so the answer
+     * is stated once, in the class that explains it.
+     */
+    private void applyHeldItemTurn() {
+        EmoteDirector.heldItemTurn(
+            (float) getConfig().getDouble("emotes.held-item-pitch", 90.0),
+            (float) getConfig().getDouble("emotes.held-item-yaw", 0.0),
+            (float) getConfig().getDouble("emotes.held-item-roll", 0.0));
     }
 
     private void applyChatStyle() {

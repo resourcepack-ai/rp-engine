@@ -1490,13 +1490,26 @@ public final class EmoteDirector implements Listener {
         feet.setPitch(0);
         session.shadow = spawnShadow(session, feet);
         session.nameTag = spawnNameTag(player, session);
+        // <b>The name is hidden from its wearer ALWAYS, not only when the rest
+        // of the rig is.</b> Nobody sees their own nameplate in vanilla — it is
+        // drawn for other people — so the rig's copy of it is the one part of
+        // an emote that has no first-person reading at all. On a worn set it
+        // went with everything else; on a one-shot, where the wearer is meant
+        // to see their own rig, it left their own name hanging in front of
+        // them, which is not something the game ever shows you.
+        //
+        // Independent of setNameTagShown, which works in view RANGE and is
+        // about other people's screens. hideEntity is per-viewer and is not
+        // undone by a range change, so a group crossing in and out of a
+        // vanilla state cannot bring this back.
+        hideFromWearer(player, session.nameTag);
         if (session.hideFromOwnWearer()) {
-            // The shadow and the name go with everything else. A wearer whose
-            // own body is back is casting their own shadow and wearing their
-            // own nameplate, so leaving either of the rig's on their screen is
-            // the doubling `setRigHidden` avoids for everybody else.
+            // The shadow goes with everything else. A wearer whose own body is
+            // back is casting their own shadow, so leaving the rig's on their
+            // screen is the doubling `setRigHidden` avoids for everybody else.
+            // Unlike the name, a shadow IS something you see of yourself, which
+            // is why it stays on a one-shot and the name does not.
             hideFromWearer(player, session.shadow);
-            hideFromWearer(player, session.nameTag);
         }
 
         // Invisible, and nothing more — the camera stays where the body was.
@@ -3895,5 +3908,23 @@ public final class EmoteDirector implements Listener {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * Sets how a rig's held item is turned in its hand. <b>Calibration.</b>
+     *
+     * <p>Three degrees, applied X then Y then Z, straight through to
+     * {@code HeldItem.orient} — which is package-private and is where the whole
+     * explanation lives. This exists only because that class is not reachable
+     * from the plugin, and because the turn is the one part of the hand that
+     * cannot be settled by a test: it has been changed four times from four
+     * confident readings of the same arithmetic, and the thing that was missing
+     * every time was somebody looking at a rig.
+     *
+     * <p>The defaults are correct as far as anyone knows. A server owner has no
+     * reason to touch these.
+     */
+    public static void heldItemTurn(float pitch, float yaw, float roll) {
+        HeldItem.turn(pitch, yaw, roll);
     }
 }

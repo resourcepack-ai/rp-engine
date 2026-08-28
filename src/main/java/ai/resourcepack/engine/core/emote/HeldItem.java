@@ -157,36 +157,46 @@ final class HeldItem {
      * Turns the item the way a hand holds it.
      *
      * <p>Vanilla's {@code ItemInHandLayer.renderArmWithItem} orients a held
-     * stack with an X turn of -90 followed by a Y turn of 180, and <b>that pair
-     * is taken whole, both halves of it.</b>
+     * stack with an X turn of -90 followed by a Y turn of 180. <b>Neither half
+     * of that pair survives being lifted here unchanged, and four releases were
+     * spent finding out which parts of it were wrong.</b> What this is now is a
+     * single {@code Rx(+90)}, and both differences from vanilla are deliberate.
      *
-     * <p><b>The Y half was once deleted, and putting it back is the fix for an
-     * item that read flipped to everybody but its wearer.</b> The argument for
-     * deleting it was that an ItemDisplay already carries that half turn —
-     * {@code ItemDisplayRenderer} spins the rendered item 180 degrees about Y,
-     * which is the reason {@link
+     * <p><b>The pitch is the OPPOSITE sign to vanilla's</b>, because vanilla's
+     * entity-model space is y-DOWN and rig space is y-up. Negating y conjugates
+     * a rotation about X into its own inverse — {@code Rx(-90)} becomes
+     * {@code Rx(+90)} — while leaving a rotation about Y alone. Lifting the
+     * pair verbatim into a y-up frame is what pointed the blade at the rig's
+     * back, and it is the same class of mistake as lifting studio's
+     * {@code slotBaseFrame}: a correct number read in the wrong frame.
+     *
+     * <p><b>The Y half is absent because it is a ROLL here, not a reversal.</b>
+     * That took two goes in opposite directions. It was once deleted on the
+     * grounds that an ItemDisplay already carries it — the client spins the
+     * rendered item 180 degrees about Y, which is the reason {@link
      * ai.resourcepack.engine.core.animation.RigMath#toItemDisplaySpace} exists
-     * — so once this moved OUTSIDE that conjugation the client's own turn had
-     * "already been spent" and repeating it spent it twice.
+     * — so once {@code orient} moved OUTSIDE that conjugation the client's turn
+     * had "already been spent". That does not follow, and
+     * {@code HeldItemTest.theHalfTurnAboutYIsUntouchedByTheConjugation} is the
+     * arithmetic: the conjugation is BY a half turn about Y and a rotation
+     * commutes with itself, so the term contributes the same 180 on either side
+     * of that move. It was then restored on that reasoning, which was right
+     * about the argument and still wrong about the item.
      *
-     * <p>That does not follow, and the arithmetic is pinned in
-     * {@code HeldItemTest.theHalfTurnAboutYIsUntouchedByTheConjugation}: the
-     * conjugation is BY a half turn about Y, and a rotation commutes with
-     * itself, so this term contributes the same 180 inside it or outside it.
-     * Moving the call changed the PITCH — {@code Rx(-90)} was arriving as
-     * {@code Rx(+90)}, which is what hung the item beside the hand — and left
-     * the Y exactly as it had always been. So whatever the client does with it,
-     * it did the same thing before and after that move, and the move cannot
-     * have turned this half turn into a duplicate of anything.
+     * <p>The thing to keep is what this term can and cannot do. After the
+     * pitch, the item's local Y runs ALONG the item and is horizontal, so a
+     * half turn about it is a roll — it flips which face is up and never which
+     * way the blade points. <b>So "the sword points backwards" is never
+     * evidence about the yaw, and "the item looks mirrored" is never evidence
+     * about the pitch.</b> Both were read as the other, which is how the same
+     * three lines got changed four times. A half turn about the DISPLAY's
+     * vertical axis, applied at the grip, is what reverses a blade, and
+     * composing that onto the old pair is exactly how the current value was
+     * arrived at: {@code Rx(-90)·Ry(180)·Rz(180)} is {@code Rx(+90)}.
      *
-     * <p><b>What the deletion actually did is roll the item about its own
-     * length.</b> After the pitch, the item's local Y runs along the item and
-     * is horizontal, so this half turn is a roll: it cannot make a sword point
-     * the wrong way, and it flips only what is perpendicular to the blade —
-     * which face is up, which way an asymmetric model reads. That is why a rig
-     * standing still looked fine, why it was reported both as "backwards" and
-     * as "flipped in the horizontal axis", and why a symptom of an item facing
-     * the wrong way is never evidence about this term.
+     * <p>If it is STILL wrong, do not guess a fifth time — the three
+     * {@code emotes.held-item-*} settings turn this into something that can be
+     * found by looking, with {@code /rpengine reload} between tries.
      *
      * <p>It is NOT taken from studio's
      * {@code slotBaseFrame}, which states {@code [-90 + 22.5, 0, 0]} — that
@@ -205,9 +215,33 @@ final class HeldItem {
      * every item, vanilla or custom, brings its own correct in-hand orientation
      * and only the hand has to be found.
      */
+    /**
+     * The turn, in degrees, applied X then Y then Z. <b>Calibration.</b>
+     *
+     * <p>Overridable from config for the same reason {@link #HAND_LIFT_PX} is a
+     * measured constant: this is the one part of the hand that no test can
+     * settle, and it has now been changed four times from four confident
+     * readings of the same arithmetic. A server owner never needs these; they
+     * exist so the next person who can SEE the rig can find the right pair in
+     * one sitting instead of one rebuild per guess.
+     *
+     * <p>Only the pitch is non-zero by default, and {@link #orient} says why.
+     */
+    private static volatile float pitchDeg = 90f;
+    private static volatile float yawDeg = 0f;
+    private static volatile float rollDeg = 0f;
+
+    /** Sets the turn. See the fields; called from the plugin on load and reload. */
+    static void turn(float pitch, float yaw, float roll) {
+        pitchDeg = pitch;
+        yawDeg = yaw;
+        rollDeg = roll;
+    }
+
     static void orient(Matrix4f m) {
-        m.rotateX((float) (-Math.PI / 2.0));
-        m.rotateY((float) Math.PI);
+        m.rotateX((float) Math.toRadians(pitchDeg));
+        if (yawDeg != 0f) m.rotateY((float) Math.toRadians(yawDeg));
+        if (rollDeg != 0f) m.rotateZ((float) Math.toRadians(rollDeg));
     }
 
     /**

@@ -53,6 +53,24 @@ emotes:
   # still asked before anything happens to them. Leave empty for no check.
   cast-permission: "rpengine.emote.cast"
 
+  # How the item in a rig's hand is turned, in degrees, applied X then Y then
+  # Z. CALIBRATION — you should not need these.
+  #
+  # They exist because this one turn cannot be settled by a test: nothing in
+  # the build can see a rig, so it has been got wrong from four confident
+  # readings of the same arithmetic. The values below are the answer as far as
+  # anybody knows. If a held item still looks wrong, these let you find the
+  # right one by looking, with /rpengine reload between tries, and the two
+  # symptoms tell you which number to move:
+  #
+  #   the item points the wrong WAY (a sword at the rig's back)  -> pitch
+  #   the item looks mirrored or upside down, but points right   -> yaw
+  #
+  # Please report a value that works rather than keeping it here.
+  held-item-pitch: 90.0
+  held-item-yaw: 0.0
+  held-item-roll: 0.0
+
 # Which bundle a player is given on join. Leave empty to send nothing and
 # drive it yourself.
 default-bundle: "main"

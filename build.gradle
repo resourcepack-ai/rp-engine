@@ -164,7 +164,15 @@ group = 'ai.resourcepack'
 //         the check could run — and a plugin that throws from onLoad is never
 //         enabled. The check moves out to the call site, where the class is
 //         not touched at all if the plugin is absent.
-version = '0.46.5'
+// 0.46.6: nobody sees their own nametag over their own rig — vanilla never
+//         shows you your own nameplate, and a one-shot emote was leaving the
+//         rig's copy of it hanging in front of its wearer. The held item's
+//         turn becomes Rx(+90): vanilla's pitch has the opposite sign in a
+//         y-up frame, and lifting its in-hand pair verbatim is what pointed
+//         the blade at the rig's own back. The turn is also settable from
+//         config now, because it has been wrong four times and no test can
+//         see a rig.
+version = '0.46.6'
 
 java {
     toolchain {
