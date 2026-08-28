@@ -149,7 +149,14 @@ group = 'ai.resourcepack'
 //         made it redundant. It is a roll about the item's own length, which
 //         cannot cause the backwards-facing item it was deleted over, and its
 //         absence is the horizontal flip everybody else could see.
-version = '0.46.3'
+// 0.46.4: the server boots. 0.43.0 added a permission whose description reads
+//         "Use :name: shortcodes for icons in chat" unquoted, and a plain YAML
+//         scalar ends at the first colon-space — so plugin.yml did not parse,
+//         Paper threw InvalidDescriptionException before enabling anything,
+//         and every plugin on the box went down with it. Nothing had ever
+//         looked at this file: it is a resource, the build only substitutes
+//         the version into it, and no test loaded it. PluginYmlTest does now.
+version = '0.46.4'
 
 java {
     toolchain {

@@ -115,7 +115,11 @@ permissions:
     description: Spawn a custom entity.
     default: op
   rpengine.chat.icons:
-    description: Use :name: shortcodes for icons in chat.
+    # Quoted, and it has to stay quoted: a plain YAML scalar ends at the first
+    # colon-space, so `:name: shortcodes` reads as a nested mapping and the
+    # whole file fails to parse. That is not a bad permission line, it is a
+    # server that will not boot at all — see PluginYmlTest.
+    description: "Use :name: shortcodes for icons in chat."
     default: true
   rpengine.bind:
     description: Put a model on a mob that already exists.
