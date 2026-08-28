@@ -104,7 +104,14 @@ group = 'ai.resourcepack'
 //         (loop/hold/once), a priority and a crossfade. Items gain the
 //         vanilla numbers — enchantments, attributes, durability, food — and
 //         four more triggers. Typing :wave: in chat draws the icon.
-version = '0.43.0'
+// 0.44.0: bones can do things, with ModelEngine's own name prefixes so a rig
+//         somebody already has works unchanged: heads that track a target,
+//         sub-hitboxes, seats, nametags. Placed pieces can light a room,
+//         stick to a wall or a ceiling, and drop something other than
+//         themselves. Items can be worn as hats and kept through dying.
+//         WorldGuard gets two region flags, built on events the engine
+//         already fired.
+version = '0.44.0'
 
 java {
     toolchain {
@@ -123,6 +130,8 @@ repositories {
     maven { url = 'https://repo.extendedclip.com/releases/' }
     // MythicMobs, for the model mechanic. Its own repository too.
     maven { url = 'https://mvn.lumine.io/repository/maven-public/' }
+    // WorldGuard, for the region flags.
+    maven { url = 'https://maven.enginehub.org/repo/' }
 }
 
 dependencies {
@@ -144,6 +153,9 @@ dependencies {
 
     // MythicMobs. compileOnly for the same reason as the other two.
     compileOnly 'io.lumine:Mythic-Dist:5.12.1'
+
+    // WorldGuard. compileOnly, same as the rest.
+    compileOnly 'com.sk89q.worldguard:worldguard-bukkit:7.0.9'
 
     compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
     compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'

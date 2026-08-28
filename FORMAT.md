@@ -192,6 +192,19 @@ sword:
   item is given, not a load error — the registries need a running server, and
   the definition parser deliberately does not have one.
 
+## WorldGuard
+
+Two region flags, if WorldGuard is installed:
+
+```
+/rg flag spawn rpengine-place deny
+/rg flag arena rpengine-use deny
+```
+
+`rpengine-place` covers putting a model down and breaking one; `rpengine-use`
+covers using a custom item. Both allow by default, and anything that goes wrong
+allows too — a server should never be locked out of its own content by a hook.
+
 ## Icons in chat
 
 Set `chat.icons: true` in `config.yml` and anybody with `rpengine.chat.icons`
