@@ -196,6 +196,46 @@ class AnimationStateTest {
         assertEquals(4f, RigAnimator.mix(at(0, 0), at(4, 0), 2f).getTranslation().x, 0.0001);
     }
 
+    // ---- the neck --------------------------------------------------------
+
+    @Test
+    void anAngleIsWrappedIntoTheShortWayRound() {
+        // A mob turning from 179 to -179 has moved two degrees, not 358. Left
+        // unwrapped, the clamp below reads that as a hard limit hit and snaps
+        // the head to the far side.
+        assertEquals(2f, RigAnimator.wrap(362f), 0.0001);
+        assertEquals(-2f, RigAnimator.wrap(358f), 0.0001);
+        assertEquals(-179f, RigAnimator.wrap(181f), 0.0001);
+        assertEquals(0f, RigAnimator.wrap(720f), 0.0001);
+    }
+
+    @Test
+    void aNeckIsClampedRatherThanLettingAHeadGoOnBackwards() {
+        assertEquals(75f, RigAnimator.clamp(200f, 75f), 0.0001);
+        assertEquals(-75f, RigAnimator.clamp(-200f, 75f), 0.0001);
+        assertEquals(30f, RigAnimator.clamp(30f, 75f), 0.0001);
+    }
+
+    @Test
+    void aPartOnAManifestWithNoBehaviourHasNone() {
+        // Every rig pushed before behaviours existed, which is all of them.
+        RigStore.Part part = new com.google.gson.Gson().fromJson(
+                "{\"item\":\"mypack:golem__part0\",\"program\":[]}", RigStore.Part.class);
+
+        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, RigAnimator.behaviourOf(part));
+        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, RigAnimator.behaviourOf(null));
+    }
+
+    @Test
+    void aBehaviourOnTheManifestIsReadBackByName() {
+        RigStore.Part part = new com.google.gson.Gson().fromJson(
+                "{\"item\":\"a:b__part0\",\"program\":[],\"behaviour\":\"hitbox_oriented\"}",
+                RigStore.Part.class);
+
+        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.HITBOX_ORIENTED,
+                RigAnimator.behaviourOf(part));
+    }
+
     // ---- an author's settings reaching the manifest ----------------------
 
     @Test

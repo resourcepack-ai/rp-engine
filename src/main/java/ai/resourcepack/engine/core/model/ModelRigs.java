@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.AnimationSettings;
+import ai.resourcepack.engine.api.BoneBehaviour;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -76,11 +77,20 @@ public final class ModelRigs {
         private final String item;
         private final List<Integer> elements;
         private final List<Step> program;
+        private final String bone;
+        private final BoneBehaviour behaviour;
+        private final float[] pivot;
+        private final float size;
 
-        Part(String item, List<Integer> elements, List<Step> program) {
+        Part(String item, List<Integer> elements, List<Step> program,
+             String bone, BoneBehaviour behaviour, float[] pivot, float size) {
             this.item = item;
             this.elements = List.copyOf(elements);
             this.program = List.copyOf(program);
+            this.bone = bone;
+            this.behaviour = behaviour;
+            this.pivot = pivot;
+            this.size = size;
         }
 
         /** The item model id this part renders as: {@code <modelId>__part<n>}. */
@@ -96,6 +106,39 @@ public final class ModelRigs {
         /** Empty for the static remainder, which never moves. */
         public List<Step> program() {
             return program;
+        }
+
+        /** The bone this part came from, or empty for a loose cube. */
+        public String bone() {
+            return bone == null ? "" : bone;
+        }
+
+        /** What that bone does besides being drawn. Usually nothing. */
+        public BoneBehaviour behaviour() {
+            return behaviour;
+        }
+
+        /**
+         * The bone's own pivot, in model pixels.
+         *
+         * <p>Carried separately from the program because a behaviour needs to
+         * know WHERE the bone is even when the bone does not move: a seat and
+         * a nametag on a still bone are both perfectly ordinary.
+         */
+        public float[] pivot() {
+            return pivot == null ? new float[]{8f, 8f, 8f} : pivot.clone();
+        }
+
+        /**
+         * How big this part is, in blocks: its widest side.
+         *
+         * <p>Measured here because this is the only place that holds the
+         * geometry — the model is in the pack and the server never sees it.
+         * A sub-hitbox that had to guess would be either a box round the whole
+         * animal, which defeats the point, or a number somebody made up.
+         */
+        public float size() {
+            return size;
         }
     }
 
@@ -147,6 +190,10 @@ public final class ModelRigs {
 
         List<Part> parts = new ArrayList<>();
         Set<Integer> claimed = new HashSet<>();
+        // Read before the split, because a behaviour is inherited: every bone
+        // under an hi_ one is a head bone too, and the bone itself may be a
+        // container with no cubes of its own to hang the answer on.
+        List<BoneBehaviour> behaviours = behaviours(groups);
 
         // A bone's cubes move with the bone AND with everything the bone
         // hangs off, so what a part composes is the whole ancestor chain:
@@ -180,13 +227,15 @@ public final class ModelRigs {
                 if (animated.contains(String.valueOf(index))) {
                     List<Step> own = new ArrayList<>(chain);
                     own.add(new Step(String.valueOf(index), pivotOf(elements, index)));
-                    parts.add(part(modelId, parts.size(), List.of(index), own));
+                    parts.add(part(modelId, parts.size(), List.of(index), own,
+                            nameOf(group), behaviours.get(g), originOf(group), elements));
                 } else {
                     boneCubes.add(index);
                 }
             }
             if (!boneCubes.isEmpty()) {
-                parts.add(part(modelId, parts.size(), boneCubes, chain));
+                parts.add(part(modelId, parts.size(), boneCubes, chain,
+                        nameOf(group), behaviours.get(g), originOf(group), elements));
             }
         }
 
@@ -198,7 +247,8 @@ public final class ModelRigs {
             }
             claimed.add(i);
             parts.add(part(modelId, parts.size(), List.of(i),
-                    List.of(new Step(String.valueOf(i), pivotOf(elements, i)))));
+                    List.of(new Step(String.valueOf(i), pivotOf(elements, i))),
+                    "", BoneBehaviour.NONE, pivotOf(elements, i), elements));
         }
 
         // Everything left rides along as one still part. It is a part rather
@@ -212,7 +262,8 @@ public final class ModelRigs {
             }
         }
         if (!remainder.isEmpty()) {
-            parts.add(part(modelId, parts.size(), remainder, List.of()));
+            parts.add(part(modelId, parts.size(), remainder, List.of(),
+                    "", BoneBehaviour.NONE, new float[]{8f, 8f, 8f}, elements));
         }
 
         boolean moves = parts.stream().anyMatch(part -> !part.program().isEmpty());
@@ -334,6 +385,18 @@ public final class ModelRigs {
                 JsonObject out = new JsonObject();
                 out.addProperty("item", part.item());
                 out.add("program", program);
+                if (!part.bone().isEmpty()) {
+                    out.addProperty("bone", part.bone());
+                }
+                if (part.behaviour() != BoneBehaviour.NONE) {
+                    out.addProperty("behaviour", part.behaviour().name().toLowerCase(java.util.Locale.ROOT));
+                    out.addProperty("size", part.size());
+                    JsonArray pivot = new JsonArray();
+                    for (float value : part.pivot()) {
+                        pivot.add(value);
+                    }
+                    out.add("pivot", pivot);
+                }
                 parts.add(out);
             }
             JsonObject rig = new JsonObject();
@@ -408,8 +471,91 @@ public final class ModelRigs {
         }
     }
 
-    private static Part part(String modelId, int index, List<Integer> elements, List<Step> program) {
-        return new Part(modelId + PART_MARKER + index, elements, program);
+    private static Part part(String modelId, int index, List<Integer> elements, List<Step> program,
+                             String bone, BoneBehaviour behaviour, float[] pivot, JsonArray source) {
+        return new Part(modelId + PART_MARKER + index, elements, program, bone, behaviour, pivot,
+                measure(source, elements));
+    }
+
+    /**
+     * The widest side of what these elements occupy, in blocks.
+     *
+     * <p>16 model pixels to the block, and a bone with nothing in it — a
+     * container that only holds other bones — measures as half a block so that
+     * a seat or a hitbox on it still has somewhere to be.
+     */
+    private static float measure(JsonArray elements, List<Integer> indices) {
+        float minX = Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE;
+        float minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE;
+        float maxY = -Float.MAX_VALUE;
+        float maxZ = -Float.MAX_VALUE;
+        for (int index : indices) {
+            if (index < 0 || index >= elements.size() || !elements.get(index).isJsonObject()) {
+                continue;
+            }
+            JsonObject element = elements.get(index).getAsJsonObject();
+            float[] from = vec3(element, "from", null);
+            float[] to = vec3(element, "to", null);
+            if (from == null || to == null) {
+                continue;
+            }
+            minX = Math.min(minX, Math.min(from[0], to[0]));
+            minY = Math.min(minY, Math.min(from[1], to[1]));
+            minZ = Math.min(minZ, Math.min(from[2], to[2]));
+            maxX = Math.max(maxX, Math.max(from[0], to[0]));
+            maxY = Math.max(maxY, Math.max(from[1], to[1]));
+            maxZ = Math.max(maxZ, Math.max(from[2], to[2]));
+        }
+        if (minX > maxX) {
+            return 0.5f;
+        }
+        float widest = Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ));
+        return Math.max(0.125f, widest / 16f);
+    }
+
+    /**
+     * What each bone does, with inheritance applied.
+     *
+     * <p>{@code hi_} means "and everything under it", which is the whole
+     * difference between it and {@code h_} — a head with a jaw and two eyes
+     * hanging off it should not need the prefix written four times. A child
+     * that names a behaviour of its own keeps it: an explicit name beats an
+     * inherited one, always.
+     */
+    private static List<BoneBehaviour> behaviours(JsonArray groups) {
+        List<BoneBehaviour> out = new ArrayList<>();
+        for (int g = 0; g < groups.size(); g++) {
+            JsonObject group = groups.get(g).isJsonObject() ? groups.get(g).getAsJsonObject() : null;
+            BoneBehaviour own = BoneBehaviour.of(nameOf(group));
+            if (own != BoneBehaviour.NONE) {
+                out.add(own);
+                continue;
+            }
+            // A parent is always earlier in the list, so its answer is already
+            // in `out` by the time this one is asked.
+            int parent = group == null ? -1 : parentOf(group);
+            out.add(parent >= 0 && parent < out.size()
+                            && out.get(parent) == BoneBehaviour.HEAD_INHERITED
+                    ? BoneBehaviour.HEAD_INHERITED
+                    : BoneBehaviour.NONE);
+        }
+        return out;
+    }
+
+    private static String nameOf(JsonObject group) {
+        JsonElement name = group == null ? null : group.get("name");
+        return name != null && name.isJsonPrimitive() ? name.getAsString() : "";
+    }
+
+    private static int parentOf(JsonObject group) {
+        JsonElement parent = group.get("parent");
+        return parent != null && parent.isJsonPrimitive() ? asInt(parent, -1) : -1;
+    }
+
+    private static float[] originOf(JsonObject group) {
+        return vec3(group, "origin", new float[]{8f, 0f, 8f});
     }
 
     /**
