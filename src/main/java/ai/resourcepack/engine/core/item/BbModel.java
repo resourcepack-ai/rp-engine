@@ -178,10 +178,16 @@ public final class BbModel {
      *
      * <p>Blockbench nests; this list does not. Every named node holding cubes
      * becomes one entry with its DIRECT cube children, which is what studio
-     * does and therefore what {@code ModelRigs} expects. Nesting survives
-     * anyway, in the only place it matters: a child bone's part composes its
-     * own step inside its parent's, and that is a property of the program
-     * rather than of this list.
+     * does and therefore what {@code ModelRigs} expects.
+     *
+     * <p><strong>The nesting is genuinely lost, and that is a real
+     * limitation rather than a simplification.</strong> A child bone becomes a
+     * flat entry of its own, so its part's program holds its own step and not
+     * its parent's — rotate a torso and the arms inside it stay where they
+     * were. Studio's rigs have exactly the same hole, which is why the two
+     * still agree; fixing it means composing an ancestor chain into each
+     * part's program on BOTH sides, and is the "bones as a real tree" entry in
+     * the design notes's list of what is not done.
      *
      * <p>A cube uuid that resolves to nothing was a mesh, dropped with the
      * geometry above. It vanishes here rather than pointing at whatever cube
