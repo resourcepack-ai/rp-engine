@@ -38,11 +38,13 @@ import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.hook.Placeholders;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.font.OverlayDefinitions;
 import ai.resourcepack.engine.core.font.Overlays;
 import ai.resourcepack.engine.core.item.Geometry;
+import ai.resourcepack.engine.core.item.ActionRunner;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemListener;
@@ -250,7 +252,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(seats, this);
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
-        getServer().getPluginManager().registerEvents(new ItemListener(items), this);
+        getServer().getPluginManager().registerEvents(
+                new ItemListener(items, new ActionRunner(items, sounds)), this);
         // The client and the relay each need the other: the client dispatches
         // to the relay, the relay answers down the client. Nothing fires until
         // open() below, so the lambdas can read a field set on the next line.
@@ -267,6 +270,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 pack -> packHost.register(pack), this::pushTo);
         studio.onContent(this::registerPushedContent);
         invites = new EmoteInvites(this, emotes());
+        // Optional, and the only place PlaceholderAPI is named. A server
+        // without it loads this plugin exactly as before.
+        if (Placeholders.register(this, registry, emotes(), items, seats, sessions, group)) {
+            getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
+        }
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
         animator.placements(models::handleFor);

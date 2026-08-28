@@ -93,6 +93,11 @@ public final class ItemDefinitions {
             maxStack = 0;
         }
 
+        java.util.Map<ai.resourcepack.engine.api.ItemAction.Trigger,
+                java.util.List<ai.resourcepack.engine.api.ItemAction>> actions =
+                ItemActions.parse(body, definition.id(), origin, diagnostics);
+        ItemActions.validate(actions, definition.id(), origin, diagnostics);
+
         return Optional.of(ItemInfo.of(
                 definition.id(),
                 name,
@@ -105,7 +110,8 @@ public final class ItemDefinitions {
                 armorSlot(body, origin, where, diagnostics),
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
-                body.bool("unbreakable").orElse(Boolean.FALSE)));
+                body.bool("unbreakable").orElse(Boolean.FALSE))
+                .withActions(actions));
     }
 
     /** The body slots a piece of armour can be worn in. */

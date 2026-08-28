@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.item;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.event.ItemUseEvent;
@@ -10,7 +11,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
@@ -29,9 +34,11 @@ import java.util.Optional;
 public final class ItemListener implements Listener {
 
     private final Items items;
+    private final ActionRunner actions;
 
-    public ItemListener(Items items) {
+    public ItemListener(Items items, ActionRunner actions) {
         this.items = items;
+        this.actions = actions;
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
@@ -68,7 +75,67 @@ public final class ItemListener implements Listener {
         player.getServer().getPluginManager().callEvent(used);
         if (used.isCancelled()) {
             event.setCancelled(true);
+            // A listener that refused this use has refused the whole use, so
+            // the item's own actions do not run either. The event is the
+            // stronger statement of the two, which is the point of it.
+            return;
         }
+
+        boolean rightClick = action == ItemUseEvent.Action.RIGHT_CLICK
+                || action == ItemUseEvent.Action.RIGHT_CLICK_BLOCK;
+        if (actions.run(player, id.get(),
+                rightClick ? ItemAction.Trigger.RIGHT_CLICK : ItemAction.Trigger.LEFT_CLICK, stack)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * The other four triggers.
+     *
+     * <p>They have no {@link ItemUseEvent} of their own and are deliberately
+     * not being given one: that event is about USING an item, and dropping or
+     * eating one is not a use. A plugin that wants these has Bukkit's own
+     * events for them, which are the ones this reads.
+     */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onAttack(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player)) {
+            return;
+        }
+        Player player = (Player) event.getDamager();
+        ItemStack held = player.getInventory().getItemInMainHand();
+        items.idOf(held).ifPresent(id -> {
+            if (actions.run(player, id, ItemAction.Trigger.ATTACK, held)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onDrop(PlayerDropItemEvent event) {
+        ItemStack dropped = event.getItemDrop().getItemStack();
+        items.idOf(dropped).ifPresent(id -> {
+            if (actions.run(event.getPlayer(), id, ItemAction.Trigger.DROP, dropped)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onConsume(PlayerItemConsumeEvent event) {
+        ItemStack eaten = event.getItem();
+        items.idOf(eaten).ifPresent(id -> {
+            if (actions.run(event.getPlayer(), id, ItemAction.Trigger.CONSUME, eaten)) {
+                event.setCancelled(true);
+            }
+        });
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        // Cooldowns are seconds long and live in memory. Keeping them for
+        // somebody who has gone is a map that only grows.
+        actions.forget(event.getPlayer().getUniqueId());
     }
 
     private static ItemUseEvent.Action actionOf(Action action) {

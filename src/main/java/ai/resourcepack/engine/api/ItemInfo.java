@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -25,10 +26,12 @@ public final class ItemInfo {
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
+    private final Map<ItemAction.Trigger, List<ItemAction>> actions;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
-                     int maxStack, boolean glow, boolean unbreakable) {
+                     int maxStack, boolean glow, boolean unbreakable,
+                     Map<ItemAction.Trigger, List<ItemAction>> actions) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -41,6 +44,7 @@ public final class ItemInfo {
         this.maxStack = maxStack;
         this.glow = glow;
         this.unbreakable = unbreakable;
+        this.actions = actions;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -59,7 +63,32 @@ public final class ItemInfo {
                 armor == null ? "" : armor,
                 maxStack,
                 glow,
-                unbreakable);
+                unbreakable,
+                Map.of());
+    }
+
+    /**
+     * The same item, with what it does when it is used.
+     *
+     * <p>A copy rather than a thirteenth argument to {@link #of}: that
+     * factory is the supported surface, its shape is already at the limit of
+     * what anybody can read, and adding to it would break every caller for a
+     * field almost no item has.
+     */
+    public ItemInfo withActions(Map<ItemAction.Trigger, List<ItemAction>> actions) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable,
+                actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions));
+    }
+
+    /** What this item does, by trigger. Empty for almost every item. */
+    public Map<ItemAction.Trigger, List<ItemAction>> actions() {
+        return actions;
+    }
+
+    /** What it does on one trigger, in order. Empty if it does nothing. */
+    public List<ItemAction> actions(ItemAction.Trigger trigger) {
+        return actions.getOrDefault(trigger, List.of());
     }
 
     /** The item's id. */
