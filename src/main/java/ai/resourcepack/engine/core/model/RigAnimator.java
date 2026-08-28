@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.Keyframe;
+import ai.resourcepack.engine.api.BoneBehaviour;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.ModelAnimationEvent;
 import ai.resourcepack.engine.core.Host;
@@ -12,6 +13,9 @@ import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.Location;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -19,6 +23,7 @@ import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Transformation;
+import org.bukkit.util.Vector;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -79,11 +84,20 @@ public final class RigAnimator implements Listener {
 
     private static final int RANGE_SCAN_INTERVAL = 5;
 
+    /**
+     * How far a neck turns, in degrees. Vanilla's own for a player's head,
+     * and near enough for everything else — the alternative is a mob whose
+     * head is on backwards, which is what the raw numbers say.
+     */
+    private static final float MAX_NECK_YAW = 75f;
+    private static final float MAX_NECK_PITCH = 89f;
+
     private static final float[] ZERO = { 0f, 0f, 0f };
     private static final float[] ONE = { 1f, 1f, 1f };
 
     private final Host host;
     private final RigStore rigs;
+    private final BoneParts bones;
     private final NamespacedKey modelKey;
     private final NamespacedKey partKey;
     private final NamespacedKey yawKey;
@@ -152,6 +166,7 @@ public final class RigAnimator implements Listener {
     public RigAnimator(Host host, RigStore rigs) {
         this.host = host;
         this.rigs = rigs;
+        this.bones = new BoneParts(host);
         this.modelKey = host.key("model-id");
         this.partKey = host.key("part-index");
         this.yawKey = host.key("rig-yaw");
@@ -209,9 +224,21 @@ public final class RigAnimator implements Listener {
         String modelId = pdc.get(modelKey, PersistentDataType.STRING);
         Integer partIndex = pdc.get(partKey, PersistentDataType.INTEGER);
         RigStore.Rig rig = rigs.get(modelId);
-        if (rig != null && rig.parts != null && partIndex != null
-            && partIndex >= 0 && partIndex < rig.parts.size()
-            && !hasAnimationProgram(rig.parts.get(partIndex))) {
+        RigStore.Part part = rig != null && rig.parts != null && partIndex != null
+                && partIndex >= 0 && partIndex < rig.parts.size()
+                ? rig.parts.get(partIndex)
+                : null;
+
+        // Before the early-out below, because a bone's behaviour has nothing
+        // to do with whether it animates: a seat on a still bone is a chair,
+        // and a hitbox on one is most of a statue. Rebuilt rather than saved,
+        // so a rig whose bones were renamed gets the right set back on the
+        // next reload; attach clears before it builds.
+        if (part != null) {
+            bones.attach((ItemDisplay) entity, part);
+        }
+
+        if (part != null && !hasAnimationProgram(part)) {
             // Static remainder parts keep their entity yaw and never need
             // transformation metadata resent by the animation task.
             return;
@@ -222,6 +249,11 @@ public final class RigAnimator implements Listener {
             pdc.set(animationStartKey, PersistentDataType.LONG, entity.getWorld().getGameTime());
         }
         tracked.put(entity.getUniqueId(), (ItemDisplay) entity);
+    }
+
+    /** The sub-entities bones asked for, so the listener can read them. */
+    public BoneParts bones() {
+        return bones;
     }
 
     void untrack(UUID id) {
@@ -395,6 +427,11 @@ public final class RigAnimator implements Listener {
                 applyStep(animationTransform, animation.animators, step.target, step.pivot, t);
             }
         }
+        // After the animation, not instead of it: a head bone still plays
+        // whatever the walk cycle does to it, and looking around is composed
+        // on top. Doing it the other way makes an idle animation drag the
+        // head back off whatever it was looking at.
+        applyHeadLook(animationTransform, part, display);
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
@@ -991,6 +1028,110 @@ public final class RigAnimator implements Listener {
             if (trigger != null && triggerType.equals(trigger.type)) return trigger;
         }
         return null;
+    }
+
+    /**
+     * Turns a head bone toward whatever its host is looking at.
+     *
+     * <p>Only on a model worn by an entity: a placed statue has nothing to
+     * look with, and a head that swivelled to follow a passing player would be
+     * a different feature and a much creepier one.
+     *
+     * <p><strong>The yaw is a difference, not an angle.</strong> The whole rig
+     * already turns with the body (see {@code yawOf}), so applying the head's
+     * absolute yaw here would turn it twice and leave a mob whose head faces
+     * backwards while it walks. What is left over is exactly how far the head
+     * is turned relative to the shoulders, which is what a neck does.
+     *
+     * <p>Clamped the way vanilla clamps a neck. Without it a mob looking
+     * behind itself gets its head on backwards, which is what the numbers
+     * literally say and not what anybody wants to see.
+     */
+    private void applyHeadLook(Matrix4f m, RigStore.Part part, ItemDisplay display) {
+        if (part.behaviour == null || part.pivot == null || part.pivot.length != 3) return;
+        if (!isHeadBone(part)) return;
+        Entity host = display.getVehicle();
+        if (!(host instanceof LivingEntity)) return;
+
+        float[] look = lookOf((LivingEntity) host);
+        float yaw = clamp(wrap(look[0]), MAX_NECK_YAW);
+        float pitch = clamp(look[1], MAX_NECK_PITCH);
+        if (yaw == 0f && pitch == 0f) return;
+
+        float px = (part.pivot[0] - 8f) / 16f;
+        float py = (part.pivot[1] - 8f) / 16f;
+        float pz = (part.pivot[2] - 8f) / 16f;
+        m.translate(px, py, pz);
+        // Yaw negated for the same reason the placement yaw is: the rig's
+        // space turns the other way round from the world's.
+        m.rotateY((float) Math.toRadians(-yaw));
+        m.rotateX((float) Math.toRadians(pitch));
+        m.translate(-px, -py, -pz);
+    }
+
+    /**
+     * How far the head is turned from the body: yaw relative to the shoulders,
+     * then pitch.
+     *
+     * <p><strong>Bukkit does not expose a mob's head yaw.</strong>
+     * {@code getEyeLocation()} carries the entity's own yaw, which IS the body
+     * yaw for everything that is not a player — so the obvious implementation
+     * subtracts a number from itself, gets zero, and quietly does nothing but
+     * pitch while looking like it does more.
+     *
+     * <p>So the answer is taken from what the mob is actually looking AT. A
+     * mob with a target is turning its head toward it, which is both the thing
+     * a boss should visibly do and the only version of this the API can
+     * honestly support. A mob with no target faces the way its body does,
+     * which is exactly right: an idle mob's head is straight ahead.
+     */
+    private static float[] lookOf(LivingEntity host) {
+        Location eyes = host.getEyeLocation();
+        float pitch = eyes.getPitch();
+        if (!(host instanceof Mob)) {
+            // A player: their yaw already IS their head yaw, and the body is
+            // drawn from it, so there is nothing left over.
+            return new float[]{0f, pitch};
+        }
+        LivingEntity target = ((Mob) host).getTarget();
+        if (target == null || !target.getWorld().equals(host.getWorld())) {
+            return new float[]{0f, pitch};
+        }
+        Vector to = target.getEyeLocation().toVector().subtract(eyes.toVector());
+        if (to.lengthSquared() < 1.0E-4) {
+            return new float[]{0f, pitch};
+        }
+        float wanted = (float) Math.toDegrees(Math.atan2(-to.getX(), to.getZ()));
+        float flat = (float) Math.sqrt(to.getX() * to.getX() + to.getZ() * to.getZ());
+        return new float[]{
+                wanted - host.getLocation().getYaw(),
+                (float) Math.toDegrees(Math.atan2(-to.getY(), flat))};
+    }
+
+    private static boolean isHeadBone(RigStore.Part part) {
+        BoneBehaviour behaviour = behaviourOf(part);
+        return behaviour.isHead();
+    }
+
+    /** A part's behaviour, or {@link BoneBehaviour#NONE} on an older manifest. */
+    static BoneBehaviour behaviourOf(RigStore.Part part) {
+        if (part == null || part.behaviour == null) return BoneBehaviour.NONE;
+        for (BoneBehaviour behaviour : BoneBehaviour.values()) {
+            if (behaviour.name().equalsIgnoreCase(part.behaviour)) return behaviour;
+        }
+        return BoneBehaviour.NONE;
+    }
+
+    /** Into -180..180, so a turn across north is a small number and not 350 degrees. */
+    static float wrap(float degrees) {
+        float wrapped = degrees % 360f;
+        if (wrapped > 180f) wrapped -= 360f;
+        if (wrapped < -180f) wrapped += 360f;
+        return wrapped;
+    }
+
+    static float clamp(float degrees, float limit) {
+        return Math.max(-limit, Math.min(limit, degrees));
     }
 
     /**

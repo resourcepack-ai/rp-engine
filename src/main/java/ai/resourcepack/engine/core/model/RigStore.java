@@ -34,6 +34,14 @@ public final class RigStore {
     static final class Part {
         String item;
         List<Step> program;
+        /** The bone this part came from. Absent on a manifest older than this. */
+        String bone;
+        /** Its {@link ai.resourcepack.engine.api.BoneBehaviour}, lowercased. Absent means none. */
+        String behaviour;
+        /** The bone's own pivot in model px, for a behaviour that needs a place. */
+        float[] pivot;
+        /** Its widest side in blocks, measured at build time. 0 means unknown. */
+        float size;
     }
 
 

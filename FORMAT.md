@@ -386,6 +386,36 @@ passengers rather than taking them.
 
 `/rp spawn mypack:guard` puts one where you stand.
 
+### Bones that do something
+
+Name a bone with one of these prefixes in Blockbench and it does more than get
+drawn. **They are ModelEngine's prefixes**, deliberately: a rig you already
+have, or bought, works here without being re-authored.
+
+| Bone name | What it does |
+|---|---|
+| `h_head` | Turns to look at whatever its mob is targeting. |
+| `hi_head` | The same, and every bone under it inherits it. |
+| `b_wing` | A hitbox of its own — the mob is hit on the wing you aimed at. |
+| `ob_wing` | The same, turning with the bone. |
+| `p_seat1` | Somewhere to sit. Right-click it. |
+| `mount` | Where the driver sits. One per model. |
+| `tag_name` | Where a name floats, rather than inside the model's knee. |
+
+Anything else is an ordinary bone, which is nearly all of them. A model needs
+none of this.
+
+Two honest limits:
+
+- **`h_` and `mount` only mean something on a model worn by a mob.** A placed
+  statue has nothing to look with and nobody to carry.
+- **A head follows its mob's TARGET, not its gaze.** Bukkit does not expose a
+  mob's head yaw — the yaw you can read is the body's — so "look where it is
+  looking" is not a question the API can answer. Looking at what it is fighting
+  is, and is what you actually want from a boss.
+- **A sub-hitbox forwards damage** to the mob rather than having health of its
+  own. Aiming matters; a wing is not separately killable.
+
 ## Putting a model on a mob
 
 Any entity on the server can wear a model — one MythicMobs spawned, a Citizens

@@ -60,6 +60,7 @@ import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
 import ai.resourcepack.engine.api.MergeResult;
+import ai.resourcepack.engine.core.model.BoneListener;
 import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.model.RigStore;
@@ -294,6 +295,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         animator.placements(models::handleFor);
         rigPlacement.placements(models::handleFor);
         getServer().getPluginManager().registerEvents(rigPlacement, this);
+        getServer().getPluginManager().registerEvents(
+                new BoneListener(animator.bones(), seats), this);
         animator.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
