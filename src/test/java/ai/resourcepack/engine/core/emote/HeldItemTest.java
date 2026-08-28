@@ -137,13 +137,14 @@ class HeldItemTest {
             .toItemDisplaySpace(inModelSpace);
 
         // What the turn becomes if it is composed before the conjugation: the
-        // opposite quarter-turn about X, and the SAME half-turn about Y — the
-        // yaw commutes with the conjugation and comes through untouched, which
-        // is exactly why it is the pitch alone that this test can speak about.
-        // See theHalfTurnAboutYIsUntouchedByTheConjugation.
+        // opposite quarter-turn about X. Stated against orient()'s own pitch
+        // rather than a literal, so this keeps meaning the same thing if the
+        // calibrated value moves again — the CLAIM is "the conjugation inverts
+        // the pitch", not "the pitch is 90". A half turn about Y, if one is
+        // ever configured, would come through untouched; see
+        // theHalfTurnAboutYIsUntouchedByTheConjugation.
         Matrix4f flipped = new Matrix4f()
-            .rotateX((float) (Math.PI / 2.0))
-            .rotateY((float) Math.PI);
+            .rotateX(-pitchOf(inModelSpace));
         for (int i = 0; i < 16; i++) {
             assertEquals(flipped.get(i / 4, i % 4), conjugated.get(i / 4, i % 4), 1e-5);
         }
@@ -186,28 +187,65 @@ class HeldItemTest {
      * horizontal, and is what "the item is flipped in the horizontal axis" is.
      */
     @Test
-    void theTurnIsVanillasPairBecauseTheYawIsARollNotTheClientsHalfTurn() {
+    void theTurnIsTheOppositePitchToVanillasBecauseRigSpaceIsYUp() {
         Matrix4f actual = new Matrix4f();
         HeldItem.orient(actual);
 
-        Matrix4f vanillasPair = new Matrix4f()
-            .rotateX((float) (-Math.PI / 2.0))
-            .rotateY((float) Math.PI);
+        Matrix4f pitchUp = new Matrix4f().rotateX((float) (Math.PI / 2.0));
         for (int i = 0; i < 16; i++) {
-            assertEquals(vanillasPair.get(i / 4, i % 4), actual.get(i / 4, i % 4), 1e-6,
-                "orient() is vanilla's Rx(-90) then Ry(180), both of them");
+            assertEquals(pitchUp.get(i / 4, i % 4), actual.get(i / 4, i % 4), 1e-6,
+                "orient() is Rx(+90) — vanilla's pitch with the sign a y-up frame gives it");
         }
 
         // Stated the other way round as well, so the assertion above cannot be
-        // "fixed" by making both sides carry the same wrong turn.
-        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
+        // "fixed" by making both sides carry the same wrong turn. Vanilla's
+        // pair, lifted verbatim, is the thing this is NOT.
+        Matrix4f vanillaVerbatim = new Matrix4f()
+            .rotateX((float) (-Math.PI / 2.0))
+            .rotateY((float) Math.PI);
         double worst = 0;
         for (int i = 0; i < 16; i++) {
             worst = Math.max(worst,
-                Math.abs(pitchOnly.get(i / 4, i % 4) - actual.get(i / 4, i % 4)));
+                Math.abs(vanillaVerbatim.get(i / 4, i % 4) - actual.get(i / 4, i % 4)));
         }
         assertTrue(worst > 1e-3,
-            "dropping vanilla's Ry(180) is the bug this test exists to catch");
+            "lifting vanilla's in-hand pair into a y-up frame is the bug this test exists to catch");
+    }
+
+    /**
+     * <b>The turn is configurable, and comes back to its default.</b>
+     *
+     * <p>Not a feature — calibration. This turn has been wrong four times and
+     * no test can see a rig, so the three {@code emotes.held-item-*} settings
+     * exist to make it findable by looking. What IS worth pinning is that they
+     * reach {@code orient} at all, since a knob that silently does nothing is
+     * worse than no knob: somebody would conclude the turn was not the problem.
+     */
+    @Test
+    void theTurnCanBeCalibratedAndRestored() {
+        Matrix4f before = new Matrix4f();
+        HeldItem.orient(before);
+        try {
+            HeldItem.turn(0f, 180f, 0f);
+            Matrix4f overridden = new Matrix4f();
+            HeldItem.orient(overridden);
+            Matrix4f expected = new Matrix4f().rotateY((float) Math.PI);
+            for (int i = 0; i < 16; i++) {
+                assertEquals(expected.get(i / 4, i % 4), overridden.get(i / 4, i % 4), 1e-6,
+                    "a configured turn should reach orient()");
+            }
+        } finally {
+            // Static state: every later test in this JVM reads it. The defaults
+            // are restated here rather than captured, so a change to them is a
+            // change this test can be made to notice.
+            HeldItem.turn(90f, 0f, 0f);
+        }
+        Matrix4f after = new Matrix4f();
+        HeldItem.orient(after);
+        for (int i = 0; i < 16; i++) {
+            assertEquals(before.get(i / 4, i % 4), after.get(i / 4, i % 4), 1e-6,
+                "the default turn should be restored");
+        }
     }
 
     /**
@@ -248,29 +286,66 @@ class HeldItemTest {
      * still and why nobody could agree on what it looked like.
      */
     @Test
-    void droppingTheYawRollsTheItemAboutItsOwnLength() {
-        Matrix4f withYaw = new Matrix4f();
-        HeldItem.orient(withYaw);
-        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
+    void aYawTermIsARollAboutTheItemsLengthAndNeverAReversal() {
+        // Stated against explicit matrices rather than orient()'s current
+        // value: the claim is about what a yaw term DOES, which is true
+        // whatever the calibrated turn happens to be.
+        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (Math.PI / 2.0));
+        Matrix4f withYaw = new Matrix4f(pitchOnly).rotateY((float) Math.PI);
 
-        // withYaw = pitchOnly * delta, so delta is the turn the deletion removed,
-        // expressed in the item's own displayed frame.
         Matrix4f delta = new Matrix4f(pitchOnly).invert().mul(withYaw);
         Matrix4f halfTurnAboutTheItemsLength = new Matrix4f().rotateY((float) Math.PI);
         for (int i = 0; i < 16; i++) {
             assertEquals(halfTurnAboutTheItemsLength.get(i / 4, i % 4), delta.get(i / 4, i % 4), 1e-5,
-                "the deleted turn is a roll about the item's own y, not a reversal");
+                "a yaw term is a roll about the item's own y, not a reversal");
         }
 
         // And the reversal it is NOT: the item's length is where it was either
-        // way. Pinned because the deletion was justified by a symptom this term
-        // is incapable of causing.
+        // way. Pinned because this term was once deleted, and later restored,
+        // over a symptom it is incapable of causing.
         org.joml.Vector3f alongTheItem = new org.joml.Vector3f(0f, 1f, 0f);
         org.joml.Vector3f withYawEnd = withYaw.transformPosition(new org.joml.Vector3f(alongTheItem));
         org.joml.Vector3f pitchOnlyEnd = pitchOnly.transformPosition(new org.joml.Vector3f(alongTheItem));
-        assertEquals(pitchOnlyEnd.x, withYawEnd.x, 1e-5, "the item points the same way with or without the yaw");
-        assertEquals(pitchOnlyEnd.y, withYawEnd.y, 1e-5, "the item points the same way with or without the yaw");
-        assertEquals(pitchOnlyEnd.z, withYawEnd.z, 1e-5, "the item points the same way with or without the yaw");
+        assertEquals(pitchOnlyEnd.x, withYawEnd.x, 1e-5, "the item points the same way with or without a yaw");
+        assertEquals(pitchOnlyEnd.y, withYawEnd.y, 1e-5, "the item points the same way with or without a yaw");
+        assertEquals(pitchOnlyEnd.z, withYawEnd.z, 1e-5, "the item points the same way with or without a yaw");
+    }
+
+    /**
+     * <b>What DOES reverse a blade: a half turn about the display's vertical.</b>
+     *
+     * <p>The other half of the test above, and the arithmetic behind the
+     * current value. "The sword points at their back" is a reversal, so the
+     * turn that fixes it is a half turn about the vertical axis applied at the
+     * grip. After the pitch, the item's local Z is the vertical one — so that
+     * is {@code Rz(180)}, and composing it onto the pair that was there
+     * collapses to the pitch alone with its sign flipped:
+     * {@code Rx(-90)·Ry(180)·Rz(180) == Rx(+90)}.
+     */
+    @Test
+    void aHalfTurnAboutTheVerticalIsWhatReversesTheItem() {
+        Matrix4f oldPair = new Matrix4f()
+            .rotateX((float) (-Math.PI / 2.0))
+            .rotateY((float) Math.PI);
+        Matrix4f reversed = new Matrix4f(oldPair).rotateZ((float) Math.PI);
+        Matrix4f pitchUp = new Matrix4f().rotateX((float) (Math.PI / 2.0));
+        for (int i = 0; i < 16; i++) {
+            assertEquals(pitchUp.get(i / 4, i % 4), reversed.get(i / 4, i % 4), 1e-5,
+                "Rx(-90)*Ry(180)*Rz(180) is Rx(+90)");
+        }
+
+        // And it really is a reversal: the item's length ends up opposite.
+        org.joml.Vector3f along = new org.joml.Vector3f(0f, 1f, 0f);
+        org.joml.Vector3f a = oldPair.transformPosition(new org.joml.Vector3f(along));
+        org.joml.Vector3f b = reversed.transformPosition(new org.joml.Vector3f(along));
+        assertEquals(-a.z, b.z, 1e-5, "the item's length should end up pointing the other way");
+    }
+
+    /** orient()'s pitch, read back off the matrix rather than assumed. */
+    private static float pitchOf(Matrix4f m) {
+        return new org.joml.Vector3f(0f, 1f, 0f)
+            .rotate(m.getNormalizedRotation(new org.joml.Quaternionf()))
+            .z > 0 ? (float) (Math.PI / 2.0) : (float) (-Math.PI / 2.0);
     }
 
     @Test
