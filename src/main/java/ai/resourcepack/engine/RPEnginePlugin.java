@@ -55,6 +55,8 @@ import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
+import ai.resourcepack.engine.api.MergeResult;
+import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.pack.PackBuilder;
@@ -132,6 +134,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
+    /**
+     * The pack id the content folder's own rigs are stored under.
+     *
+     * <p>Not a namespace and deliberately not one: the store scopes by the
+     * pack that supplied a rig, and every content pack on this server is one
+     * supplier as far as it is concerned — they are all replaced together
+     * because they are all rebuilt together.
+     */
+    private static final String AUTHORED_RIGS = "content-folder";
+
     private RigStore rigs;
     private RigAnimator animator;
     private RigPlacementListener rigPlacement;
@@ -231,7 +243,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
         liquids = new Liquids(this, pools);
-        placements = new ModelPlacementListener(this, items, seats);
+        placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
@@ -361,6 +373,26 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * of Bukkit — it turns hex into section signs and nothing else, which is
      * what lets it be tested without a server.
      */
+    /**
+     * Teaches the animator about the rigs in the content folder.
+     *
+     * <p>A hand-authored model with keyframes in it is placed and played by
+     * exactly the machinery a pushed one is — the only difference is where
+     * the rig came from, and by the time it reaches the store there is no
+     * difference left at all. Until this existed a {@code .bbmodel}'s
+     * animations were carried into the pack and played by nothing, which is
+     * the one place studio was the contract rather than a content source.
+     */
+    private void registerAuthoredRigs(java.util.Map<String, ModelRigs.Rig> found) {
+        if (rigs == null) {
+            return;
+        }
+        MergeResult merged = rigs.updateFromJson(ModelRigs.manifest(AUTHORED_RIGS, found).toString());
+        if (!merged.ok()) {
+            getLogger().warning("content rigs: " + merged.error());
+        }
+    }
+
     private void applyChatStyle() {
         // Read with no fallbacks: an absent key arrives as null and ChatStyle
         // falls back to its own default, so the defaults live in one place
@@ -567,14 +599,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredHuds = parsedHuds.overlays();
         overlays.replace(authoredScreens, authoredHuds);
 
+        ItemAssets itemAssets = new ItemAssets();
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
-                .with(new ItemAssets())
+                .with(itemAssets)
                 .with(new SoundAssets())
                 .with(new FontAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
+
+        // The rigs the build found, handed to the same store a studio push
+        // fills. Under one pack id, so a reload REPLACES them: a model whose
+        // animation somebody deleted stops being animated, which a per-key
+        // merge would not do. Studio's rigs are keyed by their own pack ids
+        // and are untouched by this.
+        registerAuthoredRigs(itemAssets.rigs());
 
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.

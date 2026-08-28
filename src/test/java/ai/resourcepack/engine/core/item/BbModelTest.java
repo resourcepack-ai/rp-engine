@@ -41,7 +41,7 @@ class BbModelTest {
                 + "\"textures\": [{\"name\": \"skin\", \"uuid\": \"tex-1\","
                 + " \"source\": \"data:image/png;base64," + PNG_BASE64 + "\"}],"
                 + "\"elements\": [{"
-                + "  \"name\": \"body\", \"from\": [4, 0, 4], \"to\": [12, 16, 12],"
+                + "  \"name\": \"body\", \"uuid\": \"cube-1\", \"from\": [4, 0, 4], \"to\": [12, 16, 12],"
                 + "  \"rotation\": [0, 30, 0], \"origin\": [8, 8, 8],"
                 + "  \"faces\": {\"north\": {\"uv\": [0, 0, 16, 32], \"texture\": 0},"
                 + "              \"up\": {\"uv\": [0, 0, 8, 8], \"texture\": \"tex-1\", \"rotation\": 90},"
@@ -181,17 +181,16 @@ class BbModelTest {
     }
 
     @Test
-    void animationsRideThroughUntouched() {
+    void anAnimationThatMovesNothingIsDropped() {
         String withAnimations = project(",\"animations\": [{\"name\": \"walk\", \"length\": 1.0}]");
 
         JsonObject model = BbModel.convert(withAnimations.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
                 .orElseThrow().model();
 
-        // Nothing reads them yet. Dropping them would mean the rig work has to
-        // go back to the source file to find what was already in hand.
-        assertTrue(model.has("animations"));
-        assertEquals("walk", model.getAsJsonArray("animations").get(0)
-                .getAsJsonObject().get("name").getAsString());
+        // It has a name and a length and not one keyframe. Shipping it would
+        // put an animation in the pack that no part of the model can play,
+        // and a rig is built from whether any keyframe exists at all.
+        assertFalse(model.has("animations"));
     }
 
     @Test
@@ -267,5 +266,134 @@ class BbModelTest {
         BuildReport second = new PackBuilder().with(new ItemAssets()).build(content, out, load());
 
         assertEquals(first.pack("main").orElseThrow().sha1(), second.pack("main").orElseThrow().sha1());
+    }
+
+    // ---- bones and animations ------------------------------------------
+    // Blockbench's Java EXPORT writes neither, so the save file is the only
+    // place a hand-authored animation exists at all. Everything here is what
+    // Studio's .bbmodel reader produces, because one animator plays both.
+
+    private static String withRig(String animators) {
+        return project(","
+                + "\"outliner\": [{\"name\": \"arm\", \"uuid\": \"bone-1\","
+                + " \"origin\": [8, 12, 8], \"children\": [\"cube-1\"]}],"
+                + "\"animations\": [{\"name\": \"wave\", \"length\": 1.5, \"loop\": \"loop\","
+                + " \"animators\": {" + animators + "}}]");
+    }
+
+    private static final String WAVE =
+            "\"bone-1\": {\"keyframes\": ["
+                    + "{\"channel\": \"rotation\", \"time\": 0.5, \"data_points\": [{\"x\": 0, \"y\": 90, \"z\": 0}]},"
+                    + "{\"channel\": \"rotation\", \"time\": 0, \"data_points\": [{\"x\": 0, \"y\": 0, \"z\": 0}],"
+                    + " \"interpolation\": \"catmullrom\"}]}";
+
+    private static JsonObject rigged(String animators) {
+        return BbModel.convert(withRig(animators).getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+    }
+
+    @Test
+    void theOutlinerBecomesAFlatBoneList() {
+        JsonObject bone = rigged(WAVE).getAsJsonArray("groups").get(0).getAsJsonObject();
+
+        assertEquals("arm", bone.get("name").getAsString());
+        assertEquals("[8.0,12.0,8.0]", bone.get("origin").toString());
+        // Cube uuids resolve to indices into the element list, which is what
+        // an animator names them by.
+        assertEquals("[0]", bone.get("children").toString());
+    }
+
+    @Test
+    void animatorsAreRekeyedFromUuidsToBoneIndices() {
+        // The load-bearing one. Blockbench keys an animator by the bone's
+        // uuid; everything downstream looks up "g:<index>", and a uuid there
+        // resolves to nothing at all — so the model would ship with
+        // animations that silently animate no part of it.
+        JsonObject animation = rigged(WAVE).getAsJsonArray("animations").get(0).getAsJsonObject();
+
+        assertTrue(animation.getAsJsonObject("animators").has("g:0"));
+        assertFalse(animation.getAsJsonObject("animators").has("bone-1"));
+    }
+
+    @Test
+    void keyframesAreSortedAndCarryTheirInterpolation() {
+        JsonObject animators = rigged(WAVE).getAsJsonArray("animations").get(0)
+                .getAsJsonObject().getAsJsonObject("animators");
+        var frames = animators.getAsJsonObject("g:0").getAsJsonArray("rotation");
+
+        assertEquals(0.0, frames.get(0).getAsJsonObject().get("time").getAsDouble(), 0.0001,
+                "written out of order, read in order");
+        assertEquals("smooth", frames.get(0).getAsJsonObject().get("interpolation").getAsString());
+        assertEquals("[0.0,90.0,0.0]", frames.get(1).getAsJsonObject().get("value").toString());
+        // Linear is the sampler's default, so writing it would put a
+        // redundant field on the majority of keyframes.
+        assertFalse(frames.get(1).getAsJsonObject().has("interpolation"));
+    }
+
+    @Test
+    void aLoopingAnimationLoopsAndAOneShotWaitsToBeClicked() {
+        JsonObject looping = rigged(WAVE).getAsJsonArray("animations").get(0).getAsJsonObject();
+        assertTrue(looping.get("loop").getAsBoolean());
+        assertEquals("loop", looping.getAsJsonArray("triggers").get(0)
+                .getAsJsonObject().get("type").getAsString());
+
+        String once = withRig(WAVE).replace("\"loop\": \"loop\"", "\"loop\": \"once\"");
+        JsonObject oneShot = BbModel.convert(once.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model().getAsJsonArray("animations").get(0).getAsJsonObject();
+        assertFalse(oneShot.get("loop").getAsBoolean());
+        assertEquals("right_click", oneShot.getAsJsonArray("triggers").get(0)
+                .getAsJsonObject().get("type").getAsString());
+    }
+
+    @Test
+    void anAnimatorOnNothingIsSkippedRatherThanMiskeyed() {
+        // A bone holding no cubes is not in the list, so its animator has no
+        // index. Dropping it is right; letting it fall on whichever bone came
+        // next would animate the wrong limb.
+        JsonObject model = rigged("\"ghost-bone\": {\"keyframes\": [{\"channel\": \"rotation\","
+                + " \"time\": 0, \"data_points\": [{\"x\": 0, \"y\": 45, \"z\": 0}]}]}");
+
+        assertFalse(model.has("animations"), "an animation that animates nothing is not one");
+    }
+
+    @Test
+    void aMolangExpressionCostsOneAxisRatherThanTheModel() {
+        // Blockbench writes these fields as strings as often as numbers,
+        // because they accept an expression. One this cannot evaluate is zero.
+        JsonObject model = rigged("\"bone-1\": {\"keyframes\": [{\"channel\": \"rotation\","
+                + " \"time\": 0, \"data_points\": [{\"x\": \"math.sin(q.anim_time)\", \"y\": \"45\", \"z\": 0}]}]}");
+
+        var value = model.getAsJsonArray("animations").get(0).getAsJsonObject()
+                .getAsJsonObject("animators").getAsJsonObject("g:0")
+                .getAsJsonArray("rotation").get(0).getAsJsonObject().getAsJsonArray("value");
+        assertEquals(0.0, value.get(0).getAsDouble(), 0.0001);
+        assertEquals(45.0, value.get(1).getAsDouble(), 0.0001, "a numeric string is still a number");
+    }
+
+    @Test
+    void aStillModelGetsNeitherKey() {
+        JsonObject model = BbModel.convert(project("").getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+
+        assertFalse(model.has("groups"));
+        assertFalse(model.has("animations"));
+    }
+
+    @Test
+    void anAnimatedModelShipsOneItemModelPerMovingPart() throws IOException {
+        // The end of it: a .bbmodel with keyframes has to leave sub-models in
+        // the zip, because a placed rig is one display per part and each of
+        // them needs something to render.
+        write("mypack/assets/models/golem.bbmodel", withRig(WAVE));
+        write("mypack/items/statues.yml", "golem:\n  material: PAPER\n  model: golem\n");
+        Map<String, byte[]> entries = zip();
+
+        assertTrue(entries.containsKey("assets/mypack/models/item/golem__part0.json"));
+        assertTrue(entries.containsKey("assets/mypack/items/golem__part0.json"));
+        assertTrue(text(entries, "assets/mypack/items/golem__part0.json")
+                .contains("mypack:item/golem__part0"));
+        // And the whole model stays: it is what the item looks like in a hand
+        // or a chest. Only what is PUT DOWN is split.
+        assertTrue(entries.containsKey("assets/mypack/models/item/golem.json"));
     }
 }

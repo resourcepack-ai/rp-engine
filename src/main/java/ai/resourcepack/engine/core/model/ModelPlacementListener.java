@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.event.ModelBreakEvent;
 import ai.resourcepack.engine.api.event.ModelInteractEvent;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
+import ai.resourcepack.engine.core.Host;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -25,13 +26,17 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Transformation;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Makes placed model model, breakable, and able to survive a restart.
@@ -58,15 +63,38 @@ public final class ModelPlacementListener implements Listener {
     private final NamespacedKey displayKey;
     private final NamespacedKey solidKey;
 
+    /**
+     * The rig half, which a piece uses only if its model has keyframes in it.
+     *
+     * <p>These are the animator's own keys rather than this listener's,
+     * because they are read by the animator: a placed rig is found, posed and
+     * triggered by exactly the same code whether it came out of a content
+     * folder or off a studio push. That is the whole point of building it this
+     * way, and it is why an authored piece is not a second animation system.
+     */
+    private final RigStore rigs;
+    private final RigAnimator animator;
+    private final RigSpawn spawns;
+    private final NamespacedKey rigModelKey;
+    private final NamespacedKey displaysKey;
+    private final NamespacedKey partKey;
+
     private volatile Map<ContentId, ModelInfo> model = Map.of();
 
-    public ModelPlacementListener(Plugin plugin, Items items, Seats seats) {
+    public ModelPlacementListener(Plugin plugin, Items items, Seats seats,
+                                  Host host, RigStore rigs, RigAnimator animator) {
         this.plugin = plugin;
         this.items = items;
         this.seats = seats;
         this.idKey = new NamespacedKey(plugin, "model");
         this.displayKey = new NamespacedKey(plugin, "model-display");
         this.solidKey = new NamespacedKey(plugin, "model-solid");
+        this.rigs = rigs;
+        this.animator = animator;
+        this.spawns = new RigSpawn(host, animator);
+        this.rigModelKey = host.key("model-id");
+        this.displaysKey = host.key("display-uuids");
+        this.partKey = host.key("part-index");
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -158,12 +186,22 @@ public final class ModelPlacementListener implements Listener {
                 ? asOne(source)
                 : items.create(info.item()).orElse(null);
 
+        // An animated piece is several displays the server retimes rather than
+        // one still one. Everything below — the hitbox, the barrier, the
+        // persistent data — is the same either way, which is why this is a
+        // branch over what to spawn rather than a second place().
+        RigStore.Rig rig = rigs == null ? null : rigs.get(info.id().toString());
+        List<String> partIds = rig != null && rig.parts != null && !rig.parts.isEmpty()
+                ? spawns.parts(target, info.id().toString(), rig, yaw, null, info.scale(),
+                        part -> partStack(info, part))
+                : null;
+
         // Block centre, because an item display renders its model centred on
         // the entity position: a model built from y=0 upward then sits exactly
         // on the block floor.
         Location centre = target.getLocation().add(0.5, 0.5, 0.5);
         centre.setYaw(yaw);
-        ItemDisplay display = world.spawn(centre, ItemDisplay.class, d -> {
+        ItemDisplay display = partIds != null ? null : world.spawn(centre, ItemDisplay.class, d -> {
             d.setItemStack(shown);
             // NONE, and this is load-bearing. Every other transform applies the
             // model's own `display` block, and the vanilla block/block parent
@@ -196,11 +234,26 @@ public final class ModelPlacementListener implements Listener {
             i.setResponsive(true);
             i.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, info.id().toString());
             i.getPersistentDataContainer().set(displayKey, PersistentDataType.STRING,
-                    display.getUniqueId().toString());
+                    partIds != null ? String.join(",", partIds) : display.getUniqueId().toString());
+            if (partIds != null) {
+                // What the animator looks for. The id it wants is the model's,
+                // and the list is the same list under its own name — written
+                // twice rather than sharing a key, because this listener's
+                // break path and the animator's tick both have to keep working
+                // if the other one changes.
+                i.getPersistentDataContainer().set(rigModelKey, PersistentDataType.STRING, info.id().toString());
+                i.getPersistentDataContainer().set(displaysKey, PersistentDataType.STRING,
+                        String.join(",", partIds));
+            }
             if (info.solid()) {
                 i.getPersistentDataContainer().set(solidKey, PersistentDataType.BYTE, (byte) 1);
             }
         });
+
+        if (partIds != null) {
+            animator.track(hitbox);
+            animator.trigger(hitbox, RigAnimator.TRIGGER_PLACE, null);
+        }
 
         if (info.solid()) {
             // A display entity has no collision whatsoever. This is the only
@@ -208,6 +261,32 @@ public final class ModelPlacementListener implements Listener {
             target.setType(Material.BARRIER, false);
         }
         return hitbox;
+    }
+
+    /**
+     * What one part of an authored piece renders as.
+     *
+     * <p>The piece's own material wearing the part's item model, which the
+     * pack builder wrote beside the whole one. Studio's parts are paper with a
+     * {@code custom_model_data} string instead — it has no plugin to define an
+     * item and has to borrow a vanilla one. We are the plugin, so we do not.
+     */
+    private ItemStack partStack(ModelInfo info, RigStore.Part part) {
+        ItemStack stack = items.create(info.item()).orElse(null);
+        if (stack == null) {
+            return null;
+        }
+        stack.setAmount(1);
+        int colon = part.item.indexOf(':');
+        if (colon < 0) {
+            return stack;
+        }
+        ItemMeta meta = stack.getItemMeta();
+        if (meta != null) {
+            meta.setItemModel(new NamespacedKey(part.item.substring(0, colon), part.item.substring(colon + 1)));
+            stack.setItemMeta(meta);
+        }
+        return stack;
     }
 
     private static ItemStack asOne(ItemStack stack) {
@@ -230,6 +309,16 @@ public final class ModelPlacementListener implements Listener {
         ModelInteractEvent clicked = new ModelInteractEvent(event.getPlayer(), id.get(), hitbox);
         Bukkit.getPluginManager().callEvent(clicked);
         if (clicked.isCancelled()) {
+            return;
+        }
+
+        // A right-click animation gets the click before sitting does. An
+        // author who gave a piece both asked for a chair that does something
+        // when you use it, and a seat is what SHIFT-clicking a seat still is.
+        if (animator != null && animator.hasTrigger(id.get().toString(), RigAnimator.TRIGGER_RIGHT_CLICK)
+                && !event.getPlayer().isSneaking()) {
+            event.setCancelled(true);
+            animator.trigger(hitbox, RigAnimator.TRIGGER_RIGHT_CLICK, event.getPlayer());
             return;
         }
 
@@ -285,17 +374,31 @@ public final class ModelPlacementListener implements Listener {
         Location where = hitbox.getLocation();
         World world = where.getWorld();
 
+        // Every display, because an animated piece is several and one left
+        // behind is a limb standing in an empty block.
         ItemStack drop = null;
-        String displayId = hitbox.getPersistentDataContainer().get(displayKey, PersistentDataType.STRING);
-        if (displayId != null) {
-            Entity display = Bukkit.getEntity(java.util.UUID.fromString(displayId));
-            if (display instanceof ItemDisplay) {
-                // Drops what it was placed holding, so a renamed or enchanted
-                // piece comes back as itself rather than as a fresh one.
-                drop = ((ItemDisplay) display).getItemStack();
-                display.remove();
+        for (String raw : displayIdsOf(hitbox)) {
+            Entity display;
+            try {
+                display = Bukkit.getEntity(UUID.fromString(raw));
+            } catch (IllegalArgumentException e) {
+                // A malformed id costs that one display and nothing else.
+                continue;
             }
+            if (!(display instanceof ItemDisplay)) {
+                continue;
+            }
+            animator.untrack(display.getUniqueId());
+            // Drops what it was placed holding, so a renamed or enchanted
+            // piece comes back as itself rather than as a fresh one — but
+            // never a PART, which is a sub-model with no inventory form. An
+            // animated piece falls through to items.create below.
+            if (drop == null && !display.getPersistentDataContainer().has(partKey, PersistentDataType.INTEGER)) {
+                drop = ((ItemDisplay) display).getItemStack();
+            }
+            display.remove();
         }
+        animator.untrackHitbox(hitbox.getUniqueId());
 
         // Anybody sitting on it stands up first. A seat that outlives its
         // chair is an invisible thing a player can stand on for ever.
@@ -320,6 +423,17 @@ public final class ModelPlacementListener implements Listener {
         if (fallback != null) {
             world.dropItemNaturally(where.add(0, 0.5, 0), fallback);
         }
+    }
+
+    /** The displays a placement owns: several for a rig, one for a still piece. */
+    private List<String> displayIdsOf(Interaction hitbox) {
+        String joined = hitbox.getPersistentDataContainer().get(displayKey, PersistentDataType.STRING);
+        if (joined == null || joined.isEmpty()) {
+            return List.of();
+        }
+        List<String> ids = new ArrayList<>();
+        java.util.Collections.addAll(ids, joined.split(","));
+        return ids;
     }
 
     private ContentId modelItem(ContentId id) {
