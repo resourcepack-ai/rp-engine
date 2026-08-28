@@ -18,6 +18,7 @@ import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
+import ai.resourcepack.engine.core.command.ChatStyle;
 import ai.resourcepack.engine.core.command.ContentCommands;
 import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -36,12 +37,18 @@ import ai.resourcepack.engine.core.emote.EmoteWording;
 import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
+import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
+import ai.resourcepack.engine.core.hook.CitizensTrait;
+import ai.resourcepack.engine.core.hook.MythicHook;
+import ai.resourcepack.engine.core.hook.Placeholders;
+import ai.resourcepack.engine.core.hook.WorldGuardHook;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.font.IconsImpl;
 import ai.resourcepack.engine.core.font.OverlayDefinitions;
 import ai.resourcepack.engine.core.font.Overlays;
 import ai.resourcepack.engine.core.item.Geometry;
+import ai.resourcepack.engine.core.item.ActionRunner;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemListener;
@@ -54,6 +61,10 @@ import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
+import ai.resourcepack.engine.api.MergeResult;
+import ai.resourcepack.engine.core.model.BoneListener;
+import ai.resourcepack.engine.core.model.BoundModels;
+import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.pack.PackBuilder;
@@ -131,6 +142,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
+    /**
+     * The pack id the content folder's own rigs are stored under.
+     *
+     * <p>Not a namespace and deliberately not one: the store scopes by the
+     * pack that supplied a rig, and every content pack on this server is one
+     * supplier as far as it is concerned — they are all replaced together
+     * because they are all rebuilt together.
+     */
+    private static final String AUTHORED_RIGS = "content-folder";
+
+    private BoundModels boundModels;
     private RigStore rigs;
     private RigAnimator animator;
     private RigPlacementListener rigPlacement;
@@ -173,8 +195,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private String defaultBundle = "";
 
     @Override
+    public void onLoad() {
+        // Before onEnable, and it has to be: WorldGuard parses its regions
+        // between the two, and a flag registered after that is not merely
+        // ignored — every region that set it has already dropped the value.
+        WorldGuardHook.registerFlags(this);
+    }
+
+    @Override
     public void onEnable() {
         saveDefaultConfig();
+        // Before anything can talk, including the load diagnostics below.
+        applyChatStyle();
         items = new ItemsImpl(this);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
@@ -228,14 +260,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
         liquids = new Liquids(this, pools);
-        placements = new ModelPlacementListener(this, items, seats);
+        placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
         getServer().getPluginManager().registerEvents(seats, this);
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
-        getServer().getPluginManager().registerEvents(new ItemListener(items), this);
+        getServer().getPluginManager().registerEvents(
+                new ItemListener(this, items, new ActionRunner(items, sounds)), this);
+        // Off unless a server asks for it: a plugin that starts rewriting
+        // what people type in chat the moment it is installed is a plugin
+        // somebody has to find the setting for in a hurry.
+        getServer().getPluginManager().registerEvents(
+                new ChatIcons(icons, getConfig().getBoolean("chat.icons", false)), this);
         // The client and the relay each need the other: the client dispatches
         // to the relay, the relay answers down the client. Nothing fires until
         // open() below, so the lambdas can read a field set on the next line.
@@ -251,12 +289,33 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getDataFolder().toPath().resolve("output"),
                 pack -> packHost.register(pack), this::pushTo);
         studio.onContent(this::registerPushedContent);
+        boundModels = new BoundModels(library, items, rigs, animator);
+        models.bound(boundModels);
         invites = new EmoteInvites(this, emotes());
+        // Optional, and the only place PlaceholderAPI is named. A server
+        // without it loads this plugin exactly as before.
+        if (Placeholders.register(this, registry, emotes(), items, seats, sessions, group)) {
+            getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
+        }
+        if (WorldGuardHook.listen(this)) {
+            getLogger().info("WorldGuard found: rpengine-place and rpengine-use are available.");
+        }
+        if (CitizensTrait.register(this, boundModels)) {
+            // So a bind on an NPC survives it being despawned and respawned,
+            // which Citizens does on every chunk unload and restart.
+            boundModels.remembersWith(CitizensTrait::remember);
+            getLogger().info("Citizens found: a bound NPC keeps its model.");
+        }
+        if (MythicHook.register(this, boundModels)) {
+            getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");
+        }
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
         animator.placements(models::handleFor);
         rigPlacement.placements(models::handleFor);
         getServer().getPluginManager().registerEvents(rigPlacement, this);
+        getServer().getPluginManager().registerEvents(
+                new BoneListener(animator.bones(), seats), this);
         animator.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
@@ -288,7 +347,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
-                new ModelCommands(placements, creatures),
+                new ModelCommands(placements, creatures, boundModels, items),
                 new InterfaceCommands(sounds, icons, overlays),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
@@ -317,6 +376,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private void reloadContent(CommandSender to) {
         reloadConfig();
+        applyChatStyle();
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }
@@ -350,10 +410,51 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         overlays.replace(allScreens, allHuds);
     }
 
+    /**
+     * Reads the chat palette out of the config.
+     *
+     * <p>Here rather than inside {@link ChatStyle} because that class is free
+     * of Bukkit — it turns hex into section signs and nothing else, which is
+     * what lets it be tested without a server.
+     */
+    /**
+     * Teaches the animator about the rigs in the content folder.
+     *
+     * <p>A hand-authored model with keyframes in it is placed and played by
+     * exactly the machinery a pushed one is — the only difference is where
+     * the rig came from, and by the time it reaches the store there is no
+     * difference left at all. Until this existed a {@code .bbmodel}'s
+     * animations were carried into the pack and played by nothing, which is
+     * the one place studio was the contract rather than a content source.
+     */
+    private void registerAuthoredRigs(java.util.Map<String, ModelRigs.Rig> found) {
+        if (rigs == null) {
+            return;
+        }
+        MergeResult merged = rigs.updateFromJson(ModelRigs.manifest(AUTHORED_RIGS, found).toString());
+        if (!merged.ok()) {
+            getLogger().warning("content rigs: " + merged.error());
+        }
+    }
+
+    private void applyChatStyle() {
+        // Read with no fallbacks: an absent key arrives as null and ChatStyle
+        // falls back to its own default, so the defaults live in one place
+        // rather than being restated here and in config.yml.
+        EngineCommand.style(ChatStyle.of(
+                getConfig().getString("chat.prefix"),
+                getConfig().getString("chat.colour.prefix"),
+                getConfig().getString("chat.colour.brackets"),
+                getConfig().getString("chat.colour.body"),
+                getConfig().getString("chat.colour.accent"),
+                getConfig().getString("chat.colour.error"),
+                getConfig().getString("chat.colour.success")));
+    }
+
     /** {@code /rp push}: forget what they are holding and send it again. */
     private void sendPack(Player player) {
         sessions.forget(player.getUniqueId());
-        player.sendMessage("[RPEngine] "
+        player.sendMessage(EngineCommand.prefix()
                 + (delivery.apply(player, desiredFor(player)) ? "Sent." : "Nothing to send."));
     }
 
@@ -542,14 +643,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredHuds = parsedHuds.overlays();
         overlays.replace(authoredScreens, authoredHuds);
 
+        ItemAssets itemAssets = new ItemAssets();
         BuildReport builtReport = new PackBuilder(
                 getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
                 getConfig().getString("pack.description", "RP Engine"))
-                .with(new ItemAssets())
+                .with(itemAssets)
                 .with(new SoundAssets())
                 .with(new FontAssets())
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
+
+        // The rigs the build found, handed to the same store a studio push
+        // fills. Under one pack id, so a reload REPLACES them: a model whose
+        // animation somebody deleted stops being animated, which a per-key
+        // merge would not do. Studio's rigs are keyed by their own pack ids
+        // and are untouched by this.
+        registerAuthoredRigs(itemAssets.rigs());
 
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.
@@ -638,7 +747,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getLogger().info(line);
             }
             if (!(to instanceof ConsoleCommandSender)) {
-                to.sendMessage("[RPEngine] " + line);
+                to.sendMessage(EngineCommand.prefix() + line);
             }
         }
     }

@@ -51,6 +51,48 @@ public interface Models {
     /** Whether this model places as an animated rig rather than one still display. */
     boolean isAnimated(String modelId);
 
+    // ---- wearing a model on an entity that already exists ---------------
+
+    /**
+     * Puts a model on {@code host}, whoever spawned it.
+     *
+     * <p>For a mob another plugin owns: a MythicMobs boss, a Citizens NPC, a
+     * shopkeeper. <strong>The entity is not replaced or re-spawned</strong>,
+     * so every reference anything else is holding stays valid, it keeps its
+     * own AI and loot, and its hitbox stays where the model looks. Its vanilla
+     * body is made invisible; {@link #unbind} gives it back.
+     *
+     * <p>Binding twice replaces the first model rather than stacking a second
+     * on the same body.
+     *
+     * @param model an item id whose model to wear \u2014 the same id a
+     *              {@code place:} block names, so one model can be stood in a
+     *              world and worn by a mob without being defined twice
+     * @return false if the entity is gone, or the id names nothing
+     */
+    boolean bind(Entity host, ContentId model);
+
+    /** As above, at a size multiplier. */
+    boolean bind(Entity host, ContentId model, float scale);
+
+    /** Takes the model off and gives the entity its own body back. */
+    boolean unbind(Entity host);
+
+    /** The model this entity is wearing, if it is wearing one of ours. */
+    Optional<ContentId> modelOn(Entity host);
+
+    /**
+     * Plays an animation on what an entity is wearing.
+     *
+     * <p>By name rather than by trigger: a bound model has nothing to punch
+     * and nothing to walk into, so the triggers a placed rig resolves have
+     * nothing to fire from. Whatever drives the mob decides when it animates.
+     */
+    boolean animate(Entity host, String animation);
+
+    /** Puts it back to rest, or to its idle loop if it has one. */
+    boolean stopAnimating(Entity host);
+
     /**
      * Whether an entity is part of a placed model - its clickable hitbox or
      * any of its part displays. The cheap early-out for an event handler:

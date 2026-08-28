@@ -65,3 +65,38 @@ prompt:
   # true disconnects a player who declines. Off by default: kicking somebody
   # for declining is a decision a server makes, not one a plugin makes for it.
   force: false
+
+# How this plugin looks when it speaks.
+#
+# The palette is yours: a plugin that shouts in its own brand colours on
+# somebody else's server is a plugin whose messages get muted. Colours are
+# hex, #rrggbb, with or without the hash. Anything that is not a hex triple
+# falls back to its default rather than printing the digits at you.
+chat:
+  # Typing :wave: in chat draws the icon called "wave", for anybody with
+  # rpengine.chat.icons. Off by default: a plugin that starts rewriting what
+  # people type the moment it is installed is one somebody has to find the
+  # setting for in a hurry.
+  icons: false
+  # The word inside the brackets, in front of everything this plugin says.
+  prefix: "RPEngine"
+
+  colour:
+    # The prefix itself. #3670f8 is ResourcePack AI's blue.
+    prefix: "#3670f8"
+
+    # The brackets around it.
+    brackets: "#555555"
+
+    # Ordinary text. The rest of every line.
+    body: "#aaaaaa"
+
+    # A name, a count, a code — whatever a sentence is actually about. Also
+    # the headings in /rp's help.
+    accent: "#3670f8"
+
+    # Something went wrong.
+    error: "#ff5555"
+
+    # Something worked, where that is worth saying out loud.
+    success: "#55ff55"

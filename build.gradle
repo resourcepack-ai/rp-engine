@@ -97,7 +97,51 @@ group = 'ai.resourcepack'
 //         ends with a half turn about Y that an ItemDisplay already does for
 //         itself, so copying the pair whole spent it twice — invisible on a
 //         rig standing still, a sword held backwards once an arm swung.
-version = '0.40.3'
+// 0.41.0: the chat palette is config rather than four hard-coded prefixes,
+//         and #3670f8 by default.
+// 0.42.0: a hand-authored model animates, through the rig a studio push
+//         already used - so the one thing that only worked with studio in
+//         the picture no longer does. Items get a closed list of actions,
+//         because "you get an event" is nothing to a server with nobody to
+//         write the plugin. A model can be bound to an entity somebody else
+//         spawned, which is what servers pay ModelEngine for, and MythicMobs
+//         can do it from a skill line. Placeholders, so the rest of a server
+//         can read what the engine knows. And both ends of a sync invite
+//         hear the answer.
+// 0.43.0: a rig is a tree. A part composes its whole animated ancestor
+//         chain, so rotating a torso carries the arms inside it, and a bone
+//         holding only other bones is a bone. Both builders had flattened it
+//         and agreed on the wrong answer. Animations gain a speed, an end
+//         (loop/hold/once), a priority and a crossfade. Items gain the
+//         vanilla numbers — enchantments, attributes, durability, food — and
+//         four more triggers. Typing :wave: in chat draws the icon.
+// 0.44.0: bones can do things, with ModelEngine's own name prefixes so a rig
+//         somebody already has works unchanged: heads that track a target,
+//         sub-hitboxes, seats, nametags. Placed pieces can light a room,
+//         stick to a wall or a ceiling, and drop something other than
+//         themselves. Items can be worn as hats and kept through dying.
+//         WorldGuard gets two region flags, built on events the engine
+//         already fired.
+// 0.45.0: two animations at once. A layer above the base composes on top of
+//         it rather than replacing it, so a wave plays over a walk cycle;
+//         the base path is untouched, so every rig already in the world
+//         behaves as it did. A Citizens NPC keeps its model across the
+//         despawn and respawn that binding alone could not survive.
+// 0.46.0: a layer can move part of a model. weight scales how far it moves
+//         what it touches; bones names which bones it touches at all, and
+//         reaches everything hanging off them. A b_ bone can also say what a
+//         hit on it is multiplied by — the pack's rule rather than ours.
+// 0.46.1: an audit of everything the last three versions added, none of
+//         which has been in a client. Six real defects, all of the kind that
+//         accumulate quietly: two maps that grew for ever, derived entities
+//         saved with their chunk, a light block deleted that was not ours, a
+//         hidden name never restored, and items kept through death handed
+//         back into an inventory that was about to be cleared.
+// 0.46.2: the 0.40.2 and 0.40.3 emote fixes reach the 0.46 line. They were
+//         cut from a branch that had not seen 0.41.0 onwards, so no released
+//         jar has carried both the moving rig's shadow and nametag and the
+//         corrected in-hand turn until this one.
+version = '0.46.2'
 
 java {
     toolchain {
@@ -111,6 +155,15 @@ repositories {
     maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
     // Geyser, for the Bedrock bridge.
     maven { url = 'https://repo.opencollab.dev/main/' }
+    // PlaceholderAPI, for the expansion. Its own repository; it is not on
+    // Maven Central.
+    maven { url = 'https://repo.extendedclip.com/releases/' }
+    // MythicMobs, for the model mechanic. Its own repository too.
+    maven { url = 'https://mvn.lumine.io/repository/maven-public/' }
+    // WorldGuard, for the region flags.
+    maven { url = 'https://maven.enginehub.org/repo/' }
+    // Citizens, for the NPC trait.
+    maven { url = 'https://repo.citizensnpcs.co/' }
 }
 
 dependencies {
@@ -125,6 +178,23 @@ dependencies {
     // touches them goes through BedrockSupport, which answers no on a server
     // that has none rather than throwing NoClassDefFoundError somewhere
     // unrelated.
+    // PlaceholderAPI. compileOnly for the same reason Geyser is: a server
+    // without it must load this plugin normally, so every reference to it is
+    // behind Placeholders, which registers only when the class is there.
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+
+    // MythicMobs. compileOnly for the same reason as the other two.
+    compileOnly 'io.lumine:Mythic-Dist:5.12.1'
+
+    // WorldGuard. compileOnly, same as the rest.
+    compileOnly 'com.sk89q.worldguard:worldguard-bukkit:7.0.9'
+
+    // Citizens. compileOnly, same as the rest.
+    // transitive = false: Citizens pulls a library loader that is not on any
+    // repository we can reach, and none of it is needed to compile against a
+    // Trait. The classes come from the server's own Citizens at runtime.
+    compileOnly('net.citizensnpcs:citizens-main:2.0.35-SNAPSHOT') { transitive = false }
+
     compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
     compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'
 

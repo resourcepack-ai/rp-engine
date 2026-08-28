@@ -5,12 +5,12 @@ api-version: '1.21'
 description: Custom items, models, sounds, icons, screens, recipes and emotes.
 author: ResourcePack AI
 folia-supported: false
-softdepend: [Geyser-Spigot]
+softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|liquid|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -49,6 +49,8 @@ permissions:
       rpengine.emotes: true
       rpengine.entities: true
       rpengine.spawn: true
+      rpengine.bind: true
+      rpengine.unbind: true
       rpengine.liquid: true
       rpengine.sync: true
       rpengine.distribute: true
@@ -111,6 +113,15 @@ permissions:
     default: op
   rpengine.spawn:
     description: Spawn a custom entity.
+    default: op
+  rpengine.chat.icons:
+    description: Use :name: shortcodes for icons in chat.
+    default: true
+  rpengine.bind:
+    description: Put a model on a mob that already exists.
+    default: op
+  rpengine.unbind:
+    description: Take a bound model back off.
     default: op
   rpengine.liquid:
     description: Mark out pools of a custom liquid.

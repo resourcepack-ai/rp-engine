@@ -76,6 +76,7 @@ final class Help {
 
     /** The line as it goes into chat: the command bright, the rest grey. */
     String render() {
-        return Reply.COMMAND + "  /rp " + signature() + Reply.BODY + " - " + text;
+        ChatStyle style = Reply.style();
+        return style.command() + "  /rp " + signature() + style.body() + " - " + text;
     }
 }
