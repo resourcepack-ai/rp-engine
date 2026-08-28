@@ -3,6 +3,9 @@ package ai.resourcepack.engine.core.emote;
 import ai.resourcepack.engine.api.EmoteInfo;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.Emotes;
+import ai.resourcepack.engine.core.command.EngineCommand;
+
+import net.md_5.bungee.api.chat.TextComponent;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -149,7 +152,7 @@ public final class EmoteInvites {
             return;
         }
         if (ledBy(lead.getUniqueId()) != null) {
-            lead.sendMessage(EmoteWording.inviteAlreadyOut());
+            say(lead, EmoteWording.inviteAlreadyOut());
             return;
         }
 
@@ -193,7 +196,7 @@ public final class EmoteInvites {
                 return;
             }
             if (involving(other.getUniqueId()) != null) {
-                lead.sendMessage(EmoteWording.castAlreadyInvited(other.getName()));
+                say(lead, EmoteWording.castAlreadyInvited(other.getName()));
                 return;
             }
             cast.add(other);
@@ -206,7 +209,7 @@ public final class EmoteInvites {
         // EmoteMessages, exactly as they are when they accept.
         if (lead.hasPermission(EmoteWording.FORCE_PERMISSION)) {
             EmoteResult result = emotes.play(lead, info.get().name(), cast);
-            lead.sendMessage(EmoteWording.of(result));
+            say(lead, EmoteWording.of(result));
             return;
         }
 
@@ -224,10 +227,10 @@ public final class EmoteInvites {
         pending.put(invite.token, invite);
 
         for (Player member : cast) {
-            member.spigot().sendMessage(EmoteWording.invitation(
+            say(member, EmoteWording.invitation(
                 invite.leadName, invite.emoteId, invite.token, TIMEOUT_SECONDS));
         }
-        lead.sendMessage(EmoteWording.inviteSent(invite.castNames, TIMEOUT_SECONDS));
+        say(lead, EmoteWording.inviteSent(invite.castNames, TIMEOUT_SECONDS));
 
         invite.taskId = Bukkit.getScheduler().runTaskLater(plugin, () -> expire(invite),
             TIMEOUT_SECONDS * 20L).getTaskId();
@@ -248,15 +251,15 @@ public final class EmoteInvites {
         // command landing. Said rather than ignored: two buttons that do
         // nothing read as a broken plugin.
         if (invite == null || !invite.castIds.contains(who.getUniqueId())) {
-            who.sendMessage(EmoteWording.inviteGone());
+            say(who, EmoteWording.inviteGone());
             return true;
         }
 
         if (!accept) {
             close(invite);
-            who.sendMessage(EmoteWording.replyDenied(invite.emoteId));
+            say(who, EmoteWording.replyDenied(invite.emoteId));
             Player lead = Bukkit.getPlayer(invite.leadId);
-            if (lead != null) lead.sendMessage(EmoteWording.inviteDenied(who.getName()));
+            if (lead != null) say(lead, EmoteWording.inviteDenied(who.getName()));
             tellOthersItIsOff(invite, who.getUniqueId());
             return true;
         }
@@ -265,11 +268,11 @@ public final class EmoteInvites {
             // Clicked twice. Not an error, and not worth a second sentence.
             return true;
         }
-        who.sendMessage(EmoteWording.replyAccepted(invite.emoteId));
+        say(who, EmoteWording.replyAccepted(invite.emoteId));
         int waitingOn = invite.castIds.size() - invite.accepted.size();
         Player lead = Bukkit.getPlayer(invite.leadId);
         if (lead != null) {
-            lead.sendMessage(EmoteWording.inviteAccepted(who.getName(), waitingOn));
+            say(lead, EmoteWording.inviteAccepted(who.getName(), waitingOn));
         }
         if (waitingOn <= 0) start(invite);
         return true;
@@ -293,7 +296,7 @@ public final class EmoteInvites {
             close(in);
             Player lead = Bukkit.getPlayer(in.leadId);
             if (lead != null) {
-                lead.sendMessage(EmoteWording.of(EmoteResult.refused(
+                say(lead, EmoteWording.of(EmoteResult.refused(
                     EmoteResult.Reason.CAST_NOT_ONLINE, nameOf(in, playerId))));
             }
             tellOthersItIsOff(in, playerId);
@@ -327,7 +330,7 @@ public final class EmoteInvites {
         // The library validates everything that can have changed while the
         // question stood, and words its own refusal through EmoteWording.
         EmoteResult result = emotes.play(lead, invite.emoteId, cast);
-        lead.sendMessage(EmoteWording.of(result));
+        say(lead, EmoteWording.of(result));
         if (!result.started()) tellOthersItIsOff(invite, null);
     }
 
@@ -342,7 +345,7 @@ public final class EmoteInvites {
             for (int i = 0; i < invite.castIds.size(); i++) {
                 if (!invite.accepted.contains(invite.castIds.get(i))) silent.add(invite.castNames.get(i));
             }
-            lead.sendMessage(EmoteWording.inviteExpired(silent));
+            say(lead, EmoteWording.inviteExpired(silent));
         }
         tellOthersItIsOff(invite, null);
     }
@@ -353,13 +356,13 @@ public final class EmoteInvites {
             if (id.equals(except)) continue;
             Player member = Bukkit.getPlayer(id);
             if (member != null) {
-                member.sendMessage(EmoteWording.inviteOff(invite.leadName, invite.emoteId));
+                say(member, EmoteWording.inviteOff(invite.leadName, invite.emoteId));
             }
         }
     }
 
     private void refuse(Player lead, EmoteResult result) {
-        lead.sendMessage(EmoteWording.of(result));
+        say(lead, EmoteWording.of(result));
     }
 
     private void close(Invite invite) {
@@ -403,4 +406,31 @@ public final class EmoteInvites {
         } while (pending.containsKey(token));
         return token;
     }
+    /**
+     * One line, wearing the plugin's prefix and palette.
+     *
+     * <p>Every message in this class was sent raw until 0.42.0, which is why
+     * an invitation being accepted or declined read as nothing happening: the
+     * text was there, in plain white, indistinguishable from somebody talking.
+     * A message from the plugin has to LOOK like one, and this is the same
+     * prefix every other command in the plugin writes.
+     *
+     * <p>Reached through {@code EngineCommand} rather than the command
+     * package's own Reply, which is package-private \u2014 that door exists for
+     * exactly the handful of places outside it that write to a player.
+     */
+    private static void say(Player who, String line) {
+        who.sendMessage(EngineCommand.prefix() + line);
+    }
+
+    /**
+     * The clickable invitation. Prefixed the same way, as one component, so
+     * the tag is not itself clickable.
+     */
+    private static void say(Player who, TextComponent line) {
+        TextComponent prefixed = new TextComponent(EngineCommand.prefix());
+        prefixed.addExtra(line);
+        who.spigot().sendMessage(prefixed);
+    }
+
 }

@@ -88,7 +88,7 @@ group = 'ai.resourcepack'
 //         around.
 // 0.41.0: the chat palette is config rather than four hard-coded prefixes,
 //         and #3670f8 by default.
-version = '0.41.0'
+version = '0.42.0'
 
 java {
     toolchain {

@@ -181,6 +181,51 @@ class SyncGroupTest {
         assertTrue(group.receiving("Alex").isEmpty());
     }
 
+    // ---- who to tell ---------------------------------------------------
+    // An invitation is two players, so an answer has to reach both of them.
+    // Only the person who typed the command heard anything until 0.42.0,
+    // which made being declined and being ignored the same experience.
+
+    @Test
+    void anInviteeCanBeToldWhoAskedThem() {
+        group.claim("48213097", "Notch");
+        group.invite("Notch", "Steve");
+
+        assertEquals("Notch", group.invitedBy("Steve").orElseThrow());
+        assertEquals("Notch", group.owner("48213097").orElseThrow());
+    }
+
+    @Test
+    void theInviterIsStillKnowableAtTheMomentOfAnswering() {
+        // Accepting CONSUMES the invite, so a caller that asks afterwards has
+        // nobody left to tell. This is the ordering the command relies on.
+        group.claim("48213097", "Notch");
+        group.invite("Notch", "Steve");
+
+        assertEquals("Notch", group.invitedBy("Steve").orElseThrow());
+        group.accept("Steve");
+        assertTrue(group.invitedBy("Steve").isEmpty());
+    }
+
+    @Test
+    void nobodyIsNamedWhenNoInviteIsWaiting() {
+        group.claim("48213097", "Notch");
+
+        assertTrue(group.invitedBy("Steve").isEmpty());
+        assertTrue(group.invitedBy(null).isEmpty());
+        assertTrue(group.owner("00000000").isEmpty());
+        assertTrue(group.owner(null).isEmpty());
+    }
+
+    @Test
+    void anInviteToASyncThatHasEndedNamesNobody() {
+        group.claim("48213097", "Notch");
+        group.invite("Notch", "Steve");
+        group.stop("Notch");
+
+        assertTrue(group.invitedBy("Steve").isEmpty());
+    }
+
     @Test
     void nullArgumentsAnswerEmpty() {
         assertTrue(group.codeOf(null).isEmpty());
