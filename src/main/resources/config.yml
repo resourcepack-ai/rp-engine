@@ -71,6 +71,20 @@ emotes:
   held-item-yaw: 0.0
   held-item-roll: 0.0
 
+  # Whether an emoting player's nametag is drawn through whatever is in front
+  # of it. Off, and deliberately unlike vanilla.
+  #
+  # A see-through nametag is drawn with no depth test and no depth write, so
+  # anything the client draws after it paints straight over it — and a model
+  # standing near an emoting player wins that race often enough that the name
+  # simply disappears. Off, the name is depth-tested and shows whenever it is
+  # really in front, which matters more here than vanilla's other half: a real
+  # nameplate is visible through terrain, and this one is not.
+  #
+  # Turn it on if you would rather have names through walls and can live with
+  # them vanishing behind models.
+  nametag-see-through: false
+
 # Which bundle a player is given on join. Leave empty to send nothing and
 # drive it yourself.
 default-bundle: "main"

@@ -2585,7 +2585,7 @@ public final class EmoteDirector implements Listener {
             // background: matching it exactly is the difference between a
             // nametag and a floating sign, and there is nothing to gain by
             // being a shade off.
-            d.setSeeThrough(!sneaking);
+            d.setSeeThrough(seeThroughNameTags && !sneaking);
             d.setViewRange(sneaking ? SNEAK_NAMETAG_RANGE : 1f);
             d.setDefaultBackground(true);
             // <b>No drop shadow, because a real nametag has none.</b> Vanilla
@@ -2758,7 +2758,7 @@ public final class EmoteDirector implements Listener {
         session.nameTagSneaking = sneaking;
         TextDisplay tag = session.nameTag;
         if (tag == null || !tag.isValid()) return;
-        tag.setSeeThrough(!sneaking);
+        tag.setSeeThrough(seeThroughNameTags && !sneaking);
         if (session.nameTagShown) tag.setViewRange(sneaking ? SNEAK_NAMETAG_RANGE : 1f);
     }
 
@@ -3952,5 +3952,35 @@ public final class EmoteDirector implements Listener {
      */
     public static void heldItemTurn(float pitch, float yaw, float roll) {
         HeldItem.turn(pitch, yaw, roll);
+    }
+
+    /**
+     * Whether an emote's nametag is drawn through what is in front of it.
+     *
+     * <p><b>Off, which is not what vanilla does, and the reason is models.</b>
+     * A {@code TextDisplay} with see-through on is drawn with no depth test AND
+     * no depth write, so it neither hides anything nor is hidden by anything —
+     * whatever the client happens to draw AFTER it simply paints over it.
+     * Entity draw order is not something a server decides, so a model standing
+     * near an emoting player wins that race often enough to read as "the
+     * nametag is invisible in front of a model", which is what it was reported
+     * as. Depth-tested text writes depth and is drawn when it is genuinely in
+     * front, which is the property that actually matters here.
+     *
+     * <p>What it costs is vanilla's other half: a real nameplate IS visible
+     * through terrain until its owner crouches, and this one is not. That is
+     * the trade, and it is the right way round for a plugin whose whole point
+     * is putting large models next to players.
+     *
+     * <p>Settable because it is a rendering judgement rather than a fact, and
+     * because the two symptoms it sits between look nothing alike: on, a name
+     * vanishes behind models; off, a name is hidden by terrain it used to show
+     * through. Whoever can see both should be able to pick without a rebuild.
+     */
+    private static volatile boolean seeThroughNameTags = false;
+
+    /** See {@link #seeThroughNameTags}. Called from the plugin on load and reload. */
+    public static void nameTagsSeeThrough(boolean seeThrough) {
+        seeThroughNameTags = seeThrough;
     }
 }
