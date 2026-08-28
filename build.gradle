@@ -120,7 +120,13 @@ group = 'ai.resourcepack'
 //         what it touches; bones names which bones it touches at all, and
 //         reaches everything hanging off them. A b_ bone can also say what a
 //         hit on it is multiplied by — the pack's rule rather than ours.
-version = '0.46.0'
+// 0.46.1: an audit of everything the last three versions added, none of
+//         which has been in a client. Six real defects, all of the kind that
+//         accumulate quietly: two maps that grew for ever, derived entities
+//         saved with their chunk, a light block deleted that was not ours, a
+//         hidden name never restored, and items kept through death handed
+//         back into an inventory that was about to be cleared.
+version = '0.46.1'
 
 java {
     toolchain {

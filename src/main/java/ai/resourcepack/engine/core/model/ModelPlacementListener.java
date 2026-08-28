@@ -62,6 +62,15 @@ public final class ModelPlacementListener implements Listener {
     private final NamespacedKey idKey;
     private final NamespacedKey displayKey;
     private final NamespacedKey solidKey;
+    /**
+     * Whether this placement put a light block down.
+     *
+     * <p>Recorded rather than inferred from the block being a light, for the
+     * same reason the barrier is: a display entity does not collide, so a
+     * player can put their OWN light block in the space a model occupies, and
+     * breaking the model would then delete it.
+     */
+    private final NamespacedKey lightKey;
 
     /**
      * The rig half, which a piece uses only if its model has keyframes in it.
@@ -89,6 +98,7 @@ public final class ModelPlacementListener implements Listener {
         this.idKey = new NamespacedKey(plugin, "model");
         this.displayKey = new NamespacedKey(plugin, "model-display");
         this.solidKey = new NamespacedKey(plugin, "model-solid");
+        this.lightKey = new NamespacedKey(plugin, "model-light");
         this.rigs = rigs;
         this.animator = animator;
         this.spawns = new RigSpawn(host, animator);
@@ -255,6 +265,8 @@ public final class ModelPlacementListener implements Listener {
             }
             if (info.solid()) {
                 i.getPersistentDataContainer().set(solidKey, PersistentDataType.BYTE, (byte) 1);
+            } else if (info.light() > 0) {
+                i.getPersistentDataContainer().set(lightKey, PersistentDataType.BYTE, (byte) 1);
             }
         });
 
@@ -434,7 +446,8 @@ public final class ModelPlacementListener implements Listener {
         if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)
                 && anchor.getType() == Material.BARRIER) {
             anchor.setType(Material.AIR, false);
-        } else if (anchor.getType() == Material.LIGHT) {
+        } else if (hitbox.getPersistentDataContainer().has(lightKey, PersistentDataType.BYTE)
+                && anchor.getType() == Material.LIGHT) {
             anchor.setType(Material.AIR, false);
         }
         hitbox.remove();
