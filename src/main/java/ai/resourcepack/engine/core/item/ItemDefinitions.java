@@ -115,7 +115,9 @@ public final class ItemDefinitions {
                 body.bool("unbreakable").orElse(Boolean.FALSE))
                 .withActions(actions)
                 .withAnimations(animations(body, definition.id(), origin, diagnostics))
-                .withStats(stats(body, definition.id(), origin, diagnostics)));
+                .withStats(stats(body, definition.id(), origin, diagnostics))
+                .withFlags(body.bool("hat").orElse(Boolean.FALSE),
+                        body.bool("keep-on-death").orElse(Boolean.FALSE)));
     }
 
     /**

@@ -258,7 +258,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
         getServer().getPluginManager().registerEvents(
-                new ItemListener(items, new ActionRunner(items, sounds)), this);
+                new ItemListener(this, items, new ActionRunner(items, sounds)), this);
         // Off unless a server asks for it: a plugin that starts rewriting
         // what people type in chat the moment it is installed is a plugin
         // somebody has to find the setting for in a hurry.
