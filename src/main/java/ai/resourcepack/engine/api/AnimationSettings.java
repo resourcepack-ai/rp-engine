@@ -58,13 +58,18 @@ public final class AnimationSettings {
     private final int priority;
     private final double blend;
     private final int layer;
+    private final double weight;
+    private final java.util.List<String> bones;
 
-    private AnimationSettings(Mode mode, double speed, int priority, double blend, int layer) {
+    private AnimationSettings(Mode mode, double speed, int priority, double blend, int layer,
+                              double weight, java.util.List<String> bones) {
         this.mode = mode;
         this.speed = speed;
         this.priority = priority;
         this.blend = blend;
         this.layer = layer;
+        this.weight = weight;
+        this.bones = bones;
     }
 
     /**
@@ -82,7 +87,21 @@ public final class AnimationSettings {
      *              than replacing it \u2014 a wave over a walk cycle.
      */
     public static AnimationSettings of(Mode mode, double speed, int priority, double blend, int layer) {
-        return new AnimationSettings(mode, speed, priority, Math.max(0, blend), Math.max(0, layer));
+        return of(mode, speed, priority, blend, layer, 0, java.util.List.of());
+    }
+
+    /**
+     * @param weight how strongly it applies, 0\u20131. 0 means full strength,
+     *               which is what an animation that says nothing means.
+     * @param bones  the bones it moves, or empty for all of them. A name
+     *               reaches everything hanging off it, so naming a torso
+     *               moves the arms with it.
+     */
+    public static AnimationSettings of(Mode mode, double speed, int priority, double blend, int layer,
+                                       double weight, java.util.List<String> bones) {
+        return new AnimationSettings(mode, speed, priority, Math.max(0, blend), Math.max(0, layer),
+                Math.max(0, Math.min(1, weight)),
+                bones == null ? java.util.List.of() : java.util.List.copyOf(bones));
     }
 
     /** Null where the model's own answer stands. */
@@ -110,10 +129,21 @@ public final class AnimationSettings {
         return layer;
     }
 
+    /** How strongly it applies. 0 means full strength. */
+    public double weight() {
+        return weight;
+    }
+
+    /** The bones it moves, or empty for all of them. */
+    public java.util.List<String> bones() {
+        return bones;
+    }
+
     @Override
     public String toString() {
         return "AnimationSettings[" + (mode == null ? "as authored" : mode.written())
                 + ", speed=" + speed + ", priority=" + priority + ", blend=" + blend
-                + ", layer=" + layer + "]";
+                + ", layer=" + layer + ", weight=" + weight
+                + (bones.isEmpty() ? "" : ", bones=" + bones) + "]";
     }
 }

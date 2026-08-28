@@ -81,9 +81,10 @@ public final class ModelRigs {
         private final BoneBehaviour behaviour;
         private final float[] pivot;
         private final float size;
+        private final List<String> lineage;
 
         Part(String item, List<Integer> elements, List<Step> program,
-             String bone, BoneBehaviour behaviour, float[] pivot, float size) {
+             String bone, BoneBehaviour behaviour, float[] pivot, float size, List<String> lineage) {
             this.item = item;
             this.elements = List.copyOf(elements);
             this.program = List.copyOf(program);
@@ -91,6 +92,7 @@ public final class ModelRigs {
             this.behaviour = behaviour;
             this.pivot = pivot;
             this.size = size;
+            this.lineage = List.copyOf(lineage);
         }
 
         /** The item model id this part renders as: {@code <modelId>__part<n>}. */
@@ -140,6 +142,18 @@ public final class ModelRigs {
         public float size() {
             return size;
         }
+
+        /**
+         * Every bone this part hangs off, root first, ending with its own.
+         *
+         * <p>What makes "this layer moves the upper body only" answerable. A
+         * mask naming a torso has to reach the arms inside it, and the arms
+         * know their own name and nothing else \u2014 so the lineage is written
+         * down here, where the tree is still in hand.
+         */
+        public List<String> lineage() {
+            return lineage;
+        }
     }
 
     /** A model's parts and the animations they play. */
@@ -147,6 +161,8 @@ public final class ModelRigs {
 
         private final List<Part> parts;
         private final JsonArray animations;
+        /** Bone name (lowercased) -> damage multiplier. Usually empty. */
+        private final Map<String, Double> damage = new LinkedHashMap<>();
 
         Rig(List<Part> parts, JsonArray animations) {
             this.parts = List.copyOf(parts);
@@ -228,14 +244,16 @@ public final class ModelRigs {
                     List<Step> own = new ArrayList<>(chain);
                     own.add(new Step(String.valueOf(index), pivotOf(elements, index)));
                     parts.add(part(modelId, parts.size(), List.of(index), own,
-                            nameOf(group), behaviours.get(g), originOf(group), elements));
+                            nameOf(group), behaviours.get(g), originOf(group), elements,
+                            lineageOf(groups, g)));
                 } else {
                     boneCubes.add(index);
                 }
             }
             if (!boneCubes.isEmpty()) {
                 parts.add(part(modelId, parts.size(), boneCubes, chain,
-                        nameOf(group), behaviours.get(g), originOf(group), elements));
+                        nameOf(group), behaviours.get(g), originOf(group), elements,
+                        lineageOf(groups, g)));
             }
         }
 
@@ -248,7 +266,7 @@ public final class ModelRigs {
             claimed.add(i);
             parts.add(part(modelId, parts.size(), List.of(i),
                     List.of(new Step(String.valueOf(i), pivotOf(elements, i))),
-                    "", BoneBehaviour.NONE, pivotOf(elements, i), elements));
+                    "", BoneBehaviour.NONE, pivotOf(elements, i), elements, List.of()));
         }
 
         // Everything left rides along as one still part. It is a part rather
@@ -263,7 +281,7 @@ public final class ModelRigs {
         }
         if (!remainder.isEmpty()) {
             parts.add(part(modelId, parts.size(), remainder, List.of(),
-                    "", BoneBehaviour.NONE, new float[]{8f, 8f, 8f}, elements));
+                    "", BoneBehaviour.NONE, new float[]{8f, 8f, 8f}, elements, List.of()));
         }
 
         boolean moves = parts.stream().anyMatch(part -> !part.program().isEmpty());
@@ -353,11 +371,50 @@ public final class ModelRigs {
                 if (one.layer() > 0) {
                     animation.addProperty("layer", one.layer());
                 }
+                if (one.weight() > 0) {
+                    animation.addProperty("weight", one.weight());
+                }
+                if (!one.bones().isEmpty()) {
+                    JsonArray bones = new JsonArray();
+                    one.bones().forEach(bones::add);
+                    animation.add("bones", bones);
+                }
             }
             if (!matched) {
                 unmatched.add(entry.getKey());
             }
         }
+        return unmatched;
+    }
+
+    /**
+     * Writes per-bone damage multipliers onto a computed rig.
+     *
+     * <p>Matched against a part's own bone rather than its lineage, unlike an
+     * animation's mask: a hitbox is a place you aimed at, and "everything
+     * inside the torso counts as a torso hit" would make the head worthless
+     * the moment it was inside one.
+     *
+     * @return the bone names that matched nothing
+     */
+    public static List<String> applyHitboxes(Rig rig, Map<String, Double> damage) {
+        List<String> unmatched = new ArrayList<>();
+        if (rig == null || damage == null || damage.isEmpty()) {
+            return unmatched;
+        }
+        for (Map.Entry<String, Double> entry : damage.entrySet()) {
+            boolean matched = false;
+            for (Part part : rig.parts()) {
+                if (part.bone().equalsIgnoreCase(entry.getKey())) {
+                    matched = true;
+                }
+            }
+            if (!matched) {
+                unmatched.add(entry.getKey());
+            }
+        }
+        rig.damage.clear();
+        damage.forEach((bone, multiplier) -> rig.damage.put(bone.toLowerCase(java.util.Locale.ROOT), multiplier));
         return unmatched;
     }
 
@@ -390,10 +447,18 @@ public final class ModelRigs {
                 out.add("program", program);
                 if (!part.bone().isEmpty()) {
                     out.addProperty("bone", part.bone());
+                    JsonArray lineage = new JsonArray();
+                    part.lineage().forEach(lineage::add);
+                    out.add("bones", lineage);
                 }
                 if (part.behaviour() != BoneBehaviour.NONE) {
                     out.addProperty("behaviour", part.behaviour().name().toLowerCase(java.util.Locale.ROOT));
                     out.addProperty("size", part.size());
+                    Double multiplier = entry.getValue().damage
+                            .get(part.bone().toLowerCase(java.util.Locale.ROOT));
+                    if (multiplier != null && multiplier > 0) {
+                        out.addProperty("damage", multiplier);
+                    }
                     JsonArray pivot = new JsonArray();
                     for (float value : part.pivot()) {
                         pivot.add(value);
@@ -475,9 +540,29 @@ public final class ModelRigs {
     }
 
     private static Part part(String modelId, int index, List<Integer> elements, List<Step> program,
-                             String bone, BoneBehaviour behaviour, float[] pivot, JsonArray source) {
+                             String bone, BoneBehaviour behaviour, float[] pivot, JsonArray source,
+                             List<String> lineage) {
         return new Part(modelId + PART_MARKER + index, elements, program, bone, behaviour, pivot,
-                measure(source, elements));
+                measure(source, elements), lineage);
+    }
+
+    /** The names of bone {@code g} and everything it hangs off, root first. */
+    private static List<String> lineageOf(JsonArray groups, int g) {
+        List<String> names = new ArrayList<>();
+        Set<Integer> seen = new HashSet<>();
+        for (int at = g; at >= 0 && at < groups.size() && seen.add(at); ) {
+            if (!groups.get(at).isJsonObject()) {
+                break;
+            }
+            JsonObject group = groups.get(at).getAsJsonObject();
+            String name = nameOf(group);
+            if (!name.isEmpty()) {
+                names.add(name);
+            }
+            at = parentOf(group);
+        }
+        Collections.reverse(names);
+        return names;
     }
 
     /**

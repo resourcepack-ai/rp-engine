@@ -63,7 +63,10 @@ public final class BoneListener implements Listener {
         }
         // The mob takes it, from whoever swung. Its own resistances, its own
         // death, its own loot — a bone is a place to aim at and nothing else.
-        ((LivingEntity) host).damage(event.getDamage(), event.getDamager());
+        // The multiplier is the pack's: a head worth double is a property of
+        // that model, not an opinion this engine has about combat.
+        ((LivingEntity) host).damage(
+                event.getDamage() * bones.damageOf(event.getEntity()), event.getDamager());
     }
 
     /** Right-clicking a seat bone sits you on it. */

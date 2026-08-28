@@ -246,6 +246,10 @@ public final class ItemAssets implements PackContributor {
         }
         // The author's own settings for how these play, baked in now rather
         // than reconciled later.
+        for (String unknown : ModelRigs.applyHitboxes(rig.get(), item.hitboxes())) {
+            into.warn(namespace + "/items", item.id().path(),
+                    "place.hitboxes." + unknown + " names no bone in this model.");
+        }
         for (String unknown : ModelRigs.apply(rig.get(), item.animations())) {
             into.warn(namespace + "/items", item.id().path(),
                     "place.animations." + unknown + " names no animation in this model.");

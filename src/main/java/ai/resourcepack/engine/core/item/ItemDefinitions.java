@@ -117,7 +117,42 @@ public final class ItemDefinitions {
                 .withAnimations(animations(body, definition.id(), origin, diagnostics))
                 .withStats(stats(body, definition.id(), origin, diagnostics))
                 .withFlags(body.bool("hat").orElse(Boolean.FALSE),
-                        body.bool("keep-on-death").orElse(Boolean.FALSE)));
+                        body.bool("keep-on-death").orElse(Boolean.FALSE))
+                .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics)));
+    }
+
+    /**
+     * {@code place.hitboxes}, which says what a hit on each bone is worth.
+     *
+     * <pre>
+     * place:
+     *   hitboxes:
+     *     head: 2.0
+     *     wing: 0.5
+     * </pre>
+     *
+     * <p>A rule the PACK states rather than one the engine invents, which is
+     * the difference between a headshot being a property of a model and being
+     * an opinion about somebody's game.
+     */
+    private static Map<String, Double> hitboxes(DefinitionNode body, ContentId id,
+                                                String origin, List<Diagnostic> diagnostics) {
+        DefinitionNode place = body.node("place").orElse(null);
+        DefinitionNode declared = place == null ? null : place.node("hitboxes").orElse(null);
+        if (declared == null) {
+            return Map.of();
+        }
+        Map<String, Double> out = new LinkedHashMap<>();
+        for (String bone : declared.keys()) {
+            Optional<Double> multiplier = declared.decimal(bone);
+            if (multiplier.isEmpty() || multiplier.get() < 0) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "place.hitboxes." + bone + " is not a multiplier."));
+                continue;
+            }
+            out.put(bone, multiplier.get());
+        }
+        return Map.copyOf(out);
     }
 
     /**
@@ -245,7 +280,9 @@ public final class ItemDefinitions {
                     settings.decimal("speed").orElse(0d),
                     settings.integer("priority").orElse(0),
                     settings.decimal("blend").orElse(0d),
-                    settings.integer("layer").orElse(0)));
+                    settings.integer("layer").orElse(0),
+                    settings.decimal("weight").orElse(0d),
+                    settings.strings("bones")));
         }
         return Map.copyOf(out);
     }

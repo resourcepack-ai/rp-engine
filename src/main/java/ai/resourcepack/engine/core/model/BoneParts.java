@@ -47,12 +47,23 @@ final class BoneParts {
     /** What the bone does, so a click knows whether to sit somebody down. */
     private final NamespacedKey roleKey;
 
+    /**
+     * What a hit here is multiplied by.
+     *
+     * <p>Written on the hitbox rather than looked up when somebody swings:
+     * the listener has the entity that was hit and nothing else, and reaching
+     * back through the display to the part to the rig on every blow would be
+     * three lookups in the damage path for a number that never changes.
+     */
+    private final NamespacedKey damageKey;
+
     private final Host host;
 
     BoneParts(Host host) {
         this.host = host;
         this.ownerKey = host.key("bone-owner");
         this.roleKey = host.key("bone-role");
+        this.damageKey = host.key("bone-damage");
     }
 
     /**
@@ -125,6 +136,9 @@ final class BoneParts {
             box.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING,
                     display.getUniqueId().toString());
             box.getPersistentDataContainer().set(roleKey, PersistentDataType.STRING, behaviour.name());
+            if (part != null && part.damage > 0 && part.damage != 1) {
+                box.getPersistentDataContainer().set(damageKey, PersistentDataType.DOUBLE, part.damage);
+            }
         });
         // A passenger of the display, so it goes wherever the animation puts
         // the bone with nothing per-tick of ours involved.
@@ -176,6 +190,16 @@ final class BoneParts {
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * What a hit on this one is worth. 1 unless the pack said otherwise.
+     */
+    double damageOf(Entity hitbox) {
+        Double multiplier = hitbox == null
+                ? null
+                : hitbox.getPersistentDataContainer().get(damageKey, PersistentDataType.DOUBLE);
+        return multiplier == null || multiplier <= 0 ? 1 : multiplier;
     }
 
     /** Whether this hitbox is a bone somebody can sit on. */

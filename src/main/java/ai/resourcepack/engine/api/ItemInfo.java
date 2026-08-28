@@ -31,13 +31,14 @@ public final class ItemInfo {
     private final ItemStats stats;
     private final boolean hat;
     private final boolean keepOnDeath;
+    private final Map<String, Double> hitboxes;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                      int maxStack, boolean glow, boolean unbreakable,
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
                      Map<String, AnimationSettings> animations, ItemStats stats,
-                     boolean hat, boolean keepOnDeath) {
+                     boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -55,6 +56,7 @@ public final class ItemInfo {
         this.stats = stats;
         this.hat = hat;
         this.keepOnDeath = keepOnDeath;
+        this.hitboxes = hitboxes;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -78,7 +80,8 @@ public final class ItemInfo {
                 Map.of(),
                 ItemStats.none(),
                 false,
-                false);
+                false,
+                Map.of());
     }
 
     /**
@@ -93,7 +96,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath);
+                animations, stats, hat, keepOnDeath, hitboxes);
     }
 
     /**
@@ -109,20 +112,33 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath);
+                hat, keepOnDeath, hitboxes);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
-                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath);
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes);
+    }
+
+    /** The same item, with what a hit on each of its bones is worth. */
+    public ItemInfo withHitboxes(Map<String, Double> hitboxes) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes));
+    }
+
+    /** Bone name to damage multiplier. Empty for almost every piece. */
+    public Map<String, Double> hitboxes() {
+        return hitboxes;
     }
 
     /**
