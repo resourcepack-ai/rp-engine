@@ -157,21 +157,36 @@ final class HeldItem {
      * Turns the item the way a hand holds it.
      *
      * <p>Vanilla's {@code ItemInHandLayer.renderArmWithItem} orients a held
-     * stack with an X turn of -90 followed by a Y turn of 180. <b>Only the X
-     * turn belongs here, and taking vanilla's pair whole is what left every
-     * held item facing backwards.</b> The Y half of it exists because vanilla
-     * composes into a frame with no half-turn in it; an ItemDisplay has one
-     * built in — {@code ItemDisplayRenderer} spins the rendered item 180
-     * degrees about Y after the display transformation, which is the entire
-     * reason {@link ai.resourcepack.engine.core.animation.RigMath#toItemDisplaySpace}
-     * exists. Since this is now composed OUTSIDE that conjugation, in the
-     * item's displayed frame, the client's own half turn has already been
-     * spent, and repeating it here spent it twice.
+     * stack with an X turn of -90 followed by a Y turn of 180, and <b>that pair
+     * is taken whole, both halves of it.</b>
      *
-     * <p>It was invisible on a rig standing still, which is why it shipped: a
-     * half turn about a hanging item's own long axis barely reads. An arm
-     * swinging through a walk cycle is where it becomes a sword held
-     * backwards, so a worn set showed it and a one-shot did not.
+     * <p><b>The Y half was once deleted, and putting it back is the fix for an
+     * item that read flipped to everybody but its wearer.</b> The argument for
+     * deleting it was that an ItemDisplay already carries that half turn —
+     * {@code ItemDisplayRenderer} spins the rendered item 180 degrees about Y,
+     * which is the reason {@link
+     * ai.resourcepack.engine.core.animation.RigMath#toItemDisplaySpace} exists
+     * — so once this moved OUTSIDE that conjugation the client's own turn had
+     * "already been spent" and repeating it spent it twice.
+     *
+     * <p>That does not follow, and the arithmetic is pinned in
+     * {@code HeldItemTest.theHalfTurnAboutYIsUntouchedByTheConjugation}: the
+     * conjugation is BY a half turn about Y, and a rotation commutes with
+     * itself, so this term contributes the same 180 inside it or outside it.
+     * Moving the call changed the PITCH — {@code Rx(-90)} was arriving as
+     * {@code Rx(+90)}, which is what hung the item beside the hand — and left
+     * the Y exactly as it had always been. So whatever the client does with it,
+     * it did the same thing before and after that move, and the move cannot
+     * have turned this half turn into a duplicate of anything.
+     *
+     * <p><b>What the deletion actually did is roll the item about its own
+     * length.</b> After the pitch, the item's local Y runs along the item and
+     * is horizontal, so this half turn is a roll: it cannot make a sword point
+     * the wrong way, and it flips only what is perpendicular to the blade —
+     * which face is up, which way an asymmetric model reads. That is why a rig
+     * standing still looked fine, why it was reported both as "backwards" and
+     * as "flipped in the horizontal axis", and why a symptom of an item facing
+     * the wrong way is never evidence about this term.
      *
      * <p>It is NOT taken from studio's
      * {@code slotBaseFrame}, which states {@code [-90 + 22.5, 0, 0]} — that
@@ -192,6 +207,7 @@ final class HeldItem {
      */
     static void orient(Matrix4f m) {
         m.rotateX((float) (-Math.PI / 2.0));
+        m.rotateY((float) Math.PI);
     }
 
     /**

@@ -137,11 +137,13 @@ class HeldItemTest {
             .toItemDisplaySpace(inModelSpace);
 
         // What the turn becomes if it is composed before the conjugation: the
-        // opposite quarter-turn about X. (A half-turn about Y would survive the
-        // conjugation untouched, which is why the turn that IS here is the one
-        // this test can speak about.)
+        // opposite quarter-turn about X, and the SAME half-turn about Y — the
+        // yaw commutes with the conjugation and comes through untouched, which
+        // is exactly why it is the pitch alone that this test can speak about.
+        // See theHalfTurnAboutYIsUntouchedByTheConjugation.
         Matrix4f flipped = new Matrix4f()
-            .rotateX((float) (Math.PI / 2.0));
+            .rotateX((float) (Math.PI / 2.0))
+            .rotateY((float) Math.PI);
         for (int i = 0; i < 16; i++) {
             assertEquals(flipped.get(i / 4, i % 4), conjugated.get(i / 4, i % 4), 1e-5);
         }
@@ -160,47 +162,115 @@ class HeldItemTest {
     }
 
     /**
-     * <b>The half turn about Y that vanilla does and this must not.</b>
+     * <b>Vanilla's in-hand pair is taken whole, and the Y half of it is a
+     * ROLL rather than a duplicate of anything the client does.</b>
      *
-     * <p>{@code ItemInHandLayer.renderArmWithItem} turns a held stack by
-     * {@code Rx(-90)} and then {@code Ry(180)}, and taking that pair whole is
-     * the obvious thing to do — it is what this did, and every held item came
-     * out facing backwards. An ItemDisplay already has that half turn: the
-     * client spins the rendered item 180 degrees about Y after applying the
-     * display transformation, which is the whole reason
-     * {@code RigMath.toItemDisplaySpace} exists. {@code orient} is composed
-     * outside that conjugation, in the item's displayed frame, so the client's
-     * half turn has already been spent and repeating it spends it twice.
+     * <p>This turn has now been got wrong in both directions, so it is pinned
+     * from both sides. {@code ItemInHandLayer.renderArmWithItem} turns a held
+     * stack by {@code Rx(-90)} and then {@code Ry(180)}, and both belong here.
      *
-     * <p>Pinned because it cost a release to find and is invisible in the one
-     * place anybody checks: a rig standing still holds an item along its own
-     * long axis, where a half turn about that axis barely reads. It only
-     * became a sword held backwards once an arm swung through a walk cycle,
-     * which is why a worn set showed it and a one-shot did not.
+     * <p>The half turn was once deleted on the theory that an ItemDisplay
+     * already carries it — that the client's own 180 about Y had "already been
+     * spent" once {@code orient} moved outside {@code toItemDisplaySpace}. That
+     * reasoning cannot be right, and {@link
+     * #theHalfTurnAboutYIsUntouchedByTheConjugation} is the arithmetic: a half
+     * turn about Y COMMUTES with a conjugation by a half turn about Y, so
+     * moving {@code orient} across that boundary changed the pitch and left the
+     * Y contribution exactly as it was. Whatever the client does, it did the
+     * same thing before and after that move, so the move cannot have made this
+     * term redundant.
+     *
+     * <p>What deleting it actually did is in {@link
+     * #droppingTheYawRollsTheItemAboutItsOwnLength}: it does not reverse the
+     * item, it rolls it 180 degrees about the axis running along it — which is
+     * horizontal, and is what "the item is flipped in the horizontal axis" is.
      */
     @Test
-    void theTurnIsThePitchAloneBecauseTheClientAlreadyDoesTheYaw() {
+    void theTurnIsVanillasPairBecauseTheYawIsARollNotTheClientsHalfTurn() {
         Matrix4f actual = new Matrix4f();
         HeldItem.orient(actual);
 
-        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
+        Matrix4f vanillasPair = new Matrix4f()
+            .rotateX((float) (-Math.PI / 2.0))
+            .rotateY((float) Math.PI);
         for (int i = 0; i < 16; i++) {
-            assertEquals(pitchOnly.get(i / 4, i % 4), actual.get(i / 4, i % 4), 1e-6,
-                "orient() is the -90 pitch and nothing else");
+            assertEquals(vanillasPair.get(i / 4, i % 4), actual.get(i / 4, i % 4), 1e-6,
+                "orient() is vanilla's Rx(-90) then Ry(180), both of them");
         }
 
         // Stated the other way round as well, so the assertion above cannot be
         // "fixed" by making both sides carry the same wrong turn.
-        Matrix4f withVanillasYaw = new Matrix4f()
-            .rotateX((float) (-Math.PI / 2.0))
-            .rotateY((float) Math.PI);
+        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
         double worst = 0;
         for (int i = 0; i < 16; i++) {
             worst = Math.max(worst,
-                Math.abs(withVanillasYaw.get(i / 4, i % 4) - actual.get(i / 4, i % 4)));
+                Math.abs(pitchOnly.get(i / 4, i % 4) - actual.get(i / 4, i % 4)));
         }
         assertTrue(worst > 1e-3,
-            "adding vanilla's Ry(180) back is the bug this test exists to catch");
+            "dropping vanilla's Ry(180) is the bug this test exists to catch");
+    }
+
+    /**
+     * <b>A half turn about Y survives {@code toItemDisplaySpace} untouched.</b>
+     *
+     * <p>The load-bearing fact behind the test above, and the one that makes
+     * "the client already does this half turn, so drop ours" unsound: the
+     * conjugation is BY a half turn about Y, and a rotation commutes with
+     * itself. So this term contributes the same 180 whether {@code orient} is
+     * composed inside or outside it, and no amount of moving that call can
+     * double or cancel it.
+     */
+    @Test
+    void theHalfTurnAboutYIsUntouchedByTheConjugation() {
+        Matrix4f yaw = new Matrix4f().rotateY((float) Math.PI);
+        Matrix4f conjugated = ai.resourcepack.engine.core.animation.RigMath
+            .toItemDisplaySpace(yaw);
+        for (int i = 0; i < 16; i++) {
+            assertEquals(yaw.get(i / 4, i % 4), conjugated.get(i / 4, i % 4), 1e-6,
+                "Ry(180) commutes with a conjugation by Ry(180)");
+        }
+    }
+
+    /**
+     * <b>What dropping the yaw actually looks like: a roll, not a reversal.</b>
+     *
+     * <p>The symptom that brought this back was "for others the item is flipped
+     * in the horizontal axis by 180", and this is that sentence as arithmetic.
+     * Take the difference between vanilla's pair and the pitch alone, in the
+     * frame the display reads, and it is a half turn about Z — horizontal, the
+     * axis pointing the way the rig faces, which after {@code Rx(-90)} is the
+     * axis running along the item itself.
+     *
+     * <p>So it cannot make a sword point the wrong way, and a report of one
+     * facing backwards is not evidence about this term. It flips everything
+     * PERPENDICULAR to the item's length: which face is up, which way an
+     * asymmetric model reads. That is why it went unnoticed on a rig standing
+     * still and why nobody could agree on what it looked like.
+     */
+    @Test
+    void droppingTheYawRollsTheItemAboutItsOwnLength() {
+        Matrix4f withYaw = new Matrix4f();
+        HeldItem.orient(withYaw);
+        Matrix4f pitchOnly = new Matrix4f().rotateX((float) (-Math.PI / 2.0));
+
+        // withYaw = pitchOnly * delta, so delta is the turn the deletion removed,
+        // expressed in the item's own displayed frame.
+        Matrix4f delta = new Matrix4f(pitchOnly).invert().mul(withYaw);
+        Matrix4f halfTurnAboutTheItemsLength = new Matrix4f().rotateY((float) Math.PI);
+        for (int i = 0; i < 16; i++) {
+            assertEquals(halfTurnAboutTheItemsLength.get(i / 4, i % 4), delta.get(i / 4, i % 4), 1e-5,
+                "the deleted turn is a roll about the item's own y, not a reversal");
+        }
+
+        // And the reversal it is NOT: the item's length is where it was either
+        // way. Pinned because the deletion was justified by a symptom this term
+        // is incapable of causing.
+        org.joml.Vector3f alongTheItem = new org.joml.Vector3f(0f, 1f, 0f);
+        org.joml.Vector3f withYawEnd = withYaw.transformPosition(new org.joml.Vector3f(alongTheItem));
+        org.joml.Vector3f pitchOnlyEnd = pitchOnly.transformPosition(new org.joml.Vector3f(alongTheItem));
+        assertEquals(pitchOnlyEnd.x, withYawEnd.x, 1e-5, "the item points the same way with or without the yaw");
+        assertEquals(pitchOnlyEnd.y, withYawEnd.y, 1e-5, "the item points the same way with or without the yaw");
+        assertEquals(pitchOnlyEnd.z, withYawEnd.z, 1e-5, "the item points the same way with or without the yaw");
     }
 
     @Test
