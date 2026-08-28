@@ -76,6 +76,17 @@ public final class RigPlacementListener implements Listener {
     private final NamespacedKey displaysKey;
     private final RigStore rigs;
     private final RigAnimator animator;
+    private final RigSpawn spawns;
+    /**
+     * The tag the content folder's own placements carry.
+     *
+     * <p>Both kinds of placement wear the animator's {@code model-id} key,
+     * because both are animated by it. Only this listener's are studio's, and
+     * an authored piece broken here would drop a paper carrier instead of the
+     * item it was placed from — so the two clicks below step aside when they
+     * see somebody else's.
+     */
+    private final NamespacedKey authoredKey;
 
     public RigPlacementListener(Host host, RigStore rigs, RigAnimator animator) {
         this.host = host;
@@ -88,6 +99,8 @@ public final class RigPlacementListener implements Listener {
         this.displaysKey = host.key("display-uuids");
         this.rigs = rigs;
         this.animator = animator;
+        this.spawns = new RigSpawn(host, animator);
+        this.authoredKey = host.key("model");
     }
 
     /** The model id a panel-given item carries, or null if it's not one of ours. */
@@ -240,6 +253,7 @@ public final class RigPlacementListener implements Listener {
     public void onUse(PlayerInteractAtEntityEvent event) {
         if (!(event.getRightClicked() instanceof Interaction)) return;
         Interaction hitbox = (Interaction) event.getRightClicked();
+        if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return;
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
         if (modelId == null || !animator.hasTrigger(modelId, RigAnimator.TRIGGER_RIGHT_CLICK)) return;
         event.setCancelled(true);
@@ -264,52 +278,21 @@ public final class RigPlacementListener implements Listener {
         });
     }
 
+    /**
+     * The studio half of placing a rig: paper parts wearing a
+     * {@code custom_model_data} string. Everything that is not the part item
+     * is {@link RigSpawn}, which the content folder's own placement shares.
+     */
     private List<String> spawnAnimatedRig(Block target, String modelId, RigStore.Rig rig, float yaw, String animation, float scale) {
-        World world = target.getWorld();
-        Location center = target.getLocation().add(0.5, 0.5, 0.5);
-        List<String> ids = new ArrayList<>(rig.parts.size());
-        for (int p = 0; p < rig.parts.size(); p++) {
-            RigStore.Part part = rig.parts.get(p);
-            if (part == null || part.item == null) continue;
-            ItemStack partItem = itemWithModelData(part.item);
-            final int partIndex = p;
-            boolean moving = RigAnimator.hasAnimationProgram(part);
-            Location partCenter = center.clone();
-            if (!moving) partCenter.setYaw(yaw);
-            ItemDisplay display = world.spawn(partCenter, ItemDisplay.class, d -> {
-                d.setItemStack(partItem);
-                d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
-                d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);
-                d.getPersistentDataContainer().set(partKey, PersistentDataType.INTEGER, partIndex);
-                // Every part carries it, moving or not: a still part of an
-                // animated rig has to grow by exactly as much as the parts
-                // around it, or the model comes apart at the joints.
-                if (scale != 1f) {
-                    d.getPersistentDataContainer().set(scaleKey, PersistentDataType.FLOAT, scale);
-                    if (!moving) d.setTransformation(RigAnimator.scaledTransformation(scale));
-                }
-                if (moving) {
-                    d.getPersistentDataContainer().set(yawKey, PersistentDataType.FLOAT, yaw);
-                    // The part displays carry it too: the animator resolves a
-                    // resting loop per display, with no hitbox in hand.
-                    if (animation != null) {
-                        d.getPersistentDataContainer().set(animationKey, PersistentDataType.STRING, animation);
-                    }
-                }
-            });
-            if (moving) {
-                animator.track(display);
-                animator.poseNow(display);
-            }
-            ids.add(display.getUniqueId().toString());
-        }
-        return ids;
+        return spawns.parts(target, modelId, rig, yaw, animation, scale,
+                part -> itemWithModelData(part.item));
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onBreak(EntityDamageByEntityEvent event) {
         if (!(event.getEntity() instanceof Interaction)) return;
         Interaction hitbox = (Interaction) event.getEntity();
+        if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return;
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
         if (modelId == null) return;
         event.setCancelled(true);

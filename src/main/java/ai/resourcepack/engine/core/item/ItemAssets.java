@@ -4,9 +4,14 @@ import ai.resourcepack.engine.api.Bundle;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
+import com.google.gson.JsonObject;
+
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -35,6 +40,20 @@ import java.util.Optional;
 public final class ItemAssets implements PackContributor {
 
     private Bundle bundle;
+    private final Map<String, ModelRigs.Rig> rigs = new LinkedHashMap<>();
+
+    /**
+     * The rigs this build found, keyed by model id.
+     *
+     * <p>A by-product rather than a file: everything else a contributor
+     * produces goes into the zip, but a rig is what the SERVER needs in order
+     * to move the displays, and the client is told nothing about it. The
+     * plugin reads this after the build and hands it to the rig store, which
+     * is the same place a studio push puts one.
+     */
+    public Map<String, ModelRigs.Rig> rigs() {
+        return Map.copyOf(rigs);
+    }
 
     @Override
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
@@ -193,7 +212,39 @@ public final class ItemAssets implements PackContributor {
         // textures are inside it twice over once they are extracted.
         into.drop("assets/" + namespace + "/models/" + name + ".bbmodel");
         into.add(modelPath, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
+        writeRig(item, namespace, converted.get().model(), into);
         return true;
+    }
+
+    /**
+     * The extra models an animated piece needs: one per moving part.
+     *
+     * <p>A client cannot animate a block model, so a model with keyframes is
+     * placed as several display entities the server retimes. Each of those
+     * displays needs something to render, and this is where those something
+     * come from — a normal item model per part, addressed by an id derived
+     * from the piece's own.
+     *
+     * <p>The whole model is still written and still what the item looks like
+     * in a hand or a chest. Only what is PUT DOWN is split.
+     */
+    private void writeRig(ItemInfo item, String namespace, JsonObject model, Contribution into) {
+        Optional<ModelRigs.Rig> rig = ModelRigs.compute(item.id().toString(), model);
+        if (rig.isEmpty()) {
+            return;
+        }
+        for (ModelRigs.Part part : rig.get().parts()) {
+            // The part item id is the model id with a suffix, so its path
+            // falls out of the piece's own exactly as the piece's fell out of
+            // its id. Nothing is allocated here either.
+            String path = part.item().substring(part.item().indexOf(':') + 1);
+            into.add("assets/" + namespace + "/items/" + path + ".json",
+                    json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\""
+                            + namespace + ":item/" + path + "\"}}"));
+            into.add("assets/" + namespace + "/models/item/" + path + ".json",
+                    ModelRigs.partModel(model, part).toString().getBytes(StandardCharsets.UTF_8));
+        }
+        rigs.put(item.id().toString(), rig.get());
     }
 
     /**

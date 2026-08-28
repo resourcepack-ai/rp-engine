@@ -170,6 +170,38 @@ is broken.
 Category folders are walked recursively, so `items/weapons/swords.yml` is
 fine. The subfolder is organisation only: **it contributes nothing to the id**.
 
+### Animating one
+
+If the `.bbmodel` has animations in it, the piece moves. Nothing to declare:
+the keyframes are read out of the save file, and a piece with any is placed as
+one display entity per moving bone instead of one still one, retimed by the
+server a few times a second.
+
+```
+assets/models/windmill.bbmodel     bones and keyframes, as Blockbench saved it
+```
+
+A looping animation loops on its own. A one-shot plays when the piece is
+right-clicked. That pair is derived rather than declared, because a `.bbmodel`
+has no notion of a trigger and those are the two things an animation is
+usually for.
+
+Three things worth knowing:
+
+- **The save file, not an export.** Blockbench's *File > Export > Java
+  Block/Item model* writes cubes and nothing else — no bones, no keyframes.
+  Save the project into `assets/models/` and it is read whole.
+- **Only bones animate.** A keyframe on a cube inside an animated bone is
+  played too, composed inside the bone's; a keyframe on a loose cube moves
+  that cube. Anything with no keyframes anywhere stays still and rides along
+  as one piece.
+- **It costs entities.** One display per moving bone, plus one for the
+  remainder. A ten-bone model standing in a world is eleven entities, so an
+  animated model is a centrepiece rather than something to place a hundred of.
+
+Right-clicking a piece that animates plays it rather than sitting on it.
+Shift-right-click still sits, if it has a `seat`.
+
 ### Sitting on one
 
 `seat:` is how far above the model's base a player's backside goes, in blocks —
