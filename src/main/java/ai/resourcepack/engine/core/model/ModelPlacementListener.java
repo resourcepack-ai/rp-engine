@@ -140,6 +140,13 @@ public final class ModelPlacementListener implements Listener {
 
         event.setCancelled(true);
 
+        // A torch on a wall, a chandelier under a ceiling, a chair on neither.
+        // Refused here rather than placed sideways: a lamp stuck to the
+        // underside of a floor is somebody's build ruined, not a preference.
+        if (!found.get().surface().accepts(event.getBlockFace())) {
+            return;
+        }
+
         Block target = clicked.getRelative(event.getBlockFace());
         if (!target.getType().isAir() || findAt(target) != null) {
             return;
@@ -260,6 +267,17 @@ public final class ModelPlacementListener implements Listener {
             // A display entity has no collision whatsoever. This is the only
             // way to make a table something you cannot walk through.
             target.setType(Material.BARRIER, false);
+        } else if (info.light() > 0) {
+            // A display entity emits nothing either, so a lamp needs a real
+            // light block standing in its anchor. Only where there is no
+            // barrier: one block cannot be both, and a solid piece has already
+            // spent it.
+            target.setType(Material.LIGHT, false);
+            org.bukkit.block.data.BlockData data = target.getBlockData();
+            if (data instanceof org.bukkit.block.data.Levelled) {
+                ((org.bukkit.block.data.Levelled) data).setLevel(info.light());
+                target.setBlockData(data, false);
+            }
         }
         return hitbox;
     }
@@ -409,18 +427,30 @@ public final class ModelPlacementListener implements Listener {
             }
         }
 
-        if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)) {
-            Block anchor = where.getBlock();
-            if (anchor.getType() == Material.BARRIER) {
-                anchor.setType(Material.AIR, false);
-            }
+        // The barrier and the light are both blocks WE put there, and a
+        // block left behind is invisible and permanent — the single worst way
+        // this feature can rot.
+        Block anchor = where.getBlock();
+        if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)
+                && anchor.getType() == Material.BARRIER) {
+            anchor.setType(Material.AIR, false);
+        } else if (anchor.getType() == Material.LIGHT) {
+            anchor.setType(Material.AIR, false);
         }
         hitbox.remove();
 
         if (!ask.isDropItem() || world == null) {
             return;
         }
-        ItemStack fallback = drop != null ? drop : items.create(modelItem(id)).orElse(null);
+        // A configured drop beats what it was holding: a piece that gives
+        // back something other than itself is a decision the pack made, and
+        // the display's own stack is only the default answer.
+        ItemStack configured = model.containsKey(id)
+                ? model.get(id).drop().flatMap(items::create).orElse(null)
+                : null;
+        ItemStack fallback = configured != null
+                ? configured
+                : drop != null ? drop : items.create(modelItem(id)).orElse(null);
         if (fallback != null) {
             world.dropItemNaturally(where.add(0, 0.5, 0), fallback);
         }

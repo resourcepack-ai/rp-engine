@@ -5,9 +5,11 @@ import ai.resourcepack.engine.core.Host;
 
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.entity.TextDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
 
@@ -72,6 +74,44 @@ final class BoneParts {
             // display entity cannot be clicked at all. What differs is only
             // what a click MEANS, which is the role written on it.
             spawnHitbox(display, part, behaviour);
+        } else if (behaviour == BoneBehaviour.NAMETAG) {
+            spawnNametag(display);
+        }
+    }
+
+    /**
+     * A name floating at a bone rather than at the entity's own head.
+     *
+     * <p>Which is the whole point of it: vanilla puts a name a fixed distance
+     * above the hitbox, and on a model three blocks tall and five wide that is
+     * somewhere inside its knee.
+     *
+     * <p>The text is the HOST's custom name, read once here and refreshed by
+     * nothing. A name that changes is rare, and a per-tick poll of every rig on
+     * the server to catch it is not a trade worth making — a reload or a
+     * rebind picks it up.
+     */
+    private void spawnNametag(ItemDisplay display) {
+        Entity host = display.getVehicle();
+        String name = host == null ? null : host.getCustomName();
+        if (name == null || name.isEmpty()) {
+            // Nothing to show. A blank tag is an invisible entity that costs a
+            // packet per player per tick for ever.
+            return;
+        }
+        TextDisplay tag = display.getWorld().spawn(display.getLocation(), TextDisplay.class, text -> {
+            text.setText(name);
+            text.setBillboard(Display.Billboard.CENTER);
+            text.setDefaultBackground(false);
+            text.setSeeThrough(false);
+            text.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING,
+                    display.getUniqueId().toString());
+        });
+        display.addPassenger(tag);
+        // And vanilla's own is turned off, or there are two names: one at the
+        // bone and one in the model's knee.
+        if (host != null) {
+            host.setCustomNameVisible(false);
         }
     }
 
