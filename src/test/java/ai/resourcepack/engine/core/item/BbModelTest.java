@@ -304,6 +304,29 @@ class BbModelTest {
     }
 
     @Test
+    void everyBoneNamesItsParentSoTheRigStaysATree() {
+        String nested = project(","
+                + "\"outliner\": [{\"name\": \"torso\", \"uuid\": \"bone-0\", \"origin\": [8, 12, 8],"
+                + " \"children\": [{\"name\": \"arm\", \"uuid\": \"bone-1\", \"origin\": [8, 6, 8],"
+                + " \"children\": [\"cube-1\"]}]}],"
+                + "\"animations\": [{\"name\": \"wave\", \"length\": 1, \"loop\": \"loop\","
+                + " \"animators\": {" + WAVE + "}}]");
+        JsonObject model = BbModel.convert(nested.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+
+        var groups = model.getAsJsonArray("groups");
+        assertEquals(2, groups.size(), "a bone holding only other bones is still a bone");
+        assertEquals("torso", groups.get(0).getAsJsonObject().get("name").getAsString());
+        assertEquals(-1, groups.get(0).getAsJsonObject().get("parent").getAsInt(), "the root");
+        assertEquals(0, groups.get(1).getAsJsonObject().get("parent").getAsInt(),
+                "the arm hangs off the torso");
+        // The container holds no cubes of its own and is in the list anyway.
+        // It used to be dropped, so animating the body moved nothing at all.
+        assertEquals(0, groups.get(0).getAsJsonObject().getAsJsonArray("children").size());
+        assertEquals("[0]", groups.get(1).getAsJsonObject().get("children").toString());
+    }
+
+    @Test
     void animatorsAreRekeyedFromUuidsToBoneIndices() {
         // The load-bearing one. Blockbench keys an animator by the bone's
         // uuid; everything downstream looks up "g:<index>", and a uuid there

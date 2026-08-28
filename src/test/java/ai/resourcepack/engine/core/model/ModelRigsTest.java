@@ -33,7 +33,13 @@ class ModelRigsTest {
     }
 
     private static String bone(String name, float originY, String children) {
-        return "{\"name\":\"" + name + "\",\"origin\":[8," + originY + ",8],\"children\":[" + children + "]}";
+        return bone(name, originY, children, -1);
+    }
+
+    /** A bone that hangs off another. -1 is a root. */
+    private static String bone(String name, float originY, String children, int parent) {
+        return "{\"name\":\"" + name + "\",\"origin\":[8," + originY + ",8],"
+                + "\"parent\":" + parent + ",\"children\":[" + children + "]}";
     }
 
     private static String rotate(String target) {
@@ -206,6 +212,91 @@ class ModelRigsTest {
 
         store.updateFromJson(ModelRigs.manifest("content-folder", Map.of()).toString());
         assertSame(null, store.get("mypack:golem"));
+    }
+
+    // ---- the tree ------------------------------------------------------
+    // Both sides flattened this until 0.43.0 and agreed on the wrong answer:
+    // rotate a torso and the arms inside it stayed where they were.
+
+    /** torso (bone 0, animated) holding arm (bone 1), which holds cube 0. */
+    private static JsonObject nested(String animators) {
+        return model("{\"elements\":[" + cube(0) + "],"
+                + "\"groups\":[" + bone("torso", 12, "") + "," + bone("arm", 6, "0", 0) + "],"
+                + "\"animations\":[" + animation(animators) + "]}");
+    }
+
+    @Test
+    void aPartComposesItsWholeAncestorChainRootFirst() {
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem",
+                nested(rotate("g:0") + "," + rotate("g:1"))).orElseThrow();
+
+        List<ModelRigs.Step> program = rig.parts().get(0).program();
+        assertEquals(2, program.size(), "the arm moves with the torso as well as itself");
+        // Order is the whole of it: the animator composes outermost first, so
+        // the torso has to be applied before the arm or the arm turns about
+        // the wrong point in the wrong space.
+        assertEquals("g:0", program.get(0).target(), "the torso is outermost");
+        assertEquals("g:1", program.get(1).target());
+        assertArrayEqualsish(new float[]{8f, 12f, 8f}, program.get(0).pivot());
+        assertArrayEqualsish(new float[]{8f, 6f, 8f}, program.get(1).pivot());
+    }
+
+    @Test
+    void aStillBoneInsideAMovingOneStillMoves() {
+        // The arm has no keyframes of its own. It is inside a torso that does,
+        // so its cubes move — and used to not.
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", nested(rotate("g:0"))).orElseThrow();
+
+        List<ModelRigs.Step> program = rig.parts().get(0).program();
+        assertEquals(1, program.size());
+        assertEquals("g:0", program.get(0).target());
+        assertEquals(List.of(0), rig.parts().get(0).elements());
+    }
+
+    @Test
+    void aBoneHoldingOnlyOtherBonesIsStillABone() {
+        // "torso" holds no cubes at all — it is a container, which is how a
+        // rig is usually built. It used to be dropped from the group list
+        // entirely, so its animator was keyed to nothing and animating the
+        // body moved nothing.
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", nested(rotate("g:0"))).orElseThrow();
+
+        assertFalse(rig.parts().isEmpty(), "the body animates");
+    }
+
+    @Test
+    void aStillAncestorContributesNoStep() {
+        // Identity costs a lookup per part per tick and changes nothing.
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", nested(rotate("g:1"))).orElseThrow();
+
+        List<ModelRigs.Step> program = rig.parts().get(0).program();
+        assertEquals(1, program.size());
+        assertEquals("g:1", program.get(0).target());
+    }
+
+    @Test
+    void aCubesOwnKeyframesComposeInsideItsWholeChain() {
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem",
+                nested(rotate("g:0") + "," + rotate("g:1") + "," + rotate("0"))).orElseThrow();
+
+        List<ModelRigs.Step> program = rig.parts().get(0).program();
+        assertEquals(3, program.size());
+        assertEquals("g:0", program.get(0).target());
+        assertEquals("g:1", program.get(1).target());
+        assertEquals("0", program.get(2).target(), "the cube is innermost");
+    }
+
+    @Test
+    void aParentThatPointsAtItselfDoesNotHang() {
+        // Cannot come out of a Blockbench outliner, which is a tree by
+        // construction — but the indices arrive as numbers in a file, and one
+        // pointing upward would spin forever.
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem",
+                model("{\"elements\":[" + cube(0) + "],"
+                        + "\"groups\":[" + bone("loop", 6, "0", 0) + "],"
+                        + "\"animations\":[" + animation(rotate("g:0")) + "]}")).orElseThrow();
+
+        assertEquals(1, rig.parts().get(0).program().size());
     }
 
     private static void assertArrayEqualsish(float[] expected, float[] actual) {
