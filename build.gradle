@@ -156,7 +156,15 @@ group = 'ai.resourcepack'
 //         and every plugin on the box went down with it. Nothing had ever
 //         looked at this file: it is a resource, the build only substitutes
 //         the version into it, and no test loaded it. PluginYmlTest does now.
-version = '0.46.4'
+// 0.46.5: a server without WorldGuard loads the plugin again. The four
+//         optional integrations each checked for their plugin INSIDE the hook
+//         class, which cannot work: naming a type in a field or a catch clause
+//         means calling into that class loads and verifies it, so a server
+//         with no WorldGuard threw NoClassDefFoundError out of onLoad before
+//         the check could run — and a plugin that throws from onLoad is never
+//         enabled. The check moves out to the call site, where the class is
+//         not touched at all if the plugin is absent.
+version = '0.46.5'
 
 java {
     toolchain {
