@@ -106,12 +106,51 @@ something an item does, not a kind of content. See below.
 
 ## Making an item do something
 
-Nothing in the engine gives an item behaviour, on purpose: a wand that casts, a
-key that opens a door, a compass that points somewhere are all decisions about a
-particular server. What the engine does is say what happened, with
-`ItemUseEvent` — id, stack, action, block. Cancel it and the vanilla use of the
-stack is cancelled too, so an item that is a bucket underneath does not fill
-with water while it is meant to be a wand.
+```yaml
+wand:
+  material: STICK
+  actions:
+    right_click:
+      - cooldown: 5
+      - message: "&bWhoosh."
+      - sound: mypack:chime
+      - effect: SPEED 10 2
+      - console: "effect give {player} minecraft:levitation 3"
+```
+
+A trigger holds a **list of steps**, run in order. Each step is one key, so it
+needs its own `-`; two keys in one entry is a missing dash, and that is a load
+error rather than a step that quietly never runs.
+
+Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`.
+
+| Step | What it does |
+|---|---|
+| `message` | A line of chat to whoever used it. `&` colour codes. |
+| `broadcast` | The same, to everybody. |
+| `actionbar` | A line above their hotbar. |
+| `console` | Runs a command as the console — how an action reaches something the user may not do themselves. |
+| `run` | Runs a command as the user, with the user's own permissions. |
+| `sound` | `mypack:chime`, or a vanilla key like `minecraft:block.anvil.land`. Optional volume and pitch. |
+| `effect` | `SPEED 10 2` — type, seconds, level. Level is 1-based, as it reads. |
+| `give` | `mypack:ruby 3`. What will not fit drops on the floor. |
+| `take` | Takes this many off the stack. |
+| `cancel` | Cancels the vanilla use, so a wand built on a bucket does not fill with water. |
+| `cooldown` | Seconds. **Stops the run** if it has not been that long — so put a `message` before it and the refusal says something. |
+| `permission` | Stops the run unless they have it. |
+
+Text can carry `{player}`, `{uuid}`, `{world}`, `{x}`, `{y}`, `{z}`, and any
+PlaceholderAPI placeholder if that plugin is installed.
+
+**A step that cannot run is skipped and the rest still run.** A misspelled
+potion costs that line, not the command after it.
+
+**This is not scripting and is not going to become it.** There is no branching,
+no state and no expression here, because the moment there is an `if` it is a
+language and a bad one. Anything past these verbs is a plugin's job, and
+`ItemUseEvent` — id, stack, action, block — is what it listens to. Cancel that
+event and the vanilla use is cancelled too, and the item's own actions do not
+run either: the event is the stronger statement of the two.
 
 An item can also carry a permission:
 

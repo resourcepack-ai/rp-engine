@@ -151,6 +151,35 @@ public final class DefinitionNode {
     }
 
     /**
+     * A list of nested nodes.
+     *
+     * <p>What a sequence of one-key maps parses as — an ordered list of
+     * things, each with its own name and argument, which is how an author
+     * writes a sequence of steps. A single map counts as a one-element list
+     * for the same reason a scalar counts as one string.
+     *
+     * <p>Entries that are not maps are dropped rather than refused here; a
+     * caller that cares which ones went says so with a diagnostic, because
+     * only it knows what the entries were meant to be.
+     */
+    public List<DefinitionNode> nodes(String key) {
+        Object value = raw(key);
+        if (value instanceof Map) {
+            return List.of(of((Map<?, ?>) value));
+        }
+        if (!(value instanceof List)) {
+            return List.of();
+        }
+        List<DefinitionNode> out = new ArrayList<>();
+        for (Object element : (List<?>) value) {
+            if (element instanceof Map) {
+                out.add(of((Map<?, ?>) element));
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
      * The untouched value, for a layer that needs a shape this class does not
      * model. Prefer a typed accessor, and add one here rather than casting at
      * the call site.

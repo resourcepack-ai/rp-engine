@@ -102,6 +102,9 @@ repositories {
     maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
     // Geyser, for the Bedrock bridge.
     maven { url = 'https://repo.opencollab.dev/main/' }
+    // PlaceholderAPI, for the expansion. Its own repository; it is not on
+    // Maven Central.
+    maven { url = 'https://repo.extendedclip.com/releases/' }
 }
 
 dependencies {
@@ -116,6 +119,11 @@ dependencies {
     // touches them goes through BedrockSupport, which answers no on a server
     // that has none rather than throwing NoClassDefFoundError somewhere
     // unrelated.
+    // PlaceholderAPI. compileOnly for the same reason Geyser is: a server
+    // without it must load this plugin normally, so every reference to it is
+    // behind Placeholders, which registers only when the class is there.
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+
     compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
     compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'
 
