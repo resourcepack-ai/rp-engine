@@ -285,7 +285,8 @@ public final class RigPlacementListener implements Listener {
      */
     private List<String> spawnAnimatedRig(Block target, String modelId, RigStore.Rig rig, float yaw, String animation, float scale) {
         return spawns.parts(target, modelId, rig, yaw, animation, scale,
-                part -> itemWithModelData(part.item));
+                        part -> itemWithModelData(part.item))
+                .stream().map(display -> display.getUniqueId().toString()).toList();
     }
 
     @EventHandler(ignoreCancelled = true)

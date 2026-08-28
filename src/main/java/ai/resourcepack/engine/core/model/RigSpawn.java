@@ -47,19 +47,23 @@ final class RigSpawn {
     }
 
     /**
-     * Spawns one display per part and returns their entity ids, in part
-     * order, for the hitbox to remember.
+     * Spawns one display per part and returns them in part order.
      *
-     * @param partItem what a part renders as — the one thing the two callers
+     * <p>The displays themselves rather than their ids: a placement wants ids
+     * to write on its hitbox and a bound model wants the entities to make
+     * passengers of, and turning an entity into an id is free while turning
+     * an id back into an entity is a world lookup that can fail.
+     *
+     * @param partItem what a part renders as — the one thing the callers
      *                 disagree about
      */
-    List<String> parts(Block target, String modelId, RigStore.Rig rig, float yaw,
-                       String animation, float scale, Function<RigStore.Part, ItemStack> partItem) {
+    List<ItemDisplay> parts(Block target, String modelId, RigStore.Rig rig, float yaw,
+                            String animation, float scale, Function<RigStore.Part, ItemStack> partItem) {
         World world = target.getWorld();
         // A display renders its model centred on the entity position, so
         // block-centre puts a 16px cube exactly in the block space.
         Location centre = target.getLocation().add(0.5, 0.5, 0.5);
-        List<String> ids = new ArrayList<>(rig.parts.size());
+        List<ItemDisplay> spawned = new ArrayList<>(rig.parts.size());
 
         for (int p = 0; p < rig.parts.size(); p++) {
             RigStore.Part part = rig.parts.get(p);
@@ -111,8 +115,8 @@ final class RigSpawn {
                 // in its unrotated rest pose before the first tick.
                 animator.poseNow(display);
             }
-            ids.add(display.getUniqueId().toString());
+            spawned.add(display);
         }
-        return ids;
+        return spawned;
     }
 }

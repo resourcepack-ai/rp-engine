@@ -88,6 +88,15 @@ group = 'ai.resourcepack'
 //         around.
 // 0.41.0: the chat palette is config rather than four hard-coded prefixes,
 //         and #3670f8 by default.
+// 0.42.0: a hand-authored model animates, through the rig a studio push
+//         already used - so the one thing that only worked with studio in
+//         the picture no longer does. Items get a closed list of actions,
+//         because "you get an event" is nothing to a server with nobody to
+//         write the plugin. A model can be bound to an entity somebody else
+//         spawned, which is what servers pay ModelEngine for, and MythicMobs
+//         can do it from a skill line. Placeholders, so the rest of a server
+//         can read what the engine knows. And both ends of a sync invite
+//         hear the answer.
 version = '0.42.0'
 
 java {
@@ -105,6 +114,8 @@ repositories {
     // PlaceholderAPI, for the expansion. Its own repository; it is not on
     // Maven Central.
     maven { url = 'https://repo.extendedclip.com/releases/' }
+    // MythicMobs, for the model mechanic. Its own repository too.
+    maven { url = 'https://mvn.lumine.io/repository/maven-public/' }
 }
 
 dependencies {
@@ -123,6 +134,9 @@ dependencies {
     // without it must load this plugin normally, so every reference to it is
     // behind Placeholders, which registers only when the class is there.
     compileOnly 'me.clip:placeholderapi:2.11.6'
+
+    // MythicMobs. compileOnly for the same reason as the other two.
+    compileOnly 'io.lumine:Mythic-Dist:5.12.1'
 
     compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
     compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'

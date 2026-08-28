@@ -55,6 +55,17 @@ public final class RigAnimator implements Listener {
 
     /** PDC key holding a placed rig's size multiplier. See ModelPlacementListener. */
     static final String SCALE_KEY = "rig-scale";
+
+    /**
+     * PDC key marking a part that is worn by a living entity rather than
+     * standing in a block space.
+     *
+     * <p>The one thing a bound part needs that a placed one does not: its yaw
+     * is wherever its host is looking THIS tick, not the yaw somebody placed
+     * it at. Everything else about animating it is identical, which is why
+     * binding is a flag on a part rather than a second animator.
+     */
+    static final String BOUND_KEY = "rig-bound";
     static final String TRIGGER_LOOP = "loop";
     static final String TRIGGER_RIGHT_CLICK = "right_click";
     static final String TRIGGER_LEFT_CLICK = "left_click";
@@ -77,6 +88,7 @@ public final class RigAnimator implements Listener {
     private final NamespacedKey scaleKey;
     private final NamespacedKey displayKey;
     private final NamespacedKey displaysKey;
+    private final NamespacedKey boundKey;
 
     private final Map<UUID, ItemDisplay> tracked = new ConcurrentHashMap<>();
     private final Map<UUID, Interaction> hitboxes = new ConcurrentHashMap<>();
@@ -109,6 +121,7 @@ public final class RigAnimator implements Listener {
         this.scaleKey = host.key(SCALE_KEY);
         this.displayKey = host.key("display-uuid");
         this.displaysKey = host.key("display-uuids");
+        this.boundKey = host.key(BOUND_KEY);
     }
 
     public void placements(java.util.function.Function<Interaction, Placement> placements) {
@@ -282,7 +295,7 @@ public final class RigAnimator implements Listener {
             tracked.remove(display.getUniqueId());
             return;
         }
-        Float yaw = pdc.get(yawKey, PersistentDataType.FLOAT);
+        Float yaw = yawOf(display, pdc);
         Long animationStart = pdc.get(animationStartKey, PersistentDataType.LONG);
 
         Matrix4f animationTransform = new Matrix4f();
@@ -299,7 +312,13 @@ public final class RigAnimator implements Listener {
         // Event-only rigs are dormant between triggers. Resending the resting
         // transform every tick restarts the client's interpolation, which
         // looks like the animation is stuck leaving its first frame.
-        if (!shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
+        //
+        // A bound part is exempt: its yaw is its host's, so "nothing has
+        // changed" is false the moment the mob turns its head. The transform
+        // is compared below anyway, so a host standing still still sends
+        // nothing.
+        boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
+        if (!bound && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
             pdc.remove(activeAnimationKey);
@@ -334,6 +353,26 @@ public final class RigAnimator implements Listener {
         display.setInterpolationDelay(0);
         display.setInterpolationDuration(forceRestPose && animation == null ? 0 : PERIOD_TICKS);
         display.setTransformation(next);
+    }
+
+    /**
+     * Which way this part is facing.
+     *
+     * <p>For a placed rig, the yaw somebody put it down at, stored once. For a
+     * bound one, whichever way its host is looking right now \u2014 read off the
+     * vehicle rather than stored, because a mob turns and nothing would write
+     * a new value on the tick it did.
+     */
+    private Float yawOf(ItemDisplay display, PersistentDataContainer pdc) {
+        if (pdc.has(boundKey, PersistentDataType.STRING)) {
+            Entity host = display.getVehicle();
+            return host == null
+                    // Its host is gone, or the chunk holding it is. The last
+                    // stored yaw beats snapping to north.
+                    ? pdc.get(yawKey, PersistentDataType.FLOAT)
+                    : host.getLocation().getYaw();
+        }
+        return pdc.get(yawKey, PersistentDataType.FLOAT);
     }
 
     // The pose a part holds when nothing is animating it: placement yaw only.
@@ -558,6 +597,47 @@ public final class RigAnimator implements Listener {
         // natively here. Nothing in this engine implements that seam yet; when
         // Geyser support lands it goes back exactly here.
         return true;
+    }
+
+    /**
+     * Plays an animation on displays that have no hitbox.
+     *
+     * <p>For a rig bound to a living entity: there is nothing to punch, so
+     * there is nothing for the trigger and event machinery above to hang off.
+     * The clock and the choice live on the part displays either way \u2014 that is
+     * what {@link #pose} reads \u2014 so this is the same write with the placement
+     * half left out.
+     *
+     * @return whether anything started
+     */
+    boolean playOn(List<ItemDisplay> displays, String modelId, String animationName, boolean restart) {
+        RigStore.Rig rig = rigs.get(modelId);
+        int index = findAnimationIndexByName(rig, animationName);
+        RigStore.Animation animation = animationAt(rig, index);
+        if (animation == null || displays.isEmpty()) return false;
+
+        long now = displays.get(0).getWorld().getGameTime();
+        if (!restart && isMidOneShot(displays, animation, index, now)) return true;
+
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            pdc.set(activeAnimationKey, PersistentDataType.INTEGER, index);
+            pdc.set(animationStartKey, PersistentDataType.LONG, now);
+            pose(display, false);
+        }
+        return true;
+    }
+
+    /** Puts those displays back to rest, or to their idle loop. */
+    void stopOn(List<ItemDisplay> displays) {
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            pdc.remove(activeAnimationKey);
+            pdc.set(animationStartKey, PersistentDataType.LONG, display.getWorld().getGameTime());
+            pose(display, true);
+        }
     }
 
     /**

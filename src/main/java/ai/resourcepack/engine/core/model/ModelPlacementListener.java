@@ -193,7 +193,8 @@ public final class ModelPlacementListener implements Listener {
         RigStore.Rig rig = rigs == null ? null : rigs.get(info.id().toString());
         List<String> partIds = rig != null && rig.parts != null && !rig.parts.isEmpty()
                 ? spawns.parts(target, info.id().toString(), rig, yaw, null, info.scale(),
-                        part -> partStack(info, part))
+                                part -> partStack(info, part))
+                        .stream().map(display -> display.getUniqueId().toString()).toList()
                 : null;
 
         // Block centre, because an item display renders its model centred on
