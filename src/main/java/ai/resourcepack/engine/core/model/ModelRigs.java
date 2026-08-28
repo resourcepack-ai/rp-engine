@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +22,12 @@ import java.util.Set;
  * {@link RigAnimator} retimes their transforms from the keyframes. That
  * technique arrived here with studio's pushed models; this class is what lets
  * a model somebody authored in Blockbench use it too.
+ *
+ * <p><strong>A rig is a tree.</strong> A part composes every one of its
+ * bone's ancestors' steps before its own, root first, so rotating a torso
+ * carries the arms inside it. Both sides flattened that until 0.43.0 and
+ * agreed on the wrong answer, which is what a nested rig animating wrongly
+ * from a push turned out to be.
  *
  * <p><strong>It is a port of studio's {@code Studio's rig builder}, and staying a
  * port is the point.</strong> Both sides feed one animator, so a rig computed
@@ -133,17 +140,20 @@ public final class ModelRigs {
         List<Part> parts = new ArrayList<>();
         Set<Integer> claimed = new HashSet<>();
 
-        // Animated bones first, so a cube belongs to the bone that moves it
-        // rather than to the static remainder. A cube with an animator of its
-        // OWN becomes its own part, with the cube's step composed inside the
-        // bone's — which is the only reason a program is a list.
+        // A bone's cubes move with the bone AND with everything the bone
+        // hangs off, so what a part composes is the whole ancestor chain:
+        // root first, own bone last, and a cube's own step inside all of it.
+        // A bone whose chain is entirely still has no part of its own and its
+        // cubes ride along in the remainder.
         for (int g = 0; g < groups.size(); g++) {
-            String boneTarget = "g:" + g;
-            if (!animated.contains(boneTarget) || !groups.get(g).isJsonObject()) {
+            if (!groups.get(g).isJsonObject()) {
+                continue;
+            }
+            List<Step> chain = chainOf(groups, g, animated);
+            if (chain.isEmpty()) {
                 continue;
             }
             JsonObject group = groups.get(g).getAsJsonObject();
-            Step boneStep = new Step(boneTarget, vec3(group, "origin", new float[]{8f, 0f, 8f}));
 
             List<Integer> boneCubes = new ArrayList<>();
             for (JsonElement child : array(group, "children")) {
@@ -160,14 +170,15 @@ public final class ModelRigs {
                     continue;
                 }
                 if (animated.contains(String.valueOf(index))) {
-                    parts.add(part(modelId, parts.size(), List.of(index),
-                            List.of(boneStep, new Step(String.valueOf(index), pivotOf(elements, index)))));
+                    List<Step> own = new ArrayList<>(chain);
+                    own.add(new Step(String.valueOf(index), pivotOf(elements, index)));
+                    parts.add(part(modelId, parts.size(), List.of(index), own));
                 } else {
                     boneCubes.add(index);
                 }
             }
             if (!boneCubes.isEmpty()) {
-                parts.add(part(modelId, parts.size(), boneCubes, List.of(boneStep)));
+                parts.add(part(modelId, parts.size(), boneCubes, chain));
             }
         }
 
@@ -284,6 +295,53 @@ public final class ModelRigs {
             return Integer.parseInt(item.substring(marker + PART_MARKER.length()));
         } catch (NumberFormatException e) {
             return -1;
+        }
+    }
+
+    /**
+     * The steps that move bone {@code g}: its animated ancestors, root first,
+     * then itself.
+     *
+     * <p>Order is the whole of it. {@code RigAnimator} composes a program in
+     * list order with the outermost first, so a torso's rotation has to be
+     * applied before the arm's or the arm turns about the wrong point in the
+     * wrong space.
+     *
+     * <p>Still ancestors are left out rather than contributing an identity
+     * step: they cost a lookup per part per tick and change nothing. An empty
+     * result means nothing in this bone's whole lineage moves.
+     *
+     * <p>A cycle cannot happen from a Blockbench outliner, which is a tree by
+     * construction, but the {@code parent} indices arrive as numbers in a file
+     * and a malformed one that pointed upward would spin here forever. The
+     * visited set is that guard and nothing more.
+     */
+    private static List<Step> chainOf(JsonArray groups, int g, Set<String> animated) {
+        List<Step> chain = new ArrayList<>();
+        Set<Integer> seen = new HashSet<>();
+        for (int at = g; at >= 0 && at < groups.size() && seen.add(at); ) {
+            if (!groups.get(at).isJsonObject()) {
+                break;
+            }
+            JsonObject group = groups.get(at).getAsJsonObject();
+            String target = "g:" + at;
+            if (animated.contains(target)) {
+                // Built child-first and reversed at the end, because walking
+                // up is the only direction the parent links allow.
+                chain.add(new Step(target, vec3(group, "origin", new float[]{8f, 0f, 8f})));
+            }
+            JsonElement parent = group.get("parent");
+            at = parent != null && parent.isJsonPrimitive() ? asInt(parent, -1) : -1;
+        }
+        Collections.reverse(chain);
+        return chain;
+    }
+
+    private static int asInt(JsonElement value, int fallback) {
+        try {
+            return value.getAsInt();
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 

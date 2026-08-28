@@ -180,14 +180,16 @@ public final class BbModel {
      * becomes one entry with its DIRECT cube children, which is what studio
      * does and therefore what {@code ModelRigs} expects.
      *
-     * <p><strong>The nesting is genuinely lost, and that is a real
-     * limitation rather than a simplification.</strong> A child bone becomes a
-     * flat entry of its own, so its part's program holds its own step and not
-     * its parent's — rotate a torso and the arms inside it stay where they
-     * were. Studio's rigs have exactly the same hole, which is why the two
-     * still agree; fixing it means composing an ancestor chain into each
-     * part's program on BOTH sides, and is the "bones as a real tree" entry in
-     * the design notes's list of what is not done.
+     * <p><strong>The list is flat and the tree is not lost</strong>: each entry
+     * names its {@code parent}, and {@code ModelRigs} composes a part's whole
+     * ancestor chain into its program. That is what makes rotating a torso
+     * carry the arms inside it. It was genuinely lost until 0.43.0, on both
+     * sides, which is why a nested rig animated wrongly from a push too.
+     *
+     * <p>Every NAMED node is a group, including one holding no cubes of its
+     * own. A bone that only holds other bones is how a rig is usually built,
+     * and dropping it meant its animator was skipped: animating the body
+     * moved nothing.
      *
      * <p>A cube uuid that resolves to nothing was a mesh, dropped with the
      * geometry above. It vanishes here rather than pointing at whatever cube
@@ -202,7 +204,7 @@ public final class BbModel {
             }
         }
         Groups out = new Groups();
-        walk(array(project, "outliner"), indexOfCube, out);
+        walk(array(project, "outliner"), indexOfCube, out, -1);
         return out;
     }
 
@@ -212,7 +214,7 @@ public final class BbModel {
         final Map<String, Integer> indexOfNode = new LinkedHashMap<>();
     }
 
-    private static void walk(JsonArray nodes, Map<String, Integer> indexOfCube, Groups out) {
+    private static void walk(JsonArray nodes, Map<String, Integer> indexOfCube, Groups out, int parent) {
         for (JsonElement raw : nodes) {
             if (!raw.isJsonObject()) {
                 // A bare string in the outliner is a loose cube, which is
@@ -234,23 +236,35 @@ public final class BbModel {
 
             String uuid = string(node, "uuid");
             String name = string(node, "name");
-            if (name != null && !children.isEmpty()) {
+            int mine = parent;
+            if (name != null) {
+                // EVERY named node, whether or not it holds cubes of its own.
+                // A bone that only holds other bones — a "root" or a "body" —
+                // is the usual way a rig is built, and it used to be dropped:
+                // its animator was skipped, so animating the body moved
+                // nothing at all.
+                mine = out.groups.size();
                 if (uuid != null) {
-                    out.indexOfNode.put(uuid, out.groups.size());
+                    out.indexOfNode.put(uuid, mine);
                 }
                 float[] origin = vec3(node, "origin");
                 JsonObject group = new JsonObject();
                 group.addProperty("name", name);
                 group.add("origin", numbers(origin == null ? new float[]{8f, 0f, 8f} : origin));
                 group.add("children", children);
+                // Which bone this one hangs off, or -1 at the root. What makes
+                // a rig a tree rather than a list: a part composes every one
+                // of its ancestors' steps before its own, so rotating a torso
+                // carries the arms inside it.
+                group.addProperty("parent", parent);
                 out.groups.add(group);
             } else if (uuid != null) {
-                // Remembered as -1 rather than left out, so an animator on an
-                // empty or mesh-only group is skipped instead of being keyed
-                // to whichever bone came next.
+                // Unnamed, so nothing can refer to it. Remembered as -1 so an
+                // animator on it is skipped rather than keyed to whichever
+                // bone came next.
                 out.indexOfNode.put(uuid, -1);
             }
-            walk(childNodes, indexOfCube, out);
+            walk(childNodes, indexOfCube, out, mine);
         }
     }
 
