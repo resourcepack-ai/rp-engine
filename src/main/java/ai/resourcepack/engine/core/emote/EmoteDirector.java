@@ -2447,7 +2447,7 @@ public final class EmoteDirector implements Listener {
         target.setPitch(player.getLocation().getPitch());
         session.expected = target;
         player.teleport(target);
-        carryFollowers(session, target, player.isSneaking());
+        carryFollowers(session, target);
     }
 
     /**
@@ -2471,8 +2471,17 @@ public final class EmoteDirector implements Listener {
      * <p>A stance has its own version of this in {@link #tickStance} and does
      * not come through here — it moves the whole rig by teleport, so the two
      * are already carried with everything else.
+     *
+     * <p><b>The wearer's crouch is deliberately not read here, and that is the
+     * difference from the stance path rather than an omission.</b> A stance has
+     * a crouching STATE — the set swaps to an emote authored for it, so the rig
+     * really is crouching and its name comes down with it. A one-shot does not:
+     * it plays the animation it was given whatever its wearer does with the
+     * shift key, so a name that dropped to crouch height sank about a third of
+     * a block into the rig's own head. That is the "the nametag is bugged in
+     * the model" this method caused.
      */
-    private void carryFollowers(Session session, Location target, boolean sneaking) {
+    private void carryFollowers(Session session, Location target) {
         // Facing zeroed on both, for the reason the stance path states: a
         // shadow is a circle and a billboarded name turns to its reader, so a
         // yaw in the packet changes nothing on screen and is only a rotation
@@ -2484,14 +2493,25 @@ public final class EmoteDirector implements Listener {
             if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
         }
         if (session.nameTag != null && session.nameTag.isValid()) {
-            Location tagAt = target.clone().add(0, nameTagY(sneaking), 0);
+            // Standing height, always. See the note above: the rig is not
+            // crouching, so neither is its name.
+            Location tagAt = target.clone().add(0, nameTagY(false), 0);
             tagAt.setYaw(0);
             tagAt.setPitch(0);
-            if (!tagAt.equals(session.nameTag.getLocation())
-                    || session.nameTagSneaking != sneaking) {
+            if (!tagAt.equals(session.nameTag.getLocation())) {
                 session.nameTag.teleport(tagAt);
-                session.nameTagSneaking = sneaking;
             }
+            // Through setNameTagSneaking rather than by writing the field, which
+            // is what this did and is the other half of the bug. That method is
+            // where setSeeThrough and setViewRange live, so assigning the field
+            // directly moved the tag to a crouching height and left it drawn the
+            // standing way — and, because the field was then LATCHED to the new
+            // value, no later pass could ever notice and correct it. An emote
+            // begun while crouching and stood up out of kept see-through off and
+            // the halved sneak range for the rest of its length: a name occluded
+            // by the rig's own geometry and invisible a few blocks back, which
+            // is the "sometimes it is completely invisible".
+            setNameTagSneaking(session, false);
         }
     }
 
@@ -2542,13 +2562,19 @@ public final class EmoteDirector implements Listener {
     private TextDisplay spawnNameTag(Player player, Session session) {
         String label = nameTagText(player);
         if (label.isEmpty()) return null;
-        Location at = session.origin.clone().add(0, nameTagY(player.isSneaking()), 0);
+        // <b>Only a stance reads the wearer's crouch</b>, and for the reason
+        // {@link #carryFollowers} states: a set has a crouching STATE and its
+        // rig really does crouch, while a one-shot plays what it was given
+        // whatever the shift key is doing. Spawning a one-shot's name at
+        // crouch height put it a third of a block inside the rig's head, and
+        // spawning it with see-through off left it occluded by the rig itself.
+        final boolean sneaking = session.stance() && player.isSneaking();
+        Location at = session.origin.clone().add(0, nameTagY(sneaking), 0);
         at.setYaw(0);
         at.setPitch(0);
         // Carried by a following emote as well as by a stance, for the reason
         // spawnShadow states: carryFollowers moves this every accepted step.
         final boolean carried = session.stance() || session.following;
-        final boolean sneaking = player.isSneaking();
         TextDisplay tag = at.getWorld().spawn(at, TextDisplay.class, d -> {
             d.setText(label);
             // Turns to face whoever is reading it, which is what a nametag

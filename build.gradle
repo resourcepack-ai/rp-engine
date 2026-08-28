@@ -172,7 +172,18 @@ group = 'ai.resourcepack'
 //         the blade at the rig's own back. The turn is also settable from
 //         config now, because it has been wrong four times and no test can
 //         see a rig.
-version = '0.46.6'
+// 0.46.7: an emote's nametag stops disappearing behind a model. A TextDisplay
+//         with see-through off is depth-tested, so anything in front of it —
+//         a placed model, the rig itself — hides it, and vanilla only draws a
+//         name that way while its owner is CROUCHING. Two things set it that
+//         way while nobody was crouching: a one-shot read the wearer's crouch
+//         at spawn and then never updated it again, and carryFollowers wrote
+//         the crouch field directly rather than through the setter that owns
+//         setSeeThrough and setViewRange, latching the mismatch for the rest
+//         of the emote. A one-shot's rig does not crouch with its wearer at
+//         all, so it no longer pretends to — which also lifts the name back
+//         out of the model's head.
+version = '0.46.7'
 
 java {
     toolchain {
