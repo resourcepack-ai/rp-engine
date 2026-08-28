@@ -106,12 +106,131 @@ something an item does, not a kind of content. See below.
 
 ## Making an item do something
 
-Nothing in the engine gives an item behaviour, on purpose: a wand that casts, a
-key that opens a door, a compass that points somewhere are all decisions about a
-particular server. What the engine does is say what happened, with
-`ItemUseEvent` — id, stack, action, block. Cancel it and the vanilla use of the
-stack is cancelled too, so an item that is a bucket underneath does not fill
-with water while it is meant to be a wand.
+```yaml
+wand:
+  material: STICK
+  actions:
+    right_click:
+      - cooldown: 5
+      - message: "&bWhoosh."
+      - sound: mypack:chime
+      - effect: SPEED 10 2
+      - console: "effect give {player} minecraft:levitation 3"
+```
+
+A trigger holds a **list of steps**, run in order. Each step is one key, so it
+needs its own `-`; two keys in one entry is a missing dash, and that is a load
+error rather than a step that quietly never runs.
+
+Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`,
+`block_break`, `shoot`, `break` (durability ran out), `pickup`.
+
+`break` fires after the item is already gone and cannot be cancelled — that is
+vanilla's shape, not ours. It is still worth having for the sound and the
+message.
+
+There is deliberately no `wear`/`unwear`: Spigot has no equip event, and the
+alternatives are a Paper dependency or polling everybody's armour every tick.
+Neither is worth it for a trigger.
+
+| Step | What it does |
+|---|---|
+| `message` | A line of chat to whoever used it. `&` colour codes. |
+| `broadcast` | The same, to everybody. |
+| `actionbar` | A line above their hotbar. |
+| `console` | Runs a command as the console — how an action reaches something the user may not do themselves. |
+| `run` | Runs a command as the user, with the user's own permissions. |
+| `sound` | `mypack:chime`, or a vanilla key like `minecraft:block.anvil.land`. Optional volume and pitch. |
+| `effect` | `SPEED 10 2` — type, seconds, level. Level is 1-based, as it reads. |
+| `give` | `mypack:ruby 3`. What will not fit drops on the floor. |
+| `take` | Takes this many off the stack. |
+| `cancel` | Cancels the vanilla use, so a wand built on a bucket does not fill with water. |
+| `cooldown` | Seconds. **Stops the run** if it has not been that long — so put a `message` before it and the refusal says something. |
+| `permission` | Stops the run unless they have it. |
+
+Text can carry `{player}`, `{uuid}`, `{world}`, `{x}`, `{y}`, `{z}`, and any
+PlaceholderAPI placeholder if that plugin is installed.
+
+**A step that cannot run is skipped and the rest still run.** A misspelled
+potion costs that line, not the command after it.
+
+**This is not scripting and is not going to become it.** There is no branching,
+no state and no expression here, because the moment there is an `if` it is a
+language and a bad one. Anything past these verbs is a plugin's job, and
+`ItemUseEvent` — id, stack, action, block — is what it listens to. Cancel that
+event and the vanilla use is cancelled too, and the item's own actions do not
+run either: the event is the stronger statement of the two.
+
+## The numbers on an item
+
+An item here is a vanilla item wearing a different model, which is what makes
+the whole id scheme work — and it left a custom sword hitting exactly as hard
+as the stick underneath it. These are the vanilla components that fix that:
+
+```yaml
+sword:
+  material: IRON_SWORD
+  model: sword
+  durability: 500                     # replaces the material's own
+  enchantments: { sharpness: 3, unbreaking: 2 }
+  attributes:
+    - attack_damage: 9
+    - attack_speed: -2.4
+    - max_health: { amount: 4, operation: add, slot: hand }
+  food: { nutrition: 6, saturation: 7.2, always: false }
+```
+
+- Names are **vanilla's, unprefixed** — `sharpness`, `attack_damage` — because
+  that is what is written on the wiki you are reading them off.
+- An attribute is `name: amount` for the usual case, or a block with an
+  `operation` (`add`, `multiply_base`, `multiply`) and a `slot` (`hand`,
+  `head`, `chest`, `legs`, `feet`, `any`).
+- **Every one of these is a real item component.** The game applies them, other
+  plugins read them, and an item that leaves your server in somebody's
+  inventory keeps them. Nothing here needs the plugin present to work.
+- A name that resolves to nothing is one line in the console the first time the
+  item is given, not a load error — the registries need a running server, and
+  the definition parser deliberately does not have one.
+
+## WorldGuard
+
+Two region flags, if WorldGuard is installed:
+
+```
+/rg flag spawn rpengine-place deny
+/rg flag arena rpengine-use deny
+```
+
+`rpengine-place` covers putting a model down and breaking one; `rpengine-use`
+covers using a custom item. Both allow by default, and anything that goes wrong
+allows too — a server should never be locked out of its own content by a hook.
+
+## Icons in chat
+
+Set `chat.icons: true` in `config.yml` and anybody with `rpengine.chat.icons`
+can type `:wave:` to get the icon called `wave`. `:mypack:wave:` where two
+packs use one name.
+
+Off by default. A name that is not an icon is left exactly as typed, so
+`10:30`, `:)` and a URL all survive.
+
+Two more flags, both of them things vanilla nearly does already:
+
+```yaml
+crown:
+  material: GOLDEN_APPLE
+  hat: true             # right-click to wear it, any item at all
+  keep-on-death: true   # survives dying
+```
+
+`hat` is the click that saves a drag — vanilla already lets anybody wear
+anything by dragging it into the helmet slot. A head that is already wearing
+something is left alone rather than swapped.
+
+**There is no `gun`, `vehicle` or `music_disc` here**, and that is the same
+line as the actions list: those are whole games rather than item properties,
+and an engine that shipped a half-opinionated gun would be one every server
+has to fight. `ItemUseEvent` is what they are built on.
 
 An item can also carry a permission:
 
@@ -139,6 +258,9 @@ chair:
     scale: 1.0
     solid: false         # true puts a barrier behind it
     seat: 0.6            # sit on it, this far above its base. 0 is no seat
+    light: 0            # 0-15, what it gives off. A lamp wants 14.
+    surface: floor      # floor | wall | ceiling | any
+    drop: mypack:shard  # what breaking it gives back. Default: itself
     # width and height are the hitbox, in blocks. Leave them out and they are
     # measured off the model, which is almost always what you want.
 ```
@@ -167,8 +289,113 @@ inside it.
 `solid: true` puts an invisible barrier block behind it, removed when the model
 is broken.
 
+`light:` works the same way and for the same reason — a display entity emits
+nothing, so a real light block goes in the anchor and is taken away when the
+piece is broken. **A solid piece cannot also be a lamp**: one block cannot be a
+barrier and a light at once, and the barrier wins.
+
+`surface:` refuses a placement rather than turning it sideways. A torch on a
+wall, a chandelier under a ceiling, and a chair on neither.
+
 Category folders are walked recursively, so `items/weapons/swords.yml` is
 fine. The subfolder is organisation only: **it contributes nothing to the id**.
+
+### Animating one
+
+If the `.bbmodel` has animations in it, the piece moves. Nothing to declare:
+the keyframes are read out of the save file, and a piece with any is placed as
+one display entity per moving bone instead of one still one, retimed by the
+server a few times a second.
+
+```
+assets/models/windmill.bbmodel     bones and keyframes, as Blockbench saved it
+```
+
+A looping animation loops on its own. A one-shot plays when the piece is
+right-clicked. That pair is derived rather than declared, because a `.bbmodel`
+has no notion of a trigger and those are the two things an animation is
+usually for.
+
+Three things worth knowing:
+
+- **The save file, not an export.** Blockbench's *File > Export > Java
+  Block/Item model* writes cubes and nothing else — no bones, no keyframes.
+  Save the project into `assets/models/` and it is read whole.
+- **Only bones animate.** A keyframe on a cube inside an animated bone is
+  played too, composed inside the bone's; a keyframe on a loose cube moves
+  that cube. Anything with no keyframes anywhere stays still and rides along
+  as one piece.
+- **It costs entities.** One display per moving bone, plus one for the
+  remainder. A ten-bone model standing in a world is eleven entities, so an
+  animated model is a centrepiece rather than something to place a hundred of.
+
+Right-clicking a piece that animates plays it rather than sitting on it.
+Shift-right-click still sits, if it has a `seat`.
+
+#### How an animation plays
+
+Blockbench's own **loop / hold / once** comes across as authored. `hold` is the
+one worth knowing: it stops on the last frame and stays there, which is what a
+door, a lid and a drawbridge all are — without it they spring shut the moment
+they finish opening.
+
+The rest is a decision about your server rather than about the model, so it
+lives here:
+
+```yaml
+chair:
+  material: PAPER
+  model: chair
+  place:
+    animations:
+      spin:
+        mode: loop      # loop | hold | once, overriding the .bbmodel
+        speed: 0.5      # half the authored speed
+        priority: 10    # wins when two animations claim one trigger
+        blend: 0.25     # seconds to ease in and out of it
+        layer: 0        # 0 plays instead of what is running; 1+ plays OVER it
+        weight: 1.0     # how strongly, 0-1. Half a wave is a smaller wave
+        bones: [torso]  # only these bones, and everything hanging off them
+```
+
+- **`blend`** is the difference between a model that snaps between poses and
+  one that moves. A quarter of a second covers most things.
+- **`priority`** matters once a model has more than one animation on the same
+  trigger. Higher wins; equal falls back to the order they are in the file.
+- The same walk cycle is a stroll on one server and a sprint on another, which
+  is why `speed` is here and not a second Blockbench file.
+
+An animation nobody mentions plays exactly as authored.
+
+**`layer` is how two animations play at once.** Layer 0 is the base — a walk
+cycle, an idle — and only one plays at a time. Anything above it composes on
+top, so a wave on layer 1 plays over whichever gait is running rather than
+replacing it. One animation per layer, so waving twice replaces the first wave
+and not the walk.
+
+Nothing needs to know about this to use it: `/rp` and the API play an animation
+by name, and an animation that names a layer goes on that layer.
+
+`bones:` is how a layer is made to move part of a model. Naming a bone reaches
+**everything hanging off it**, so `bones: [torso]` moves the arms with it —
+which is what "upper body only" means in practice. `weight:` scales how far the
+layer moves what it touches: rotation and position toward zero, scale toward 1,
+because 1 is what no scaling is.
+
+### What a hit on a bone is worth
+
+```yaml
+  place:
+    hitboxes:
+      head: 2.0
+      wing: 0.5
+```
+
+Only bones with a `b_` or `ob_` name have hitboxes at all. This says what a hit
+on each is multiplied by before it reaches the mob — the pack's rule, not the
+engine's. Matched against the bone's **own** name and not its lineage: a hitbox
+is a place you aimed at, and counting everything inside a torso as a torso hit
+would make a head worthless the moment it was inside one.
 
 ### Sitting on one
 
@@ -233,6 +460,72 @@ would leave its model standing there, because a removed mount ejects its
 passengers rather than taking them.
 
 `/rp spawn mypack:guard` puts one where you stand.
+
+### Bones that do something
+
+Name a bone with one of these prefixes in Blockbench and it does more than get
+drawn. **They are ModelEngine's prefixes**, deliberately: a rig you already
+have, or bought, works here without being re-authored.
+
+| Bone name | What it does |
+|---|---|
+| `h_head` | Turns to look at whatever its mob is targeting. |
+| `hi_head` | The same, and every bone under it inherits it. |
+| `b_wing` | A hitbox of its own — the mob is hit on the wing you aimed at. |
+| `ob_wing` | The same, turning with the bone. |
+| `p_seat1` | Somewhere to sit. Right-click it. |
+| `mount` | Where the driver sits. One per model. |
+| `tag_name` | Where a name floats, rather than inside the model's knee. |
+
+Anything else is an ordinary bone, which is nearly all of them. A model needs
+none of this.
+
+Two honest limits:
+
+- **`h_` and `mount` only mean something on a model worn by a mob.** A placed
+  statue has nothing to look with and nobody to carry.
+- **A head follows its mob's TARGET, not its gaze.** Bukkit does not expose a
+  mob's head yaw — the yaw you can read is the body's — so "look where it is
+  looking" is not a question the API can answer. Looking at what it is fighting
+  is, and is what you actually want from a boss.
+- **A sub-hitbox forwards damage** to the mob rather than having health of its
+  own. Aiming matters; a wing is not separately killable.
+
+## Putting a model on a mob
+
+Any entity on the server can wear a model — one MythicMobs spawned, a Citizens
+NPC, a shopkeeper, a mob another plugin owns. It is **not replaced**: it keeps
+its AI, its loot, its health and its hitbox, and every plugin holding a
+reference to it still has the same entity. Its vanilla body is just made
+invisible.
+
+Look at one and:
+
+```
+/rp bind mypack:golem
+/rp unbind
+```
+
+From MythicMobs, which is where this is usually wanted:
+
+```yaml
+Skills:
+- rpmodel{model=mypack:golem} @self ~onSpawn
+- rpanimate{animation=roar} @self ~onDamaged
+- rpunmodel @self ~onDeath
+```
+
+From a plugin, `Models.bind(entity, id)`, `unbind`, `animate` and
+`modelOn`.
+
+The model is an **item id** — the same id a `place:` block names — so one model
+can be stood in a world and worn by a mob without being written twice. If it
+animates, the bound copy animates: it faces wherever its host is facing, and
+`rpanimate` plays an animation by name.
+
+The difference from `entities:` above is who spawns the thing. That defines a
+mob **we** spawn, with a model, from a content file. This puts a model on a mob
+that already exists and belongs to somebody else.
 
 ## Liquids
 

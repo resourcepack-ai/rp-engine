@@ -30,8 +30,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class PluginYmlTest {
 
-    /** Nodes that are not subcommands. Both are qualifiers on {@code emote}. */
-    private static final Set<String> NOT_SUBCOMMANDS = Set.of("emote.cast", "emote.force");
+    /**
+     * Nodes that are not subcommands.
+     *
+     * <p>Two are qualifiers on {@code emote}. {@code chat.icons} is the first
+     * that gates something which is not a command at all — typing
+     * {@code :wave:} in chat — so it is also not something
+     * {@code rpengine.admin} should grant: admin is "every command", and a
+     * server that gives its ops every command has not thereby said only ops
+     * may use an emoji.
+     */
+    private static final Set<String> NOT_SUBCOMMANDS = Set.of("emote.cast", "emote.force", "chat.icons");
 
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
@@ -84,7 +93,7 @@ class PluginYmlTest {
         assertTrue(end.find(), "no rpengine.reload node");
         String children = yml.substring(yml.indexOf("children:"), end.start());
         for (String node : declaredNodes(yml)) {
-            if (node.equals("admin")) {
+            if (node.equals("admin") || NOT_SUBCOMMANDS.contains(node)) {
                 continue;
             }
             assertTrue(children.contains("rpengine." + node + ": true"),

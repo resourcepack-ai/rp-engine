@@ -131,6 +131,25 @@ public final class SyncGroup {
         return player != null && invites.containsKey(key(player));
     }
 
+    /** Who claimed {@code code}, if anybody still has. */
+    public Optional<String> owner(String code) {
+        return Optional.ofNullable(code == null ? null : owners.get(code));
+    }
+
+    /**
+     * Who asked {@code player} to join, if anybody is waiting on an answer.
+     *
+     * <p>Here rather than worked out by the caller because an invite stores
+     * the code and the answer has to be given BEFORE the invite is consumed:
+     * accepting removes it, and there is then nobody left to tell.
+     */
+    public Optional<String> invitedBy(String player) {
+        if (player == null) {
+            return Optional.empty();
+        }
+        return owner(invites.get(key(player)));
+    }
+
     /**
      * Accepts the waiting invite.
      *

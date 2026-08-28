@@ -15,6 +15,44 @@ import java.util.Objects;
 public final class ModelInfo {
 
     /** How a piece turns to face the player when it is put down. */
+    /**
+     * What a piece can be put on.
+     *
+     * <p>A torch goes on a wall, a chandelier hangs from a ceiling, and a
+     * chair does neither. Refusing the wrong surface at placement time is the
+     * difference between a lamp that reads as designed and one somebody has
+     * stuck to the underside of a floor.
+     */
+    public enum Surface {
+
+        /** The top of a block. Chairs, tables, statues. Everything, mostly. */
+        FLOOR,
+
+        /** The side of one. Torches, signs, brackets. */
+        WALL,
+
+        /** The underside. Chandeliers, hanging plants. */
+        CEILING,
+
+        /** Anywhere at all. */
+        ANY;
+
+        /** Whether this piece may be placed against {@code face}. */
+        public boolean accepts(org.bukkit.block.BlockFace face) {
+            switch (this) {
+                case ANY:
+                    return true;
+                case WALL:
+                    return face != org.bukkit.block.BlockFace.UP
+                            && face != org.bukkit.block.BlockFace.DOWN;
+                case CEILING:
+                    return face == org.bukkit.block.BlockFace.DOWN;
+                default:
+                    return face == org.bukkit.block.BlockFace.UP;
+            }
+        }
+    }
+
     public enum Facing {
 
         /** Snapped to north/east/south/west, like a placed furnace. */
@@ -38,9 +76,13 @@ public final class ModelInfo {
     private final float height;
     private final boolean solid;
     private final float seat;
+    private final int light;
+    private final Surface surface;
+    private final ContentId drop;
 
     private ModelInfo(ContentId id, ContentId item, Facing facing,
-                          float scale, float width, float height, boolean solid, float seat) {
+                          float scale, float width, float height, boolean solid, float seat,
+                       int light, Surface surface, ContentId drop) {
         this.id = id;
         this.item = item;
         this.facing = facing;
@@ -49,16 +91,56 @@ public final class ModelInfo {
         this.height = height;
         this.solid = solid;
         this.seat = seat;
+        this.light = light;
+        this.surface = surface;
+        this.drop = drop;
+    }
+
+    /**
+     * The light level it gives off, 0\u201315.
+     *
+     * <p>A display entity emits nothing, so this is a real vanilla light block
+     * placed at the anchor and removed when the piece is broken \u2014 the same
+     * trick as the barrier behind a solid piece, and the same cleanup problem
+     * if it is ever skipped.
+     */
+    public int light() {
+        return light;
+    }
+
+    /** Where it may be placed. */
+    public Surface surface() {
+        return surface;
+    }
+
+    /** What breaking it gives back, or empty for the item it was placed from. */
+    public java.util.Optional<ContentId> drop() {
+        return java.util.Optional.ofNullable(drop);
     }
 
     /** Engine internal; built by the model loader. */
     public static ModelInfo of(ContentId id, ContentId item, Facing facing,
                                    float scale, float width, float height, boolean solid, float seat) {
+        return of(id, item, facing, scale, width, height, solid, seat, 0, Surface.FLOOR, null);
+    }
+
+    /**
+     * @param light   0\u201315, the light level it gives off. 0 is none.
+     * @param surface where it may be put: the floor, a wall, a ceiling, or any
+     * @param drop    what breaking it gives back, or null for the item it was
+     *                placed from
+     */
+    public static ModelInfo of(ContentId id, ContentId item, Facing facing,
+                                   float scale, float width, float height, boolean solid, float seat,
+                                   int light, Surface surface, ContentId drop) {
         return new ModelInfo(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(item, "item"),
                 facing == null ? Facing.CARDINAL : facing,
-                scale, width, height, solid, seat);
+                scale, width, height, solid, seat,
+                Math.max(0, Math.min(15, light)),
+                surface == null ? Surface.FLOOR : surface,
+                drop);
     }
 
     /** Its id. */

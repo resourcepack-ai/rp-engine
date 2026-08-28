@@ -1,18 +1,24 @@
 package ai.resourcepack.engine.core.command;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.entity.CustomEntities;
+import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.util.RayTraceResult;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Things standing in the world: {@code models}, {@code purge},
- * {@code entities}, {@code spawn}.
+ * {@code entities}, {@code spawn}, {@code bind}, {@code unbind}.
  *
  * <p>Every one of them is about a place, so every one of them refuses a
  * console: "around you" has no meaning typed from a terminal, and answering
@@ -20,12 +26,20 @@ import java.util.List;
  */
 public final class ModelCommands implements Area {
 
+    /** How far ahead {@code bind} will look for something to bind to. */
+    private static final double REACH = 12;
+
     private final ModelPlacementListener placements;
     private final CustomEntities creatures;
+    private final BoundModels bound;
+    private final Items items;
 
-    public ModelCommands(ModelPlacementListener placements, CustomEntities creatures) {
+    public ModelCommands(ModelPlacementListener placements, CustomEntities creatures,
+                         BoundModels bound, Items items) {
         this.placements = placements;
         this.creatures = creatures;
+        this.bound = bound;
+        this.items = items;
     }
 
     @Override
@@ -39,7 +53,9 @@ public final class ModelCommands implements Area {
                 Help.of("models", "[radius]", "placed models near you"),
                 Help.of("purge", "[radius]", "remove orphaned ones"),
                 Help.of("entities", "list the custom entities"),
-                Help.of("spawn", "<id>", "spawn one where you stand"));
+                Help.of("spawn", "<id>", "spawn one where you stand"),
+                Help.of("bind", "<id>", "put a model on the mob you face"),
+                Help.of("unbind", "take it off again"));
     }
 
     @Override
@@ -51,6 +67,10 @@ public final class ModelCommands implements Area {
                 return purge(sender, args);
             case "entities":
                 return entities(sender);
+            case "bind":
+                return bind(sender, args);
+            case "unbind":
+                return unbind(sender);
             default:
                 return spawn(sender, args);
         }
@@ -69,9 +89,85 @@ public final class ModelCommands implements Area {
                 return Completions.matching(args[1], "8", "16", "32", "64", "128");
             case "spawn":
                 return Completions.matchingIds(args[1], creatures.ids());
+            case "bind":
+                // Every item id, because any of them may carry a model. The
+                // ones that do not are refused by bind itself, which can say
+                // why; a completion list that quietly omitted them could not.
+                return Completions.matchingIds(args[1], items.ids());
             default:
                 return List.of();
         }
+    }
+
+    /**
+     * Puts a model on whatever the player is looking at.
+     *
+     * <p>The mob under the crosshair rather than a selector, because this is a
+     * command somebody uses to try a model on a thing they can see. A plugin
+     * driving this for real uses {@code Models.bind}, and MythicMobs uses the
+     * mechanic — both of which take the entity directly and neither of which
+     * needs anybody to be looking anywhere.
+     */
+    private boolean bind(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            Reply.to(sender, "Only a player can look at something.");
+            return true;
+        }
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine bind <id>");
+            return true;
+        }
+        Player player = (Player) sender;
+        Optional<ContentId> id = ContentId.parse(args[1]);
+        if (id.isEmpty() || items.info(id.get()).isEmpty()) {
+            Reply.error(player, args[1] + " is not an item on this server.");
+            return true;
+        }
+        Entity target = lookingAt(player);
+        if (target == null) {
+            Reply.error(player, "Look at a mob within " + (int) REACH + " blocks.");
+            return true;
+        }
+        if (bound.bind(target, id.get(), 1f)) {
+            Reply.to(player, "That " + target.getType().name().toLowerCase(java.util.Locale.ROOT)
+                    + " is wearing " + Reply.accent(id.get()) + " now.");
+        } else {
+            // The one ordinary way this fails: an id that is an item but has
+            // no model behind it, so there is nothing to put on anything.
+            Reply.error(player, "Nothing to wear. " + args[1] + " has no model.");
+        }
+        return true;
+    }
+
+    private boolean unbind(CommandSender sender) {
+        if (!(sender instanceof Player)) {
+            Reply.to(sender, "Only a player can look at something.");
+            return true;
+        }
+        Player player = (Player) sender;
+        Entity target = lookingAt(player);
+        if (target == null) {
+            Reply.error(player, "Look at a mob within " + (int) REACH + " blocks.");
+            return true;
+        }
+        Reply.to(player, bound.unbind(target)
+                ? "Took it off."
+                : "That one is not wearing anything of ours.");
+        return true;
+    }
+
+    /**
+     * The living entity under the crosshair.
+     *
+     * <p>Deliberately skips our own displays: a bound model's parts are
+     * standing in exactly the place the ray goes, so without this the second
+     * {@code bind} looks at the model rather than at the mob wearing it.
+     */
+    private Entity lookingAt(Player player) {
+        RayTraceResult hit = player.getWorld().rayTraceEntities(
+                player.getEyeLocation(), player.getEyeLocation().getDirection(), REACH, 0.4,
+                entity -> entity instanceof LivingEntity && !entity.equals(player));
+        return hit == null ? null : hit.getHitEntity();
     }
 
     private boolean models(CommandSender sender, String[] args) {

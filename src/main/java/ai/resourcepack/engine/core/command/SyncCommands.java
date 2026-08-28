@@ -134,9 +134,7 @@ public final class SyncCommands implements Area {
             case "accept":
                 return accept(player);
             case "deny":
-                Reply.to(player, group.deny(player.getName()) == SyncGroup.Result.OK
-                        ? "Declined." : "Nobody has asked you.");
-                return true;
+                return deny(player);
             case "remove":
                 return remove(player, args);
             case "leave":
@@ -178,7 +176,20 @@ public final class SyncCommands implements Area {
         }
     }
 
+    /**
+     * Answering an invitation tells BOTH people.
+     *
+     * <p>Only the person who typed the command heard anything until 0.42.0,
+     * so from the other end an invitation went out and nothing ever came
+     * back \u2014 no accept, no decline, no way to tell the difference between
+     * being turned down and being ignored. Every message in this class is
+     * paired for that reason: the whole feature is two players, and a reply
+     * that reaches one of them is half a reply.
+     */
     private boolean accept(Player player) {
+        // Asked before accepting, because accepting consumes the invite and
+        // there is then nobody left to tell.
+        Optional<String> owner = group.invitedBy(player.getName());
         Optional<String> joined = group.accept(player.getName());
         if (joined.isEmpty()) {
             Reply.to(player, "Nobody has asked you.");
@@ -186,7 +197,32 @@ public final class SyncCommands implements Area {
         }
         announce.accept(joined.get());
         Reply.to(player, "You will get their pushes.");
+        owner.ifPresent(name -> tell(name, player.getName() + " accepted. They will get your pushes."));
         return true;
+    }
+
+    private boolean deny(Player player) {
+        Optional<String> owner = group.invitedBy(player.getName());
+        if (group.deny(player.getName()) != SyncGroup.Result.OK) {
+            Reply.to(player, "Nobody has asked you.");
+            return true;
+        }
+        Reply.to(player, "Declined.");
+        owner.ifPresent(name -> tell(name, player.getName() + " turned it down."));
+        return true;
+    }
+
+    /**
+     * Says something to a player by name, if they are still here.
+     *
+     * <p>Silent when they are not: everything this reports is about a session
+     * that ends when somebody leaves, so there is nothing to save for later.
+     */
+    private void tell(String name, String line) {
+        Player who = server.getPlayerExact(name);
+        if (who != null) {
+            Reply.to(who, line);
+        }
     }
 
     private boolean remove(Player player, String[] args) {
@@ -204,6 +240,10 @@ public final class SyncCommands implements Area {
         unpush.accept(args[2]);
         announce.accept(code.get());
         Reply.to(player, "Removed " + args[2] + ".");
+        // And they are told, because the pack coming off their client is
+        // something they can SEE happen. Unexplained, it reads as the plugin
+        // breaking rather than as somebody's decision.
+        tell(args[2], player.getName() + " took you off their sync.");
         return true;
     }
 
@@ -216,6 +256,8 @@ public final class SyncCommands implements Area {
         unpush.accept(player.getName());
         announce.accept(code.get());
         Reply.to(player, "Left.");
+        group.owner(code.get())
+                .ifPresent(name -> tell(name, player.getName() + " left your sync."));
         return true;
     }
 
@@ -227,6 +269,11 @@ public final class SyncCommands implements Area {
         }
         for (String name : were) {
             unpush.accept(name);
+            // Everybody except the person who typed it: they get "Stopped."
+            // below, and being told twice reads as a bug.
+            if (!name.equalsIgnoreCase(player.getName())) {
+                tell(name, player.getName() + " stopped sharing their pack with you.");
+            }
         }
         group.codeOf(player.getName()).ifPresent(announce);
         sync.forget(player.getName());

@@ -73,6 +73,63 @@ class ModelDefinitionsTest {
         assertTrue(model.solid());
     }
 
+    // ---- light, surface and drops ---------------------------------------
+
+    @Test
+    void aPieceCanGiveOffLightAndSayWhatItSticksTo() throws IOException {
+        chair("  place:\n    light: 14\n    surface: wall\n    drop: mypack:shard\n");
+
+        ModelInfo model = one(parse(), "mypack:chair");
+
+        assertEquals(14, model.light());
+        assertEquals(ModelInfo.Surface.WALL, model.surface());
+        assertEquals("mypack:shard", model.drop().orElseThrow().toString());
+    }
+
+    @Test
+    void aPieceUsuallySaysNoneOfThat() throws IOException {
+        chair("  place: {}\n");
+
+        ModelInfo model = one(parse(), "mypack:chair");
+
+        assertEquals(0, model.light(), "no light block is placed");
+        assertEquals(ModelInfo.Surface.FLOOR, model.surface());
+        assertTrue(model.drop().isEmpty(), "it gives back the item it was placed from");
+    }
+
+    @Test
+    void aLightOutsideTheRangeIsClampedRatherThanRefused() throws IOException {
+        chair("  place:\n    light: 40\n");
+
+        assertEquals(15, one(parse(), "mypack:chair").light());
+    }
+
+    @Test
+    void aSurfaceNobodyRecognisesLeavesItOnTheFloor() throws IOException {
+        chair("  place:\n    surface: sideways\n");
+
+        assertEquals(ModelInfo.Surface.FLOOR, one(parse(), "mypack:chair").surface());
+    }
+
+    @Test
+    void aSurfaceDecidesWhichFaceAPlacementIsAllowedAgainst() {
+        // The rule the placement listener asks. A torch goes on a wall and a
+        // chandelier under a ceiling, and getting this backwards is somebody's
+        // lamp stuck to the underside of a floor.
+        assertTrue(ModelInfo.Surface.FLOOR.accepts(org.bukkit.block.BlockFace.UP));
+        assertFalse(ModelInfo.Surface.FLOOR.accepts(org.bukkit.block.BlockFace.NORTH));
+
+        assertTrue(ModelInfo.Surface.WALL.accepts(org.bukkit.block.BlockFace.NORTH));
+        assertFalse(ModelInfo.Surface.WALL.accepts(org.bukkit.block.BlockFace.UP));
+        assertFalse(ModelInfo.Surface.WALL.accepts(org.bukkit.block.BlockFace.DOWN));
+
+        assertTrue(ModelInfo.Surface.CEILING.accepts(org.bukkit.block.BlockFace.DOWN));
+        assertFalse(ModelInfo.Surface.CEILING.accepts(org.bukkit.block.BlockFace.UP));
+
+        assertTrue(ModelInfo.Surface.ANY.accepts(org.bukkit.block.BlockFace.DOWN));
+        assertTrue(ModelInfo.Surface.ANY.accepts(org.bukkit.block.BlockFace.UP));
+    }
+
     @Test
     void theItemAndThePlacedModelAreTheSameId() throws IOException {
         chair("  place: {}\n");

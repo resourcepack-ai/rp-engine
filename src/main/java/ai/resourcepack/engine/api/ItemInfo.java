@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -25,10 +26,19 @@ public final class ItemInfo {
     private final int maxStack;
     private final boolean glow;
     private final boolean unbreakable;
+    private final Map<ItemAction.Trigger, List<ItemAction>> actions;
+    private final Map<String, AnimationSettings> animations;
+    private final ItemStats stats;
+    private final boolean hat;
+    private final boolean keepOnDeath;
+    private final Map<String, Double> hitboxes;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
-                     int maxStack, boolean glow, boolean unbreakable) {
+                     int maxStack, boolean glow, boolean unbreakable,
+                     Map<ItemAction.Trigger, List<ItemAction>> actions,
+                     Map<String, AnimationSettings> animations, ItemStats stats,
+                     boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -41,6 +51,12 @@ public final class ItemInfo {
         this.maxStack = maxStack;
         this.glow = glow;
         this.unbreakable = unbreakable;
+        this.actions = actions;
+        this.animations = animations;
+        this.stats = stats;
+        this.hat = hat;
+        this.keepOnDeath = keepOnDeath;
+        this.hitboxes = hitboxes;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -59,7 +75,113 @@ public final class ItemInfo {
                 armor == null ? "" : armor,
                 maxStack,
                 glow,
-                unbreakable);
+                unbreakable,
+                Map.of(),
+                Map.of(),
+                ItemStats.none(),
+                false,
+                false,
+                Map.of());
+    }
+
+    /**
+     * The same item, with what it does when it is used.
+     *
+     * <p>A copy rather than a thirteenth argument to {@link #of}: that
+     * factory is the supported surface, its shape is already at the limit of
+     * what anybody can read, and adding to it would break every caller for a
+     * field almost no item has.
+     */
+    public ItemInfo withActions(Map<ItemAction.Trigger, List<ItemAction>> actions) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable,
+                actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
+                animations, stats, hat, keepOnDeath, hitboxes);
+    }
+
+    /**
+     * The same item, with how its model's animations should play.
+     *
+     * <p>Written under {@code place:}, because they are settings about the
+     * thing you put down. Kept here rather than on {@link ModelInfo} because
+     * this is what the pack builder has in hand when it works out the rig, and
+     * a rig with its settings already in it needs nothing to reconcile them
+     * afterwards.
+     */
+    public ItemInfo withAnimations(Map<String, AnimationSettings> animations) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions,
+                animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
+                hat, keepOnDeath, hitboxes);
+    }
+
+    /** The same item, with the vanilla numbers it carries. */
+    public ItemInfo withStats(ItemStats stats) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations,
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes);
+    }
+
+    /** The same item, with the two small behaviours the engine does provide. */
+    public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes);
+    }
+
+    /** The same item, with what a hit on each of its bones is worth. */
+    public ItemInfo withHitboxes(Map<String, Double> hitboxes) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes));
+    }
+
+    /** Bone name to damage multiplier. Empty for almost every piece. */
+    public Map<String, Double> hitboxes() {
+        return hitboxes;
+    }
+
+    /**
+     * Whether right-clicking puts it on your head.
+     *
+     * <p>Separate from {@link #armor()}: armour is a slot the game already
+     * knows about, and this is any item at all worn in the helmet slot \u2014 a
+     * pumpkin, a block, a fish. Vanilla lets you do it by dragging, and this
+     * is the click that saves the drag.
+     */
+    public boolean hat() {
+        return hat;
+    }
+
+    /** Whether it survives its owner dying. */
+    public boolean keepOnDeath() {
+        return keepOnDeath;
+    }
+
+    /**
+     * Its damage, durability, enchantments and food value.
+     *
+     * <p>{@link ItemStats#none()} for nearly every item, which is the point:
+     * an item here is a vanilla item wearing a different model, and most of
+     * them want the vanilla numbers underneath.
+     */
+    public ItemStats stats() {
+        return stats;
+    }
+
+    /** How this piece's animations play, by animation name. Usually empty. */
+    public Map<String, AnimationSettings> animations() {
+        return animations;
+    }
+
+    /** What this item does, by trigger. Empty for almost every item. */
+    public Map<ItemAction.Trigger, List<ItemAction>> actions() {
+        return actions;
+    }
+
+    /** What it does on one trigger, in order. Empty if it does nothing. */
+    public List<ItemAction> actions(ItemAction.Trigger trigger) {
+        return actions.getOrDefault(trigger, List.of());
     }
 
     /** The item's id. */

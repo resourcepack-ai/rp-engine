@@ -102,6 +102,22 @@ public final class DefinitionNode {
         return Optional.empty();
     }
 
+    /** A number that may have a fraction, or empty if it is absent or not one. */
+    public Optional<Double> decimal(String key) {
+        Object value = raw(key);
+        if (value instanceof Number) {
+            return Optional.of(((Number) value).doubleValue());
+        }
+        if (value instanceof String) {
+            try {
+                return Optional.of(Double.parseDouble(((String) value).trim()));
+            } catch (NumberFormatException ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
     /** A boolean value, or empty if it is absent or not one. */
     public Optional<Boolean> bool(String key) {
         Object value = raw(key);
@@ -148,6 +164,35 @@ public final class DefinitionNode {
     public Optional<DefinitionNode> node(String key) {
         Object value = raw(key);
         return value instanceof Map ? Optional.of(of((Map<?, ?>) value)) : Optional.empty();
+    }
+
+    /**
+     * A list of nested nodes.
+     *
+     * <p>What a sequence of one-key maps parses as — an ordered list of
+     * things, each with its own name and argument, which is how an author
+     * writes a sequence of steps. A single map counts as a one-element list
+     * for the same reason a scalar counts as one string.
+     *
+     * <p>Entries that are not maps are dropped rather than refused here; a
+     * caller that cares which ones went says so with a diagnostic, because
+     * only it knows what the entries were meant to be.
+     */
+    public List<DefinitionNode> nodes(String key) {
+        Object value = raw(key);
+        if (value instanceof Map) {
+            return List.of(of((Map<?, ?>) value));
+        }
+        if (!(value instanceof List)) {
+            return List.of();
+        }
+        List<DefinitionNode> out = new ArrayList<>();
+        for (Object element : (List<?>) value) {
+            if (element instanceof Map) {
+                out.add(of((Map<?, ?>) element));
+            }
+        }
+        return Collections.unmodifiableList(out);
     }
 
     /**

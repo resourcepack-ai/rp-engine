@@ -1,11 +1,13 @@
 package ai.resourcepack.engine.core.item;
 
+import ai.resourcepack.engine.api.AnimationSettings;
 import ai.resourcepack.engine.api.ContentDefinition;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.ItemStats;
 import ai.resourcepack.engine.api.LoadReport;
 
 import java.util.ArrayList;
@@ -93,6 +95,11 @@ public final class ItemDefinitions {
             maxStack = 0;
         }
 
+        java.util.Map<ai.resourcepack.engine.api.ItemAction.Trigger,
+                java.util.List<ai.resourcepack.engine.api.ItemAction>> actions =
+                ItemActions.parse(body, definition.id(), origin, diagnostics);
+        ItemActions.validate(actions, definition.id(), origin, diagnostics);
+
         return Optional.of(ItemInfo.of(
                 definition.id(),
                 name,
@@ -105,7 +112,179 @@ public final class ItemDefinitions {
                 armorSlot(body, origin, where, diagnostics),
                 maxStack,
                 body.bool("glow").orElse(Boolean.FALSE),
-                body.bool("unbreakable").orElse(Boolean.FALSE)));
+                body.bool("unbreakable").orElse(Boolean.FALSE))
+                .withActions(actions)
+                .withAnimations(animations(body, definition.id(), origin, diagnostics))
+                .withStats(stats(body, definition.id(), origin, diagnostics))
+                .withFlags(body.bool("hat").orElse(Boolean.FALSE),
+                        body.bool("keep-on-death").orElse(Boolean.FALSE))
+                .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics)));
+    }
+
+    /**
+     * {@code place.hitboxes}, which says what a hit on each bone is worth.
+     *
+     * <pre>
+     * place:
+     *   hitboxes:
+     *     head: 2.0
+     *     wing: 0.5
+     * </pre>
+     *
+     * <p>A rule the PACK states rather than one the engine invents, which is
+     * the difference between a headshot being a property of a model and being
+     * an opinion about somebody's game.
+     */
+    private static Map<String, Double> hitboxes(DefinitionNode body, ContentId id,
+                                                String origin, List<Diagnostic> diagnostics) {
+        DefinitionNode place = body.node("place").orElse(null);
+        DefinitionNode declared = place == null ? null : place.node("hitboxes").orElse(null);
+        if (declared == null) {
+            return Map.of();
+        }
+        Map<String, Double> out = new LinkedHashMap<>();
+        for (String bone : declared.keys()) {
+            Optional<Double> multiplier = declared.decimal(bone);
+            if (multiplier.isEmpty() || multiplier.get() < 0) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "place.hitboxes." + bone + " is not a multiplier."));
+                continue;
+            }
+            out.put(bone, multiplier.get());
+        }
+        return Map.copyOf(out);
+    }
+
+    /**
+     * The vanilla numbers: {@code damage}, {@code durability},
+     * {@code enchantments}, {@code food}.
+     *
+     * <pre>
+     * sword:
+     *   material: IRON_SWORD
+     *   durability: 500
+     *   enchantments: { sharpness: 3, unbreaking: 2 }
+     *   attributes:
+     *     - attack_damage: 9
+     *     - attack_speed: -2.4
+     *   food: { nutrition: 6, saturation: 7.2, always: false }
+     * </pre>
+     *
+     * <p>Names are vanilla's, unprefixed, because that is what an author has
+     * in front of them on the wiki. They are resolved against the server's own
+     * registries at CREATE time rather than here \u2014 the registries need a
+     * running server, and this parser is deliberately testable without one.
+     * The consequence is honest: a misspelled enchantment is one line in the
+     * console the first time the item is given, not at load.
+     */
+    private static ItemStats stats(DefinitionNode body, ContentId id,
+                                   String origin, List<Diagnostic> diagnostics) {
+        Map<String, Integer> enchantments = new LinkedHashMap<>();
+        body.node("enchantments").ifPresent(node -> {
+            for (String name : node.keys()) {
+                Optional<Integer> level = node.integer(name);
+                if (level.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "enchantments." + name + " is not a level."));
+                    continue;
+                }
+                enchantments.put(name, Math.max(1, level.get()));
+            }
+        });
+
+        List<ItemStats.Modifier> modifiers = new ArrayList<>();
+        for (DefinitionNode entry : body.nodes("attributes")) {
+            for (String name : entry.keys()) {
+                // Either "attack_damage: 9" or a block with an operation and
+                // a slot on it. The short form is what almost everybody wants
+                // and the long one is there when they do not.
+                Optional<DefinitionNode> detailed = entry.node(name);
+                if (detailed.isPresent()) {
+                    Optional<Double> amount = detailed.get().decimal("amount");
+                    if (amount.isEmpty()) {
+                        diagnostics.add(Diagnostic.warning(origin, id.path(),
+                                "attributes." + name + " has no amount."));
+                        continue;
+                    }
+                    modifiers.add(ItemStats.Modifier.of(name, amount.get(),
+                            detailed.get().string("operation").orElse(null),
+                            detailed.get().string("slot").orElse(null)));
+                    continue;
+                }
+                Optional<Double> amount = entry.decimal(name);
+                if (amount.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "attributes." + name + " is not a number."));
+                    continue;
+                }
+                modifiers.add(ItemStats.Modifier.of(name, amount.get(), null, null));
+            }
+        }
+
+        Integer maxDamage = body.integer("durability").filter(value -> value > 0).orElse(null);
+        ItemStats.Food food = body.node("food")
+                .map(node -> ItemStats.Food.of(
+                        node.integer("nutrition").orElse(0),
+                        node.decimal("saturation").orElse(0d).floatValue(),
+                        node.bool("always").orElse(Boolean.FALSE)))
+                .orElse(null);
+
+        return enchantments.isEmpty() && modifiers.isEmpty() && maxDamage == null && food == null
+                ? ItemStats.none()
+                : ItemStats.of(enchantments, modifiers, maxDamage, food);
+    }
+
+    /**
+     * {@code place.animations}, which says how a model's animations play.
+     *
+     * <pre>
+     * chair:
+     *   place:
+     *     animations:
+     *       spin: { mode: loop, speed: 0.5, priority: 10, blend: 0.25 }
+     * </pre>
+     *
+     * <p>Under {@code place:} because these are settings about the thing you
+     * put down. A name nobody recognises is left alone rather than refused:
+     * the animation names live in a {@code .bbmodel} this parser has never
+     * opened, so it is in no position to say one is wrong.
+     */
+    private static Map<String, AnimationSettings> animations(DefinitionNode body, ContentId id,
+                                                             String origin, List<Diagnostic> diagnostics) {
+        DefinitionNode place = body.node("place").orElse(null);
+        DefinitionNode declared = place == null ? null : place.node("animations").orElse(null);
+        if (declared == null) {
+            return Map.of();
+        }
+        Map<String, AnimationSettings> out = new LinkedHashMap<>();
+        for (String name : declared.keys()) {
+            DefinitionNode settings = declared.node(name).orElse(null);
+            if (settings == null) {
+                diagnostics.add(Diagnostic.error(origin, id.path(),
+                        "place.animations." + name + " should be a block of settings, "
+                                + "like { mode: hold, blend: 0.25 }."));
+                continue;
+            }
+            AnimationSettings.Mode mode = null;
+            Optional<String> writtenMode = settings.string("mode");
+            if (writtenMode.isPresent()) {
+                mode = AnimationSettings.Mode.parse(writtenMode.get()).orElse(null);
+                if (mode == null) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "place.animations." + name + ".mode: " + writtenMode.get()
+                                    + " is not loop, hold or once. The model's own was kept."));
+                }
+            }
+            out.put(name, AnimationSettings.of(
+                    mode,
+                    settings.decimal("speed").orElse(0d),
+                    settings.integer("priority").orElse(0),
+                    settings.decimal("blend").orElse(0d),
+                    settings.integer("layer").orElse(0),
+                    settings.decimal("weight").orElse(0d),
+                    settings.strings("bones")));
+        }
+        return Map.copyOf(out);
     }
 
     /** The body slots a piece of armour can be worn in. */
