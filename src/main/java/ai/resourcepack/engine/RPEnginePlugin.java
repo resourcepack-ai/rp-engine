@@ -508,6 +508,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             (float) getConfig().getDouble("emotes.held-item-pitch", 90.0),
             (float) getConfig().getDouble("emotes.held-item-yaw", 0.0),
             (float) getConfig().getDouble("emotes.held-item-roll", 0.0));
+        EmoteDirector.nameTagsSeeThrough(
+            getConfig().getBoolean("emotes.nametag-see-through", false));
     }
 
     private void applyChatStyle() {

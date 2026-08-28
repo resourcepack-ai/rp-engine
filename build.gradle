@@ -183,7 +183,15 @@ group = 'ai.resourcepack'
 //         of the emote. A one-shot's rig does not crouch with its wearer at
 //         all, so it no longer pretends to — which also lifts the name back
 //         out of the model's head.
-version = '0.46.7'
+// 0.46.8: an emote's nametag stops vanishing in front of a model. 0.46.7 had
+//         the mechanism backwards: see-through text is drawn with no depth
+//         test AND no depth write, so it is not drawn OVER anything — whatever
+//         the client draws after it paints over it, and a nearby model wins
+//         that race. Depth-tested text is drawn when it is genuinely in front,
+//         which is the property that matters next to models. The cost is
+//         vanilla's other half, names through terrain, and it is settable
+//         because it is a rendering judgement rather than a fact.
+version = '0.46.8'
 
 java {
     toolchain {
