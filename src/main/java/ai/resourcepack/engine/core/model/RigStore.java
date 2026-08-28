@@ -36,12 +36,22 @@ public final class RigStore {
         List<Step> program;
         /** The bone this part came from. Absent on a manifest older than this. */
         String bone;
+        /** Its whole lineage, root first. What a bone mask is matched against. */
+        String[] bones;
         /** Its {@link ai.resourcepack.engine.api.BoneBehaviour}, lowercased. Absent means none. */
         String behaviour;
         /** The bone's own pivot in model px, for a behaviour that needs a place. */
         float[] pivot;
         /** Its widest side in blocks, measured at build time. 0 means unknown. */
         float size;
+        /**
+         * What a hit here is multiplied by. 0 or absent is 1.
+         *
+         * <p>A headshot, in other words \u2014 stated by the pack rather than
+         * invented by the engine, which is the difference between this being
+         * a property of a model and being a rule about somebody's game.
+         */
+        double damage;
     }
 
 
@@ -73,6 +83,16 @@ public final class RigStore {
          * instead of replacing it.
          */
         int layer;
+        /**
+         * How strongly it applies. 0 or absent is 1, full strength, which is
+         * what every manifest written before this means.
+         */
+        double weight;
+        /**
+         * The bones it moves, or empty for all of them. A name matches a part
+         * whose LINEAGE contains it, so masking a torso reaches the arms.
+         */
+        String[] bones;
         List<Trigger> triggers;
         // animator target ("3" or "g:0") -> channel ("rotation"/"position"/"scale") -> keyframes.
         Map<String, Map<String, List<Keyframe>>> animators;

@@ -354,6 +354,8 @@ chair:
         priority: 10    # wins when two animations claim one trigger
         blend: 0.25     # seconds to ease in and out of it
         layer: 0        # 0 plays instead of what is running; 1+ plays OVER it
+        weight: 1.0     # how strongly, 0-1. Half a wave is a smaller wave
+        bones: [torso]  # only these bones, and everything hanging off them
 ```
 
 - **`blend`** is the difference between a model that snaps between poses and
@@ -373,6 +375,27 @@ and not the walk.
 
 Nothing needs to know about this to use it: `/rp` and the API play an animation
 by name, and an animation that names a layer goes on that layer.
+
+`bones:` is how a layer is made to move part of a model. Naming a bone reaches
+**everything hanging off it**, so `bones: [torso]` moves the arms with it —
+which is what "upper body only" means in practice. `weight:` scales how far the
+layer moves what it touches: rotation and position toward zero, scale toward 1,
+because 1 is what no scaling is.
+
+### What a hit on a bone is worth
+
+```yaml
+  place:
+    hitboxes:
+      head: 2.0
+      wing: 0.5
+```
+
+Only bones with a `b_` or `ob_` name have hitboxes at all. This says what a hit
+on each is multiplied by before it reaches the mob — the pack's rule, not the
+engine's. Matched against the bone's **own** name and not its lineage: a hitbox
+is a place you aimed at, and counting everything inside a torso as a torso hit
+would make a head worthless the moment it was inside one.
 
 ### Sitting on one
 

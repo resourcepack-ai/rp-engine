@@ -275,6 +275,73 @@ class AnimationStateTest {
         assertFalse(rig.animations().get(0).getAsJsonObject().has("layer"));
     }
 
+    // ---- weights and bone masks ------------------------------------------
+
+    private static RigStore.Part part(String json) {
+        return new com.google.gson.Gson().fromJson(json, RigStore.Part.class);
+    }
+
+    @Test
+    void anAnimationWithNoWeightAppliesAtFullStrength() {
+        // Every manifest written before weights, which is all of them.
+        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ""))), 0.0001);
+        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":0"))), 0.0001);
+        assertEquals(1f, RigAnimator.weightOf(null), 0.0001);
+        assertEquals(0.5f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":0.5"))), 0.0001);
+    }
+
+    @Test
+    void aWeightIsNeverMoreThanFullStrength() {
+        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":4"))), 0.0001);
+    }
+
+    @Test
+    void anAnimationWithNoMaskMovesEveryPart() {
+        RigStore.Animation all = animation(named("wave", ""));
+
+        assertTrue(RigAnimator.moves(all, part("{\"item\":\"a:b__part0\"}")));
+        assertTrue(RigAnimator.moves(all, null));
+    }
+
+    @Test
+    void aMaskMovesOnlyTheBonesItNames() {
+        RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
+
+        assertTrue(RigAnimator.moves(upper,
+                part("{\"item\":\"a:b__part0\",\"bone\":\"torso\",\"bones\":[\"root\",\"torso\"]}")));
+        assertFalse(RigAnimator.moves(upper,
+                part("{\"item\":\"a:b__part1\",\"bone\":\"leg\",\"bones\":[\"root\",\"leg\"]}")));
+    }
+
+    @Test
+    void aMaskReachesEverythingHangingOffWhatItNames() {
+        // The whole reason a part carries its lineage: masking a torso has to
+        // move the arms inside it, and an arm knows its own name and nothing
+        // else.
+        RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
+
+        assertTrue(RigAnimator.moves(upper,
+                part("{\"item\":\"a:b__part2\",\"bone\":\"arm\",\"bones\":[\"root\",\"torso\",\"arm\"]}")));
+    }
+
+    @Test
+    void aMaskedAnimationLeavesOutWhatItCannotIdentify() {
+        // A loose cube, or a part from a manifest older than lineages. A mask
+        // is an author saying "only these", and "and also anything I cannot
+        // place" is the opposite of that.
+        RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
+
+        assertFalse(RigAnimator.moves(upper, part("{\"item\":\"a:b__part9\"}")));
+    }
+
+    @Test
+    void aMaskDoesNotCareAboutCase() {
+        RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"Torso\"]"));
+
+        assertTrue(RigAnimator.moves(upper,
+                part("{\"item\":\"a:b__part0\",\"bone\":\"torso\",\"bones\":[\"torso\"]}")));
+    }
+
     // ---- an author's settings reaching the manifest ----------------------
 
     @Test

@@ -1114,11 +1114,61 @@ public final class RigAnimator implements Listener {
 
         for (long[] one : playing) {
             RigStore.Animation animation = animationAt(rig, (int) one[1]);
+            if (!moves(animation, part)) {
+                continue;
+            }
             double t = animationTime(animation, Math.max(0, now - one[2]) / 20.0);
+            float weight = weightOf(animation);
             for (RigStore.Step step : part.program) {
-                applyStep(m, animation.animators, step.target, step.pivot, t);
+                applyStep(m, animation.animators, step.target, step.pivot, t, weight);
             }
         }
+    }
+
+    /**
+     * How strongly an animation applies. Absent is full strength, which is
+     * what every manifest written before weights means.
+     */
+    static float weightOf(RigStore.Animation animation) {
+        if (animation == null || animation.weight <= 0) {
+            return 1f;
+        }
+        return (float) Math.min(1, animation.weight);
+    }
+
+    /**
+     * Whether this animation touches this part at all.
+     *
+     * <p>A bone mask names bones, and a part belongs to one \u2014 but masking a
+     * torso has to reach the arms inside it, so the match is against the
+     * part's whole LINEAGE rather than its own name. That is why the lineage
+     * is on the manifest at all.
+     *
+     * <p>No mask means every part, which is what an animation without one has
+     * always done.
+     */
+    static boolean moves(RigStore.Animation animation, RigStore.Part part) {
+        if (animation == null || animation.bones == null || animation.bones.length == 0) {
+            return true;
+        }
+        if (part == null || part.bones == null) {
+            // A loose cube, or a part from a manifest older than lineages.
+            // Left out rather than in: a mask is an author saying "only
+            // these", and answering "and also everything I cannot identify"
+            // is the opposite of what they asked for.
+            return false;
+        }
+        for (String wanted : animation.bones) {
+            if (wanted == null) {
+                continue;
+            }
+            for (String mine : part.bones) {
+                if (wanted.equalsIgnoreCase(mine)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -1302,7 +1352,32 @@ public final class RigAnimator implements Listener {
             String target,
             float[] pivot,
             double t) {
+        applyStep(m, animators, target, pivot, t, 1f);
+    }
+
+    /**
+     * As above, at {@code weight} of full strength.
+     *
+     * <p>What lets a layer be half a wave rather than a wave. Weighting is
+     * applied to the SAMPLED VALUES rather than to the finished matrix, which
+     * is the only place it means anything: half of a rotation is a smaller
+     * rotation, and half of a matrix is not a transform at all.
+     *
+     * <p>Scale is weighted toward 1 rather than toward 0, because 1 is what
+     * "no scaling" is. Half of a bone scaled to 2 is 1.5, not 1.
+     *
+     * <p>A weight of exactly 1 takes the same arithmetic as before this
+     * existed, so nothing that was not weighted changed.
+     */
+    public static void applyStep(
+            Matrix4f m,
+            Map<String, Map<String, List<Keyframe>>> animators,
+            String target,
+            float[] pivot,
+            double t,
+            float weight) {
         if (pivot == null || pivot.length != 3) return;
+        if (weight <= 0f) return;
         Map<String, List<Keyframe>> animator = animators == null ? null : animators.get(target);
         // Same px -> block-space mapping as the editor viewport: (v-8)/16,
         // with the entity sitting at the block center.
@@ -1312,9 +1387,14 @@ public final class RigAnimator implements Listener {
         float[] rot = sample(animator, "rotation", t, ZERO);
         float[] pos = sample(animator, "position", t, ZERO);
         float[] scl = sample(animator, "scale", t, ONE);
-        m.translate(px + pos[0] / 16f, py + pos[1] / 16f, pz + pos[2] / 16f);
-        m.rotateXYZ((float) Math.toRadians(rot[0]), (float) Math.toRadians(rot[1]), (float) Math.toRadians(rot[2]));
-        m.scale(nonSingular(scl[0]), nonSingular(scl[1]), nonSingular(scl[2]));
+        float w = Math.min(1f, weight);
+        m.translate(px + pos[0] * w / 16f, py + pos[1] * w / 16f, pz + pos[2] * w / 16f);
+        m.rotateXYZ((float) Math.toRadians(rot[0] * w),
+                (float) Math.toRadians(rot[1] * w),
+                (float) Math.toRadians(rot[2] * w));
+        m.scale(nonSingular(1f + (scl[0] - 1f) * w),
+                nonSingular(1f + (scl[1] - 1f) * w),
+                nonSingular(1f + (scl[2] - 1f) * w));
         m.translate(-px, -py, -pz);
     }
 
