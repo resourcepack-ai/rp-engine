@@ -97,7 +97,14 @@ group = 'ai.resourcepack'
 //         can do it from a skill line. Placeholders, so the rest of a server
 //         can read what the engine knows. And both ends of a sync invite
 //         hear the answer.
-version = '0.42.0'
+// 0.43.0: a rig is a tree. A part composes its whole animated ancestor
+//         chain, so rotating a torso carries the arms inside it, and a bone
+//         holding only other bones is a bone. Both builders had flattened it
+//         and agreed on the wrong answer. Animations gain a speed, an end
+//         (loop/hold/once), a priority and a crossfade. Items gain the
+//         vanilla numbers — enchantments, attributes, durability, food — and
+//         four more triggers. Typing :wave: in chat draws the icon.
+version = '0.43.0'
 
 java {
     toolchain {
