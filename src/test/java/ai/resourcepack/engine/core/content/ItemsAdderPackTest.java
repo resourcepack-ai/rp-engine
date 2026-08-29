@@ -1,11 +1,13 @@
 package ai.resourcepack.engine.core.content;
 
+import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.IconInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -165,9 +167,9 @@ class ItemsAdderPackTest {
         assertEquals(8, icon.ascent());
     }
 
-    /** What cannot come across is said out loud, with the count. */
+    /** Their blocks are ours now, so they come across rather than being refused. */
     @Test
-    void blocksAreRefusedRatherThanDroppedQuietly() throws IOException {
+    void aBlockComesAcross() throws IOException {
         write("my_content/blocks.yml", """
                 info:
                   namespace: my_content
@@ -178,11 +180,33 @@ class ItemsAdderPackTest {
                     specific_properties:
                       block:
                         placed_model: ruby_ore
+                        hardness: 3
+                        light_level: 7
+                """);
+
+        BlockInfo ore = BlockDefinitions.parse(load()).blocks()
+                .get(ContentId.parse("my_content:ruby_ore").orElseThrow());
+
+        assertEquals("ruby_ore", ore.model());
+        assertEquals(3f, ore.hardness());
+        assertEquals(7, ore.light());
+    }
+
+    /** What genuinely cannot come across is still said out loud, with the count. */
+    @Test
+    void entitiesAreRefusedRatherThanDroppedQuietly() throws IOException {
+        write("my_content/mobs.yml", """
+                info:
+                  namespace: my_content
+                items: {}
+                entities:
+                  guard:
+                    type: ZOMBIE
                 """);
 
         assertTrue(load().diagnostics().stream()
                 .anyMatch(d -> d.severity() == Diagnostic.Severity.WARNING
-                        && d.message().contains("blocks were skipped")));
+                        && d.message().contains("entities were skipped")));
     }
 
     /** One of their files inside one of our packs, which is the migration path. */

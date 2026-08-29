@@ -40,6 +40,7 @@ const SCENARIOS = [
   { name: "commands", config: { "player-commands": true } },
   { name: "commands-off", scenario: "commands", config: { "player-commands": false } },
   { name: "events" },
+  { name: "blocks" },
 ];
 
 const PACK = {
@@ -90,6 +91,18 @@ ghost_bucket:
 broken_bucket:
   material: BUCKET
   liquid: "not an id"
+`,
+  "blocks/blocks.yml": `ruby_ore:
+  base: note_block
+  model: chair
+  hardness: 3.0
+  tool: pickaxe
+  drop: testpack:ruby
+  sound: stone
+
+inert_block:
+  base: mushroom_stem
+  hardness: 1.0
 `,
   "entities/mobs.yml": `sentry:
   type: ZOMBIE

@@ -2,6 +2,8 @@ package ai.resourcepack.engine;
 
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.api.BlockInfo;
+import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentRegistry;
@@ -24,6 +26,10 @@ import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
 import ai.resourcepack.engine.core.command.InterfaceCommands;
 import ai.resourcepack.engine.api.event.ContentLoadEvent;
+import ai.resourcepack.engine.core.block.BlockAssets;
+import ai.resourcepack.engine.core.block.BlockDefinitions;
+import ai.resourcepack.engine.core.block.BlockStates;
+import ai.resourcepack.engine.core.block.CustomBlocks;
 import ai.resourcepack.engine.core.command.LiquidCommands;
 import ai.resourcepack.engine.core.command.ModelCommands;
 import ai.resourcepack.engine.core.command.SyncCommands;
@@ -166,6 +172,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private CustomEntities creatures;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
+
+    private CustomBlocks blocks;
+    private BlockStates blockStates;
 
     private LiquidPools pools;
     private Liquids liquids;
@@ -316,6 +325,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         seats = new Seats(this);
         applySeatOffset();
         creatures = new CustomEntities(this, items);
+        blockStates = new BlockStates(getDataFolder());
+        blockStates.load(getLogger());
+        blocks = new CustomBlocks(this, items, blockStates, getLogger());
+        getServer().getPluginManager().registerEvents(blocks, this);
+
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
         liquids = new Liquids(this, pools);
@@ -411,7 +425,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
-                new ModelCommands(placements, creatures, boundModels, items),
+                new ModelCommands(placements, creatures, boundModels, items, blocks, blockStates),
                 new InterfaceCommands(sounds, icons, overlays),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
@@ -795,7 +809,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "items", parsedItems.diagnostics());
         // Needs a running server, so it lives out here rather than in parse().
         report(to, "items", ItemDefinitions.checkGivable(parsedItems));
-        items.replace(parsedItems.items());
+
+        // A block is an item too: the thing you hold and place. Made here
+        // rather than asked of the author, because a block you cannot obtain
+        // is not a block anybody can use, and writing the same id out twice is
+        // the sort of tax that makes a format feel like paperwork.
+        BlockDefinitions.Result parsedBlocks = BlockDefinitions.parse(loaded);
+        report(to, "blocks", parsedBlocks.diagnostics());
+        Map<ContentId, ItemInfo> withBlocks = new LinkedHashMap<>(parsedItems.items());
+        for (BlockInfo block : parsedBlocks.blocks().values()) {
+            withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
+                    block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
+                    null, List.of(), "", block.model(), null, null, null, 0, false, false));
+        }
+        items.replace(withBlocks);
+        blocks.replace(parsedBlocks.blocks());
+        blocks.allocate();
 
         ModelDefinitions.Result parsedModels = ModelDefinitions.parse(loaded, parsedItems.items(),
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
@@ -837,6 +866,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(itemAssets)
                 .with(new SoundAssets())
                 .with(new FontAssets())
+                .with(new BlockAssets(blockStates))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
 

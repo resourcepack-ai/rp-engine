@@ -133,6 +133,9 @@ public final class Harness extends JavaPlugin implements Listener {
                 case "events":
                     events();
                     break;
+                case "blocks":
+                    blocks();
+                    break;
                 default:
                     failed++;
                     System.out.println("RPTEST FAIL  no scenario named " + scenario);
@@ -467,6 +470,86 @@ public final class Harness extends JavaPlugin implements Listener {
         note("not reachable without a client: ModelSeatEvent (needs a body to sit),"
                 + " PlayerLiquidEvent (needs somebody standing in water),"
                 + " ModelAnimationEndEvent (needs a rig with an animation)");
+    }
+
+    /**
+     * Custom blocks: the state goes down, comes back as the right id, and does
+     * not change when the world around it does.
+     */
+    private void blocks() throws Exception {
+        RPEnginePlugin engine = engine();
+        Object custom = field(engine, "blocks");
+        Object states = field(engine, "blockStates");
+
+        Method info = custom.getClass().getMethod("info", ContentId.class);
+        Method ids = custom.getClass().getMethod("ids");
+        Method at = custom.getClass().getMethod("at", org.bukkit.block.Block.class);
+        Method existing = states.getClass().getMethod("existing",
+                Class.forName("ai.resourcepack.engine.api.BlockInfo"));
+
+        check("blocks are loaded", !((java.util.Collection<?>) ids.invoke(custom)).isEmpty());
+
+        Object ore = ((Optional<?>) info.invoke(custom, id("testpack:ruby_ore"))).orElse(null);
+        check("the ore is one of them", ore != null);
+        Object number = ((Optional<?>) existing.invoke(states, ore)).orElse(null);
+        check("and it was allocated a state", number != null);
+        note("testpack:ruby_ore is note_block state " + number);
+
+        // The item that places it exists without the pack declaring one.
+        check("a block is an item too",
+                engine.items().info(id("testpack:ruby_ore")).isPresent());
+        check("and that item is the base block",
+                "NOTE_BLOCK".equals(engine.items().info(id("testpack:ruby_ore"))
+                        .map(i -> i.material()).orElse("")));
+
+        World world = Bukkit.getWorlds().get(0);
+        int x = 340;
+        int y = 80;
+        int z = 340;
+        world.getChunkAt(x >> 4, z >> 4).load(true);
+
+        // Put the state down the way the place handler does, then ask the
+        // engine what is standing there.
+        Method stateOf = Class.forName("ai.resourcepack.engine.core.block.BlockStates")
+                .getMethod("identityOf", Class.forName("ai.resourcepack.engine.api.BlockInfo$Base"),
+                        int.class);
+        Object base = ore.getClass().getMethod("base").invoke(ore);
+        String state = (String) stateOf.invoke(null, base, number);
+        Block block = world.getBlockAt(x, y, z);
+        block.setBlockData(Bukkit.createBlockData("minecraft:note_block[" + state + "]"), false);
+
+        Object found = ((Optional<?>) at.invoke(custom, block)).orElse(null);
+        check("a placed state reads back as the right block",
+                found != null && found.getClass().getMethod("id").invoke(found).toString()
+                        .equals("testpack:ruby_ore"));
+
+        // The thing that breaks this feature: a neighbour change recomputing
+        // the instrument. Physics is cancelled for ours, so it holds.
+        String before = block.getBlockData().getAsString();
+        world.getBlockAt(x, y - 1, z).setType(Material.EMERALD_BLOCK, true);
+        world.getBlockAt(x, y - 1, z).setType(Material.HAY_BLOCK, true);
+        // The game may change the instrument; what it must not change is
+        // which block this is.
+        note("before: " + before);
+        note("after:  " + block.getBlockData().getAsString());
+        Object still = ((Optional<?>) at.invoke(custom, block)).orElse(null);
+        check("a block underneath does not change what it is",
+                still != null && still.getClass().getMethod("id").invoke(still).toString()
+                        .equals("testpack:ruby_ore"));
+
+        // A vanilla note block is still a vanilla note block.
+        Block plain = world.getBlockAt(x + 2, y, z);
+        plain.setType(Material.NOTE_BLOCK, false);
+        check("an ordinary note block is not one of ours",
+                ((Optional<?>) at.invoke(custom, plain)).isEmpty());
+
+        check("the mushroom base allocates separately",
+                ((Optional<?>) existing.invoke(states,
+                        ((Optional<?>) info.invoke(custom, id("testpack:inert_block"))).orElseThrow()))
+                        .isPresent());
+
+        block.setType(Material.AIR, false);
+        plain.setType(Material.AIR, false);
     }
 
     // ---- plumbing --------------------------------------------------------

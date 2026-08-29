@@ -34,7 +34,7 @@ plugins/RPEngine/content/
 
 **A category folder exists only if something reads it.** There is no
 `models/` — a placed model is a `place:` block on the item, below. No
-`blocks/`: custom blocks are not a feature here. No `emotes/` yet: emote
+`blocks/`: custom blocks. No `emotes/` yet: emote
 keyframes arrive from a Studio push, and the day they can be hand-written is
 the day the list above gains a line. Any other folder is warned about by name,
 which is what catches `item/` and `Sounds/`.
@@ -549,6 +549,60 @@ animates, the bound copy animates: it faces wherever its host is facing, and
 The difference from `entities:` above is who spawns the thing. That defines a
 mob **we** spawn, with a model, from a content file. This puts a model on a mob
 that already exists and belongs to somebody else.
+
+## Custom blocks
+
+A block you can place, mine and stand on — an ore, a machine, a crate.
+
+```yaml
+# blocks/ores.yml
+ruby_ore:
+  base: note_block     # note_block | mushroom_stem
+  model: ruby_ore      # assets/models/ruby_ore.bbmodel
+  hardness: 3.0        # stone is 1.5
+  tool: pickaxe        # what has to be held for the drop
+  drop: mypack:ruby    # default: itself
+  light: 0
+  sound: stone
+```
+
+**A block is an item too.** `/rp give mypack:ruby_ore` hands you the thing that
+places it; nothing declares that item, because a block you cannot obtain is not
+a block anybody can use.
+
+### What a custom block really is
+
+The game has no way to add a block, so this is **a real vanilla block in a
+state nothing else uses, wearing your model**. Every plugin doing this uses the
+same trick, and it brings the same three costs — worth reading before building
+a hundred of them.
+
+**The pool is finite, and smaller than you would guess.** A note block gives
+**49** blocks, a mushroom stem **63**. Not eight hundred: a note block's
+instrument is recomputed from whatever is underneath it, and nothing can stop
+that — so the instrument cannot be part of what identifies a block, and only
+the note and the powered flag are. Every instrument for a given note points at
+the same model, which is what makes the game changing it invisible.
+
+`/rp blocks` says how many are left.
+
+**The mapping has to be kept.** A block in your world is a note block in a
+particular state, and `blocks.json` in the plugin folder is what says which id
+that was. **Back it up.** Lose it and every custom block on the server becomes
+a different block — not missing, not broken, but visibly the wrong thing, and
+no reload repairs it. Ids are appended in the order they are first seen and
+never renumbered, so adding a pack cannot disturb one already placed.
+
+**Vanilla note blocks are hijacked.** On a server with note-block-based custom
+blocks, the pack has repainted every state, so a plain note block still looks
+right but a custom one does not play a note. `mushroom_stem` has none of this
+— nothing in vanilla ever changes one — which makes it the better base for
+anything that does not need the bigger pool.
+
+**A placed model is still the right answer for furniture.** It has no pool, no
+limit, no mapping to lose, and any shape you like. A custom block is for the
+things a display entity cannot be: something you mine, something that holds
+you up, something a piston should refuse to move.
 
 ## Liquids
 

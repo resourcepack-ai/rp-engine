@@ -3,6 +3,8 @@ package ai.resourcepack.engine.core.command;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.core.block.BlockStates;
+import ai.resourcepack.engine.core.block.CustomBlocks;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
@@ -37,13 +39,18 @@ public final class ModelCommands implements Area {
     private final CustomEntities creatures;
     private final BoundModels bound;
     private final Items items;
+    private final CustomBlocks customBlocks;
+    private final BlockStates states;
 
     public ModelCommands(ModelPlacementListener placements, CustomEntities creatures,
-                         BoundModels bound, Items items) {
+                         BoundModels bound, Items items, CustomBlocks customBlocks,
+                         BlockStates states) {
         this.placements = placements;
         this.creatures = creatures;
         this.bound = bound;
         this.items = items;
+        this.customBlocks = customBlocks;
+        this.states = states;
     }
 
     @Override
@@ -55,6 +62,7 @@ public final class ModelCommands implements Area {
     public List<Help> help() {
         return List.of(
                 Help.of("models", "[radius]", "placed models near you"),
+                Help.of("blocks", "every custom block, and states left"),
                 Help.of("purge", "[radius]", "remove orphaned ones"),
                 Help.of("entities", "list the custom entities"),
                 Help.of("spawn", "<id>", "spawn one where you stand"),
@@ -65,6 +73,8 @@ public final class ModelCommands implements Area {
     @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
         switch (sub) {
+            case "blocks":
+                return blocks(sender);
             case "models":
                 return models(sender, args);
             case "purge":
@@ -223,6 +233,35 @@ public final class ModelCommands implements Area {
         }
         Reply.to(sender, "Removed " + Reply.plural(removed, "orphan") + " within " + (int) radius
                 + " blocks. Models a pack still defines were left alone.");
+        return true;
+    }
+
+    /**
+     * {@code /rp blocks}: what is defined, and how much of the pool is left.
+     *
+     * <p>The remaining count is the point of the command. A custom block takes
+     * one of a finite number of vanilla states, and an owner should be able to
+     * see how close they are to the end before a block silently fails to be
+     * placeable.
+     */
+    private boolean blocks(CommandSender sender) {
+        if (customBlocks.ids().isEmpty()) {
+            Reply.to(sender, "No custom blocks loaded. A pack declares them in blocks/.");
+            return true;
+        }
+        Reply.heading(sender, "Custom blocks",
+                Reply.plural(customBlocks.ids().size(), "block"));
+        for (ContentId id : customBlocks.ids()) {
+            customBlocks.info(id).ifPresent(block -> Reply.row(sender, id.toString(),
+                    block.base().name().toLowerCase(Locale.ROOT)
+                            + " · hardness " + block.hardness()
+                            + (block.light() > 0 ? " · light " + block.light() : "")));
+        }
+        for (ai.resourcepack.engine.api.BlockInfo.Base base
+                : ai.resourcepack.engine.api.BlockInfo.Base.values()) {
+            Reply.note(sender, base.name().toLowerCase(Locale.ROOT) + ": "
+                    + states.remaining(base) + " of " + BlockStates.capacity(base) + " states left");
+        }
         return true;
     }
 
