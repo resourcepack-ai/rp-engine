@@ -314,6 +314,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // reads as a bug.
         emotes = new EmoteDirector(library, emoteStore);
         seats = new Seats(this);
+        applySeatOffset();
         creatures = new CustomEntities(this, items);
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
@@ -515,6 +516,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         throw new NoSuchFieldException(name + " on " + of.getClass().getName());
     }
 
+    /** Hands {@link Seats} the one number a server may have to look at to set. */
+    private void applySeatOffset() {
+        if (seats != null) {
+            seats.calibrate(getConfig().getDouble("models.seat-offset", 0.0));
+        }
+    }
+
     /**
      * {@code /rp reload}: config.yml as well as the content.
      *
@@ -526,6 +534,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         reloadConfig();
         applyChatStyle();
         applyHeldItemTurn();
+        applySeatOffset();
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }
