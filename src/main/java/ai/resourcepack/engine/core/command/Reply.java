@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.command;
 
+import ai.resourcepack.engine.core.Chat;
 import org.bukkit.command.CommandSender;
 
 /**
@@ -8,6 +9,10 @@ import org.bukkit.command.CommandSender;
  * <p>One prefix and one palette, in one place. It was a literal at every call
  * site until the fourth area class copied it, which is exactly how a plugin
  * ends up with two spellings of its own name in the same chat window.
+ *
+ * <p>Every line goes out through {@link Chat}, which finds the commands in it
+ * and makes them clickable. That is why this is worth having as a funnel at
+ * all: one place to send from is one place to improve how sending works.
  *
  * <p><strong>The style is static, and set once at startup.</strong> Every area
  * writes to chat, so threading a {@link ChatStyle} through all of them would
@@ -34,12 +39,12 @@ final class Reply {
 
     /** One line, prefixed, in the body colour. */
     static void to(CommandSender who, String line) {
-        who.sendMessage(style.prefix() + line);
+        Chat.send(who, style.prefix() + line);
     }
 
     /** One line that reports a failure. */
     static void error(CommandSender who, String line) {
-        who.sendMessage(style.prefix() + style.error() + line);
+        Chat.send(who, style.prefix() + style.error() + line);
     }
 
     /** Something worth picking out of a sentence — a name, a count, a code. */

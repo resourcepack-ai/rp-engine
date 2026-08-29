@@ -3,6 +3,7 @@ package ai.resourcepack.engine.core.command;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentRegistry;
+import ai.resourcepack.engine.core.Chat;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -11,7 +12,9 @@ import org.bukkit.command.TabCompleter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -53,6 +56,18 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                 areas.put(sub, area);
             }
         }
+
+        // What Chat needs to tell "/rp sync <code>" from "/rp sync <code>
+        // first": every word the help uses, which is every word a command is
+        // actually made of. Derived here rather than written there, so a new
+        // subcommand becomes clickable by existing.
+        Set<String> words = new LinkedHashSet<>();
+        for (Area area : groups) {
+            for (Help line : area.help()) {
+                words.add(line.signature());
+            }
+        }
+        Chat.vocabulary(words);
     }
 
     /**
@@ -72,6 +87,18 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
      */
     public static String prefix() {
         return Reply.style().prefix();
+    }
+
+    /**
+     * One prefixed line, for those same places.
+     *
+     * <p>{@link #prefix()} plus {@code sendMessage} was what they all did, and
+     * it is now the wrong way round: a line sent that way is plain text, so a
+     * command in it is something to type rather than something to click. This
+     * is the same door, one step further in.
+     */
+    public static void say(CommandSender who, String line) {
+        Reply.to(who, line);
     }
 
     /**
@@ -196,6 +223,11 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("");
             sender.sendMessage(Reply.style().heading() + area.title());
             for (Help line : lines) {
+                // Deliberately NOT through Chat: the help is a list of
+                // commands, and a list where every line is a link is a wall of
+                // underlines rather than a page somebody can read. The links
+                // are for a command named in the middle of a sentence, where
+                // one stands out because the rest of the line is prose.
                 sender.sendMessage(line.render());
             }
         }

@@ -49,10 +49,13 @@ distribution:
   api-url: "https://studio.resourcepack.ai"
 
 emotes:
-  # Whether /emote and /emotereply are registered as commands of their own.
-  # Turn this off and everything is still there under /rp emote — this is for
-  # a server that already has an /emote from somewhere else, or that wants one
-  # command rather than three.
+  # Whether /emote is registered as a command of its own. Turn this off and
+  # everything is still there under /rp emote — this is for a server that
+  # already has an /emote from somewhere else, or that wants one command
+  # rather than two.
+  #
+  # /emotereply is always registered whatever this says. Nobody types it: it
+  # is what an invitation's [accept] and [deny] buttons run.
   player-commands: true
 
   # The node somebody needs to pull other players into an emote. They are

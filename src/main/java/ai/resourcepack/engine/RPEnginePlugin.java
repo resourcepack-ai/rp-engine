@@ -417,10 +417,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         this::announceMembers, this::unpush),
                 liquidCommands);
 
-        // The two player commands are optional. A server that wants everything
-        // under /rp — because /emote collides with something it already has,
-        // or because it simply does not want a second command — turns them off
-        // and loses nothing: /rp emote is the same code.
+        // /emote is optional. A server that wants everything under /rp —
+        // because /emote collides with something it already has, or because it
+        // simply does not want a second command — turns it off and loses
+        // nothing: /rp emote is the same code.
+        //
+        // /emotereply is NOT optional and is deliberately left out of this.
+        // Nobody types it: it is what an invitation's [accept] and [deny]
+        // buttons run, so withdrawing it would leave an invited player unable
+        // to accept OR decline being pulled into an emote. Same reasoning as
+        // the note in plugin.yml about it carrying no permission.
         boolean players = getConfig().getBoolean("emotes.player-commands", true);
 
         for (String name : List.of("rpengine", "emote", "emotereply")) {
@@ -431,7 +437,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getLogger().warning("plugin.yml declares no /" + name + ".");
                 continue;
             }
-            if (!players && !name.equals("rpengine")) {
+            if (!players && name.equals("emote")) {
                 withdraw(registered);
                 continue;
             }
@@ -927,7 +933,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getLogger().info(line);
             }
             if (!(to instanceof ConsoleCommandSender)) {
-                to.sendMessage(EngineCommand.prefix() + line);
+                EngineCommand.say(to, line);
             }
         }
     }

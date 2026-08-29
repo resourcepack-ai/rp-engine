@@ -288,16 +288,47 @@ function boot(step) {
   });
 }
 
+/**
+ * Clears up after a run. The logs stay; the world and the jars do not.
+ *
+ * <p>Retried, because the server has only just exited and Windows can still
+ * be holding level.dat for a moment after that. A failure here is never worth
+ * failing a run over — the results are already in — so it gives up quietly.
+ */
+async function tidy() {
+  for (const name of ["world", "plugins", "paper.jar", "libraries", "versions", "cache"]) {
+    for (let tries = 0; tries < 5; tries++) {
+      try {
+        await fs.rm(path.join(WORK, name), { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((wake) => setTimeout(wake, 400));
+      }
+    }
+  }
+}
+
 async function main() {
   build();
   const jar = await paper();
   await prepare(jar);
 
-  const steps = only.length
-    ? SCENARIOS.filter((s) => only.includes(s.name) || only.includes(s.scenario))
-    : SCENARIOS;
-  if (!steps.length) {
-    throw new Error(`No scenario called ${only.join(", ")}.`);
+  // Named scenarios run everything up to and including them, because the
+  // sequence is the test: the colour datapack has to have been written by an
+  // earlier boot for a later one to find it registered. Asking for `buckets`
+  // and getting a server that never wrote a biome is a confusing way to fail.
+  let steps = SCENARIOS;
+  if (only.length) {
+    const last = SCENARIOS.reduce(
+      (found, step, at) => (only.includes(step.name) ? at : found), -1);
+    if (last === -1) {
+      throw new Error(`No scenario called ${only.join(", ")}.`);
+    }
+    steps = SCENARIOS.slice(0, last + 1);
+    const before = steps.filter((s) => !only.includes(s.name)).map((s) => s.name);
+    if (before.length) {
+      say(`Running ${before.join(", ")} first: ${only.join(", ")} needs what they leave behind.`);
+    }
   }
 
   let passed = 0;
@@ -316,10 +347,7 @@ async function main() {
   }
 
   if (!keep) {
-    // The logs stay; the world and the jars do not.
-    for (const name of ["world", "plugins", "paper.jar", "libraries", "versions", "cache"]) {
-      await fs.rm(path.join(WORK, name), { recursive: true, force: true });
-    }
+    await tidy();
   }
 
   say(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

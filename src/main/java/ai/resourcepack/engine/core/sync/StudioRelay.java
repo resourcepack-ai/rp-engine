@@ -107,7 +107,7 @@ public final class StudioRelay {
             register.accept(pack);
             int reached = eachRecipient(code, player -> {
                 deliver.accept(player, pack);
-                player.sendMessage(EngineCommand.prefix() + "Studio pushed a pack.");
+                EngineCommand.say(player, "Studio pushed a pack.");
                 return true;
             });
             answer(reached, () -> sync.applied(code), why -> sync.failed(code, why));
@@ -181,7 +181,7 @@ public final class StudioRelay {
             int told = eachRecipient(code, player -> {
                 for (String line : List.of(title, body == null ? "" : body, url == null ? "" : url)) {
                     if (!line.isEmpty()) {
-                        player.sendMessage(EngineCommand.prefix() + line);
+                        EngineCommand.say(player, line);
                     }
                 }
                 return true;
