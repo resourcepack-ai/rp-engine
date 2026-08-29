@@ -117,9 +117,20 @@ public final class ModelDefinitions {
         // 0 means nobody sits on it, which is every model that does not say
         // otherwise. A seat is measured from the block floor, so a chair whose
         // cushion is drawn 7px up says 0.44.
-        float seat = body.string("seat").isPresent()
-                ? size(body, "seat", 0f, origin, where, diagnostics)
-                : 0f;
+        // A seat is a height, or three numbers when the seat is not in the
+        // middle of the piece — a bench, a car, an L-shaped sofa. The short
+        // form stays because almost every chair wants it.
+        float seat = 0f;
+        float seatSide = 0f;
+        float seatForward = 0f;
+        Optional<DefinitionNode> placed = body.node("seat");
+        if (placed.isPresent()) {
+            seat = offset(placed.get(), "y", origin, where, diagnostics);
+            seatSide = offset(placed.get(), "x", origin, where, diagnostics);
+            seatForward = offset(placed.get(), "z", origin, where, diagnostics);
+        } else if (body.string("seat").isPresent()) {
+            seat = offset(body, "seat", origin, where, diagnostics);
+        }
 
         int light = body.integer("light").orElse(0);
         if (light < 0 || light > 15) {
@@ -152,8 +163,42 @@ public final class ModelDefinitions {
         }
 
         return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
-                scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat,
-                light, surface, drop));
+                        scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat,
+                        light, surface, drop)
+                .withSeatOffset(seatSide, seatForward));
+    }
+
+    /**
+     * An offset, which is not a size.
+     *
+     * <p>Separate from {@link #size} because the two have genuinely different
+     * ranges: a size is at least {@link #MIN_SIZE} — nothing is a thousandth
+     * of a block wide — while an offset is legitimately zero (no seat) and
+     * legitimately negative (behind, or to the left). Running one through the
+     * other clamped {@code z: -0.15} up to {@code 0.1} and turned
+     * {@code seat: 0} into a seat.
+     */
+    private static float offset(DefinitionNode body, String key,
+                                String origin, String where, List<Diagnostic> diagnostics) {
+        Optional<String> declared = body.string(key);
+        if (declared.isEmpty()) {
+            return 0f;
+        }
+        float value;
+        try {
+            value = Float.parseFloat(declared.get().trim());
+        } catch (NumberFormatException e) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    key + ": " + declared.get() + " is not a number. Using 0."));
+            return 0f;
+        }
+        if (!Float.isFinite(value) || Math.abs(value) > MAX_SIZE) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    key + ": " + declared.get() + " is further than " + MAX_SIZE
+                            + " blocks from the piece. Using 0."));
+            return 0f;
+        }
+        return value;
     }
 
     /**

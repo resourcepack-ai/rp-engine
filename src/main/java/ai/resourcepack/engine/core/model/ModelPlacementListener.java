@@ -360,10 +360,35 @@ public final class ModelPlacementListener implements Listener {
         // and a listener that cancels gets its way before this runs.
         ModelInfo info = model.get(id.get());
         if (info != null && info.sittable()) {
-            Location seat = hitbox.getLocation().add(0, info.seat() * info.scale(), 0);
-            seat.setYaw(hitbox.getLocation().getYaw());
-            seats.sit(event.getPlayer(), seat);
+            seats.sit(event.getPlayer(), seatOf(hitbox, info));
         }
+    }
+
+    /**
+     * Where somebody sits on this piece.
+     *
+     * <p>The seat's sideways and forward offsets are turned to match the piece
+     * rather than the world, so a bench placed facing east seats people ALONG
+     * itself. Turning them with the yaw is the whole reason they are stated as
+     * side and forward rather than as x and z in the world.
+     */
+    private static Location seatOf(Interaction hitbox, ModelInfo info) {
+        Location at = hitbox.getLocation();
+        float yaw = at.getYaw();
+        double radians = Math.toRadians(yaw);
+        double sin = Math.sin(radians);
+        double cos = Math.cos(radians);
+
+        // Minecraft's yaw: 0 faces south (+z), and +x is to the west of that.
+        double side = info.seatSide() * info.scale();
+        double forward = info.seatForward() * info.scale();
+
+        Location seat = at.clone().add(
+                side * cos - forward * sin,
+                info.seat() * info.scale(),
+                side * sin + forward * cos);
+        seat.setYaw(yaw);
+        return seat;
     }
 
     /** The model standing as {@code hitbox}, or empty if that is not one of ours. */

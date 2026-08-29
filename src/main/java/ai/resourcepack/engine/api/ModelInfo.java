@@ -76,6 +76,8 @@ public final class ModelInfo {
     private final float height;
     private final boolean solid;
     private final float seat;
+    private float seatSide;
+    private float seatForward;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -190,6 +192,37 @@ public final class ModelInfo {
      */
     public float seat() {
         return seat;
+    }
+
+    /**
+     * How far the seat is to the RIGHT of the model's centre, in blocks.
+     *
+     * <p>Right as the piece faces, not as the world does: a bench turned east
+     * seats people along itself rather than along the x axis. Negative is
+     * left.
+     */
+    public float seatSide() {
+        return seatSide;
+    }
+
+    /** How far the seat is IN FRONT of the model's centre. Negative is behind. */
+    public float seatForward() {
+        return seatForward;
+    }
+
+    /**
+     * The same model, with the seat moved off centre.
+     *
+     * <p>A copy for the same reason the rest are, and mutable-in-place would
+     * be worse: this is read on a click, from a map shared by every placement
+     * of this model.
+     */
+    public ModelInfo withSeatOffset(float side, float forward) {
+        ModelInfo moved = of(id, item, facing, scale, width, height, solid, seat,
+                light, surface, drop);
+        moved.seatSide = side;
+        moved.seatForward = forward;
+        return moved;
     }
 
     /** Whether anybody can sit on it at all. */
