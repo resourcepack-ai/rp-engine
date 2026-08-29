@@ -1,0 +1,6 @@
+name: RPEngineHarness
+version: 1.0
+main: Harness
+api-version: "1.21"
+depend: [RPEngine]
+description: Integration harness. Never shipped; see integration/README.md.

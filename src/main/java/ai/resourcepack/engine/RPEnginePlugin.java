@@ -994,6 +994,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (liquidCommands != null) {
             liquidCommands.forget(event.getPlayer().getUniqueId());
         }
+        if (liquids != null) {
+            // Dropped rather than reported as leaving: they did not come out
+            // of the acid, they left, and a listener told otherwise would
+            // undo something for somebody who is not here.
+            liquids.forget(event.getPlayer().getUniqueId());
+        }
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());

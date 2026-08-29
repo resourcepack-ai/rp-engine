@@ -314,3 +314,32 @@ tasks.register('deployToServer', Copy) {
         logger.lifecycle("RPEngine.jar -> ${serverDir}/plugins")
     }
 }
+
+// ---------------------------------------------------------------------------
+// The integration harness.
+//
+// A second, tiny plugin that drives this one against a REAL server, because
+// the things most likely to be wrong here cannot be reached from a unit test:
+// a biome the server has to accept, a chunk that has to be re-sent, a command
+// withdrawn from a map that only CraftBukkit has. Two of those were wrong when
+// this was first written, and both passed every test in src/test.
+//
+// It is built as its own jar rather than being part of the plugin, so nothing
+// under src/main can accidentally depend on it and no released jar carries it.
+// `node integration/run.mjs` is the entry point; see integration/README.md.
+// ---------------------------------------------------------------------------
+sourceSets {
+    harness {
+        java.srcDirs = ['integration/src']
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+    }
+}
+
+tasks.register('harnessJar', Jar) {
+    group = 'rp-engine'
+    description = 'Builds the integration harness plugin.'
+    dependsOn classes
+    archiveFileName = 'RPEngineHarness.jar'
+    from sourceSets.harness.output
+    from('integration/resources')
+}
