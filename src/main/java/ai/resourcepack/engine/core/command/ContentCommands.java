@@ -95,13 +95,19 @@ public final class ContentCommands implements Area {
     }
 
     private boolean bundles(CommandSender sender) {
-        if (built.get().isEmpty()) {
-            Reply.to(sender, "No bundles built.");
+        List<BuiltPack> packs = built.get();
+        if (packs.isEmpty()) {
+            Reply.to(sender, "No bundles built. /rp reload after putting a pack in content/.");
+            return true;
         }
-        for (BuiltPack pack : built.get()) {
-            Reply.to(sender, pack.bundle() + "  " + pack.entries() + " files, "
-                    + pack.size() + " bytes, " + pack.sha1().substring(0, 8)
-                    + "  " + host.url(pack.bundle()).orElse("not served"));
+        long bytes = packs.stream().mapToLong(BuiltPack::size).sum();
+        Reply.heading(sender, "Bundles", Reply.plural(packs.size(), "bundle")
+                + ", " + Reply.size(bytes));
+        for (BuiltPack pack : packs) {
+            Reply.row(sender, pack.bundle(), Reply.plural(pack.entries(), "file")
+                    + " · " + Reply.size(pack.size())
+                    + " · " + pack.sha1().substring(0, 8));
+            Reply.note(sender, host.url(pack.bundle()).orElse("not served"));
         }
         return true;
     }

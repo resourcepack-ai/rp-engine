@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.command;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.model.BoundModels;
@@ -13,7 +14,10 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.util.RayTraceResult;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -175,14 +179,27 @@ public final class ModelCommands implements Area {
             Reply.to(sender, "Only a player can look around them.");
             return true;
         }
+        Player looking = (Player) sender;
         double radius = args.length > 1 ? Args.radius(args[1]) : Args.DEFAULT_RADIUS;
-        List<Interaction> found = placements.near(((Player) sender).getLocation(), radius);
-        Reply.to(sender, Reply.plural(found.size(), "model") + " within " + (int) radius + " blocks.");
+        List<Interaction> found = new ArrayList<>(placements.near(looking.getLocation(), radius));
+        if (found.isEmpty()) {
+            Reply.to(sender, "No models within " + (int) radius + " blocks.");
+            return true;
+        }
+        // Nearest first, because the one somebody is asking about is almost
+        // always the one they are standing in front of.
+        found.sort(Comparator.comparingDouble(
+                hitbox -> hitbox.getLocation().distanceSquared(looking.getLocation())));
+
+        Reply.heading(sender, "Models", Reply.plural(found.size(), "model")
+                + " within " + (int) radius + " blocks");
         for (Interaction hitbox : found) {
             Location at = hitbox.getLocation();
-            Reply.to(sender, placements.idOf(hitbox).map(Object::toString).orElse("?")
-                    + "  " + at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
-                    + (placements.isOrphan(hitbox) ? "  (orphan)" : ""));
+            int away = (int) Math.round(at.distance(looking.getLocation()));
+            Reply.row(sender, placements.idOf(hitbox).map(Object::toString).orElse("unknown"),
+                    at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
+                            + " · " + away + "m"
+                            + (placements.isOrphan(hitbox) ? " · orphan" : ""));
         }
         return true;
     }
@@ -211,12 +228,35 @@ public final class ModelCommands implements Area {
 
     private boolean entities(CommandSender sender) {
         if (creatures.ids().isEmpty()) {
-            Reply.to(sender, "No entities loaded.");
+            Reply.to(sender, "No entities loaded. A pack declares them in entities/.");
+            return true;
         }
+        Reply.heading(sender, "Entities", Reply.plural(creatures.ids().size(), "kind")
+                + ", spawn one with /rp spawn <id>");
         for (ContentId id : creatures.ids()) {
-            Reply.to(sender, id + "  " + creatures.info(id).map(e -> e.type()).orElse("?"));
+            Reply.row(sender, id.toString(), creatures.info(id).map(ModelCommands::describe).orElse(""));
         }
         return true;
+    }
+
+    /** "ZOMBIE - 40 hp - 1.2x - wearing mypack:golem", with the empty parts left out. */
+    private static String describe(EntityInfo entity) {
+        StringBuilder said = new StringBuilder(entity.type().toLowerCase(Locale.ROOT));
+        if (entity.health() > 0) {
+            said.append(" · ").append(trim(entity.health())).append(" hp");
+        }
+        if (entity.scale() != 1f) {
+            said.append(" · ").append(trim(entity.scale())).append("x");
+        }
+        entity.model().ifPresent(model -> said.append(" · ").append(model));
+        return said.toString();
+    }
+
+    /** 40 rather than 40.0, since a whole number of hearts is the usual case. */
+    private static String trim(double value) {
+        return value == Math.rint(value)
+                ? String.valueOf((long) value)
+                : String.valueOf(Math.round(value * 10) / 10.0);
     }
 
     private boolean spawn(CommandSender sender, String[] args) {

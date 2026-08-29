@@ -65,8 +65,26 @@ public final class ItemListener implements Listener {
         this.buckets = buckets;
     }
 
-    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    /**
+     * A click with a custom item in hand.
+     *
+     * <p><strong>Deliberately not {@code ignoreCancelled}.</strong> Bukkit
+     * builds this event with {@code useInteractedBlock = DENY} whenever there
+     * is no block — which is every right-click into the air — and
+     * {@code isCancelled()} reads that field. So an air click arrives already
+     * "cancelled", and a handler that ignored cancelled events would fire only
+     * when a player happened to be pointing at something. That is exactly how
+     * this behaved until 0.46.9: every item worked against a wall and did
+     * nothing facing the sky.
+     *
+     * <p>What a protection plugin actually denies is the ITEM, so that is what
+     * is checked instead.
+     */
+    @EventHandler(priority = EventPriority.LOW)
     public void onUse(PlayerInteractEvent event) {
+        if (event.useItemInHand() == org.bukkit.event.Event.Result.DENY) {
+            return;
+        }
         // Main hand only. Bukkit fires this once per hand, and firing our own
         // event twice for one click would have every listener guarding against
         // it.
