@@ -53,6 +53,8 @@ import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.item.ItemListener;
 import ai.resourcepack.engine.core.item.ItemsImpl;
+import ai.resourcepack.engine.core.liquid.LiquidBiomes;
+import ai.resourcepack.engine.core.liquid.LiquidBuckets;
 import ai.resourcepack.engine.core.liquid.LiquidDefinitions;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
 import ai.resourcepack.engine.core.liquid.Liquids;
@@ -162,6 +164,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private CustomEntities creatures;
     private LiquidPools pools;
     private Liquids liquids;
+    private LiquidBiomes liquidBiomes;
     private LiquidCommands liquidCommands;
     private SkinApplier skins;
     private DistributionManager distribution;
@@ -310,6 +313,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
         liquids = new Liquids(this, pools);
+        liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
@@ -318,7 +322,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
         getServer().getPluginManager().registerEvents(
-                new ItemListener(this, items, new ActionRunner(items, sounds)), this);
+                new ItemListener(this, items, new ActionRunner(items, sounds),
+                        new LiquidBuckets(liquids, pools, liquidBiomes, getLogger())), this);
         // Off unless a server asks for it: a plugin that starts rewriting
         // what people type in chat the moment it is installed is a plugin
         // somebody has to find the setting for in a hurry.
@@ -396,7 +401,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * which arrives as the four callbacks below.
      */
     private void registerCommands() {
-        liquidCommands = new LiquidCommands(liquids, pools, getLogger());
+        liquidCommands = new LiquidCommands(liquids, pools, liquidBiomes, getLogger());
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
@@ -700,6 +705,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         LiquidDefinitions.Result parsedLiquids = LiquidDefinitions.parse(loaded);
         report(to, "liquids", parsedLiquids.diagnostics());
         liquids.replace(parsedLiquids.liquids());
+        // Written on every load, applied on the next start: a biome is
+        // registered when the server boots and nothing can add one after.
+        liquidBiomes.write(parsedLiquids.liquids().values());
 
         SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
         report(to, "sounds", parsedSounds.diagnostics());

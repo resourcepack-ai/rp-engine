@@ -32,13 +32,15 @@ public final class ItemInfo {
     private final boolean hat;
     private final boolean keepOnDeath;
     private final Map<String, Double> hitboxes;
+    private final ContentId liquid;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
                      int maxStack, boolean glow, boolean unbreakable,
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
                      Map<String, AnimationSettings> animations, ItemStats stats,
-                     boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes) {
+                     boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes,
+                     ContentId liquid) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -57,6 +59,7 @@ public final class ItemInfo {
         this.hat = hat;
         this.keepOnDeath = keepOnDeath;
         this.hitboxes = hitboxes;
+        this.liquid = liquid;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -81,7 +84,8 @@ public final class ItemInfo {
                 ItemStats.none(),
                 false,
                 false,
-                Map.of());
+                Map.of(),
+                null);
     }
 
     /**
@@ -96,7 +100,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath, hitboxes);
+                animations, stats, hat, keepOnDeath, hitboxes, liquid);
     }
 
     /**
@@ -112,28 +116,54 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath, hitboxes);
+                hat, keepOnDeath, hitboxes, liquid);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes);
+                hitboxes, liquid);
     }
 
     /** The same item, with what a hit on each of its bones is worth. */
     public ItemInfo withHitboxes(Map<String, Double> hitboxes) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes));
+                hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes),
+                liquid);
+    }
+
+    /**
+     * The same item, made a bucket of a liquid.
+     *
+     * <p>A copy for the same reason as the rest: {@link #of} is the supported
+     * surface and almost no item is a bucket.
+     */
+    public ItemInfo withLiquid(ContentId liquid) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes, liquid);
+    }
+
+    /**
+     * The liquid this item places, or empty for the ordinary case.
+     *
+     * <p>Right-clicking a block with it puts one source block of that liquid
+     * down and makes the place count as that liquid, so the pool that carries
+     * the rules is built by the person building the pond rather than marked
+     * out afterwards. The two ways of making a pool are the same pool: a
+     * bucket next to an existing one grows it rather than adding a second.
+     */
+    public Optional<ContentId> liquid() {
+        return Optional.ofNullable(liquid);
     }
 
     /** Bone name to damage multiplier. Empty for almost every piece. */

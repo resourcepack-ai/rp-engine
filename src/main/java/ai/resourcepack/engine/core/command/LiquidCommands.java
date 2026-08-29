@@ -1,9 +1,12 @@
 package ai.resourcepack.engine.core.command;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.core.liquid.LiquidBiomes;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
 import ai.resourcepack.engine.core.liquid.Liquids;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -27,14 +30,16 @@ public final class LiquidCommands implements Area {
 
     private final Liquids liquids;
     private final LiquidPools pools;
+    private final LiquidBiomes biomes;
     private final Logger log;
 
     /** Where each player's selection starts. Lost on restart, which is fine. */
     private final Map<UUID, int[]> corners = new ConcurrentHashMap<>();
 
-    public LiquidCommands(Liquids liquids, LiquidPools pools, Logger log) {
+    public LiquidCommands(Liquids liquids, LiquidPools pools, LiquidBiomes biomes, Logger log) {
         this.liquids = liquids;
         this.pools = pools;
+        this.biomes = biomes;
         this.log = log;
     }
 
@@ -104,16 +109,32 @@ public final class LiquidCommands implements Area {
             return true;
         }
         LiquidPools.Pool pool = pools.add(id.get(), standing.getWorld().getName(), from, here);
+        biomes.paint(standing.getWorld(), pool.min()[0], pool.min()[1], pool.min()[2],
+                        pool.max()[0], pool.max()[1], pool.max()[2], id.get())
+                .ifPresent(was -> pool.remember(was.getKey().toString()));
         pools.save(log);
         corners.remove(player.getUniqueId());
         Reply.to(player, pool + ".");
         Reply.to(player, "The blocks are still ordinary water. This says what being in them means.");
+        if (liquids.info(id.get()).map(l -> l.color().isPresent()).orElse(false)
+                && biomes.biomeOf(id.get()).isEmpty()) {
+            Reply.to(player, "Its colour needs a restart before it shows: a biome is registered "
+                    + "when the server starts and a reload cannot add one.");
+        }
         return true;
     }
 
     private boolean clear(Player player, Location standing) {
         Optional<LiquidPools.Pool> gone = pools.removeAt(standing.getWorld().getName(),
                 standing.getX(), standing.getY(), standing.getZ());
+        // Painted back to whatever was there when the pool was made. A pool
+        // that never had a colour has nothing recorded and nothing to undo.
+        gone.ifPresent(pool -> pool.was()
+                .map(NamespacedKey::fromString)
+                .map(Registry.BIOME::get)
+                .ifPresent(before -> biomes.restore(standing.getWorld(),
+                        pool.min()[0], pool.min()[1], pool.min()[2],
+                        pool.max()[0], pool.max()[1], pool.max()[2], before)));
         pools.save(log);
         Reply.to(player, gone.isPresent() ? "Removed " + gone.get() + "." : "No pool here.");
         return true;

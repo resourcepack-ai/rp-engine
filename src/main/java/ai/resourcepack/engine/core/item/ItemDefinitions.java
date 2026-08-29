@@ -118,7 +118,31 @@ public final class ItemDefinitions {
                 .withStats(stats(body, definition.id(), origin, diagnostics))
                 .withFlags(body.bool("hat").orElse(Boolean.FALSE),
                         body.bool("keep-on-death").orElse(Boolean.FALSE))
-                .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics)));
+                .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics))
+                .withLiquid(liquid(body, origin, where, diagnostics)));
+    }
+
+    /**
+     * {@code liquid:}, which makes the item a bucket of one.
+     *
+     * <p>Checked for SHAPE only, like {@code copy-model} above and for the
+     * same reason: the liquid it names may live in a pack that has not loaded
+     * yet, so the only thing knowable here is whether it is an id at all.
+     */
+    private static ContentId liquid(DefinitionNode body, String origin, String where,
+                                    List<Diagnostic> diagnostics) {
+        Optional<String> declared = body.string("liquid");
+        if (declared.isEmpty()) {
+            return null;
+        }
+        Optional<ContentId> parsed = ContentId.parse(declared.get());
+        if (parsed.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "liquid: " + declared.get() + " is not a namespace:id. "
+                            + "The item is not a bucket."));
+            return null;
+        }
+        return parsed.get();
     }
 
     /**
