@@ -278,7 +278,7 @@ public final class ContentFolderLoader {
     }
 
     /**
-     * Reads one YAML file as a map.
+     * Reads one definition file as a map, whichever of the two it is.
      *
      * <p>A file that parses to something other than a map is an error rather
      * than an empty result: a definition file holding a list is a mistake with
@@ -286,6 +286,9 @@ public final class ContentFolderLoader {
      * afternoon wondering where their items went.
      */
     private Optional<DefinitionNode> readMap(Path file, String origin, List<Diagnostic> diagnostics) {
+        if (isToml(file)) {
+            return readToml(file, origin, diagnostics);
+        }
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             // SafeConstructor on purpose: content files come from strangers on
             // the internet as often as from the server owner, and the default
@@ -302,6 +305,28 @@ public final class ContentFolderLoader {
             return Optional.of(DefinitionNode.of((Map<?, ?>) document));
         } catch (YAMLException e) {
             diagnostics.add(Diagnostic.error(origin, "Could not be parsed as YAML. " + firstLine(e)));
+            return Optional.empty();
+        } catch (IOException e) {
+            diagnostics.add(Diagnostic.error(origin, "Could not be read. " + firstLine(e)));
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The same, for TOML.
+     *
+     * <p>A separate method rather than a branch inside the YAML one because
+     * the failures are different: TOML's own most common mistake is a table
+     * name with a slash in it, which the message says out loud, since
+     * {@code [weapons/sword]} looks perfectly reasonable to somebody writing
+     * an id.
+     */
+    private Optional<DefinitionNode> readToml(Path file, String origin, List<Diagnostic> diagnostics) {
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            return Optional.of(DefinitionNode.of(Toml.read(reader)));
+        } catch (com.electronwill.nightconfig.core.io.ParsingException e) {
+            diagnostics.add(Diagnostic.error(origin, "Could not be parsed as TOML. " + firstLine(e)
+                    + " (an id with a / or a . in it has to be quoted: [\"weapons/sword\"])"));
             return Optional.empty();
         } catch (IOException e) {
             diagnostics.add(Diagnostic.error(origin, "Could not be read. " + firstLine(e)));
@@ -334,16 +359,30 @@ public final class ContentFolderLoader {
         for (Path child : list(folder, diagnostics, origin, path -> true)) {
             if (Files.isDirectory(child)) {
                 found.addAll(sortedYamlFiles(child, diagnostics, origin));
-            } else if (isYaml(child)) {
+            } else if (isDefinitionFile(child)) {
                 found.add(child);
             }
         }
         return found;
     }
 
+    /**
+     * Whether this is a definition file.
+     *
+     * <p>Both spellings, side by side in one folder if somebody likes: they
+     * produce the same map and the loader cannot tell them apart afterwards.
+     */
+    private static boolean isDefinitionFile(Path file) {
+        return isYaml(file) || isToml(file);
+    }
+
     private static boolean isYaml(Path file) {
         String name = file.getFileName().toString();
         return name.endsWith(".yml") || name.endsWith(".yaml");
+    }
+
+    private static boolean isToml(Path file) {
+        return file.getFileName().toString().endsWith(".toml");
     }
 
     private List<Path> list(Path folder, List<Diagnostic> diagnostics, String origin,

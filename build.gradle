@@ -253,6 +253,12 @@ dependencies {
     // another plugin's copy of it stops working.
     implementation 'org.java-websocket:Java-WebSocket:1.5.7'
 
+    // TOML, for content files written in it. night-config rather than tomlj:
+    // tomlj is a full TOML 1.0 implementation that drags in the ANTLR runtime,
+    // which is more megabytes than this whole plugin for a file format that is
+    // an alternative spelling of the one we already read.
+    implementation 'com.electronwill.night-config:toml:3.8.1'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
 }
@@ -281,6 +287,7 @@ processResources {
 shadowJar {
     archiveClassifier.set('')
     relocate 'org.java_websocket', 'ai.resourcepack.engine.libs.java_websocket'
+    relocate 'com.electronwill.nightconfig', 'ai.resourcepack.engine.libs.nightconfig'
     // ai.resourcepack.engine.* is deliberately NOT relocated: a third-party
     // plugin compiles against ai.resourcepack.engine.api and needs the classes
     // where its imports say they are.
