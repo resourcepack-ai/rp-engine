@@ -47,13 +47,43 @@ public final class Seats implements Listener {
      */
     private static final double MOUNT_OFFSET = 0.7;
 
+    /**
+     * How far a seated player is drawn ABOVE their own position.
+     *
+     * <p>{@code seat:} in a pack means "where somebody's backside goes", and
+     * the game draws a riding player with their hips about a third of a block
+     * over the entity position their feet are at. Without this, a chair whose
+     * surface is 0.6 up sits somebody with their waist at 0.6 and their legs
+     * hanging through it.
+     *
+     * <p>It is a default rather than a constant because a rig is whatever
+     * somebody built: see {@link #calibrate(double)}.
+     */
+    private static final double SEATED_POSE = 0.3;
+
     private final Plugin plugin;
+
+    /** Added to every seat, from config.yml. Nudges every chair on the server at once. */
+    private volatile double calibration;
 
     /** Player -> the stand they are riding. */
     private final Map<UUID, UUID> seated = new ConcurrentHashMap<>();
 
     public Seats(Plugin plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * Adopts {@code models.seat-offset}. Called on enable and on every reload.
+     *
+     * <p>Here rather than only on the model because the thing being corrected
+     * is the SITTING, not the chair: it is the same amount wrong for every
+     * piece of furniture on the server, and a server owner should be able to
+     * fix all of them by looking at one and typing {@code /rp reload} rather
+     * than editing every pack they installed.
+     */
+    public void calibrate(double offset) {
+        this.calibration = offset;
     }
 
     /**
@@ -78,7 +108,7 @@ public final class Seats implements Listener {
             return false;
         }
 
-        Location at = where.clone().add(0, MOUNT_OFFSET, 0);
+        Location at = where.clone().add(0, MOUNT_OFFSET - SEATED_POSE + calibration, 0);
         at.setYaw(where.getYaw());
         ArmorStand stand = where.getWorld().spawn(at, ArmorStand.class, s -> {
             // A marker has no hitbox and no collision, which is what makes it

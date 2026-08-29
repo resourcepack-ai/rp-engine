@@ -404,7 +404,12 @@ would make a head worthless the moment it was inside one.
 ### Sitting on one
 
 `seat:` is how far above the model's base a player's backside goes, in blocks —
-about `0.6` for a dining chair. Right-click to sit, shift to get up.
+about `0.5` for a dining chair. Right-click to sit, shift to get up.
+
+If every chair on your server sits people slightly wrong, that is the game
+drawing a seated player rather than your number being off: put a nudge in
+`models.seat-offset` in `config.yml` and `/rp reload`. Positive is higher, and
+it moves every seat at once.
 
 The seat itself is a marker armour stand the player rides, which is the only
 way to sit somebody in vanilla. It is **never saved**: gone on dismount, on
@@ -592,6 +597,12 @@ brings three things with it:
 - **It fades at the edges.** The client blends biome colours over several
   blocks, so a pool under about 8 blocks across never reaches its full colour.
   A player with biome blend turned up sees less colour again.
+- **It is multiplied by the water texture**, which is a dark blue-grey, so a
+  saturated hex still lands muted. This is the ceiling of the mechanism rather
+  than something to tune: ItemsAdder tints the same texture the same way and
+  has the same limit. A pack CAN ship a paler `water_still` through
+  `overrides/` and get vivid colours — at the price of every ocean on the
+  server going pale too, which is why the engine will not do it for you.
 
 Clearing a pool paints it back to the biome that was there when it was made —
 one biome for the whole box, which is all `liquids.json` records.

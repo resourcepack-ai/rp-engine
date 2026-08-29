@@ -48,6 +48,15 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
+models:
+  # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
+  # says where that piece's seat is; this corrects how the game DRAWS somebody
+  # sitting, which is the same amount wrong for every chair.
+  #
+  # Sit on something, decide it is a hand's width out, put the number here and
+  # run /rp reload. Positive is higher. You should not need it.
+  seat-offset: 0.0
+
 emotes:
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that
