@@ -101,6 +101,7 @@ public final class ContentFolderLoader {
     private static Map<String, ContentKind> categories() {
         Map<String, ContentKind> map = new LinkedHashMap<>();
         map.put("items", ContentKind.ITEM);
+        map.put("blocks", ContentKind.BLOCK);
         map.put("sounds", ContentKind.SOUND);
         map.put("fonts", ContentKind.FONT);
         map.put("screens", ContentKind.SCREEN);

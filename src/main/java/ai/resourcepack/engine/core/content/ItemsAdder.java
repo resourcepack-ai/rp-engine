@@ -27,16 +27,21 @@ import java.util.Optional;
  *
  * <h2>What comes across, and what does not</h2>
  *
- * <p>Items and font images translate, including the parts of an item that are
- * really vanilla underneath: material, name, lore, enchants, attributes,
- * durability, stack size, permission, armour slot, and the two behaviours that
- * have an equivalent here — a liquid bucket and furniture.
+ * <p>Items, blocks and font images translate, including the parts of an item
+ * that are really vanilla underneath: material, name, lore, enchants,
+ * attributes, durability, stack size, permission, armour slot, and the two
+ * behaviours that have an equivalent here — a liquid bucket and furniture.
  *
- * <p>What does not: <strong>custom blocks</strong>, which this engine does not
- * have and is not going to (see the design notes); their entities, whose shape is a
- * different feature rather than a different spelling; and the parts of an item
- * that are ItemsAdder's own plugin behaviour rather than a property of the
- * item — {@code events}, {@code drop}, {@code item_flags}.
+ * <p>What does not: their entities, whose shape is a different feature rather
+ * than a different spelling; and the parts of an item that are ItemsAdder's own
+ * plugin behaviour rather than a property of the item — {@code events},
+ * {@code drop}, {@code item_flags}.
+ *
+ * <p>A block's definition comes across but <strong>a world built with their
+ * plugin does not</strong>: the vanilla state a block hides in is allocated in
+ * their file against their numbering, so blocks already placed are read as
+ * whatever this engine gave that state. A pack migrates; a world has to be
+ * rebuilt or remapped by hand.
  *
  * <p><strong>Every one of those is a warning naming the id.</strong> A
  * migration that quietly drops a third of somebody's pack is worse than one
@@ -95,9 +100,19 @@ final class ItemsAdder {
             }
         });
 
-        refuse(document, "blocks", origin, diagnostics,
-                "custom blocks are not a feature here, by decision rather than by omission - "
-                        + "a placed model does the same job without hijacking note blocks");
+        document.node("blocks").ifPresent(blocks -> {
+            Map<String, Object> translated = new LinkedHashMap<>();
+            for (String id : blocks.keys()) {
+                blocks.node(id).ifPresent(block -> {
+                    if (block.bool("enabled").orElse(Boolean.TRUE)) {
+                        translated.put(id, block(block));
+                    }
+                });
+            }
+            if (!translated.isEmpty()) {
+                out.put(ContentKind.BLOCK, translated);
+            }
+        });
         refuse(document, "entities", origin, diagnostics,
                 "ItemsAdder entities are a different feature rather than a different spelling. "
                         + "Write them as entities/ definitions, which take a type and a model");
@@ -105,6 +120,40 @@ final class ItemsAdder {
                 "write them as recipes/ definitions - the shapes are close but the ingredient "
                         + "syntax is not");
 
+        return out;
+    }
+
+    /**
+     * One block.
+     *
+     * <p>Both plugins put a custom block in a spare vanilla block state, so
+     * this is a rename rather than a conversion. What does not come across is
+     * the state itself: theirs is allocated in their own file against their
+     * own numbering, so a world built with their plugin has blocks this engine
+     * cannot recognise. A pack migrates; a world does not.
+     */
+    private static Map<String, Object> block(DefinitionNode block) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        DefinitionNode specific = block.node("specific_properties")
+                .flatMap(properties -> properties.node("block"))
+                .orElse(DefinitionNode.empty());
+        DefinitionNode resource = block.node("resource").orElse(DefinitionNode.empty());
+
+        specific.string("placed_model").or(() -> resource.string("model_path"))
+                .ifPresent(model -> out.put("model", model));
+        specific.string("hardness").ifPresent(hardness -> out.put("hardness", hardness));
+        specific.integer("light_level").ifPresent(light -> out.put("light", light));
+        specific.string("break_tool").ifPresent(tool -> out.put("tool", tool));
+        specific.string("sound").or(() -> block.string("sound"))
+                .ifPresent(sound -> out.put("sound", sound));
+
+        // Their block_type says which vanilla block it hides in. Only the two
+        // this engine has are mapped; anything else takes the default, which
+        // is what almost every pack uses anyway.
+        String kind = specific.string("block_type").orElse("").toLowerCase(Locale.ROOT);
+        if (kind.contains("mushroom")) {
+            out.put("base", "mushroom_stem");
+        }
         return out;
     }
 
