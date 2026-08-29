@@ -66,6 +66,17 @@ public final class PackBuilder {
     /** A pack's own icon, offered to the bundle it ships in. */
     static final String ICON = "pack.png";
 
+    /**
+     * Where ItemsAdder keeps its art: at the pack root rather than under
+     * {@code assets/}.
+     *
+     * <p>Copied as if they were under {@code assets/}, so somebody who dropped
+     * their {@code contents/<pack>/} folder in gets their pictures as well as
+     * their items. Ours is still the documented layout — this is a second
+     * place to look, not a second way to write a pack.
+     */
+    static final List<String> ITEMSADDER_ASSETS = List.of("textures", "models", "sounds", "font");
+
     private final int packFormat;
     private final String description;
     private final List<PackContributor> contributors = new ArrayList<>();
@@ -122,6 +133,10 @@ public final class PackBuilder {
             Path packFolder = contentRoot.resolve(namespace);
             copyTree(packFolder.resolve(ASSETS), ASSETS + "/" + namespace,
                     namespace, bundle, zip, writtenBy, diagnostics);
+            for (String theirs : ITEMSADDER_ASSETS) {
+                copyTree(packFolder.resolve(theirs), ASSETS + "/" + namespace + "/" + theirs,
+                        namespace, bundle, zip, writtenBy, diagnostics);
+            }
             copyTree(packFolder.resolve(OVERRIDES), ASSETS + "/minecraft",
                     namespace, bundle, zip, writtenBy, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);

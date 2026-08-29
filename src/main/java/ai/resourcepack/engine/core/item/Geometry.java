@@ -139,8 +139,12 @@ public final class Geometry {
             if (name == null) {
                 continue;
             }
-            Path file = content.resolve(item.id().namespace())
-                    .resolve("assets").resolve("models").resolve(name + ".json");
+            Path pack = content.resolve(item.id().namespace());
+            Path file = pack.resolve("assets").resolve("models").resolve(name + ".json");
+            if (!Files.isRegularFile(file)) {
+                // An ItemsAdder pack keeps its models at the root.
+                file = pack.resolve("models").resolve(name + ".json");
+            }
             if (!Files.isRegularFile(file)) {
                 continue;
             }

@@ -141,7 +141,7 @@ public final class ItemAssets implements PackContributor {
             return;
         }
         String sourcePath = "assets/models/" + name + ".json";
-        Optional<byte[]> source = into.source(namespace, sourcePath);
+        Optional<byte[]> source = source(into, namespace, "models/" + name + ".json");
         if (source.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
                     "No model at assets/models/" + name + ".bbmodel or " + sourcePath
@@ -181,6 +181,20 @@ public final class ItemAssets implements PackContributor {
     }
 
     /**
+     * A source file, from under {@code assets/} or from an ItemsAdder pack's
+     * root.
+     *
+     * <p>Ours is the documented layout and is tried first. Theirs keeps
+     * {@code models/} and {@code textures/} beside the configs, and a pack
+     * copied straight out of ItemsAdder should not need its folders moved
+     * around before its models are read.
+     */
+    private static Optional<byte[]> source(Contribution into, String namespace, String path) {
+        Optional<byte[]> ours = into.source(namespace, "assets/" + path);
+        return ours.isPresent() ? ours : into.source(namespace, path);
+    }
+
+    /**
      * A Blockbench project, converted where it stands.
      *
      * @return whether one was there
@@ -188,7 +202,7 @@ public final class ItemAssets implements PackContributor {
     private boolean writeProject(ItemInfo item, String namespace, String name,
                                  String modelPath, Contribution into) {
         String sourcePath = "assets/models/" + name + ".bbmodel";
-        Optional<byte[]> source = into.source(namespace, sourcePath);
+        Optional<byte[]> source = source(into, namespace, "models/" + name + ".bbmodel");
         if (source.isEmpty()) {
             return false;
         }
