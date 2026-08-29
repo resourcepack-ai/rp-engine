@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.event.ModelBindEvent;
 import ai.resourcepack.engine.core.Host;
 
 import org.bukkit.NamespacedKey;
@@ -104,6 +105,12 @@ public final class BoundModels {
         if (whole == null) {
             return false;
         }
+        // The entity belongs to somebody else — a MythicMobs boss, an NPC, a
+        // mob a command block spawned — so the plugin that owns it gets to
+        // refuse having it dressed.
+        if (refused(host, modelId, ModelBindEvent.Action.BIND)) {
+            return false;
+        }
         // AFTER the unbind, never before it: unbind clears the remembered id,
         // so writing first and clearing second leaves an NPC that wears a
         // model until the next respawn and then forgets it.
@@ -154,9 +161,19 @@ public final class BoundModels {
         return true;
     }
 
+    /** Whether a listener said no to this bind or unbind. */
+    private static boolean refused(Entity host, ContentId model, ModelBindEvent.Action action) {
+        ModelBindEvent asked = new ModelBindEvent(host, model, action);
+        host.getServer().getPluginManager().callEvent(asked);
+        return asked.isCancelled();
+    }
+
     /** Takes the model off, and gives the entity its own body back. */
     public boolean unbind(Entity host) {
         if (host == null) {
+            return false;
+        }
+        if (refused(host, modelOn(host).orElse(null), ModelBindEvent.Action.UNBIND)) {
             return false;
         }
         boolean had = false;

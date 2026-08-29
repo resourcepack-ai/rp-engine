@@ -193,9 +193,17 @@ public final class CustomEntities implements Listener {
      */
     @EventHandler
     public void onDeath(EntityDeathEvent event) {
-        if (idOf(event.getEntity()).isEmpty()) {
+        Optional<ContentId> id = idOf(event.getEntity());
+        if (id.isEmpty()) {
             return;
         }
+        // Bukkit's event above carries the drops and cannot say what the thing
+        // was; ours says what it was and cannot change them. A plugin editing
+        // the loot of a custom mob wants both, which is why this is a second
+        // event rather than an argument for making one of them do the other's
+        // job.
+        event.getEntity().getServer().getPluginManager().callEvent(
+                new ai.resourcepack.engine.api.event.EntityDeathEvent(event.getEntity(), id.get()));
         for (Entity passenger : event.getEntity().getPassengers()) {
             if (passenger instanceof ItemDisplay) {
                 passenger.remove();

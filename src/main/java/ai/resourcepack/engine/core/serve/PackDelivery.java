@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.serve;
 
 import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.api.event.PackSendEvent;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -62,6 +63,8 @@ public final class PackDelivery {
                 continue;
             }
             player.addResourcePack(pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
+            player.getServer().getPluginManager().callEvent(
+                    new PackSendEvent(player, pack.bundle(), url.get()));
         }
         // Recorded once the sends have gone out, never at plan time. See
         // BundleSessions for why the two are separate.

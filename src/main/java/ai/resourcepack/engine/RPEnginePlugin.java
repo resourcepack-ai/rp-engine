@@ -23,6 +23,7 @@ import ai.resourcepack.engine.core.command.ContentCommands;
 import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
 import ai.resourcepack.engine.core.command.InterfaceCommands;
+import ai.resourcepack.engine.api.event.ContentLoadEvent;
 import ai.resourcepack.engine.core.command.LiquidCommands;
 import ai.resourcepack.engine.core.command.ModelCommands;
 import ai.resourcepack.engine.core.command.SyncCommands;
@@ -163,6 +164,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelsImpl models;
     private Seats seats;
     private CustomEntities creatures;
+    /** Whether a rebuild has finished once, which is what tells the two causes apart. */
+    private boolean started;
+
     private LiquidPools pools;
     private Liquids liquids;
     private LiquidBiomes liquidBiomes;
@@ -747,6 +751,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * holding.
      */
     private void rebuild(CommandSender to) {
+        rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP);
+    }
+
+    /** As above, saying why, which is the one thing the event carries. */
+    private void rebuild(CommandSender to, ContentLoadEvent.Cause why) {
         // content/ is yours and output/ is ours. The names are doing real work
         // here: a folder called packs/ reads as "put your packs in me", which is
         // the one mistake a new user is most likely to make on day one.
@@ -852,6 +861,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (Player player : getServer().getOnlinePlayers()) {
             delivery.apply(player, desiredFor(player));
         }
+
+        // Last, and that is the whole contract: a listener runs once every
+        // question the API can answer is answerable. A plugin holding anything
+        // resolved rather than an id needs this on a reload as much as it
+        // needs it at startup, which is why one event carries both.
+        started = true;
+        getServer().getPluginManager().callEvent(new ContentLoadEvent(
+                why, loaded.packs().size(), loaded.definitions().size()));
     }
 
     /**
