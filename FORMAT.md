@@ -670,6 +670,31 @@ weapons/ruby_sword:
 is `mypack:weapons/ruby_sword`, regardless of which file or subfolder it was
 written in.
 
+### YAML or TOML
+
+A definition file may be `.yml`, `.yaml` or `.toml`, and both spellings can sit
+in one folder. They produce exactly the same thing; nothing downstream knows
+which one it came from.
+
+```toml
+[ruby]
+material = "DIAMOND"
+name = "&cRuby"
+lore = ["Shiny."]
+
+[chair]
+material = "PAPER"
+model = "chair"
+
+[chair.place]
+facing = "cardinal"
+seat = 0.5
+```
+
+**An ID with a `/` or a `.` in it has to be quoted** — `["weapons/sword"]` —
+because both mean something to TOML. That is the one thing that catches people,
+and the error message says so when it happens.
+
 **One file may declare many, and many files may declare into one prefix.**
 The file name means nothing. This is deliberate: a format that ties IDs to
 file names forces a choice between one file per item and one enormous file
