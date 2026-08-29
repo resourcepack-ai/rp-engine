@@ -3,6 +3,7 @@ package ai.resourcepack.engine.core.model;
 import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.api.BoneBehaviour;
 import ai.resourcepack.engine.api.Placement;
+import ai.resourcepack.engine.api.event.ModelAnimationEndEvent;
 import ai.resourcepack.engine.api.event.ModelAnimationEvent;
 import ai.resourcepack.engine.core.Host;
 
@@ -765,12 +766,20 @@ public final class RigAnimator implements Listener {
             if (ask.isCancelled()) return false;
         }
 
+        // Read before the write, so the name is the OUTGOING animation's.
+        String replaced = placements == null ? null : playingOn(hitbox);
+
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, animationIndex);
             pdc.set(animationStartKey, PersistentDataType.LONG, now);
             if (pdc.has(partKey, PersistentDataType.INTEGER)) pose(display, false);
         }
+
+        if (placements != null && replaced != null && !replaced.equals(animation.name)) {
+            end(hitbox, replaced, ModelAnimationEndEvent.Cause.REPLACED);
+        }
+        scheduleEnd(hitbox, animation, animationIndex, now);
         // The library tells Bedrock viewers to play the same keyframes
         // natively here. Nothing in this engine implements that seam yet; when
         // Geyser support lands it goes back exactly here.
@@ -916,6 +925,7 @@ public final class RigAnimator implements Listener {
      */
     boolean stop(Interaction hitbox) {
         if (hitbox == null || !hitbox.isValid()) return false;
+        String was = playingOn(hitbox);
         clearOverlays(displaysOf(hitbox));
         boolean wasPlaying = false;
         for (ItemDisplay display : displaysOf(hitbox)) {
@@ -926,7 +936,63 @@ public final class RigAnimator implements Listener {
             pdc.set(animationStartKey, PersistentDataType.LONG, display.getWorld().getGameTime());
             pose(display, true);
         }
+        if (wasPlaying && was != null) {
+            end(hitbox, was, ModelAnimationEndEvent.Cause.STOPPED);
+        }
         return wasPlaying;
+    }
+
+    /**
+     * Says an animation ended, once per placement.
+     *
+     * <p>Placement-level rather than part-level for the same reason the start
+     * event is: a model is one thing to everybody outside this class, and
+     * eleven events for eleven cubes is not information.
+     */
+    private void end(Interaction hitbox, String animation, ModelAnimationEndEvent.Cause cause) {
+        if (placements == null || animation == null || animation.isEmpty()) return;
+        Bukkit.getPluginManager().callEvent(
+            new ModelAnimationEndEvent(placements.apply(hitbox), animation, cause));
+    }
+
+    /**
+     * Books the FINISHED event for a one-shot, for when it runs out.
+     *
+     * <p>A timer rather than a per-tick check, because the per-tick path is
+     * per PART and already the hottest code here: it would have to work out
+     * which of eleven displays speaks for the model, every tick, for something
+     * that happens once.
+     *
+     * <p>The task re-reads the placement when it fires and says nothing unless
+     * the same animation is still the one running from the same start, so an
+     * animation replaced, stopped or removed in the meantime does not also
+     * report finishing. A loop and a hold are never booked: neither runs out.
+     * Nothing is booked across a restart either — the placement resumes from
+     * its own clock, but the task that was going to speak for it is gone.
+     */
+    private void scheduleEnd(Interaction hitbox, RigStore.Animation animation, int index, long startedAt) {
+        if (placements == null || loops(animation) || holds(animation)) return;
+        double speed = speedOf(animation);
+        if (speed <= 0 || animation.length <= 0) return;
+
+        long ticks = Math.max(1L, Math.round(animation.length / speed * 20.0));
+        String name = animation.name;
+        Bukkit.getScheduler().runTaskLater(host.plugin(), () -> {
+            if (!hitbox.isValid() || !stillRunning(hitbox, index, startedAt)) return;
+            end(hitbox, name, ModelAnimationEndEvent.Cause.FINISHED);
+        }, ticks + 1);
+    }
+
+    /** Whether the placement is still on the same animation from the same moment. */
+    private boolean stillRunning(Interaction hitbox, int index, long startedAt) {
+        for (ItemDisplay display : displaysOf(hitbox)) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            Integer active = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
+            Long started = pdc.get(animationStartKey, PersistentDataType.LONG);
+            return active != null && active == index && started != null && started == startedAt;
+        }
+        return false;
     }
 
     /**
