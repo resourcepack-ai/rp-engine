@@ -42,6 +42,17 @@ public final class LiquidPools {
         int maxY;
         int maxZ;
 
+        /**
+         * The biome that was here before this pool was painted, as a key.
+         *
+         * <p>One key for the whole box rather than one per cell: a box is
+         * already a rule about a place rather than a record of its blocks, and
+         * a pool that spanned two biomes would need thousands of entries in
+         * this file to put back something nobody can see anyway. Clearing a
+         * pool paints it all back to this.
+         */
+        String was;
+
         /** Which liquid this pool is. */
         public Optional<ContentId> liquid() {
             return ContentId.parse(liquid);
@@ -50,6 +61,46 @@ public final class LiquidPools {
         /** The world it is in. */
         public String world() {
             return world;
+        }
+
+        /** The corner nearest the origin: minimum x, y, z. */
+        public int[] min() {
+            return new int[] {minX, minY, minZ};
+        }
+
+        /** The far corner: maximum x, y, z. */
+        public int[] max() {
+            return new int[] {maxX, maxY, maxZ};
+        }
+
+        /** The biome key this place had before the pool was painted over it. */
+        public Optional<String> was() {
+            return was == null || was.isEmpty() ? Optional.empty() : Optional.of(was);
+        }
+
+        /** Records that, once, so clearing the pool can undo it. */
+        public void remember(String biomeKey) {
+            if (was == null) {
+                was = biomeKey;
+            }
+        }
+
+        /** Whether a block is inside, or touching a face of, this box. */
+        boolean touches(String inWorld, int x, int y, int z) {
+            return world != null && world.equals(inWorld)
+                    && x >= minX - 1 && x <= maxX + 1
+                    && y >= minY - 1 && y <= maxY + 1
+                    && z >= minZ - 1 && z <= maxZ + 1;
+        }
+
+        /** Grows the box to hold a block. */
+        void grow(int x, int y, int z) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            minZ = Math.min(minZ, z);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+            maxZ = Math.max(maxZ, z);
         }
 
         /** Whether a point is inside. */
@@ -120,6 +171,29 @@ public final class LiquidPools {
         next.add(pool);
         pools = List.copyOf(next);
         return pool;
+    }
+
+    /**
+     * The pool a bucket-placed block belongs to, growing one if it can.
+     *
+     * <p>A block next to a pool of the same liquid joins it rather than
+     * starting a second, which is what makes a pond built bucket by bucket one
+     * pool with one rule rather than fifty. A block on its own starts a pool
+     * one block big.
+     *
+     * <p>The growing is why this is here rather than in the caller: the box
+     * only ever gets bigger, so two people filling the same pond from opposite
+     * ends end up with one pool between them.
+     */
+    public Pool addBlock(ContentId liquid, String world, int x, int y, int z) {
+        String name = liquid.toString();
+        for (Pool pool : pools) {
+            if (name.equals(pool.liquid) && pool.touches(world, x, y, z)) {
+                pool.grow(x, y, z);
+                return pool;
+            }
+        }
+        return add(liquid, world, new int[] {x, y, z}, new int[] {x, y, z});
     }
 
     /** Forgets the pool at a point, if there is one. */

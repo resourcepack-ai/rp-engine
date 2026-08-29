@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.item;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemAction;
+import ai.resourcepack.engine.core.liquid.LiquidBuckets;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.event.ItemUseEvent;
@@ -44,6 +45,7 @@ public final class ItemListener implements Listener {
 
     private final Items items;
     private final ActionRunner actions;
+    private final LiquidBuckets buckets;
     private final org.bukkit.plugin.Plugin plugin;
 
     /**
@@ -55,10 +57,12 @@ public final class ItemListener implements Listener {
      */
     private final Map<UUID, List<ItemStack>> keeping = new ConcurrentHashMap<>();
 
-    public ItemListener(org.bukkit.plugin.Plugin plugin, Items items, ActionRunner actions) {
+    public ItemListener(org.bukkit.plugin.Plugin plugin, Items items, ActionRunner actions,
+                        LiquidBuckets buckets) {
         this.plugin = plugin;
         this.items = items;
         this.actions = actions;
+        this.buckets = buckets;
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
@@ -104,6 +108,15 @@ public final class ItemListener implements Listener {
         boolean rightClick = action == ItemUseEvent.Action.RIGHT_CLICK
                 || action == ItemUseEvent.Action.RIGHT_CLICK_BLOCK;
         if (rightClick && info.map(ItemInfo::hat).orElse(false) && wear(player, stack)) {
+            event.setCancelled(true);
+            return;
+        }
+        // Before the item's own actions, and cancelling the click: an item
+        // that is a real bucket underneath would otherwise fill with water
+        // from the block it just placed.
+        if (rightClick && info.isPresent() && buckets != null
+                && buckets.place(player, info.get(), stack, event.getClickedBlock(),
+                        event.getBlockFace())) {
             event.setCancelled(true);
             return;
         }

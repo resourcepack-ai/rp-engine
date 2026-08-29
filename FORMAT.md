@@ -227,6 +227,10 @@ crown:
 anything by dragging it into the helmet slot. A head that is already wearing
 something is left alone rather than swapped.
 
+There is a third, for one specific job: `liquid: mypack:acid` makes the item a
+bucket of that [liquid](#liquids), which is how a pond gets built rather than
+marked out afterwards.
+
 **There is no `gun`, `vehicle` or `music_disc` here**, and that is the same
 line as the actions list: those are whole games rather than item properties,
 and an engine that shipped a half-opinionated gun would be one every server
@@ -538,21 +542,59 @@ blocks in it.
 ```yaml
 acid:
   base: water          # water | lava
+  color: "#3FBF4A"     # optional; quote it, or YAML reads # as a comment
   effect: POISON
   amplifier: 1
   damage: 1.0          # per second
   fireproof: false
 ```
 
-Marking one out is two corners and a name: `/rp liquid corner`, walk to the
-opposite corner, `/rp liquid fill mypack:acid`. Pools are saved to
-`liquids.json` beside the other stores, in the order they were made, and the
-first one containing a point wins — so a small pool drawn inside a big one only
-counts if it was drawn first.
+`color:` takes `"#3FBF4A"`, `0x3FBF4A`, `3FBF4A` or one of the sixteen dye
+names (`RED`, `LIGHT_BLUE`, …). Leave it out and the liquid is whatever colour
+the water there already was.
+
+### Two ways to make a pool
+
+Mark out water that is already there: `/rp liquid corner`, walk to the opposite
+corner, `/rp liquid fill mypack:acid`. Or build the pond in the first place with
+a bucket:
+
+```yaml
+acid_bucket:
+  material: BUCKET
+  liquid: mypack:acid
+```
+
+Right-clicking with that puts one source block down and makes the place count
+as that liquid. A block placed against an existing pool of the same liquid
+**joins it** rather than starting a second, so a pond built click by click
+carries one rule, not fifty.
+
+Pools are saved to `liquids.json` beside the other stores, in the order they
+were made, and the first one containing a point wins — so a small pool drawn
+inside a big one only counts if it was drawn first.
 
 Boxes rather than a record of every block: a lake is thousands of blocks that
 change shape as it flows, and a per-block record would be wrong within a second
 of somebody breaking a bank.
+
+### What a colour costs
+
+The game tints water **by biome**, which is the only knob it has for this and
+brings three things with it:
+
+- **A colour needs a restart.** The engine writes one biome per tinted liquid
+  into a datapack in your world folder (`datapacks/rpengine_liquids`) on every
+  load, and biomes are registered when the server starts. Until you restart,
+  the pool works and is the wrong colour.
+- **It lands on a 4×4×4 grid.** Painting one block paints its neighbours, so a
+  tinted pool has a rim of tinted water around it.
+- **It fades at the edges.** The client blends biome colours over several
+  blocks, so a pool under about 8 blocks across never reaches its full colour.
+  A player with biome blend turned up sees less colour again.
+
+Clearing a pool paints it back to the biome that was there when it was made —
+one biome for the whole box, which is all `liquids.json` records.
 
 ## pack.yml
 

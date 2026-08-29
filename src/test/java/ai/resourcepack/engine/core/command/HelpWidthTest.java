@@ -32,7 +32,7 @@ class HelpWidthTest {
                 new InterfaceCommands(null, null, null),
                 new EmoteCommands(null, null),
                 new SyncCommands(null, null, null, null, null, null),
-                new LiquidCommands(null, null, null));
+                new LiquidCommands(null, null, null, null));
 
         List<Help> lines = new ArrayList<>();
         for (Area area : areas) {

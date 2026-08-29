@@ -3,6 +3,7 @@ package ai.resourcepack.engine.api;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * What a content pack said a liquid is.
@@ -19,10 +20,13 @@ import java.util.Optional;
  * that are worth knowing before you design around it:
  *
  * <ul>
- *   <li><strong>The texture is per-pack, not per-liquid.</strong> The pack
- *       replaces the water texture, so every water on the server looks the
- *       same. A server wanting acid pools and a normal ocean wants the acid to
- *       be lava, or to accept that its oceans are acid too.</li>
+ *   <li><strong>The texture is per-pack, but the colour is per-liquid.</strong>
+ *       The pack replaces the water texture once, so every water on the server
+ *       is drawn from the same picture. What a liquid can have of its own is a
+ *       {@link #color() tint}, which the game applies over that picture — and
+ *       it comes from the BIOME, so it lands on a 4x4x4 grid and bleeds into
+ *       the water around it. Acid can be green while the ocean stays blue; the
+ *       edge between them is approximate.</li>
  *   <li><strong>The rules are per-pool.</strong> What tells acid from ocean is
  *       where it is, so a liquid is a marked-out volume rather than a block —
  *       and anything inside it is in the acid, whatever the water there came
@@ -46,6 +50,9 @@ public final class LiquidInfo {
         LAVA
     }
 
+    /** No tint. See {@link #color()}. */
+    private static final int UNTINTED = -1;
+
     private final ContentId id;
     private final Base base;
     private final String effect;
@@ -53,9 +60,10 @@ public final class LiquidInfo {
     private final double damage;
     private final boolean fireproof;
     private final List<String> tags;
+    private final int color;
 
     private LiquidInfo(ContentId id, Base base, String effect, int amplifier,
-                       double damage, boolean fireproof, List<String> tags) {
+                       double damage, boolean fireproof, List<String> tags, int color) {
         this.id = id;
         this.base = base;
         this.effect = effect;
@@ -63,6 +71,7 @@ public final class LiquidInfo {
         this.damage = damage;
         this.fireproof = fireproof;
         this.tags = tags;
+        this.color = color;
     }
 
     /** Engine internal; built by the liquid loader. */
@@ -73,7 +82,35 @@ public final class LiquidInfo {
                 base == null ? Base.WATER : base,
                 effect == null ? "" : effect,
                 amplifier, damage, fireproof,
-                tags == null ? List.of() : List.copyOf(tags));
+                tags == null ? List.of() : List.copyOf(tags),
+                UNTINTED);
+    }
+
+    /**
+     * The same liquid, tinted.
+     *
+     * <p>A copy rather than an eighth argument to {@link #of}, which is the
+     * supported surface and already at the length anybody can read.
+     *
+     * @param rgb 0xRRGGBB, or negative for none
+     */
+    public LiquidInfo withColor(int rgb) {
+        return new LiquidInfo(id, base, effect, amplifier, damage, fireproof, tags,
+                rgb < 0 ? UNTINTED : rgb & 0xFFFFFF);
+    }
+
+    /**
+     * What colour the water or lava is drawn, as 0xRRGGBB, or empty for
+     * whatever the world already looks like.
+     *
+     * <p>Applied as a biome, because a biome's water colour is the one knob
+     * the game gives a server for this. Two things follow and neither can be
+     * fixed here: biomes are stored per 4x4x4 cell, so a tint cannot follow
+     * one block; and the client blends between neighbouring biomes, so the
+     * edge of a pool fades rather than stops.
+     */
+    public OptionalInt color() {
+        return color < 0 ? OptionalInt.empty() : OptionalInt.of(color);
     }
 
     /** Its id. */
