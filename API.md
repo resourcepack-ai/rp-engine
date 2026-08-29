@@ -94,15 +94,20 @@ exactly as written, so text never silently loses a chunk of itself.
 
 ## Events
 
-All cancellable unless noted.
+All cancellable unless the row says otherwise.
 
 | Event | When |
 |---|---|
+| `ContentLoadEvent` | Content finished loading and the packs are built. **Listen to this before anything else** — a reload replaces every definition. Not cancellable |
+| `PackSendEvent` | A pack went out to a player. Not cancellable |
 | `ItemUseEvent` | A custom item was right- or left-clicked. Cancelling also cancels the vanilla use |
 | `ModelPlaceEvent` | A model is about to be put down |
 | `ModelBreakEvent` | A model is about to be broken. Carries a drop flag separate from cancelling |
 | `ModelInteractEvent` | A placed model was right-clicked |
 | `ModelAnimationEvent` | A rig is about to play an animation |
+| `ModelSeatEvent` | Somebody is about to sit on a chair or a seat bone. Cancelling leaves them standing |
+| `ModelBindEvent` | A model is going on an entity, or coming off one — a boss, an NPC, anything that is not ours |
+| `EntityDeathEvent` | A custom entity died. Bukkit's own event carries the drops; this one says what it was. Not cancellable |
 | `EmoteStartEvent` | An emote is about to start |
 | `EmoteEndEvent` | An emote ended. Carries why — finished, stopped, moved, damaged, quit, shutdown |
 
@@ -119,6 +124,21 @@ public void onPlace(ModelPlaceEvent event) {
     }
 }
 ```
+
+```java
+@EventHandler
+public void onLoad(ContentLoadEvent event) {
+    // Everything the API can answer is answerable by now, on a reload as
+    // much as at startup. Anything cached and derived from content is
+    // rebuilt here.
+    menus.rebuild();
+}
+```
+
+**A plugin that loads after RP Engine misses the STARTUP one** — the event has
+been and gone before its listener exists. That is not a case to work around
+with a delayed task: ask the API directly in `onEnable`, and use the event for
+the reloads after it.
 
 ### Priority
 

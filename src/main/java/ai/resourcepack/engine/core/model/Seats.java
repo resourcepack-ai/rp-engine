@@ -4,6 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDismountEvent;
@@ -55,6 +56,15 @@ public final class Seats implements Listener {
             return false;
         }
         if (seated.containsKey(player.getUniqueId()) || player.isInsideVehicle()) {
+            return false;
+        }
+
+        // Asked here rather than at each call site: a chair, a seat bone and
+        // anything added later all arrive through this method, and a server
+        // that refuses sitting means all of them.
+        ModelSeatEvent asked = new ModelSeatEvent(player, where);
+        player.getServer().getPluginManager().callEvent(asked);
+        if (asked.isCancelled()) {
             return false;
         }
 
