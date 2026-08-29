@@ -27,6 +27,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.inventory.ItemStack;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.ClickEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -60,6 +62,7 @@ public final class Harness extends JavaPlugin implements Listener {
     private int passed;
     private int failed;
     private final List<String> said = new ArrayList<>();
+    private final List<BaseComponent> sentAsComponents = new ArrayList<>();
 
     private final List<ContentLoadEvent> loads = new ArrayList<>();
     private final List<ModelBindEvent> binds = new ArrayList<>();
@@ -316,6 +319,33 @@ public final class Harness extends JavaPlugin implements Listener {
                         && said.stream().anyMatch(s -> s.contains("no liquid called")));
         check("and places nothing", world.getBlockAt(x + 10, y + 1, z).getType() != Material.WATER);
 
+        // ---- a command named in chat is clickable -------------------------
+        // Two real messages: one that names a command with nothing to fill in,
+        // and one that is a usage line full of placeholders.
+        org.bukkit.command.PluginCommand rpengine = Bukkit.getServer().getPluginCommand("rpengine");
+        said.clear();
+        sentAsComponents.clear();
+        // Straight to the executor: Paper refuses to dispatch for a sender
+        // that is not one of its own command listeners, and what is being
+        // tested is the message the command writes.
+        rpengine.getExecutor().onCommand(player, rpengine, "rp", new String[] {"liquid", "fill"});
+
+        check("the message reached the player",
+                said.stream().anyMatch(line -> line.contains("/rp liquid corner")));
+        check("with the command in it clickable", !clicks().isEmpty());
+        check("and the click carries exactly the command, not the sentence after it",
+                clicks().stream().anyMatch(c -> c.getValue().equals("/rp liquid corner")));
+        check("a command with nothing to fill in is run on click",
+                clicks().stream().anyMatch(c -> c.getAction() == ClickEvent.Action.RUN_COMMAND));
+
+        said.clear();
+        sentAsComponents.clear();
+        rpengine.getExecutor().onCommand(player, rpengine, "rp", new String[] {"give"});
+        check("a usage line is clickable too",
+                clicks().stream().anyMatch(c -> c.getValue().startsWith("/rpengine give")));
+        check("and is suggested rather than run, since it has a blank in it",
+                clicks().stream().anyMatch(c -> c.getAction() == ClickEvent.Action.SUGGEST_COMMAND));
+
         world.getBlockAt(x + 12, y + 1, z).setType(Material.STONE, false);
         check("a click with no room places nothing",
                 !buckets.place(player, acidBucket, new ItemStack(Material.BUCKET, 1),
@@ -360,10 +390,15 @@ public final class Harness extends JavaPlugin implements Listener {
 
         check("/emote matches the setting",
                 (Bukkit.getServer().getPluginCommand("emote") != null) == wanted);
-        check("/emotereply matches the setting",
-                (Bukkit.getServer().getPluginCommand("emotereply") != null) == wanted);
-        check("the namespaced form matches too",
+        // Never withdrawn, whatever the setting says: it is what an
+        // invitation's buttons run, and a player who cannot reply cannot
+        // decline being pulled into an emote.
+        check("/emotereply is registered either way",
+                Bukkit.getServer().getPluginCommand("emotereply") != null);
+        check("the namespaced form of /emote matches too",
                 (Bukkit.getServer().getPluginCommand("rpengine:emote") != null) == wanted);
+        check("and an invitation's buttons still have something to run",
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "emotereply accept nope"));
         check("dispatching it matches too",
                 Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "emote wave") == wanted);
         check("/rpengine is there either way",
@@ -469,12 +504,41 @@ public final class Harness extends JavaPlugin implements Listener {
         return ContentId.parse(written).orElseThrow();
     }
 
+    /** The click events on whatever was last sent to the fake player. */
+    private List<ClickEvent> clicks() {
+        List<ClickEvent> found = new ArrayList<>();
+        for (BaseComponent part : sentAsComponents) {
+            if (part.getClickEvent() != null) {
+                found.add(part.getClickEvent());
+            }
+        }
+        return found;
+    }
+
+    /** Catches what {@code player.spigot().sendMessage(...)} sends. */
+    private final Player.Spigot spigot = new Player.Spigot() {
+        @Override
+        public void sendMessage(BaseComponent... components) {
+            StringBuilder plain = new StringBuilder();
+            for (BaseComponent part : components) {
+                sentAsComponents.add(part);
+                plain.append(part.toPlainText());
+            }
+            said.add(plain.toString());
+        }
+    };
+
     /** A Player that exists only to be handed to the code under test. */
     private Player fakePlayer(World world, GameMode mode) {
+        Location standing = new Location(world, 0, 80, 0);
         InvocationHandler handler = (proxy, method, args) -> {
             switch (method.getName()) {
                 case "getWorld":
                     return world;
+                case "getLocation":
+                    return standing.clone();
+                case "getUniqueId":
+                    return java.util.UUID.nameUUIDFromBytes("harness".getBytes());
                 case "getServer":
                     return Bukkit.getServer();
                 case "getGameMode":
@@ -487,6 +551,11 @@ public final class Harness extends JavaPlugin implements Listener {
                         said.add((String) args[0]);
                     }
                     return null;
+                case "spigot":
+                    // Not an interface, so it cannot be part of the proxy: a
+                    // real subclass, which is also how the component messages
+                    // this player is sent get captured.
+                    return spigot;
                 case "getName":
                     return "Harness";
                 case "toString":

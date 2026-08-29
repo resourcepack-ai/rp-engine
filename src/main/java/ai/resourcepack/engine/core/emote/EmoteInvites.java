@@ -420,7 +420,7 @@ public final class EmoteInvites {
      * exactly the handful of places outside it that write to a player.
      */
     private static void say(Player who, String line) {
-        who.sendMessage(EngineCommand.prefix() + line);
+        EngineCommand.say(who, line);
     }
 
     /**

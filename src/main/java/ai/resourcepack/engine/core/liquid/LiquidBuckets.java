@@ -114,6 +114,6 @@ public final class LiquidBuckets {
      * command package do it.
      */
     private static void say(Player player, String line) {
-        player.sendMessage(EngineCommand.prefix() + line);
+        EngineCommand.say(player, line);
     }
 }
