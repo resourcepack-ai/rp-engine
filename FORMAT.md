@@ -621,6 +621,40 @@ brings three things with it:
 Clearing a pool paints it back to the biome that was there when it was made —
 one biome for the whole box, which is all `liquids.json` records.
 
+## An ItemsAdder pack
+
+**Drop it in and it loads.** A folder from somebody's ItemsAdder
+`contents/` — configs at the root, `textures/` and `models/` beside them, no
+`pack.yml` — is read where it lies. A file is recognised by its own shape (an
+`info:` block beside `items:` or `font_images:`), so there is nothing to turn
+on and no conversion step, and one of their files works inside a pack of yours
+just as well.
+
+What comes across:
+
+| Theirs | Ours |
+|---|---|
+| `items.<id>` | an item |
+| `resource.material` · `textures` · `model_path` | `material` · `texture` · `model` |
+| `display_name` or `name` · `lore` · `permission` | the same |
+| `enchants` · `attribute_modifiers.mainhand` · `durability` · `max_stack_size` | `enchantments` · `attributes` · `durability` · `stack` |
+| `specific_properties.armor.slot` | `armor` |
+| `behaviours.liquid_bucket` | `liquid` |
+| `behaviours.furniture` | `place:`, with its light, solidity and seat |
+| `font_images.<id>` | an icon |
+| `enabled: false` | skipped, as theirs is |
+
+What does not, each of them a warning naming the id rather than a silence:
+**custom blocks**, which are not a feature here and are not going to be; their
+**entities** and **recipes**, which are a different feature rather than a
+different spelling and want writing as `entities/` and `recipes/`; and the
+parts of an item that are their plugin's own behaviour rather than a property
+of the item — `events`, `drop`, `item_flags`.
+
+**The folder name is still the namespace.** A file whose `info.namespace` says
+something else is loaded under the folder's name and warns, because the folder
+is what this engine claimed and ids written elsewhere have to resolve.
+
 ## pack.yml
 
 ```yaml

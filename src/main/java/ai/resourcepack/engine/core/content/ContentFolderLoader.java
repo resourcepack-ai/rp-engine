@@ -69,7 +69,11 @@ public final class ContentFolderLoader {
      * walked for them. The builder is what reads these; see FORMAT.md for
      * where each one lands in the built pack.
      */
-    private static final Set<String> ASSET_FOLDERS = Set.of("assets", "overrides");
+    private static final Set<String> ASSET_FOLDERS = Set.of("assets", "overrides",
+            // ItemsAdder's own layout keeps art at the pack root. Read by the
+            // builder from there as well, so warning about it would be telling
+            // somebody off for a folder that works.
+            "textures", "models", "sounds", "font");
 
     /**
      * Kinds that are NOT put into the id space.
@@ -149,17 +153,27 @@ public final class ContentFolderLoader {
         }
 
         Path packFile = folder.resolve(PACK_FILE);
-        if (!Files.isRegularFile(packFile)) {
+        boolean itemsAdder = !Files.isRegularFile(packFile) && holdsItemsAdderConfig(folder, diagnostics, origin);
+        if (!Files.isRegularFile(packFile) && !itemsAdder) {
             diagnostics.add(Diagnostic.error(origin,
                     "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
             return;
         }
 
-        Optional<DefinitionNode> meta = readMap(packFile, relative(root, packFile), diagnostics);
-        if (meta.isEmpty()) {
-            return;
+        DefinitionNode packNode;
+        if (itemsAdder) {
+            // An ItemsAdder pack folder is their contents/<namespace>/, which
+            // has no pack.yml in it. Everything pack.yml would have said has a
+            // sensible default, so one is not demanded of somebody whose only
+            // mistake was having a pack from somewhere else.
+            packNode = DefinitionNode.empty();
+        } else {
+            Optional<DefinitionNode> meta = readMap(packFile, relative(root, packFile), diagnostics);
+            if (meta.isEmpty()) {
+                return;
+            }
+            packNode = meta.get();
         }
-        DefinitionNode packNode = meta.get();
 
         if (!packNode.bool("enabled").orElse(Boolean.TRUE)) {
             return;
@@ -190,6 +204,65 @@ public final class ContentFolderLoader {
             } else if (!ASSET_FOLDERS.contains(name) && !name.startsWith(".")) {
                 diagnostics.add(Diagnostic.warning(relative(root, child),
                         "Not a content category, so nothing in it was read. Expected one of " + CATEGORIES.keySet()));
+            }
+        }
+
+        // ItemsAdder keeps its configs as loose files in the pack folder, so
+        // they are read from where they already are. This runs for our own
+        // packs too: dropping one of their files into a pack of yours works,
+        // which is the whole point.
+        loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
+    }
+
+    /** Whether this folder holds an ItemsAdder config, which is what makes it a pack of theirs. */
+    private boolean holdsItemsAdderConfig(Path folder, List<Diagnostic> diagnostics, String origin) {
+        for (Path child : list(folder, diagnostics, origin, path -> true)) {
+            if (!Files.isDirectory(child) && isDefinitionFile(child)
+                    && readMap(child, origin, new ArrayList<>()).map(ItemsAdder::looksLikeOne).orElse(false)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reads every ItemsAdder config in a pack folder as definitions of ours.
+     *
+     * <p>Their namespace is taken from the folder rather than from the file's
+     * own {@code info.namespace}: the folder is what this engine claimed, and
+     * a file claiming a different one would put content somewhere the pack
+     * does not own. A mismatch is worth saying out loud, because it means the
+     * folder was renamed on the way in.
+     */
+    private void loadItemsAdderConfigs(Path root, Path folder, Namespace namespace,
+                                       List<ContentDefinition> definitions,
+                                       List<Diagnostic> diagnostics) {
+        Set<ContentId> unregisteredSeen = new HashSet<>();
+        for (Path file : list(folder, diagnostics, relative(root, folder), path -> true)) {
+            if (Files.isDirectory(file) || !isDefinitionFile(file)) {
+                continue;
+            }
+            String origin = relative(root, file);
+            Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
+            if (document.isEmpty() || !ItemsAdder.looksLikeOne(document.get())) {
+                continue;
+            }
+            ItemsAdder.namespaceOf(document.get()).ifPresent(declared -> {
+                if (!declared.equals(namespace.name())) {
+                    diagnostics.add(Diagnostic.warning(origin, "info.namespace",
+                            "says " + declared + " but the folder is " + namespace.name()
+                                    + ", and the folder wins. Rename the folder to " + declared
+                                    + " if ids like " + declared + ":something are written elsewhere."));
+                }
+            });
+
+            for (Map.Entry<ContentKind, Map<String, Object>> kind
+                    : ItemsAdder.translate(document.get(), origin, diagnostics).entrySet()) {
+                DefinitionNode translated = DefinitionNode.of(kind.getValue());
+                for (String path : translated.keys()) {
+                    define(kind.getKey(), namespace, translated, path, origin,
+                            unregisteredSeen, definitions, diagnostics);
+                }
             }
         }
     }
