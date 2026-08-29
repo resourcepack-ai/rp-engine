@@ -130,7 +130,7 @@ public final class LiquidBiomes {
         }
         if (restartWanted && !wanted.isEmpty()) {
             log.info("Liquid colours were written to " + root
-                    + ". Restart the server for them to take effect —"
+                    + ". Restart the server for them to take effect:"
                     + " biomes are registered at startup and a reload cannot add one.");
         }
     }
@@ -280,6 +280,11 @@ public final class LiquidBiomes {
      * there: it is never a biome the world generator places, only one painted
      * over water that is already there, and every field it has beyond the
      * colour is a way for it to surprise somebody.
+     *
+     * <p>Which is why grass and foliage are left out. A biome cell is 4x4x4
+     * and a pool has a bank, so painting one over a lake paints the grass
+     * beside it too — naming a colour for that would repaint somebody's shore
+     * to go with water they only wanted greener.
      */
     private static String biome(int rgb) {
         return "{\n"
@@ -291,8 +296,6 @@ public final class LiquidBiomes {
                 + "    \"fog_color\": 12638463,\n"
                 + "    \"water_color\": " + rgb + ",\n"
                 + "    \"water_fog_color\": " + rgb + ",\n"
-                + "    \"grass_color\": 9470285,\n"
-                + "    \"foliage_color\": 9470285,\n"
                 + "    \"mood_sound\": {\n"
                 + "      \"sound\": \"minecraft:ambient.cave\",\n"
                 + "      \"tick_delay\": 6000,\n"

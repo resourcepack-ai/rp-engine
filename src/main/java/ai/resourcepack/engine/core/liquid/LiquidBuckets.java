@@ -66,8 +66,13 @@ public final class LiquidBuckets {
             return true;
         }
 
-        Block target = clicked.getType().isSolid() ? clicked.getRelative(face) : clicked;
-        if (!target.getType().isAir() && !target.isLiquid()) {
+        // Into the block clicked when there is nothing there to lose — air,
+        // or water somebody is recolouring — and against its face otherwise.
+        // Anything else standing there (a torch, a slab, grass) is somebody's
+        // build, and a bucket that quietly deletes it is worse than one that
+        // does nothing.
+        Block target = clicked.isEmpty() || clicked.isLiquid() ? clicked : clicked.getRelative(face);
+        if (!target.isEmpty() && !target.isLiquid()) {
             return false;
         }
 

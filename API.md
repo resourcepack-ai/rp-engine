@@ -22,22 +22,21 @@ engine.registration(); // and how to put content of your own into it
 Add `softdepend: [RPEngine]` to your `plugin.yml` so you load after it.
 
 **Everything in `ai.resourcepack.engine.api` is supported. Nothing in
-`ai.resourcepack.engine.core` is** — it is public only because javac demanded
-it across a package boundary, and it may change in any release including a
-patch.
+`ai.resourcepack.engine.core` is**, and anything there may change in any
+release, including a patch.
 
-## Ids
+## IDs
 
-One `namespace:path` id for everything, and it is a Minecraft resource
-location. `ContentId.parse` answers empty rather than throwing, so an id out of
+One `namespace:path` ID for everything, and it is a Minecraft resource
+location. `ContentId.parse` answers empty rather than throwing, so an ID out of
 somebody's config is a message rather than a stack trace.
 
 ```java
 ContentId ruby = ContentId.parse("mypack:ruby").orElseThrow();
 ```
 
-**Store ids, never the things they resolve to.** An icon's codepoint moves when
-content changes, and an item's model is derived from its id — the id is the
+**Store IDs, never the things they resolve to.** An icon's codepoint moves when
+content changes, and an item's model is derived from its ID — the ID is the
 only stable reference in the system, and everything else is derived from it at
 the moment it is needed.
 
@@ -90,7 +89,7 @@ words in your own palette and your own language.
 String line = engine.icons().format(config.getString("welcome"));
 ```
 
-Every `:namespace:id:` becomes its picture. An id that names nothing is left
+Every `:namespace:id:` becomes its picture. An ID that names nothing is left
 exactly as written, so text never silently loses a chunk of itself.
 
 ## Events
@@ -121,6 +120,20 @@ public void onPlace(ModelPlaceEvent event) {
 }
 ```
 
+### Priority
+
+Every one of these is read **after all handlers have run** — the engine calls
+the event, then asks whether anything cancelled it. So priority does not order
+you against the engine, only against other plugins listening to the same event.
+Listen at `NORMAL` unless you are deliberately arbitrating with another plugin,
+and treat `MONITOR` as read-only: a cancel there still counts, which makes it a
+cancel nobody downstream can see coming.
+
+Where priority does matter is vanilla's own events. The engine listens to those
+at `LOW` with `ignoreCancelled = true`, so a plugin that cancels a
+`PlayerInteractEvent` at `LOWEST` stops a custom item's use before RP Engine
+ever sees the click — which is usually exactly what a protection plugin wants.
+
 ## Content of your own
 
 A plugin can be a content source rather than shipping a folder. Claim a
@@ -133,8 +146,8 @@ claim.namespace().ifPresent(ns -> ns.define(ContentKind.ITEM, "ruby"));
 
 The handle is what proves ownership: holding `myplugin` cannot define
 `otherpack:thing`, so two sources loading at once cannot corrupt each other's
-half of the id space. `EMBEDDED` content is not second class — same registry,
-same id rules, and the pack builder cannot tell it from a hand-written folder.
+half of the ID space. `EMBEDDED` content is not second class — same registry,
+same ID rules, and the pack builder cannot tell it from a hand-written folder.
 
 ## Threading
 

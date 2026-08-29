@@ -42,7 +42,7 @@ which is what catches `item/` and `Sounds/`.
 **The folder name is the namespace**, and it has to satisfy
 `ContentId.isValidNamespace`: lowercase `a-z`, digits, and `_ . -`. A folder
 named `MyPack` is refused rather than lowercased, because `MyPack` and
-`mypack` would be one id to us and two to the client.
+`mypack` would be one ID to us and two to the client.
 
 **Definitions and assets never mix.** Every raw file lives under `assets/`,
 every YAML definition lives in a category folder. That is why `models/` can be
@@ -157,14 +157,14 @@ potion costs that line, not the command after it.
 **This is not scripting and is not going to become it.** There is no branching,
 no state and no expression here, because the moment there is an `if` it is a
 language and a bad one. Anything past these verbs is a plugin's job, and
-`ItemUseEvent` — id, stack, action, block — is what it listens to. Cancel that
+`ItemUseEvent` — ID, stack, action, block — is what it listens to. Cancel that
 event and the vanilla use is cancelled too, and the item's own actions do not
 run either: the event is the stronger statement of the two.
 
 ## The numbers on an item
 
 An item here is a vanilla item wearing a different model, which is what makes
-the whole id scheme work — and it left a custom sword hitting exactly as hard
+the whole ID scheme work — and it left a custom sword hitting exactly as hard
 as the stick underneath it. These are the vanilla components that fix that:
 
 ```yaml
@@ -269,7 +269,7 @@ chair:
     # measured off the model, which is almost always what you want.
 ```
 
-Not a category of its own, because an id is unique across the whole registry:
+Not a category of its own, because an ID is unique across the whole registry:
 `mypack:chair` cannot be an item and a placed model at once, and needing
 `mypack:chair` plus `mypack:chair_placed` for one chair is the sort of tax that
 makes a format feel like paperwork. It also means the item and the thing you
@@ -302,7 +302,7 @@ barrier and a light at once, and the barrier wins.
 wall, a chandelier under a ceiling, and a chair on neither.
 
 Category folders are walked recursively, so `items/weapons/swords.yml` is
-fine. The subfolder is organisation only: **it contributes nothing to the id**.
+fine. The subfolder is organisation only: **it contributes nothing to the ID**.
 
 ### Animating one
 
@@ -522,7 +522,7 @@ Skills:
 From a plugin, `Models.bind(entity, id)`, `unbind`, `animate` and
 `modelOn`.
 
-The model is an **item id** — the same id a `place:` block names — so one model
+The model is an **item ID** — the same ID a `place:` block names — so one model
 can be stood in a world and worn by a mob without being written twice. If it
 animates, the bound copy animates: it faces wherever its host is facing, and
 `rpanimate` plays an animation by name.
@@ -618,7 +618,7 @@ namespace nobody meant to claim.
 
 ## A definition file
 
-Top-level keys are **id paths**. The kind comes from the folder, so nesting
+Top-level keys are **ID paths**. The kind comes from the folder, so nesting
 under a `items:` key would be saying the same thing twice.
 
 `items/gems.yml`:
@@ -635,7 +635,7 @@ sapphire:
 
 That declares `mypack:ruby` and `mypack:sapphire`.
 
-Slashes are allowed in an id path, and they are how you get a hierarchy:
+Slashes are allowed in an ID path, and they are how you get a hierarchy:
 
 ```yaml
 weapons/ruby_sword:
@@ -646,12 +646,12 @@ is `mypack:weapons/ruby_sword`, regardless of which file or subfolder it was
 written in.
 
 **One file may declare many, and many files may declare into one prefix.**
-The file name means nothing. This is deliberate: a format that ties ids to
+The file name means nothing. This is deliberate: a format that ties IDs to
 file names forces a choice between one file per item and one enormous file
 per category, and both are unpleasant at the sizes real packs reach.
 
 The body of a definition is whatever the layer for that kind understands, and
-is not the loader's business. The loader validates the id and the kind, and
+is not the loader's business. The loader validates the ID and the kind, and
 hands the body along untouched.
 
 ## Sounds
@@ -668,7 +668,7 @@ chime:
 ```
 
 Play it with `/rp sound mypack:chime`, or from another plugin through the
-`Sounds` API. The id **is** the sound event name, so
+`Sounds` API. The ID **is** the sound event name, so
 `playSound(loc, "mypack:chime", ...)` works from anywhere without asking us.
 
 **Ogg Vorbis only.** Minecraft plays nothing else, and an mp3 renamed to `.ogg`
@@ -706,7 +706,7 @@ Put one into any piece of text with `:namespace:id:`:
 
 The engine's `Icons.format(text)` does that substitution, so a plugin can run
 config text through it and let server owners write icons into their own
-messages. An id that names nothing is **left exactly as written** rather than
+messages. An ID that names nothing is **left exactly as written** rather than
 removed, because text that silently loses a chunk of itself is much harder to
 diagnose than text that still says `:mypack:sword:`.
 
@@ -721,12 +721,12 @@ namespace's icons at once. A pack shipping its own copy through `overrides/`
 would delete every icon in the bundle, so that is refused with an error rather
 than silently obeyed.
 
-**Never store the character, store the id.** Codepoints are handed out in id
-order, so adding an icon whose id sorts earlier shifts the ones after it. That
-is invisible to anything resolving the id as it writes the text, and wrong for
+**Never store the character, store the ID.** Codepoints are handed out in ID
+order, so adding an icon whose ID sorts earlier shifts the ones after it. That
+is invisible to anything resolving the ID as it writes the text, and wrong for
 anything that saved the character — a glyph written into a sign or a book is a
 different picture after the next reload. Stable codepoints would need a file
-mapping id to number that must never be lost or reordered, which is exactly the
+mapping ID to number that must never be lost or reordered, which is exactly the
 problem the item scheme was designed to delete.
 
 ## Screens and HUDs
@@ -821,12 +821,12 @@ sapphire_from_lapis:
   time: 100                 # ticks; defaults to vanilla's own per type
 ```
 
-**Ingredients and results can be either.** A content id matches that exact item
+**Ingredients and results can be either.** A content ID matches that exact item
 — an ordinary diamond will not satisfy a recipe calling for `mypack:ruby`, even
 though a ruby is a diamond underneath. A vanilla material name matches loosely,
 the way a vanilla ingredient should.
 
-**A recipe id is not a content id.** It lives outside the id space, so a recipe
+**A recipe ID is not a content ID.** It lives outside the ID space, so a recipe
 may be called `ruby_cube` while an item is called `ruby_cube` — which is the
 first thing anybody writes. Two recipes still cannot share a name.
 
