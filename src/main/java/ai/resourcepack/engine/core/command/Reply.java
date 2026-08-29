@@ -52,6 +52,45 @@ final class Reply {
         return style.accent() + value + style.body();
     }
 
+    /**
+     * A heading over a list, in the accent colour and bold.
+     *
+     * <p>A listing that is just rows is a data dump: the eye has nothing to
+     * land on and no way to tell where one command's output ended and the next
+     * began, which in a chat window is the only structure there is.
+     */
+    static void heading(CommandSender who, String title, String detail) {
+        Chat.send(who, style().heading() + title
+                + (detail == null || detail.isEmpty() ? "" : style().body() + "  " + detail));
+    }
+
+    /** One row of a listing: a name in the command colour, then grey detail. */
+    static void row(CommandSender who, String name, String detail) {
+        Chat.send(who, "  " + style().command() + name
+                + (detail == null || detail.isEmpty() ? "" : style().body() + "  " + detail));
+    }
+
+    /** A row's second line, indented under it. */
+    static void note(CommandSender who, String detail) {
+        Chat.send(who, "     " + style().body() + detail);
+    }
+
+    /**
+     * Bytes, as somebody would say them.
+     *
+     * <p>A pack is quoted in bytes nowhere else in the product, and "3894217"
+     * is a number nobody can read at a glance.
+     */
+    static String size(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return Math.round(bytes / 1024.0) + " KB";
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
+    }
+
     /** "1 item", "2 items". Its absence is the sort of thing that reads as unfinished. */
     static String plural(int count, String noun) {
         return count + " " + noun + (count == 1 ? "" : "s");

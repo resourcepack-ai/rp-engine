@@ -32,10 +32,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Seats implements Listener {
 
     /**
-     * An armour stand sits its passenger this far below its own position, so
-     * the stand is spawned that much higher than the seat is meant to be.
+     * How far below a marker armour stand its rider actually sits.
+     *
+     * <p>Measured, not remembered: on 1.21.8 a marker stand at y=100 with a
+     * humanoid passenger puts that passenger at y=99.3. The stand is therefore
+     * spawned this far ABOVE the seat, so the rider's feet land on it.
+     *
+     * <p>It was 1.75 in the other direction, which is a number from the days
+     * when this was a full-size stand — the rider ended up about two and a
+     * half blocks under the chair, which is what "you sit inside the floor"
+     * looks like. Vanilla's rule changed in 1.20.2: a passenger's position is
+     * now the vehicle's attachment point minus the passenger's own, and a
+     * marker's attachment point is zero.
      */
-    private static final double MOUNT_OFFSET = 1.75;
+    private static final double MOUNT_OFFSET = 0.7;
 
     private final Plugin plugin;
 
@@ -68,7 +78,7 @@ public final class Seats implements Listener {
             return false;
         }
 
-        Location at = where.clone().subtract(0, MOUNT_OFFSET, 0);
+        Location at = where.clone().add(0, MOUNT_OFFSET, 0);
         at.setYaw(where.getYaw());
         ArmorStand stand = where.getWorld().spawn(at, ArmorStand.class, s -> {
             // A marker has no hitbox and no collision, which is what makes it
