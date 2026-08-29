@@ -261,7 +261,7 @@ chair:
     facing: cardinal     # cardinal | diagonal | free | fixed
     scale: 1.0
     solid: false         # true puts a barrier behind it
-    seat: 0.6            # sit on it, this far above its base. 0 is no seat
+    seat: 0.5            # sit on it, this far above its base. 0 is no seat
     light: 0            # 0-15, what it gives off. A lamp wants 14.
     surface: floor      # floor | wall | ceiling | any
     drop: mypack:shard  # what breaking it gives back. Default: itself
@@ -405,6 +405,20 @@ would make a head worthless the moment it was inside one.
 
 `seat:` is how far above the model's base a player's backside goes, in blocks —
 about `0.5` for a dining chair. Right-click to sit, shift to get up.
+
+A seat is not always in the middle of the piece — a bench, a car, an L-shaped
+sofa — so it can be three numbers instead:
+
+```yaml
+  place:
+    seat:
+      x: 0.4     # to the piece's RIGHT. Negative is left
+      y: 0.5     # up, the same number as the short form
+      z: -0.15   # in FRONT of it. Negative is behind
+```
+
+**Side and forward, not world x and z.** They turn with the piece, so a bench
+placed facing east seats people along itself rather than across it.
 
 If every chair on your server sits people slightly wrong, that is the game
 drawing a seated player rather than your number being off: put a nudge in
