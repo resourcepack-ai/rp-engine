@@ -962,7 +962,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredHuds = parsedHuds.overlays();
         overlays.replace(authoredScreens, authoredHuds);
 
-        ItemAssets itemAssets = new ItemAssets();
+        // The allocator only on the versions that address models by number;
+        // null tells the writer this server names them instead.
+        ItemAssets itemAssets = new ItemAssets(
+                compatibility.itemEra().needsNumbers() ? modelNumbers : null);
         BuildReport builtReport = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
