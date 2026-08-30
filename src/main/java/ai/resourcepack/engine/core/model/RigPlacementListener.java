@@ -24,7 +24,6 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
@@ -148,9 +147,7 @@ public final class RigPlacementListener implements Listener {
 
     private static List<String> customModelStrings(ItemStack item) {
         if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) return Collections.emptyList();
-        ItemMeta meta = item.getItemMeta();
-        if (meta == null) return Collections.emptyList();
-        return meta.getCustomModelDataComponent().getStrings();
+        return tags.read(item);
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -394,22 +391,40 @@ public final class RigPlacementListener implements Listener {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            CustomModelDataComponent component = meta.getCustomModelDataComponent();
-            List<String> strings = new ArrayList<>(2);
-            strings.add(modelData);
+            List<String> values = new ArrayList<>(3);
+            values.add(modelData);
             // Rebuilt without the Bedrock slot marker the panel writes at
             // index 1: nothing here can know the cmd, and only index 0 is read
             // for rendering. The animation marker is found by prefix, not
             // position, so it survives the gap.
-            if (animation != null) strings.add(ANIMATION_MARKER + animation);
+            if (animation != null) values.add(ANIMATION_MARKER + animation);
             // And the size, for the same reason: breaking a 4x statue and
             // putting it back down must not quietly return it to 1x.
-            if (scale != 1f) strings.add(SCALE_MARKER + trimFloat(scale));
-            component.setStrings(strings);
-            meta.setCustomModelDataComponent(component);
+            if (scale != 1f) values.add(SCALE_MARKER + trimFloat(scale));
+            // Where these end up is the server's version, not this method's
+            // business — see RigTags.
+            tags.write(meta, values);
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * Where a part item's tags live on this server.
+     *
+     * <p>Static because both readers and the writer above are, and they are
+     * static because they are reached from the animator and the emote
+     * director as well as from here. Starts inert so that a stack inspected
+     * before the plugin has resolved its compatibility answers "no tags"
+     * rather than throwing.
+     */
+    private static volatile RigTags tags = RigTags.NONE;
+
+    /** Set from the plugin once the server's version is known. */
+    public static void tags(RigTags resolved) {
+        if (resolved != null) {
+            tags = resolved;
+        }
     }
 
     /** "2.0" reads as 2 on the item; the panel writes whole numbers where it can. */

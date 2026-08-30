@@ -424,20 +424,9 @@ tasks.register('harnessJar', Jar) {
     from('integration/resources')
 }
 
-// The compile classpath as a plain string, for the old-API audit.
-//
-// The engine supports a range of Minecraft versions but compiles against the
-// newest API in that range, so nothing in the build itself can tell you which
-// of the calls in here the oldest supported server actually has. The way to
-// find out is to compile the same sources against the OLDEST API jar and read
-// the errors — every one is a call that needs a version guard or a fallback,
-// and the list is exhaustive in a way that grepping for method names is not.
-//
-//   ./gradlew printCompileClasspath -q
-//   javac -d /tmp/out -cp "<that>:<spigot-api-1.19.4.jar>" $(find src/main/java -name '*.java')
-//
-// Kept as a task because this is not a one-off: it is what to re-run after
-// adding a feature, before claiming the floor still holds.
-tasks.register('printCompileClasspath') {
-    doLast { println sourceSets.main.compileClasspath.asPath }
-}
+// The version the engine's floor is, as an API coordinate. One place, because
+// the audit below and anybody reading this both need to know which version
+// "oldest supported" currently means. Matches McVersion.OLDEST_SUPPORTED.
+ext.oldestSupportedApi = '1.19.4-R0.1-SNAPSHOT'
+
+apply from: 'gradle/oldest-api-audit.gradle'

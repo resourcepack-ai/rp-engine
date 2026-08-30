@@ -102,8 +102,13 @@ public final class ActionRunner {
                 Bukkit.broadcastMessage(colour(text(player, step.argument())));
                 break;
             case ACTIONBAR:
+                // fromLegacyText rather than fromLegacy: the latter arrived
+                // in the bungee chat library that ships with 1.20, and the
+                // one a server provides is whatever its Minecraft bundles.
+                // The older name is still present on every version, and
+                // sendMessage takes the component array it returns as varargs.
                 player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                        net.md_5.bungee.api.chat.TextComponent.fromLegacy(
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
                                 colour(text(player, step.argument()))));
                 break;
             case CONSOLE:

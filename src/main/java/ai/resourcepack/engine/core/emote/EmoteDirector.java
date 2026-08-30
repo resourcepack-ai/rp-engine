@@ -11,6 +11,7 @@ import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.animation.Sampler;
 
 import ai.resourcepack.engine.core.model.DisplayCarry;
+import ai.resourcepack.engine.core.model.RigTags;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -28,7 +29,6 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
@@ -3905,9 +3905,10 @@ public final class EmoteDirector implements Listener {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            CustomModelDataComponent component = meta.getCustomModelDataComponent();
-            component.setStrings(Collections.singletonList(modelData));
-            meta.setCustomModelDataComponent(component);
+            // Through RigTags because where a bone's identity is carried is
+            // the server's version: a string list on 1.21.4 and up, the
+            // stack's persistent data below it.
+            rigTags.write(meta, Collections.singletonList(modelData));
             item.setItemMeta(meta);
         }
         return item;
@@ -3999,6 +4000,20 @@ public final class EmoteDirector implements Listener {
     /** Set from the plugin once the server's version is known. */
     public static void displayCarry(DisplayCarry carry) {
         displayCarry = carry == null ? new DisplayCarry.Immediate() : carry;
+    }
+
+    /**
+     * Where a bone's identity is carried, which is the server's version — see
+     * {@link RigTags}. Starts inert for the same reason {@link #displayCarry}
+     * does.
+     */
+    private static volatile RigTags rigTags = RigTags.NONE;
+
+    /** Set from the plugin once the server's version is known. */
+    public static void rigTags(RigTags resolved) {
+        if (resolved != null) {
+            rigTags = resolved;
+        }
     }
 
     /** How long a carried display is given to cover a move. */

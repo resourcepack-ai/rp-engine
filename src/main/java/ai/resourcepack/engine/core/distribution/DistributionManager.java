@@ -7,6 +7,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import ai.resourcepack.engine.core.serve.PackSending;
+
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -79,11 +81,16 @@ public final class DistributionManager implements Listener {
     /** Players we handed a distribution pack to and are awaiting a reply from. */
     private final Map<UUID, Boolean> awaiting = new ConcurrentHashMap<>();
 
+    /** How a pack reaches a player here; see {@link PackSending}. */
+    private final PackSending sending;
+
     public DistributionManager(JavaPlugin plugin, BedrockSupport bedrock,
-                               ProtocolResolver protocols, String apiBase) {
+                               ProtocolResolver protocols, String apiBase,
+                               PackSending sending) {
         this.bedrock = bedrock == null ? BedrockSupport.NONE : bedrock;
         this.plugin = plugin;
         this.protocols = protocols;
+        this.sending = sending;
         this.client = new DistributionClient(apiBase, plugin.getDescription().getVersion());
         this.token = readToken();
     }
@@ -238,7 +245,7 @@ public final class DistributionManager implements Listener {
             return;
         }
         try {
-            player.addResourcePack(DISTRIBUTION_PACK_ID, entry.url, hexToBytes(entry.sha1), null, false);
+            sending.send(player, DISTRIBUTION_PACK_ID, entry.url, hexToBytes(entry.sha1), null, false);
             awaiting.put(player.getUniqueId(), Boolean.TRUE);
         } catch (Exception e) {
             record(player, entry.version, protocol, "failed");
@@ -268,18 +275,25 @@ public final class DistributionManager implements Listener {
         if (awaiting.get(id) == null) {
             return;
         }
-        switch (event.getStatus()) {
-            case SUCCESSFULLY_LOADED:
+        // Switched on the NAME rather than the enum constant, which looks
+        // like a step backwards and is not. INVALID_URL and FAILED_RELOAD
+        // arrived in 1.20.3, and a switch over an enum compiles to a lookup
+        // table built in a static initialiser that names every constant — so
+        // naming one this server does not have does not fail at this line, it
+        // fails when the class is first touched, taking the whole listener
+        // with it. A string cannot do that.
+        switch (event.getStatus().name()) {
+            case "SUCCESSFULLY_LOADED":
                 awaiting.remove(id);
                 outcome(id, "accepted");
                 return;
-            case DECLINED:
+            case "DECLINED":
                 awaiting.remove(id);
                 outcome(id, "declined");
                 return;
-            case FAILED_DOWNLOAD:
-            case INVALID_URL:
-            case FAILED_RELOAD:
+            case "FAILED_DOWNLOAD":
+            case "INVALID_URL":
+            case "FAILED_RELOAD":
                 awaiting.remove(id);
                 outcome(id, "failed");
                 return;

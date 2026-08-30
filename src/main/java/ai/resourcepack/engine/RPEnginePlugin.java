@@ -73,6 +73,7 @@ import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
+import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.core.model.BoneListener;
 import ai.resourcepack.engine.core.model.BoundModels;
@@ -86,6 +87,7 @@ import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
+import ai.resourcepack.engine.core.serve.PackSending;
 import ai.resourcepack.engine.core.serve.PackHost;
 import ai.resourcepack.engine.core.skin.SkinApplier;
 import ai.resourcepack.engine.core.sound.SoundAssets;
@@ -334,7 +336,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         distribution = new DistributionManager(this, bedrock, new ProtocolResolver(getLogger()),
-                getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"));
+                getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"),
+                PackSending.forServer(compatibility));
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
         animator = new RigAnimator(library, rigs);
@@ -667,6 +670,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // server's version, not a preference. See DisplayCarry.
         EmoteDirector.displayCarry(DisplayCarry.forServer(
             compatibility, EmoteDirector.interpolationTicks()));
+        // Both holders of the same decision: where a rig part's identity is
+        // carried. One object, so the two can never disagree about a stack.
+        RigTags rigTags = RigTags.forServer(compatibility, this);
+        EmoteDirector.rigTags(rigTags);
+        RigPlacementListener.tags(rigTags);
     }
 
     /**
@@ -844,7 +852,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         packHost = new PackHost(address);
         delivery = new PackDelivery(sessions, packHost,
                 getConfig().getString("prompt.message", ""),
-                getConfig().getBoolean("prompt.force", false));
+                getConfig().getBoolean("prompt.force", false),
+                PackSending.forServer(compatibility), getLogger());
 
         if (!getConfig().getBoolean("host.enabled", true)) {
             getLogger().info("Pack hosting is off. Packs are built but not served.");
