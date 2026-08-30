@@ -232,7 +232,7 @@ group = 'ai.resourcepack'
 //         the listener ignored cancelled ones; and a chair sat you two and a
 //         half blocks into the floor, because a marker armour stand's rider
 //         sits 0.7 BELOW it rather than 1.75 above.
-version = '0.47.0'
+version = '0.1.0'
 
 java {
     toolchain {
