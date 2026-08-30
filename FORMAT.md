@@ -492,7 +492,7 @@ passengers rather than taking them.
 ### Bones that do something
 
 Name a bone with one of these prefixes in Blockbench and it does more than get
-drawn. **They are ModelEngine's prefixes**, deliberately: a rig you already
+drawn. **They are Model Engine's prefixes**, deliberately: a rig you already
 have, or bought, works here without being re-authored.
 
 | Bone name | What it does |
@@ -724,10 +724,10 @@ of the item — `events`, `drop`, `item_flags`.
 something else is loaded under the folder's name and warns, because the folder
 is what this engine claimed and ids written elsewhere have to resolve.
 
-## A ModelEngine blueprints folder
+## A Model Engine blueprints folder
 
 **Drop it in and it loads.** A `blueprints/` folder of `.bbmodel` files —
-ModelEngine's layout — gives one item per blueprint, named after the file, that
+Model Engine's layout — gives one item per blueprint, named after the file, that
 wears it:
 
 ```
@@ -740,7 +740,7 @@ mypack/
 
 There is nothing to convert, because their content format IS the save files,
 and **the bone names already mean the same thing here** — `h_`, `hi_`, `b_`,
-`ob_`, `p_seat`, `mount` and `tag_name` are ModelEngine's, adopted on purpose
+`ob_`, `p_seat`, `mount` and `tag_name` are Model Engine's, adopted on purpose
 so a rig somebody already has works without being re-authored.
 
 The generated item is a plain one on paper. An `items/` definition under the
