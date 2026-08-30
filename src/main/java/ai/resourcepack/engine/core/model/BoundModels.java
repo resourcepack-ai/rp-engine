@@ -262,15 +262,8 @@ public final class BoundModels {
     private ItemStack partStack(ItemStack whole, String partId) {
         ItemStack stack = whole.clone();
         stack.setAmount(1);
-        int colon = partId.indexOf(':');
-        if (colon < 0) {
-            return stack;
-        }
-        ItemMeta meta = stack.getItemMeta();
-        if (meta != null) {
-            meta.setItemModel(new NamespacedKey(partId.substring(0, colon), partId.substring(colon + 1)));
-            stack.setItemMeta(meta);
-        }
+        // See Items.wearModel: below 1.21.4 a model is a number, not a name.
+        ContentId.parse(partId).ifPresent(part -> items.wearModel(stack, part));
         return stack;
     }
 }

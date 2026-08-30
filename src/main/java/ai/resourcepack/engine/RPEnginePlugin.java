@@ -59,6 +59,7 @@ import ai.resourcepack.engine.core.item.Geometry;
 import ai.resourcepack.engine.core.item.ActionRunner;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
+import ai.resourcepack.engine.core.item.ModelNumbers;
 import ai.resourcepack.engine.core.item.ItemListener;
 import ai.resourcepack.engine.core.item.ItemsImpl;
 import ai.resourcepack.engine.core.liquid.LiquidBiomes;
@@ -152,6 +153,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * answer differently in two places is worse than one that is wrong.
      */
     private Compatibility compatibility;
+
+    /**
+     * Numbers for content ids, on the versions that need them. Loaded at
+     * startup and saved after every content load, because a load is when new
+     * ids appear and an assignment that is not on disk is an assignment that
+     * changes on the next restart.
+     */
+    private ModelNumbers modelNumbers;
 
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
@@ -292,7 +301,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Before anything can talk, including the load diagnostics below.
         applyChatStyle();
         applyHeldItemTurn();
-        items = new ItemsImpl(this);
+        // The allocator is only touched on versions that address models by
+        // number, but it is loaded either way: a server that upgrades past
+        // 1.21.4 and later comes back down must find the numbers it had.
+        modelNumbers = new ModelNumbers(getDataFolder());
+        modelNumbers.load(getLogger());
+        items = new ItemsImpl(this, compatibility, modelNumbers);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
         // so it is what they get.
@@ -897,6 +911,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     null, List.of(), "", block.model(), null, null, null, 0, false, false));
         }
         items.replace(withBlocks);
+        // Numbers before anything asks for one, and all at once, so the
+        // allocation order is the sorted id order rather than whatever order
+        // the build happens to reach things in. On 1.21.4 and up this is a
+        // few map writes nobody reads; keeping it unconditional means the
+        // numbers exist and are stable if the server is ever moved back.
+        modelNumbers.assignAll(withBlocks.keySet());
         blocks.replace(parsedBlocks.blocks());
         blocks.allocate();
 
@@ -943,6 +963,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new BlockAssets(blockStates))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
+        // After the build, because the build is the last thing that can ask
+        // for a number. An assignment that is not on disk is one that changes
+        // on the next restart, and a changed number is a changed item.
+        modelNumbers.save(getLogger());
 
         // The rigs the build found, handed to the same store a studio push
         // fills. Under one pack id, so a reload REPLACES them: a model whose

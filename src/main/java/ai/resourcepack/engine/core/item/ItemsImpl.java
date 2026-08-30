@@ -3,7 +3,10 @@ package ai.resourcepack.engine.core.item;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.ItemStats;
+import ai.resourcepack.engine.api.Feature;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.core.version.Compatibility;
+import ai.resourcepack.engine.core.version.Vanilla;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -11,13 +14,9 @@ import org.bukkit.Registry;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.enchantments.Enchantment;
-import org.bukkit.inventory.EquipmentSlot;
-import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.components.EquippableComponent;
-import org.bukkit.inventory.meta.components.FoodComponent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
@@ -44,11 +43,24 @@ public final class ItemsImpl implements Items {
 
     private final Plugin plugin;
     private final NamespacedKey key;
+    private final ItemModelWiring wiring;
+    private final ItemComponents components;
+    private final Equipping equipping;
     private volatile Map<ContentId, ItemInfo> items;
 
-    public ItemsImpl(Plugin plugin) {
+    /**
+     * @param compatibility what this server's version allows, which decides
+     *                      how a model is addressed and which of an item's
+     *                      options can be honoured at all
+     * @param numbers       the allocator, used only on the versions that
+     *                      address models by number
+     */
+    public ItemsImpl(Plugin plugin, Compatibility compatibility, ModelNumbers numbers) {
         this.plugin = plugin;
         this.key = new NamespacedKey(plugin, "id");
+        this.wiring = ItemModelWiring.forEra(compatibility.itemEra(), numbers);
+        this.components = ItemComponents.forServer(compatibility);
+        this.equipping = Equipping.forServer(compatibility);
         this.items = Map.of();
     }
 
@@ -103,8 +115,7 @@ public final class ItemsImpl implements Items {
 
         // The whole id scheme in one line: the id IS the model reference, so
         // there is nothing to allocate and nothing to keep in sync.
-        ContentId model = item.modelId();
-        meta.setItemModel(new NamespacedKey(model.namespace(), model.path()));
+        wiring.apply(meta, item.modelId());
         meta.getPersistentDataContainer().set(key, PersistentDataType.STRING, id.toString());
 
         item.name().ifPresent(name -> meta.setDisplayName(colour(name)));
@@ -115,16 +126,17 @@ public final class ItemsImpl implements Items {
             }
             meta.setLore(lore);
         }
-        item.armor().ifPresent(slot -> wearable(meta, item, slot));
-        item.maxStack().ifPresent(meta::setMaxStackSize);
+        ItemComponents.Warner warner = warnerFor(item);
+        item.armor().ifPresent(slot -> equipping.wearable(meta, item.id(), slot, warner));
+        item.maxStack().ifPresent(size -> components.maxStackSize(meta, size, warner));
         if (item.glow()) {
-            meta.setEnchantmentGlintOverride(Boolean.TRUE);
+            components.glint(meta, warner);
         }
         if (item.unbreakable()) {
             meta.setUnbreakable(true);
         }
         if (!item.stats().isEmpty()) {
-            stats(meta, item);
+            stats(meta, item, warner);
         }
 
         stack.setItemMeta(meta);
@@ -144,7 +156,7 @@ public final class ItemsImpl implements Items {
      * out with three of its four enchantments is traceable; one that refuses
      * to exist because of a typo in a fourth is not.
      */
-    private void stats(ItemMeta meta, ItemInfo item) {
+    private void stats(ItemMeta meta, ItemInfo item, ItemComponents.Warner warner) {
         ItemStats stats = item.stats();
 
         for (Map.Entry<String, Integer> entry : stats.enchantments().entrySet()) {
@@ -160,8 +172,10 @@ public final class ItemsImpl implements Items {
         }
 
         for (ItemStats.Modifier modifier : stats.modifiers()) {
-            NamespacedKey key = NamespacedKey.fromString(modifier.attribute().toLowerCase(Locale.ROOT));
-            Attribute attribute = key == null ? null : Registry.ATTRIBUTE.get(key);
+            // Through Vanilla rather than the registry directly: the vanilla
+            // attributes lost their "generic." prefix in 1.21.3, so a pack
+            // written for either side of that resolves on both.
+            Attribute attribute = Vanilla.attribute(modifier.attribute()).orElse(null);
             if (attribute == null) {
                 warn(item, "no attribute called " + modifier.attribute());
                 continue;
@@ -171,39 +185,33 @@ public final class ItemsImpl implements Items {
                 warn(item, modifier.operation() + " is not add, multiply_base or multiply");
                 continue;
             }
-            EquipmentSlotGroup slot = EquipmentSlotGroup.getByName(modifier.slot().toLowerCase(Locale.ROOT));
-            if (slot == null) {
-                warn(item, modifier.slot() + " is not a slot");
-                continue;
-            }
             // The key names the item and the attribute, so two modifiers on
             // one item do not overwrite each other and a modifier from this
-            // pack is distinguishable from anybody else's.
-            meta.addAttributeModifier(attribute, new AttributeModifier(
-                    new NamespacedKey(plugin, item.id().namespace() + "." + item.id().path()
-                            + "." + attribute.getKey().getKey()),
-                    modifier.amount(), operation, slot));
+            // pack is distinguishable from anybody else's. Both arms key off
+            // it — the older one derives its UUID from this same string.
+            NamespacedKey id = new NamespacedKey(plugin,
+                    item.id().namespace() + "." + item.id().path()
+                            + "." + attribute.getKey().getKey());
+            if (!components.modifier(meta, attribute, id, modifier.amount(), operation,
+                    modifier.slot())) {
+                warn(item, modifier.slot() + " is not a slot");
+            }
         }
 
         stats.maxDamage().ifPresent(max -> {
             // Durability lives on Damageable rather than on ItemMeta, and a
             // material that cannot take damage simply has none — a paper
             // carrier with a durability line is a mistake worth naming rather
-            // than a silent no-op.
+            // than a silent no-op. That is the pack's mistake and is reported
+            // as such; the version's is reported by the arm.
             if (meta instanceof Damageable) {
-                ((Damageable) meta).setMaxDamage(max);
+                components.maxDamage(meta, max, warner);
             } else {
                 warn(item, "durability on " + item.material() + ", which cannot be damaged");
             }
         });
 
-        stats.food().ifPresent(food -> {
-            FoodComponent component = meta.getFood();
-            component.setNutrition(food.nutrition());
-            component.setSaturation(food.saturation());
-            component.setCanAlwaysEat(food.alwaysEdible());
-            meta.setFood(component);
-        });
+        stats.food().ifPresent(food -> components.food(meta, food, warner));
     }
 
     private static AttributeModifier.Operation operation(String written) {
@@ -220,6 +228,35 @@ public final class ItemsImpl implements Items {
             default:
                 return null;
         }
+    }
+
+    @Override
+    public boolean wearModel(ItemStack stack, ContentId modelId) {
+        if (stack == null || modelId == null) {
+            return false;
+        }
+        ItemMeta meta = stack.getItemMeta();
+        if (meta == null) {
+            return false;
+        }
+        wiring.apply(meta, modelId);
+        stack.setItemMeta(meta);
+        return true;
+    }
+
+    /**
+     * Says once, per item and per option, that this server's Minecraft is too
+     * old for something the pack asked for.
+     *
+     * <p>Through the plugin logger rather than a load diagnostic because it is
+     * not a mistake in the pack: the same content on a newer server is
+     * correct, and a diagnostic would tell an author to fix something that is
+     * not wrong.
+     */
+    private ItemComponents.Warner warnerFor(ItemInfo item) {
+        return (option, needs) -> plugin.getLogger().warning(
+                item.id() + ": " + option + " needs Minecraft " + needs.since()
+                        + " and this server is older. " + needs.without());
     }
 
     private void warn(ItemInfo item, String problem) {
@@ -242,33 +279,6 @@ public final class ItemsImpl implements Items {
     @Override
     public boolean is(ItemStack stack, ContentId id) {
         return id != null && idOf(stack).filter(id::equals).isPresent();
-    }
-
-    /**
-     * Makes a stack wearable, with the pack's own art on the body.
-     *
-     * <p>The component names an equipment asset the build wrote; see
-     * {@code ItemAssets.writeEquipment}. Any item can carry it, so a wizard
-     * hat can be a real helmet without also being a leather cap.
-     */
-    private static void wearable(ItemMeta meta, ItemInfo item, String slot) {
-        EquippableComponent equippable = meta.getEquippable();
-        equippable.setSlot(slotOf(slot));
-        equippable.setModel(new NamespacedKey(item.id().namespace(), item.id().path()));
-        meta.setEquippable(equippable);
-    }
-
-    private static EquipmentSlot slotOf(String slot) {
-        switch (slot) {
-            case "chest":
-                return EquipmentSlot.CHEST;
-            case "legs":
-                return EquipmentSlot.LEGS;
-            case "feet":
-                return EquipmentSlot.FEET;
-            default:
-                return EquipmentSlot.HEAD;
-        }
     }
 
     /**
