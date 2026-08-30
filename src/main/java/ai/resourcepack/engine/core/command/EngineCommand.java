@@ -58,16 +58,14 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         }
 
         // What Chat needs to tell "/rp sync <code>" from "/rp sync <code>
-        // first": every word the help uses, which is every word a command is
-        // actually made of. Derived here rather than written there, so a new
-        // subcommand becomes clickable by existing.
-        Set<String> words = new LinkedHashSet<>();
+        // first": every command there is, not every command with a line of
+        // help. Areas whose help covers several verbs in one line say so in
+        // signatures(); see Area.
+        Set<String> known = new LinkedHashSet<>();
         for (Area area : groups) {
-            for (Help line : area.help()) {
-                words.add(line.signature());
-            }
+            known.addAll(area.signatures());
         }
-        Chat.vocabulary(words);
+        Chat.commands(known);
     }
 
     /**
@@ -126,6 +124,32 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         return areas.containsKey(sub) && sender.hasPermission(permissionFor(sub));
     }
 
+    /**
+     * Answering an invitation, which nobody needs permission to do.
+     *
+     * <p>The permission is checked on the first word, which is the subcommand
+     * the router dispatches on — and that is right everywhere except here.
+     * {@code rpengine.sync} means "may live-test a pack from Studio", defaults
+     * to op, and is exactly the right gate on {@code /rp sync <code>} and
+     * {@code /rp sync add}. But {@code accept} and {@code deny} are not that
+     * command: they are the reply to it, run by the ordinary player somebody
+     * just invited, and the blanket check meant the plugin sent them a message
+     * saying "/rp sync accept, or deny" and then refused them.
+     *
+     * <p>Same reasoning as {@code /emotereply}, which is ungated in
+     * {@code plugin.yml} for the identical reason: a player who cannot reply
+     * is a player who cannot refuse. Neither can do anything except answer
+     * something already addressed to them — there is nothing here to abuse
+     * without an invitation, and an invitation is somebody else's decision.
+     */
+    private static boolean ungated(String sub, String[] args) {
+        if (!sub.equals("sync") || args.length < 2) {
+            return false;
+        }
+        String verb = args[1].toLowerCase(Locale.ROOT);
+        return verb.equals("accept") || verb.equals("deny");
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         switch (command.getName().toLowerCase(Locale.ROOT)) {
@@ -145,7 +169,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             Reply.to(sender, "No such command. /rpengine for the list.");
             return true;
         }
-        if (!allowed(sender, sub)) {
+        if (!ungated(sub, args) && !allowed(sender, sub)) {
             Reply.to(sender, "You need " + permissionFor(sub) + " for that.");
             return true;
         }

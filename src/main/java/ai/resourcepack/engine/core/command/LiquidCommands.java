@@ -151,7 +151,15 @@ public final class LiquidCommands implements Area {
         for (LiquidPools.Pool pool : pools.pools()) {
             Reply.to(player, "pool: " + pool);
         }
-        Reply.to(player, "/rpengine liquid corner | fill <id> | clear");
+        // One command per line rather than three joined by pipes. The joined
+        // form read as a single command to the chat linker, which now
+        // correctly recognises "/rp liquid corner" at the front of it — and
+        // would have offered to RUN it, marking a corner because somebody
+        // clicked a usage line. Three lines are also simply easier to read,
+        // and each of them is now separately clickable.
+        Reply.to(player, "/rpengine liquid corner");
+        Reply.to(player, "/rpengine liquid fill <id>");
+        Reply.to(player, "/rpengine liquid clear");
         return true;
     }
 
