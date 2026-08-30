@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.pack;
 
+import ai.resourcepack.engine.api.McVersion;
+
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.Bundle;
@@ -39,14 +41,21 @@ import java.util.stream.Stream;
 public final class PackBuilder {
 
     /**
-     * The resource pack format for 1.21.4, the engine's floor.
+     * The format used when nobody says otherwise.
      *
-     * <p>Not derived from the running server: the floor is a compile-time fact
-     * here (the id scheme needs the string-valued {@code item_model} component)
-     * and a pack built for a version the engine cannot support would be a
-     * quieter failure than refusing.
+     * <p>This used to be the engine's whole answer: one number, for the one
+     * version it supported. It is now only a fallback for the constructor
+     * that takes no format at all, which is a convenience for tests — a
+     * running server's format comes from {@code Compatibility}, resolved from
+     * the version the server actually reports, because the engine now spans a
+     * range of them and a single compiled-in number would be wrong on all but
+     * one.
+     *
+     * <p>Read from {@link PackFormats} rather than written again here, so
+     * there is one table and not a literal beside it that can drift.
      */
-    public static final int PACK_FORMAT = 46;
+    public static final int PACK_FORMAT =
+            PackFormats.forVersion(McVersion.of(1, 21, 4)).orElse(46);
 
     /** Namespaced content: {@code <pack>/assets/**} becomes {@code assets/<namespace>/**}. */
     static final String ASSETS = "assets";

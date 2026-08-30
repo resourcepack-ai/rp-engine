@@ -18,6 +18,7 @@ import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.Sounds;
+import ai.resourcepack.engine.api.McVersion;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
 import ai.resourcepack.engine.core.command.ChatStyle;
@@ -77,6 +78,7 @@ import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.pack.PackBuilder;
+import ai.resourcepack.engine.core.version.Compatibility;
 import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.recipe.Recipes;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -111,6 +113,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,6 +144,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
             Safe to delete. It is rebuilt on the next start.
             """;
+
+    /**
+     * What this server's Minecraft version lets the engine do. Resolved first
+     * thing in {@link #onEnable()} and never re-read: a capability that can
+     * answer differently in two places is worse than one that is wrong.
+     */
+    private Compatibility compatibility;
 
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
@@ -271,6 +281,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        // First, because what the rest of startup is allowed to do depends on
+        // the answer, and because a server below the floor should be told so
+        // before the engine has built anything it cannot use.
+        if (!resolveCompatibility()) {
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         // Before anything can talk, including the load diagnostics below.
         applyChatStyle();
         applyHeldItemTurn();
@@ -630,6 +647,55 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             getConfig().getBoolean("emotes.nametag-see-through", false));
     }
 
+    /**
+     * Works out what this server can do, says what it cannot, and refuses to
+     * run at all below the floor.
+     *
+     * <p>The refusal is the easy half. The half worth care is the reporting:
+     * everything below the newest version runs with something reduced, and a
+     * reduction nobody was told about looks exactly like a bug in the pack.
+     * So the report is printed at startup, unprompted, and it names the
+     * version each missing thing would need.
+     *
+     * @return whether the engine can run here at all
+     */
+    private boolean resolveCompatibility() {
+        String raw = Compatibility.readServerVersion();
+        Optional<McVersion> parsed = McVersion.parse(raw);
+        if (!parsed.isPresent()) {
+            // Not a guess: every decision downstream is version-shaped, and
+            // picking a version for a server that reported something
+            // unreadable would silently put it in a mode nobody chose.
+            getLogger().severe("Could not read this server's Minecraft version from \""
+                    + raw + "\". RP Engine cannot tell what it is allowed to do here, so it "
+                    + "is not starting. Please report this along with your server software "
+                    + "and version.");
+            return false;
+        }
+
+        // The config value is an override rather than the source. It exists
+        // for one case: a Minecraft released after this jar, whose format the
+        // table cannot know. Absent is the normal state.
+        Integer configured = getConfig().isSet("pack.format")
+                ? getConfig().getInt("pack.format")
+                : null;
+        compatibility = Compatibility.of(parsed.get(), configured);
+
+        if (!compatibility.supported()) {
+            getLogger().severe("RP Engine needs Minecraft " + McVersion.OLDEST_SUPPORTED
+                    + " or newer and this server is " + compatibility.version()
+                    + ". Placed models are display entities, which do not exist before "
+                    + McVersion.OLDEST_SUPPORTED + ", so there is no reduced mode to fall "
+                    + "back to. Not starting.");
+            return false;
+        }
+
+        for (String line : compatibility.report()) {
+            getLogger().info(line);
+        }
+        return true;
+    }
+
     private void applyChatStyle() {
         // Read with no fallbacks: an absent key arrives as null and ChatStyle
         // falls back to its own default, so the defaults live in one place
@@ -861,7 +927,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         ItemAssets itemAssets = new ItemAssets();
         BuildReport builtReport = new PackBuilder(
-                getConfig().getInt("pack.format", PackBuilder.PACK_FORMAT),
+                compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
                 .with(itemAssets)
                 .with(new SoundAssets())

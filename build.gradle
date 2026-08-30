@@ -1,3 +1,5 @@
+import org.gradle.api.attributes.java.TargetJvmVersion
+
 plugins {
     id 'java'
     id 'com.gradleup.shadow' version '8.3.5'
@@ -237,6 +239,38 @@ java {
         languageVersion = JavaLanguageVersion.of(21)
     }
     withSourcesJar()
+}
+
+// The bytecode this jar ships, which is a different question from the JDK
+// that builds it above.
+//
+// It is 17 because the engine supports Minecraft 1.19.4, and a 1.19.4 server
+// runs on Java 17. A Java 17 runtime cannot load a Java 21 class file at all
+// — the jar does not start, there is no partial mode and no useful error for
+// the server owner, and every graceful degradation the version system does is
+// moot if the plugin never loads. So this number is a floor set by the oldest
+// game version supported, and it moves only when that does.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+}
+
+// Geyser's jars are built for Java 21 and say so, which makes Gradle refuse
+// to put them on a classpath targeting 17. Both are compileOnly and only
+// GeyserBridge touches them, and that class is reached exactly once — behind
+// a check that Geyser-Spigot is installed, inside a catch for
+// NoClassDefFoundError. A server running Geyser is a server on Java 21 by
+// Geyser's own requirement, so the classes it needs are loadable wherever it
+// is loaded at all, and on every other server it is never loaded.
+//
+// So the constraint Gradle is enforcing here is real for Geyser and not for
+// us. Overriding it on the compile classpaths only: the bytecode this
+// produces is still 17, which is the thing that actually has to be true.
+configurations.configureEach {
+    if (name.toLowerCase().endsWith('compileclasspath')) {
+        attributes {
+            attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+        }
+    }
 }
 
 repositories {

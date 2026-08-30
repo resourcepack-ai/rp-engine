@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.distribution;
 
+import ai.resourcepack.engine.core.version.Compatibility;
+
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -96,12 +98,11 @@ public final class ProtocolResolver {
     }
 
     /**
-     * {@code getBukkitVersion()} is "1.21.8-R0.1-SNAPSHOT" and is present on
-     * every implementation, unlike Paper's {@code getMinecraftVersion()}.
+     * Delegated so the version the engine gates features on and the version it
+     * reports to studio's distribution manifest are one answer. They were the
+     * same two lines in two files before the engine had features to gate.
      */
     private static String readServerVersion() {
-        String raw = Bukkit.getBukkitVersion();
-        int dash = raw.indexOf('-');
-        return dash > 0 ? raw.substring(0, dash) : raw;
+        return Compatibility.readServerVersion();
     }
 }
