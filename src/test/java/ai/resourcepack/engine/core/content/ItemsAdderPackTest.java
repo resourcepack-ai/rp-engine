@@ -181,7 +181,7 @@ class ItemsAdderPackTest {
                       block:
                         placed_model: ruby_ore
                         hardness: 3
-                        light_level: 7
+                        break_tool: pickaxe
                 """);
 
         BlockInfo ore = BlockDefinitions.parse(load()).blocks()
@@ -189,7 +189,7 @@ class ItemsAdderPackTest {
 
         assertEquals("ruby_ore", ore.model());
         assertEquals(3f, ore.hardness());
-        assertEquals(7, ore.light());
+        assertEquals("pickaxe", ore.tool().orElseThrow());
     }
 
     /** What genuinely cannot come across is still said out loud, with the count. */

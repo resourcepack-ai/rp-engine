@@ -562,13 +562,23 @@ ruby_ore:
   hardness: 3.0        # stone is 1.5
   tool: pickaxe        # what has to be held for the drop
   drop: mypack:ruby    # default: itself
-  light: 0
-  sound: stone
+  sound: minecraft:block.stone.place
 ```
 
 **A block is an item too.** `/rp give mypack:ruby_ore` hands you the thing that
 places it; nothing declares that item, because a block you cannot obtain is not
 a block anybody can use.
+
+`hardness` and `tool` are real: the engine breaks the block itself, with the
+ten-stage crack overlay, because hardness belongs to a block's TYPE in
+Minecraft and every custom block is a note block underneath. The wrong tool
+still breaks it and gives nothing, the way stone and a shovel do.
+
+**A custom block cannot give off light, and cannot change its sound.** Both
+belong to the block's type rather than its state. `sound:` plays something of
+yours *over* the base block's own, which is the honest half of it; for light,
+use a [placed model](#placing-a-model), which puts a real light block in its
+anchor.
 
 ### What a custom block really is
 

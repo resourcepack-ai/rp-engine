@@ -4,7 +4,10 @@ import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LiquidInfo;
 import ai.resourcepack.engine.api.event.ContentLoadEvent;
 import ai.resourcepack.engine.api.event.EntityDeathEvent;
+import ai.resourcepack.engine.api.event.ModelAnimationEndEvent;
 import ai.resourcepack.engine.api.event.ModelBindEvent;
+import ai.resourcepack.engine.api.event.ModelSeatEvent;
+import ai.resourcepack.engine.api.event.PlayerLiquidEvent;
 import ai.resourcepack.engine.core.liquid.LiquidBiomes;
 import ai.resourcepack.engine.core.liquid.LiquidBuckets;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
@@ -67,7 +70,14 @@ public final class Harness extends JavaPlugin implements Listener {
     private final List<ContentLoadEvent> loads = new ArrayList<>();
     private final List<ModelBindEvent> binds = new ArrayList<>();
     private final List<EntityDeathEvent> deaths = new ArrayList<>();
+    private final List<ModelSeatEvent> seats = new ArrayList<>();
+    private final List<PlayerLiquidEvent> crossings = new ArrayList<>();
+    private final List<ModelAnimationEndEvent> ends = new ArrayList<>();
+
+    /** Set by a scenario that has to wait for something before it can finish. */
+    private boolean deferred;
     private boolean refuseBinds;
+    private boolean refuseSeats;
 
     @Override
     public void onEnable() {
@@ -95,6 +105,24 @@ public final class Harness extends JavaPlugin implements Listener {
     @EventHandler
     public void onDeath(EntityDeathEvent event) {
         deaths.add(event);
+    }
+
+    @EventHandler
+    public void onSeat(ModelSeatEvent event) {
+        seats.add(event);
+        if (refuseSeats) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onLiquid(PlayerLiquidEvent event) {
+        crossings.add(event);
+    }
+
+    @EventHandler
+    public void onAnimationEnd(ModelAnimationEndEvent event) {
+        ends.add(event);
     }
 
     // ---- reporting -------------------------------------------------------
@@ -142,9 +170,18 @@ public final class Harness extends JavaPlugin implements Listener {
             }
         } catch (Throwable t) {
             failed++;
-            System.out.println("RPTEST FAIL  harness threw: " + t);
-            t.printStackTrace(System.out);
+            Throwable cause = t instanceof java.lang.reflect.InvocationTargetException
+                    && t.getCause() != null ? t.getCause() : t;
+            System.out.println("RPTEST FAIL  harness threw: " + cause);
+            cause.printStackTrace(System.out);
         }
+        if (!deferred) {
+            finish();
+        }
+    }
+
+    /** Prints the tally and stops the server. Called once, whenever the last check is in. */
+    private void finish() {
         System.out.println("RPTEST DONE  passed=" + passed + " failed=" + failed);
         Bukkit.getScheduler().runTaskLater(this, Bukkit::shutdown, 20L);
     }
@@ -467,9 +504,83 @@ public final class Harness extends JavaPlugin implements Listener {
         }
         mob.remove();
 
-        note("not reachable without a client: ModelSeatEvent (needs a body to sit),"
-                + " PlayerLiquidEvent (needs somebody standing in water),"
-                + " ModelAnimationEndEvent (needs a rig with an animation)");
+        // ---- ModelSeatEvent -----------------------------------------------
+        // Fired at the top of Seats.sit, before anything is spawned, so a
+        // proxy player is enough to reach it — and cancelling it is the whole
+        // contract.
+        Object seatService = field(engine, "seats");
+        Method sit = seatService.getClass().getMethod("sit", Player.class, Location.class);
+        Player sitter = fakePlayer(world, GameMode.SURVIVAL);
+        Location chair = new Location(world, 264, 80, 264);
+
+        seats.clear();
+        try {
+            sit.invoke(seatService, sitter, chair);
+        } catch (java.lang.reflect.InvocationTargetException mounting) {
+            // Expected: the event fires first, then the real mount rejects a
+            // proxy. What is under test is everything up to that point.
+            note("the mount itself needs a real player: " + mounting.getCause());
+        }
+        check("sitting fires ModelSeatEvent", !seats.isEmpty());
+        check("which carries where the seat is",
+                !seats.isEmpty() && seats.get(0).seat().getBlockY() == 80);
+
+        // Seats.sit spawns its stand before mounting, and the mount threw, so
+        // the stand is left behind. A real player never takes that path.
+        for (org.bukkit.entity.Entity stray : world.getNearbyEntities(chair, 4, 4, 4)) {
+            if (stray instanceof org.bukkit.entity.ArmorStand) {
+                stray.remove();
+            }
+        }
+
+        seats.clear();
+        refuseSeats = true;
+        boolean refusedSeat = (boolean) sit.invoke(seatService, sitter, chair);
+        refuseSeats = false;
+        check("cancelling it leaves them standing", !refusedSeat);
+
+        // ---- PlayerLiquidEvent ---------------------------------------------
+        // The crossing, not the tick: Liquids only walks real online players,
+        // so the two halves are driven directly.
+        Object liquids = field(engine, "liquids");
+        Method entered = liquids.getClass().getDeclaredMethod("entered", Player.class, ContentId.class);
+        Method left = liquids.getClass().getDeclaredMethod("left", Player.class);
+        entered.setAccessible(true);
+        left.setAccessible(true);
+
+        crossings.clear();
+        entered.invoke(liquids, sitter, id("testpack:acid"));
+        check("going into a liquid fires PlayerLiquidEvent",
+                crossings.size() == 1
+                        && crossings.get(0).action() == PlayerLiquidEvent.Action.ENTERED
+                        && "testpack:acid".equals(crossings.get(0).liquid().toString()));
+
+        crossings.clear();
+        entered.invoke(liquids, sitter, id("testpack:acid"));
+        check("staying in it fires nothing more", crossings.isEmpty());
+
+        crossings.clear();
+        entered.invoke(liquids, sitter, id("testpack:blood"));
+        check("swimming from one into another is two events, in order",
+                crossings.size() == 2
+                        && crossings.get(0).action() == PlayerLiquidEvent.Action.LEFT
+                        && "testpack:acid".equals(crossings.get(0).liquid().toString())
+                        && crossings.get(1).action() == PlayerLiquidEvent.Action.ENTERED
+                        && "testpack:blood".equals(crossings.get(1).liquid().toString()));
+
+        crossings.clear();
+        left.invoke(liquids, sitter);
+        check("coming out fires LEFT naming what they were in",
+                crossings.size() == 1
+                        && crossings.get(0).action() == PlayerLiquidEvent.Action.LEFT
+                        && "testpack:blood".equals(crossings.get(0).liquid().toString()));
+
+        crossings.clear();
+        left.invoke(liquids, sitter);
+        check("and being out of it fires nothing", crossings.isEmpty());
+
+        // ---- ModelAnimationEndEvent -----------------------------------------
+        animationEnds(engine, world);
     }
 
     /**
@@ -550,6 +661,56 @@ public final class Harness extends JavaPlugin implements Listener {
 
         block.setType(Material.AIR, false);
         plain.setType(Material.AIR, false);
+    }
+
+    /**
+     * The three ways an animation ends, on a real placed rig.
+     *
+     * <p>FINISHED is the one that needs waiting for: a one-shot ends when it
+     * runs out, which is half a second of real time, so the scenario defers
+     * its own ending until the timer has had a chance to fire. That is also
+     * the only way to catch the booking being wrong, which a synchronous
+     * assertion would not.
+     */
+    private void animationEnds(RPEnginePlugin engine, World world) {
+        Location at = new Location(world, 268, 80, 268);
+        world.getChunkAt(at).load(true);
+        Optional<ai.resourcepack.engine.api.Placement> placed =
+                engine.models().place(at, "testpack:windmill",
+                        ai.resourcepack.engine.api.PlaceOptions.defaults());
+        check("an animated model can be placed", placed.isPresent());
+        if (placed.isEmpty()) {
+            return;
+        }
+        ai.resourcepack.engine.api.Placement rig = placed.get();
+
+        ends.clear();
+        check("a loop plays", rig.play("spin"));
+        check("and starting it ends nothing", ends.isEmpty());
+
+        ends.clear();
+        check("another animation plays over it", rig.play("open"));
+        check("which ends the first as REPLACED",
+                ends.size() == 1 && "spin".equals(ends.get(0).animation())
+                        && ends.get(0).cause() == ModelAnimationEndEvent.Cause.REPLACED);
+
+        ends.clear();
+        check("stopping works", rig.stop());
+        check("and ends it as STOPPED",
+                ends.size() == 1 && ends.get(0).cause() == ModelAnimationEndEvent.Cause.STOPPED);
+
+        // A one-shot, and then the wait. Its length is half a second, so a
+        // second and a half is plenty and still quick.
+        ends.clear();
+        check("a one-shot plays", rig.play("pop"));
+        deferred = true;
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            check("and ends on its own as FINISHED",
+                    ends.stream().anyMatch(end -> "pop".equals(end.animation())
+                            && end.cause() == ModelAnimationEndEvent.Cause.FINISHED));
+            rig.remove(false);
+            finish();
+        }, 30L);
     }
 
     // ---- plumbing --------------------------------------------------------

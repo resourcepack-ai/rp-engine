@@ -142,7 +142,9 @@ final class ItemsAdder {
         specific.string("placed_model").or(() -> resource.string("model_path"))
                 .ifPresent(model -> out.put("model", model));
         specific.string("hardness").ifPresent(hardness -> out.put("hardness", hardness));
-        specific.integer("light_level").ifPresent(light -> out.put("light", light));
+        // light_level is deliberately dropped rather than translated: a custom
+        // block cannot emit light here, and writing the key would only produce
+        // a warning for every block in somebody's pack.
         specific.string("break_tool").ifPresent(tool -> out.put("tool", tool));
         specific.string("sound").or(() -> block.string("sound"))
                 .ifPresent(sound -> out.put("sound", sound));

@@ -49,6 +49,7 @@ public final class CustomBlocks implements Listener {
     private final Plugin plugin;
     private final Items items;
     private final BlockStates states;
+    private final BlockBreaking breaking;
     private final Logger log;
 
     private volatile Map<ContentId, BlockInfo> blocks = Map.of();
@@ -57,6 +58,7 @@ public final class CustomBlocks implements Listener {
         this.plugin = plugin;
         this.items = items;
         this.states = states;
+        this.breaking = new BlockBreaking(plugin);
         this.log = log;
     }
 
@@ -120,6 +122,7 @@ public final class CustomBlocks implements Listener {
         states.existing(block.get()).ifPresent(number -> {
             Block placed = event.getBlockPlaced();
             placed.setBlockData(dataFor(block.get(), number), false);
+            play(block.get(), placed);
         });
     }
 
@@ -132,7 +135,47 @@ public final class CustomBlocks implements Listener {
                 "minecraft:" + base + "[" + BlockStates.identityOf(block.base(), number) + "]");
     }
 
+    /**
+     * The pack's own sound, over the base block's.
+     *
+     * <p>Over, not instead of: a block's sound group is a property of its type
+     * and the client plays it. See {@link BlockInfo#sound()}.
+     */
+    private void play(BlockInfo block, Block where) {
+        block.sound().ifPresent(sound -> where.getWorld().playSound(
+                where.getLocation().add(0.5, 0.5, 0.5), sound, 1f, 1f));
+    }
+
     // ---- breaking --------------------------------------------------------
+
+    /**
+     * Takes over breaking, so the pack's hardness and tool mean something.
+     *
+     * <p>Vanilla would break a note block in well under a second whatever the
+     * pack said, because hardness belongs to a block's type. See
+     * {@link BlockBreaking}.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDamage(org.bukkit.event.block.BlockDamageEvent event) {
+        Optional<BlockInfo> block = at(event.getBlock());
+        if (block.isEmpty()) {
+            return;
+        }
+        event.setInstaBreak(false);
+        event.setCancelled(true);
+        breaking.start(event.getPlayer(), event.getBlock(), block.get());
+    }
+
+    /** They let go, or looked away. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDamageAbort(org.bukkit.event.block.BlockDamageAbortEvent event) {
+        breaking.stop(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        breaking.stop(event.getPlayer());
+    }
 
     /**
      * Gives back the custom block rather than a note block.
@@ -148,7 +191,15 @@ public final class CustomBlocks implements Listener {
             return;
         }
         event.setDropItems(false);
+        breaking.stop(event.getPlayer());
+        play(block.get(), event.getBlock());
         if (event.getPlayer().getGameMode() == GameMode.CREATIVE) {
+            return;
+        }
+        // The wrong tool breaks it and gives nothing, which is what vanilla
+        // does with stone and a shovel.
+        if (!BlockBreaking.isCorrectTool(block.get(),
+                event.getPlayer().getInventory().getItemInMainHand())) {
             return;
         }
         ContentId dropped = block.get().drop().orElse(block.get().id());

@@ -255,7 +255,7 @@ public final class ModelCommands implements Area {
             customBlocks.info(id).ifPresent(block -> Reply.row(sender, id.toString(),
                     block.base().name().toLowerCase(Locale.ROOT)
                             + " · hardness " + block.hardness()
-                            + (block.light() > 0 ? " · light " + block.light() : "")));
+                            + block.tool().map(tool -> " · " + tool).orElse("")));
         }
         for (ai.resourcepack.engine.api.BlockInfo.Base base
                 : ai.resourcepack.engine.api.BlockInfo.Base.values()) {
