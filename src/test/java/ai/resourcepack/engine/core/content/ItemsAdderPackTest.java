@@ -2,12 +2,15 @@ package ai.resourcepack.engine.core.content;
 
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ContentKind;
+import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.IconInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.block.BlockDefinitions;
+import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -18,6 +21,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -192,21 +196,99 @@ class ItemsAdderPackTest {
         assertEquals("pickaxe", ore.tool().orElseThrow());
     }
 
-    /** What genuinely cannot come across is still said out loud, with the count. */
     @Test
-    void entitiesAreRefusedRatherThanDroppedQuietly() throws IOException {
+    void anEntityComesAcross() throws IOException {
         write("my_content/mobs.yml", """
                 info:
                   namespace: my_content
                 items: {}
                 entities:
-                  guard:
+                  barman_robot:
+                    display_name: "Barman Robot"
                     type: ZOMBIE
+                    model_folder: entity/barman_robot
+                    silent: true
+                    max_health: 20
                 """);
 
-        assertTrue(load().diagnostics().stream()
-                .anyMatch(d -> d.severity() == Diagnostic.Severity.WARNING
-                        && d.message().contains("entities were skipped")));
+        EntityInfo robot = EntityDefinitions.parse(load()).entities()
+                .get(ContentId.parse("my_content:barman_robot").orElseThrow());
+
+        assertEquals("ZOMBIE", robot.type());
+        assertEquals("Barman Robot", robot.name().orElseThrow());
+        assertEquals(20, robot.health());
+        assertTrue(robot.silent());
+        // Their model is a folder of blueprints; the last segment is what it
+        // is called, and is an item id here.
+        assertEquals("barman_robot", robot.model().orElseThrow().path());
+    }
+
+    @Test
+    void recipesComeAcross() throws IOException {
+        write("my_content/recipes.yml", """
+                info:
+                  namespace: my_content
+                items: {}
+                recipes:
+                  crafting_table:
+                    deadmau5_hat:
+                      pattern:
+                      - BXB
+                      - XBX
+                      - XXX
+                      ingredients:
+                        B: LIGHT_BLUE_WOOL
+                      result:
+                        item: my_content:hat
+                        amount: 1
+                  cooking:
+                    cooked_sausage:
+                      ingredient:
+                        item: my_content:sausage
+                      machines:
+                      - FURNACE
+                      - SMOKER
+                      exp: 1
+                      cook_time: 200
+                      result:
+                        item: my_content:cooked
+                """);
+
+        LoadReport loaded = load();
+        List<String> ids = loaded.definitions(ContentKind.RECIPE).stream()
+                .map(d -> d.id().path()).toList();
+
+        assertTrue(ids.contains("deadmau5_hat"), ids.toString());
+        // One of theirs with two machines is two of ours, since a recipe here
+        // is one type.
+        assertTrue(ids.contains("cooked_sausage"), ids.toString());
+        assertTrue(ids.contains("cooked_sausage_smoking"), ids.toString());
+    }
+
+    /** A letter with no ingredient is a blank in their pattern and a space in ours. */
+    @Test
+    void anUndefinedPatternLetterBecomesABlank() throws IOException {
+        write("my_content/recipes.yml", """
+                info:
+                  namespace: my_content
+                items: {}
+                recipes:
+                  crafting_table:
+                    hat:
+                      pattern:
+                      - BXB
+                      ingredients:
+                        B: LIGHT_BLUE_WOOL
+                      result:
+                        item: my_content:hat
+                """);
+
+        String pattern = load().definitions(ContentKind.RECIPE).stream()
+                .filter(d -> d.id().path().equals("hat"))
+                .findFirst().orElseThrow()
+                .body().strings("pattern").get(0);
+
+        assertEquals("B B", pattern);
     }
 
     /** One of their files inside one of our packs, which is the migration path. */

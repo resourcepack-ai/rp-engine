@@ -111,10 +111,16 @@ public final class InterfaceCommands implements Area {
 
     private boolean sounds(CommandSender sender) {
         if (sounds.ids().isEmpty()) {
-            Reply.to(sender, "No sounds loaded.");
+            Reply.to(sender, "No sounds loaded. A pack declares them in sounds/.");
+            return true;
         }
+        Reply.heading(sender, "Sounds", Reply.plural(sounds.ids().size(), "sound")
+                + ", /rp sound <id> to hear one");
         for (ContentId id : sounds.ids()) {
-            Reply.to(sender, id + "  " + sounds.info(id).map(s -> s.category()).orElse("?"));
+            Reply.row(sender, id.toString(), sounds.info(id)
+                    .map(sound -> sound.category()
+                            + sound.subtitle().map(text -> " · \"" + text + "\"").orElse(""))
+                    .orElse(""));
         }
         return true;
     }
@@ -144,10 +150,16 @@ public final class InterfaceCommands implements Area {
 
     private boolean icons(CommandSender sender) {
         if (icons.ids().isEmpty()) {
-            Reply.to(sender, "No icons loaded.");
+            Reply.to(sender, "No icons loaded. A pack declares them in fonts/.");
+            return true;
         }
+        Reply.heading(sender, "Icons", Reply.plural(icons.ids().size(), "icon")
+                + ", write one as :namespace:id:");
         for (ContentId id : icons.ids()) {
-            Reply.to(sender, id + "  " + icons.character(id).orElse("?") + "  :" + id + ":");
+            // The character itself, so somebody can see it rendered right
+            // there beside the id it came from.
+            Reply.row(sender, id.toString(),
+                    icons.character(id).orElse("?") + " · :" + id + ":");
         }
         return true;
     }

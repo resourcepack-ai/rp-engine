@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -114,14 +115,28 @@ public final class ContentCommands implements Area {
 
     private boolean items(CommandSender sender) {
         if (items.ids().isEmpty()) {
-            Reply.to(sender, "No items loaded.");
+            Reply.to(sender, "No items loaded. A pack declares them in items/.");
+            return true;
         }
+        Reply.heading(sender, "Items", Reply.plural(items.ids().size(), "item")
+                + ", /rp give <id> for one");
         for (ContentId id : items.ids()) {
             ItemInfo info = items.info(id).orElseThrow();
-            Reply.to(sender, id + "  " + info.material()
-                    + (info.model().isPresent() ? "  model " + info.model().get() : ""));
+            Reply.row(sender, id.toString(), describe(info));
         }
         return true;
+    }
+
+    /** "diamond - model chair - armour head", with the empty parts left out. */
+    private static String describe(ItemInfo item) {
+        StringBuilder said = new StringBuilder(item.material().toLowerCase(Locale.ROOT));
+        item.model().ifPresent(model -> said.append(" · model ").append(model));
+        item.armor().ifPresent(slot -> said.append(" · armour ").append(slot));
+        item.liquid().ifPresent(liquid -> said.append(" · bucket of ").append(liquid));
+        if (!item.actions().isEmpty()) {
+            said.append(" · ").append(Reply.plural(item.actions().size(), "trigger"));
+        }
+        return said.toString();
     }
 
     private boolean give(CommandSender sender, String[] args) {
@@ -146,10 +161,12 @@ public final class ContentCommands implements Area {
 
     private boolean recipes(CommandSender sender) {
         if (recipes.size() == 0) {
-            Reply.to(sender, "No recipes registered.");
+            Reply.to(sender, "No recipes registered. A pack declares them in recipes/.");
+            return true;
         }
+        Reply.heading(sender, "Recipes", Reply.plural(recipes.size(), "recipe"));
         for (ContentId id : recipeIds.get()) {
-            Reply.to(sender, id.toString());
+            Reply.row(sender, id.toString(), "");
         }
         return true;
     }

@@ -719,6 +719,29 @@ of the item — `events`, `drop`, `item_flags`.
 something else is loaded under the folder's name and warns, because the folder
 is what this engine claimed and ids written elsewhere have to resolve.
 
+## A ModelEngine blueprints folder
+
+**Drop it in and it loads.** A `blueprints/` folder of `.bbmodel` files —
+ModelEngine's layout — gives one item per blueprint, named after the file, that
+wears it:
+
+```
+mypack/
+  pack.yml
+  blueprints/
+    golem.bbmodel        ->  mypack:golem
+    bosses/dragon.bbmodel ->  mypack:dragon
+```
+
+There is nothing to convert, because their content format IS the save files,
+and **the bone names already mean the same thing here** — `h_`, `hi_`, `b_`,
+`ob_`, `p_seat`, `mount` and `tag_name` are ModelEngine's, adopted on purpose
+so a rig somebody already has works without being re-authored.
+
+The generated item is a plain one on paper. An `items/` definition under the
+same id beats it, which is how a blueprint gains a material, a name, a
+`place:` block or anything else.
+
 ## pack.yml
 
 ```yaml
