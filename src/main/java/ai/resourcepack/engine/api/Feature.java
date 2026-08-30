@@ -113,6 +113,43 @@ public enum Feature {
                     + "/give command on this version."),
 
     /**
+     * Vanilla's newer rule for where a passenger sits on its vehicle.
+     *
+     * <p>Not an API and not something a server owner can see the name of —
+     * it is arithmetic. Before 1.20.2 a passenger was drawn a fixed distance
+     * above its vehicle; from 1.20.2 its position is the vehicle's attachment
+     * point minus its own, and a marker armour stand's attachment point is
+     * zero. The engine seats players on marker stands, so the offset it has to
+     * apply is a different number on each side of that line.
+     *
+     * <p>It is here rather than as a bare constant because this is the class
+     * of version difference that nothing catches: it compiles everywhere, and
+     * being wrong looks like sitting two and a half blocks inside the floor.
+     */
+    MODERN_PASSENGER_OFFSET(
+            McVersion.of(1, 20, 2),
+            "Vanilla's newer passenger positioning",
+            "Handled: seats apply the older offset instead, so sitting on a model puts you "
+                    + "in the same place. Nothing about this is visible unless it is wrong."),
+
+    /**
+     * A display entity that glides to a new position instead of appearing at
+     * it, through {@code Display.setTeleportDuration}.
+     *
+     * <p>Display entities themselves arrived in 1.19.4 and are the engine's
+     * floor. Being able to move one <em>smoothly</em> arrived three releases
+     * later, which is a distinction with no visible difference until something
+     * moves: a statue standing still is identical either way, and an emote
+     * that walks its rig around is not.
+     */
+    SMOOTH_RIG_MOVEMENT(
+            McVersion.of(1, 20, 2),
+            "Models that glide when they move",
+            "A model that moves — a walking emote, a bound model following its entity — "
+                    + "jumps between positions about five times a second instead of gliding. "
+                    + "Models that stay put look exactly the same."),
+
+    /**
      * Biome colours for tinted liquids, written as a generated datapack.
      *
      * <p>The datapack biome format is not stable across versions the way a

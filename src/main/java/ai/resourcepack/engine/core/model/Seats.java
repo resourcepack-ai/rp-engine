@@ -5,9 +5,13 @@ import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
+import ai.resourcepack.engine.api.Feature;
+import ai.resourcepack.engine.core.version.Compatibility;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.entity.EntityEvent;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDismountEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 
@@ -44,8 +48,23 @@ public final class Seats implements Listener {
      * looks like. Vanilla's rule changed in 1.20.2: a passenger's position is
      * now the vehicle's attachment point minus the passenger's own, and a
      * marker's attachment point is zero.
+     *
+     * <p>Which means this number is only right from 1.20.2, and the engine
+     * now runs below that. {@link #LEGACY_MOUNT_OFFSET} is the other one.
+     * Worth saying plainly because nothing catches this: it is arithmetic, not
+     * an API, so it compiles everywhere and is simply wrong on the versions it
+     * is wrong on — the old-API audit cannot see a constant.
      */
     private static final double MOUNT_OFFSET = 0.7;
+
+    /**
+     * The same measurement before 1.20.2, where a passenger sat ABOVE its
+     * vehicle by a fixed amount rather than below it by the attachment point.
+     *
+     * <p>Negative because the correction goes the other way: on those versions
+     * the stand is spawned below the seat rather than above it.
+     */
+    private static final double LEGACY_MOUNT_OFFSET = -1.75;
 
     /**
      * How far a seated player is drawn ABOVE their own position.
@@ -69,8 +88,63 @@ public final class Seats implements Listener {
     /** Player -> the stand they are riding. */
     private final Map<UUID, UUID> seated = new ConcurrentHashMap<>();
 
-    public Seats(Plugin plugin) {
+    /** Which of the two mount offsets this server's vanilla actually uses. */
+    private final double mountOffset;
+
+    public Seats(Plugin plugin, Compatibility compatibility) {
         this.plugin = plugin;
+        this.mountOffset = compatibility.has(Feature.MODERN_PASSENGER_OFFSET)
+                ? MOUNT_OFFSET
+                : LEGACY_MOUNT_OFFSET;
+    }
+
+    /**
+     * Listens for dismounts, whichever package this server keeps that event in.
+     *
+     * <p>{@code EntityDismountEvent} moved from {@code org.spigotmc.event.entity}
+     * to {@code org.bukkit.event.entity} in 1.20.1. That is not something an
+     * {@code if} can span: an {@code @EventHandler} method names its event
+     * type in its signature, and Bukkit reflects over those when the listener
+     * is registered — so a handler for the class this server does not have
+     * fails the whole registration, taking every other listener in the class
+     * with it.
+     *
+     * <p>So the class is looked up by name and registered through an executor
+     * instead. Both versions of the event extend {@code EntityEvent}, which is
+     * where {@code getEntity()} lives, so nothing past the lookup is
+     * reflective.
+     */
+    @SuppressWarnings("unchecked")
+    public void registerDismount(Plugin owner) {
+        Class<?> found = null;
+        for (String name : new String[] {
+                "org.bukkit.event.entity.EntityDismountEvent",
+                "org.spigotmc.event.entity.EntityDismountEvent" }) {
+            try {
+                found = Class.forName(name);
+                break;
+            } catch (ClassNotFoundException ignored) {
+                // Try the other spelling.
+            }
+        }
+        if (found == null || !Event.class.isAssignableFrom(found)) {
+            // Neither exists, which no supported version does. Seats still
+            // work; they are cleaned up on quit and on the model breaking,
+            // and only standing up early leaves one behind.
+            owner.getLogger().warning("This server has no EntityDismountEvent, so a seat is "
+                    + "cleared when you log out or the model breaks rather than the moment "
+                    + "you stand up.");
+            return;
+        }
+        owner.getServer().getPluginManager().registerEvent(
+                (Class<? extends Event>) found, this, EventPriority.NORMAL,
+                (listener, event) -> {
+                    if (event instanceof EntityEvent
+                            && ((EntityEvent) event).getEntity() instanceof Player) {
+                        stand((Player) ((EntityEvent) event).getEntity());
+                    }
+                },
+                owner);
     }
 
     /**
@@ -108,7 +182,7 @@ public final class Seats implements Listener {
             return false;
         }
 
-        Location at = where.clone().add(0, MOUNT_OFFSET - SEATED_POSE + calibration, 0);
+        Location at = where.clone().add(0, mountOffset - SEATED_POSE + calibration, 0);
         at.setYaw(where.getYaw());
         ArmorStand stand = where.getWorld().spawn(at, ArmorStand.class, s -> {
             // A marker has no hitbox and no collision, which is what makes it
@@ -166,13 +240,6 @@ public final class Seats implements Listener {
             }
         }
         seated.clear();
-    }
-
-    @EventHandler
-    public void onDismount(EntityDismountEvent event) {
-        if (event.getEntity() instanceof Player) {
-            stand((Player) event.getEntity());
-        }
     }
 
     @EventHandler
