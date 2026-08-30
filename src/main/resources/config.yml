@@ -17,10 +17,17 @@ host:
   enabled: true
 
 pack:
-  # The pack_format written into pack.mcmeta. It must match the game version
-  # your players are on, or the client shows a "made for a different version"
-  # warning. 46 is 1.21.4, 55 is 1.21.5, 63 is 1.21.6, 64 is 1.21.7 and 1.21.8.
-  format: 46
+  # The pack_format written into pack.mcmeta, which has to match your game
+  # version or the client shows a "made for a different version" warning.
+  #
+  # Leave this unset. The plugin reads your server's version and uses the
+  # right number for it, and it knows every version from 1.19.4 up to the one
+  # it was built against.
+  #
+  # Set it only if you are on a Minecraft newer than this build of RP Engine,
+  # which the startup log will tell you about. Then update the plugin and
+  # remove it again.
+  # format: 46
 
   # Shown in the client's resource pack list, with the bundle name appended.
   description: "RP Engine"

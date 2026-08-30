@@ -1,7 +1,7 @@
 name: RPEngine
 main: ai.resourcepack.engine.RPEnginePlugin
 version: ${version}
-api-version: '1.21'
+api-version: '1.19'
 description: Custom items, models, sounds, icons, screens, recipes and emotes.
 author: ResourcePack AI
 folia-supported: false
