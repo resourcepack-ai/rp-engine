@@ -452,10 +452,15 @@ Leggings are a different layer rather than a second one: the game draws them
 from their own narrower sheet, so art drawn for the wide one puts a belt buckle
 on somebody's knee.
 
-This is vanilla's own equipment path, which arrived in 1.21.4 and is the reason
-the version floor is where it is. It replaces the old tricks outright — dyed
-leather spends a colour that can then never be used for anything else, and
-armour trims are stuck in the trim palette.
+This is vanilla's own equipment path, which arrived in 1.21.4. It replaces the
+old tricks outright — dyed leather spends a colour that can then never be used
+for anything else, and armour trims are stuck in the trim palette.
+
+**On an older server this is the one part of the format that is reduced.**
+Below 1.21.2 only materials that are already armour can be worn, so `armor:` on
+a stick does nothing; on 1.21.2 and 1.21.3 any item can be worn but draws with
+vanilla artwork. The item itself works either way, and the plugin says which
+you are on at startup.
 
 ## Entities
 

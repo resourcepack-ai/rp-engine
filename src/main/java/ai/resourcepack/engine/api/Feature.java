@@ -109,9 +109,10 @@ public enum Feature {
     ITEM_STRING_TAGS(
             McVersion.of(1, 21, 4),
             "String tags on an item stack",
-            "Rig parts carry their identity in persistent data instead, which works "
-                    + "the same in game. A rig part cannot be produced by a hand-written "
-                    + "/give command on this version."),
+            "Rig parts carry their identity in persistent data instead, which works the same "
+                    + "in game. The only difference is that a rig part cannot be produced by a "
+                    + "hand-written /give command on this version.",
+            false),
 
     /**
      * Vanilla's newer rule for where a passenger sits on its vehicle.
@@ -130,8 +131,9 @@ public enum Feature {
     MODERN_PASSENGER_OFFSET(
             McVersion.of(1, 20, 2),
             "Vanilla's newer passenger positioning",
-            "Handled: seats apply the older offset instead, so sitting on a model puts you "
-                    + "in the same place. Nothing about this is visible unless it is wrong."),
+            "Seats apply the older offset instead, so sitting on a model puts you in the "
+                    + "same place. Nothing about this is visible unless it is wrong.",
+            false),
 
     /**
      * A display entity that glides to a new position instead of appearing at
@@ -166,11 +168,17 @@ public enum Feature {
     private final McVersion since;
     private final String label;
     private final String without;
+    private final boolean visible;
 
     Feature(McVersion since, String label, String without) {
+        this(since, label, without, true);
+    }
+
+    Feature(McVersion since, String label, String without, boolean visible) {
         this.since = since;
         this.label = label;
         this.without = without;
+        this.visible = visible;
     }
 
     /** The oldest version that has this. */
@@ -193,6 +201,23 @@ public enum Feature {
      */
     public String without() {
         return without;
+    }
+
+    /**
+     * Whether a server owner should be told when this is missing.
+     *
+     * <p>False for the ones the engine handles completely: the seat offset and
+     * the rig tags are both version differences with a working answer on the
+     * other side, and nothing about the server is worse for taking it. They
+     * are still features — the code forks on them, and the fork is worth
+     * having a name and a floor — but listing them in a startup report would
+     * pad a list whose whole value is that every line on it matters.
+     *
+     * <p>The test for adding one: if the honest sentence starts with "handled",
+     * it does not belong in the report.
+     */
+    public boolean visible() {
+        return visible;
     }
 
     /** Whether a server on {@code version} has this. */

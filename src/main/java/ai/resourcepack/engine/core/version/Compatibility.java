@@ -129,6 +129,24 @@ public final class Compatibility {
     }
 
     /**
+     * The missing features a server owner should actually be told about.
+     *
+     * <p>Which is not all of them: see {@link Feature#visible()}. A report that
+     * lists a difference the engine handled completely is a report with a line
+     * on it that does not matter, and one of those teaches somebody the rest
+     * do not either.
+     */
+    public List<Feature> reportable() {
+        List<Feature> reportable = new ArrayList<>();
+        for (Feature feature : missing()) {
+            if (feature.visible()) {
+                reportable.add(feature);
+            }
+        }
+        return reportable;
+    }
+
+    /**
      * What to tell the server owner at startup, one line each.
      *
      * <p>Silent on a server that has everything — the overwhelming case, and
@@ -147,7 +165,7 @@ public final class Compatibility {
                     + "\"made for a different version\" warning, set pack.format in "
                     + "config.yml and update the plugin.");
         }
-        List<Feature> missing = missing();
+        List<Feature> missing = reportable();
         if (missing.isEmpty()) {
             return lines;
         }
