@@ -10,7 +10,9 @@ import ai.resourcepack.engine.core.pack.PackContributor;
 import com.google.gson.JsonObject;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -40,6 +42,38 @@ import java.util.Optional;
 public final class ItemAssets implements PackContributor {
 
     private Bundle bundle;
+
+    /**
+     * How this server addresses a model, and the numbers to do it with.
+     *
+     * <p>Null on the definitions era, where nothing is numbered. That is a
+     * deliberate null rather than an empty allocator: asking for a number on a
+     * server that does not use them would fill a file on disk with assignments
+     * nothing reads, and that file is the one thing here that must not drift.
+     */
+    private final ModelNumbers numbers;
+    private final boolean numbered;
+
+    /** Definitions era: models are named, and nothing is allocated. */
+    public ItemAssets() {
+        this(null);
+    }
+
+    /**
+     * @param numbers the allocator on a version that addresses models by
+     *                number, or null on 1.21.4 and up
+     */
+    public ItemAssets(ModelNumbers numbers) {
+        this.numbers = numbers;
+        this.numbered = numbers != null;
+    }
+
+    /**
+     * Every custom model reachable from one vanilla material, gathered as the
+     * items are written and flushed into that material's own model file at the
+     * end — see {@link LegacyItemModels}. Empty on the definitions era.
+     */
+    private final Map<String, List<LegacyItemModels.Override>> legacyBases = new LinkedHashMap<>();
     private final Map<String, ModelRigs.Rig> rigs = new LinkedHashMap<>();
 
     /**
@@ -58,6 +92,7 @@ public final class ItemAssets implements PackContributor {
     @Override
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
         this.bundle = bundle;
+        legacyBases.clear();
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
@@ -71,6 +106,40 @@ public final class ItemAssets implements PackContributor {
             }
             writeItem(item, into);
         }
+        writeLegacyBases(into);
+    }
+
+    /**
+     * The base item model files, one per vanilla material this bundle put a
+     * custom model on. Only on the numbered eras; the definitions era has
+     * nothing to write here at all.
+     *
+     * <p>At the end rather than as each item is written, because one file
+     * carries every custom model built on that material and the last writer
+     * would otherwise win.
+     */
+    private void writeLegacyBases(Contribution into) {
+        for (Map.Entry<String, List<LegacyItemModels.Override>> entry : legacyBases.entrySet()) {
+            String material = entry.getKey();
+            into.add(LegacyItemModels.path(material),
+                    LegacyItemModels.json(material, isBlock(material), entry.getValue()));
+        }
+    }
+
+    /**
+     * Whether a material's item form is a block model.
+     *
+     * <p>Asked of the running server rather than guessed from the name,
+     * because that is the one place the answer is authoritative. Off a server
+     * — a unit test — nothing is a block, which is the shape the overwhelming
+     * majority of carriers have anyway.
+     */
+    private static boolean isBlock(String material) {
+        try {
+            return org.bukkit.Material.valueOf(material).isBlock();
+        } catch (RuntimeException | NoClassDefFoundError e) {
+            return false;
+        }
     }
 
     private void writeItem(ItemInfo item, Contribution into) {
@@ -79,10 +148,28 @@ public final class ItemAssets implements PackContributor {
         String modelRef = namespace + ":item/" + id.path();
         String modelPath = "assets/" + namespace + "/models/item/" + id.path() + ".json";
 
-        // The item definition is the same either way. What differs is what the
-        // model it points at turns out to be.
-        into.add("assets/" + namespace + "/items/" + id.path() + ".json",
-                json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}}"));
+        // How the model is reached is the server's version. On 1.21.4 and up
+        // the id names an item definition; below it the id has a number and
+        // the reference goes into a predicate on the base material's own
+        // model, gathered here and written once at the end.
+        if (numbered) {
+            String material = item.material();
+            legacyBases.computeIfAbsent(material, key -> new ArrayList<>())
+                    .add(new LegacyItemModels.Override(numbers.of(id), modelRef));
+            if (LegacyItemModels.isAwkward(material)) {
+                into.warn(namespace + "/items", id.path(),
+                        "On this Minecraft a custom model is a predicate inside "
+                                + material.toLowerCase(java.util.Locale.ROOT)
+                                + "'s own model file, and vanilla's copy of that file cannot be "
+                                + "reproduced here. This item works, but plain "
+                                + material.toLowerCase(java.util.Locale.ROOT)
+                                + " may look wrong for everybody on the server. Build it on a "
+                                + "simpler material, or run Minecraft 1.21.4 or newer.");
+            }
+        } else {
+            into.add("assets/" + namespace + "/items/" + id.path() + ".json",
+                    json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}}"));
+        }
 
         if (item.model().isPresent()) {
             writeModel(item, namespace, modelPath, into);
