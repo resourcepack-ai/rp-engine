@@ -308,15 +308,11 @@ public final class ModelPlacementListener implements Listener {
             return null;
         }
         stack.setAmount(1);
-        int colon = part.item.indexOf(':');
-        if (colon < 0) {
-            return stack;
-        }
-        ItemMeta meta = stack.getItemMeta();
-        if (meta != null) {
-            meta.setItemModel(new NamespacedKey(part.item.substring(0, colon), part.item.substring(colon + 1)));
-            stack.setItemMeta(meta);
-        }
+        // Through the service rather than setItemModel directly, because how
+        // a model is addressed depends on the server's version — see
+        // Items.wearModel. A part id that is not a content id is left alone,
+        // which is the same tolerance the old code had for a missing colon.
+        ContentId.parse(part.item).ifPresent(model -> items.wearModel(stack, model));
         return stack;
     }
 

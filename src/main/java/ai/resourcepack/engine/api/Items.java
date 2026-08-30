@@ -47,4 +47,24 @@ public interface Items {
 
     /** Whether {@code stack} is the custom item {@code id}. */
     boolean is(ItemStack stack, ContentId id);
+
+    /**
+     * Points {@code stack} at the model belonging to {@code modelId}, however
+     * this server's Minecraft addresses models.
+     *
+     * <p>For building a stack the engine did not create: one part of a rig,
+     * or a stack of your own that should wear a pack's art. It changes only
+     * the model — not the item's identity, which stays whatever the stack
+     * already was.
+     *
+     * <p><b>Use this rather than setting the model yourself.</b> On 1.21.4 and
+     * up a model is named by the {@code item_model} component; below that it
+     * is chosen by a number that has to be allocated and remembered, and the
+     * number this returns is the one the built pack was written against.
+     * Calling {@code setItemModel} directly works on a current server and
+     * silently produces an unmodelled item on an older one.
+     *
+     * @return whether the model was applied; false if the stack has no meta
+     */
+    boolean wearModel(ItemStack stack, ContentId modelId);
 }
