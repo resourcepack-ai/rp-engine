@@ -4,12 +4,15 @@ package ai.resourcepack.engine.api;
  * How a custom item's model is addressed on a given server.
  *
  * <p>Unlike {@link Feature}, this is not a capability that is present or
- * absent — it is a fork with three arms, and exactly one of them is taken.
- * It gets its own type because the choice reaches both halves of the engine
- * at once: it decides what the pack builder writes into the zip <em>and</em>
- * what the plugin puts on an {@code ItemStack}, and those two must agree or
- * every custom item in the game is a purple cube. A pair of booleans read at
- * two call sites is exactly how they would come to disagree.
+ * absent — it is a fork, and exactly one arm is taken. It gets its own type
+ * because the choice reaches both halves of the engine at once: it decides
+ * what the pack builder writes into the zip <em>and</em> what the plugin puts
+ * on an {@code ItemStack}, and those two must agree or every custom item in
+ * the game is a purple cube. A pair of booleans read at two call sites is
+ * exactly how they would come to disagree.
+ *
+ * <p>Three arms, but the engine only ever branches two ways — see
+ * {@link #NBT} for why the third is carried anyway.
  *
  * <p><b>These names are shared with studio deliberately.</b> Studio's pack
  * exporter has the same three arms under the same names, in
@@ -41,13 +44,22 @@ public enum ItemEra {
     COMPONENTS,
 
     /**
-     * 1.19.4 to 1.20.4. The same numbering as {@link #COMPONENTS} and the same
-     * predicates in the pack — the difference is entirely in how the value is
-     * attached to a stack, which is item NBT rather than a component.
+     * 1.19.4 to 1.20.4. The same numbering as {@link #COMPONENTS}, the same
+     * predicates in the pack, and — the part worth writing down — the same
+     * code here.
      *
-     * <p>Two arms rather than one because the pack side is identical and the
-     * server side is not: the API that sets it changed underneath, so the
-     * split is where the code has to fork, not where the format does.
+     * <p>{@code ItemMeta.setCustomModelData(Integer)} has existed since 1.14
+     * and still does; what changed underneath in 1.20.5 is where the server
+     * stores the value, which is not something this side can see. So the
+     * engine does not fork between this arm and {@link #COMPONENTS} anywhere:
+     * ask {@link #needsNumbers()} instead, which is the question it actually
+     * has.
+     *
+     * <p>The arm exists anyway, because the boundary is real elsewhere.
+     * Studio writes {@code /give} command text, and the syntax for attaching
+     * the number differs across exactly this line. Keeping both sides' arms
+     * named the same is what lets somebody hold the two files up against each
+     * other, which is the only check these two have.
      */
     NBT;
 
