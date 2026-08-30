@@ -191,7 +191,46 @@ group = 'ai.resourcepack'
 //         which is the property that matters next to models. The cost is
 //         vanilla's other half, names through terrain, and it is settable
 //         because it is a rendering judgement rather than a fact.
-version = '0.46.8'
+// 0.47.0: three days of work, and the first release with the integration
+//         harness behind it (integration/, `node integration/run.mjs`) — a
+//         second plugin that drives this one against a real Paper server.
+//         Two of the defects below were caught by it and by nothing else.
+//
+//         LIQUIDS gain a colour of their own, written as one generated biome
+//         per tinted liquid and applied over a pool. A biome is registered at
+//         startup, so a new colour needs a restart and the engine says so.
+//         An item can be a bucket of one (`liquid:`), and a placed block joins
+//         the pool it touches rather than starting a second.
+//
+//         CUSTOM BLOCKS, reversing the decision that they were not happening.
+//         A note block or mushroom stem in a spare state wearing your model,
+//         mineable with real hardness and a real tool requirement, because the
+//         engine breaks its own blocks. Identity is the note and the powered
+//         flag and NOT the instrument: the game recomputes that from the block
+//         beneath, inside a shape update no event can refuse, which the
+//         harness proved by putting hay under one. 49 per note block, 63 per
+//         mushroom stem, and blocks.json must never be lost.
+//
+//         ITEMSADDER AND MODELENGINE PACKS LOAD AS THEY COME. An IA config is
+//         recognised by its own shape and translated at load — items, blocks,
+//         font images, recipes, entities. A ModelEngine blueprints/ folder
+//         gives one item per .bbmodel; nothing is converted, because their
+//         bone prefixes were already ours.
+//
+//         SEVEN NEW EVENTS: ContentLoad, PackSend, ModelSeat, ModelBind,
+//         ModelAnimationEnd, EntityDeath and PlayerLiquid — the list checked
+//         against what both of those plugins fire.
+//
+//         TOML is read wherever YAML is. A command named in a chat message is
+//         clickable. /emote can be turned off. A seat takes x, y and z, and a
+//         global nudge for how the game draws sitting.
+//
+//         Two fixes worth their own line: a right-click into the air did
+//         nothing at all, because Bukkit builds that event pre-cancelled and
+//         the listener ignored cancelled ones; and a chair sat you two and a
+//         half blocks into the floor, because a marker armour stand's rider
+//         sits 0.7 BELOW it rather than 1.75 above.
+version = '0.47.0'
 
 java {
     toolchain {
