@@ -86,11 +86,14 @@ public final class BlockDefinitions {
             }
         }
 
-        int light = body.integer("light").orElse(0);
-        if (light < 0 || light > 15) {
+        // Refused rather than clamped or ignored: light comes from a block's
+        // type and no state changes it, so there is no version of this that
+        // works. Saying where it does work is the useful half of the message.
+        if (body.raw("light") != null) {
             diagnostics.add(Diagnostic.warning(origin, where,
-                    "light: " + light + " is outside 0-15 and was clamped."));
-            light = Math.max(0, Math.min(15, light));
+                    "light: a custom block cannot give off light - that belongs to the block's "
+                            + "type, not its state. A placed model can: put it on an item's "
+                            + "place: block instead."));
         }
 
         ContentId drop = null;
@@ -105,7 +108,7 @@ public final class BlockDefinitions {
         }
 
         return Optional.of(BlockInfo.of(definition.id(), base, model, hardness,
-                body.string("tool").orElse(null), drop, light,
+                body.string("tool").orElse(null), drop,
                 body.string("sound").orElse(null)));
     }
 

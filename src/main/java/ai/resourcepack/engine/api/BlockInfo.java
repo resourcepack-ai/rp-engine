@@ -67,24 +67,22 @@ public final class BlockInfo {
     private final float hardness;
     private final String tool;
     private final ContentId drop;
-    private final int light;
     private final String sound;
 
     private BlockInfo(ContentId id, Base base, String model, float hardness,
-                      String tool, ContentId drop, int light, String sound) {
+                      String tool, ContentId drop, String sound) {
         this.id = id;
         this.base = base;
         this.model = model;
         this.hardness = hardness;
         this.tool = tool;
         this.drop = drop;
-        this.light = light;
         this.sound = sound;
     }
 
     /** Engine internal; built by the block loader. */
     public static BlockInfo of(ContentId id, Base base, String model, float hardness,
-                               String tool, ContentId drop, int light, String sound) {
+                               String tool, ContentId drop, String sound) {
         return new BlockInfo(
                 Objects.requireNonNull(id, "id"),
                 base == null ? Base.NOTE_BLOCK : base,
@@ -92,7 +90,6 @@ public final class BlockInfo {
                 hardness,
                 tool == null ? "" : tool,
                 drop,
-                light,
                 sound == null ? "" : sound);
     }
 
@@ -134,17 +131,18 @@ public final class BlockInfo {
         return Optional.ofNullable(drop);
     }
 
-    /** How much light it gives off, 0 to 15. */
-    public int light() {
-        return light;
-    }
-
     /**
-     * The sound it makes, as a vanilla sound group: {@code stone},
-     * {@code wood}, {@code metal}, {@code glass}, {@code wool}.
+     * A sound played over the base block's own when this is placed or broken.
      *
-     * <p>Empty leaves the base block's own, which is a note block's wooden
-     * one. Worth setting on anything that is meant to be stone.
+     * <p>Deliberately <em>over</em> rather than instead of. A block's sound
+     * group belongs to its type, not its state, so a custom block is a note
+     * block and thuds like wood however it is painted — the game plays that
+     * sound on the client and there is nothing server-side to suppress. What
+     * can be done is play something louder on top, which is what a stone
+     * "clack" over a wooden thud actually amounts to.
+     *
+     * <p>A sound id of yours, or a vanilla key like
+     * {@code minecraft:block.stone.place}.
      */
     public Optional<String> sound() {
         return sound.isEmpty() ? Optional.empty() : Optional.of(sound);
