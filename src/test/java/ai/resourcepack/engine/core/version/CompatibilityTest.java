@@ -139,6 +139,37 @@ class CompatibilityTest {
     }
 
     @Test
+    void theReportLeavesOutTheDifferencesItHandledItself() {
+        // A report that lists something the engine dealt with completely has a
+        // line on it that does not matter, and one of those teaches a reader
+        // that the rest do not either. Both of these are real forks with real
+        // floors; neither costs the server owner anything.
+        Compatibility old = Compatibility.of(McVersion.OLDEST_SUPPORTED);
+        assertTrue(old.missing().contains(Feature.MODERN_PASSENGER_OFFSET));
+        assertTrue(old.missing().contains(Feature.ITEM_STRING_TAGS));
+        assertFalse(old.reportable().contains(Feature.MODERN_PASSENGER_OFFSET));
+        assertFalse(old.reportable().contains(Feature.ITEM_STRING_TAGS));
+
+        String report = String.join(" ", old.report());
+        assertFalse(report.contains(Feature.MODERN_PASSENGER_OFFSET.label()), report);
+        assertFalse(report.contains(Feature.ITEM_STRING_TAGS.label()), report);
+    }
+
+    @Test
+    void everyVisibleFeatureIsInTheReportWhenItIsMissing() {
+        // The docs page at /rp-engine/versions is this same list by hand, and
+        // nothing spans the two. At least make the code side self-consistent.
+        Compatibility old = Compatibility.of(McVersion.OLDEST_SUPPORTED);
+        String report = String.join(" ", old.report());
+        for (Feature feature : Feature.values()) {
+            if (feature.visible()) {
+                assertTrue(report.contains(feature.label()),
+                        feature + " is visible and missing but is not in the report");
+            }
+        }
+    }
+
+    @Test
     void everyFeatureCanExplainItsOwnAbsence() {
         // The contract of the enum, and the reason it is worth having.
         for (Feature feature : Feature.values()) {
