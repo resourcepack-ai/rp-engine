@@ -10,7 +10,6 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -44,12 +43,20 @@ import java.util.regex.Pattern;
  * first." — a rule that swallowed following words would make the command
  * "/rp sync &lt;code&gt; first", which suggests nonsense.
  *
- * <p>So a command extends only over words the command layer actually has:
- * {@link #vocabulary} is every subcommand and verb, derived from the help
- * rather than listed here, plus anything that is obviously an argument (a
- * placeholder, an {@code id:with:colons}, a number). The first word that is
- * none of those ends the command, which is almost always the moment the
- * sentence resumes.
+ * <p>So a command extends only as far as it is still <strong>a real
+ * command</strong>. {@link #signatures} holds every one the command layer
+ * answers to, as its words, and a message word is taken only while what has
+ * been taken so far is the beginning of one of them.
+ *
+ * <p><strong>That is a prefix match, not a word list, and the difference is
+ * the whole bug this class used to have.</strong> A bag of known words cannot
+ * tell "/rp distribute off" followed by the sentence "stop serving it" from a
+ * command ending in "stop", because "stop" is a word the command layer knows —
+ * just not <em>there</em>. Worse, it could not tell that "/rp sync accept" is
+ * a command at all, because no line of help spells "accept", so it truncated
+ * to "/rp sync" and — having no placeholder left in it — wired that to RUN
+ * rather than SUGGEST. The invitation a player is sent said "click here" and
+ * ran the wrong command.
  */
 public final class Chat {
 
@@ -59,43 +66,48 @@ public final class Chat {
      */
     private static final Set<String> ROOTS = Set.of("rpengine", "rpe", "rp", "emote", "emotereply");
 
-    /**
-     * Words that are part of a command but appear in no help line.
-     *
-     * <p>Small on purpose. Everything a subcommand is called comes from
-     * {@link #vocabulary(Set)}; these are the handful of literal arguments
-     * that only ever appear inside a sentence — {@code distribute off},
-     * {@code hud clear}.
-     */
-    private static final Set<String> LITERALS = Set.of("off", "on", "clear", "list", "stop");
+    /** Splitting a command into its words. */
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private static final Pattern ROOT = Pattern.compile("/([a-z]+)", Pattern.CASE_INSENSITIVE);
 
-    /** Every word the command layer knows. Replaced on a reload. */
-    private static volatile Set<String> vocabulary = Set.of();
+    /**
+     * Every command the command layer answers to, split into its words.
+     *
+     * <p>Replaced on a reload. Empty until the command layer has been built,
+     * which means a message sent before then carries no clickable command
+     * rather than a wrong one.
+     */
+    private static volatile List<String[]> signatures = List.of();
 
     private Chat() {
     }
 
     /**
-     * Adopts the command layer's vocabulary. Called once at startup.
+     * Adopts the command layer's commands. Called once at startup.
+     *
+     * <p>Each entry is one command as its words, without the leading slash or
+     * the root: {@code "sync accept"}, {@code "give <id> [n]"}.
      *
      * <p>Derived rather than written down for the same reason the router's
-     * subcommand list is: a command that exists without a line of help is a
-     * bug elsewhere, and one whose name is spelled twice goes stale.
+     * subcommand list is — a command spelled twice goes stale — and it must be
+     * <em>every</em> command rather than every command that has a line of
+     * help. That distinction is what used to be wrong: {@code sync accept} has
+     * no help line of its own, so it was not a command as far as this class
+     * was concerned, and the invitation naming it got truncated. A verb
+     * missing from here is a verb a message gets cut off at.
      */
-    public static void vocabulary(Set<String> words) {
-        Set<String> all = new LinkedHashSet<>(LITERALS);
-        if (words != null) {
-            for (String word : words) {
-                for (String part : word.toLowerCase(Locale.ROOT).split("\\s+")) {
-                    if (!part.isEmpty()) {
-                        all.add(part);
-                    }
+    public static void commands(Set<String> known) {
+        List<String[]> parsed = new ArrayList<>();
+        if (known != null) {
+            for (String command : known) {
+                if (command == null || command.trim().isEmpty()) {
+                    continue;
                 }
+                parsed.add(WHITESPACE.split(command.trim().toLowerCase(Locale.ROOT)));
             }
         }
-        vocabulary = Set.copyOf(all);
+        signatures = List.copyOf(parsed);
     }
 
     /**
@@ -146,54 +158,139 @@ public final class Chat {
     /**
      * Where the command starting at {@code at} stops.
      *
-     * <p>Word by word, keeping only what the command layer would recognise.
-     * See the class note: this is the whole difficulty.
+     * <p>Word by word, keeping a word only while what has been kept so far is
+     * still the beginning of a real command. See the class note: this is the
+     * whole difficulty, and a word list cannot do it.
      */
     private static int endOf(String line, int at) {
+        List<String> taken = new ArrayList<>(4);
         int end = at;
-        while (end < line.length()) {
-            int start = end;
+        int cursor = at;
+        while (cursor < line.length()) {
+            int start = cursor;
             while (start < line.length() && line.charAt(start) == ' ') {
                 start++;
             }
-            if (start == end || start >= line.length()) {
+            if (start >= line.length()) {
                 break;
             }
-            int stop = start;
-            while (stop < line.length() && line.charAt(stop) != ' ') {
-                stop++;
+            int stop = wordEnd(line, start);
+            String raw = line.substring(start, stop);
+            String word = strip(raw);
+            if (word.isEmpty()) {
+                break;
             }
-            String word = strip(line.substring(start, stop));
-            if (!partOfCommand(word)) {
+            taken.add(word);
+            if (!isPrefix(taken)) {
                 break;
             }
             end = start + word.length();
+            cursor = stop;
         }
         return end;
     }
 
-    /** Whether a word belongs to the command rather than to the sentence. */
-    private static boolean partOfCommand(String word) {
-        if (word.isEmpty()) {
-            return false;
-        }
-        char first = word.charAt(0);
-        if (first == '<' || first == '[' || word.equals("|")) {
-            return true;
-        }
-        if (word.indexOf(':') > 0 || word.chars().allMatch(Character::isDigit)) {
-            return true;
-        }
-        // A choice written as one word — accept|deny, id|clear — is part of it
-        // if any side of it is.
-        for (String side : word.split("\\|")) {
-            if (!side.isEmpty() && !vocabulary.contains(side.toLowerCase(Locale.ROOT))
-                    && side.charAt(0) != '<' && side.charAt(0) != '[') {
-                return false;
+    /**
+     * Where one word of a message ends.
+     *
+     * <p>Normally the next space. The exception is a placeholder with spaces
+     * inside it — {@code <text with :namespace:id: in it>} — which is one
+     * argument however many words it looks like, and which used to be cut in
+     * half at the first space and suggested as {@code /rp say &lt;text}.
+     */
+    private static int wordEnd(String line, int start) {
+        char open = line.charAt(start);
+        char close = open == '<' ? '>' : open == '[' ? ']' : 0;
+        if (close != 0) {
+            int found = line.indexOf(close, start);
+            if (found >= 0) {
+                return found + 1;
             }
         }
-        return true;
+        int stop = start;
+        while (stop < line.length() && line.charAt(stop) != ' ') {
+            stop++;
+        }
+        return stop;
     }
+
+    /**
+     * Whether {@code taken} is the beginning of some command the layer has.
+     *
+     * <p>The one question this class asks, and the reason it can tell "/rp
+     * distribute off" in the sentence "stop serving it" from a command that
+     * ends in "stop": after {@code distribute off} no command continues with
+     * {@code stop}, so the sentence resumes there.
+     */
+    private static boolean isPrefix(List<String> taken) {
+        for (String[] signature : signatures) {
+            if (signature.length < taken.size()) {
+                continue;
+            }
+            boolean all = true;
+            for (int i = 0; i < taken.size(); i++) {
+                if (!wordMatches(taken.get(i), signature[i])) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether one word of a message fills one word of a command.
+     *
+     * <p>A literal matches itself. A placeholder — {@code <id>}, {@code [n]},
+     * {@code <id|clear>} — matches the placeholder written out as the message
+     * usually does, one of the alternatives named inside it, or something that
+     * is plainly an argument rather than prose: an {@code id:with:colons}, or
+     * a number.
+     *
+     * <p>It does <strong>not</strong> match an arbitrary word. That is the
+     * tightening: a placeholder that accepted anything would swallow the rest
+     * of the sentence, which is the failure the class note describes from the
+     * other direction.
+     */
+    private static boolean wordMatches(String word, String slot) {
+        String lower = word.toLowerCase(Locale.ROOT);
+        if (isPlaceholder(slot)) {
+            if (isPlaceholder(lower)) {
+                return true;
+            }
+            for (String option : inside(slot).split("\\|")) {
+                if (!option.isEmpty() && !isPlaceholder(option) && option.equals(lower)) {
+                    return true;
+                }
+            }
+            return lower.indexOf(':') > 0 || lower.chars().allMatch(Character::isDigit);
+        }
+        for (String option : slot.split("\\|")) {
+            if (option.equals(lower)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPlaceholder(String word) {
+        return word.length() > 1
+                && (word.charAt(0) == '<' || word.charAt(0) == '[');
+    }
+
+    /** A placeholder without its brackets, for reading the choices inside. */
+    private static String inside(String slot) {
+        int end = slot.length();
+        char last = slot.charAt(end - 1);
+        if (last == '>' || last == ']') {
+            end--;
+        }
+        return slot.substring(1, Math.max(1, end));
+    }
+
 
     /** Punctuation the sentence owns rather than the command. */
     private static String strip(String word) {

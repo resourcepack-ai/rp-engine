@@ -31,6 +31,9 @@ public final class SyncCommands implements Area {
     private static final List<String> VERBS =
             List.of("add", "accept", "deny", "remove", "leave", "who", "stop");
 
+    /** The two that name somebody. Everything else takes no argument. */
+    private static final List<String> TAKES_PLAYER = List.of("add", "remove");
+
     private final Server server;
     private final SyncClient sync;
     private final SyncGroup group;
@@ -63,6 +66,27 @@ public final class SyncCommands implements Area {
                 Help.of("sync add", "<player>", "share your pushes"),
                 Help.of("sync", "who|leave|stop", "see or end a sync"),
                 Help.of("distribute", "<code|off>", "serve it to everyone"));
+    }
+
+    /**
+     * Every verb, not just the four the help has room to spell.
+     *
+     * <p>The help is width-limited, so {@code who|leave|stop} is one line for
+     * three commands and {@code accept}, {@code deny} and {@code remove} have
+     * no line at all — they are answers to something, reached from the message
+     * that asks. Chat needs all of them anyway, or the invitation that says
+     * "/rp sync accept, or deny" gets linked as far as "/rp sync" and runs
+     * that instead.
+     */
+    @Override
+    public List<String> signatures() {
+        List<String> all = new ArrayList<>();
+        all.add("sync <code>");
+        all.add("distribute <code|off>");
+        for (String verb : VERBS) {
+            all.add(TAKES_PLAYER.contains(verb) ? "sync " + verb + " <player>" : "sync " + verb);
+        }
+        return all;
     }
 
     @Override
@@ -161,8 +185,13 @@ public final class SyncCommands implements Area {
         switch (group.invite(player.getName(), target.getName())) {
             case OK:
                 Reply.to(player, "Asked " + target.getName() + ".");
+                // Both commands written out in full, because only a full one
+                // is clickable — "or deny" on its own is a word in a sentence
+                // and the player would have to type the rest of it. The emote
+                // invitation solves the same problem with [accept] [deny]
+                // buttons; this is the same idea with less machinery.
                 Reply.to(target, player.getName()
-                        + " wants to share a pack with you. /rp sync accept, or deny.");
+                        + " wants to share a pack with you. /rp sync accept or /rp sync deny.");
                 return true;
             case NOT_SYNCED:
                 Reply.to(player, "You are not synced. /rp sync <code> first.");

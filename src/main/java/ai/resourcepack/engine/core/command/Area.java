@@ -45,6 +45,21 @@ interface Area {
     }
 
     /**
+     * Every command this area answers to, as its words, for the chat linker.
+     *
+     * <p>Defaults to the help, which is right wherever every command has a
+     * line of its own. It is <strong>not</strong> right where a line covers
+     * several verbs at once — {@code sync who|leave|stop} is one line and
+     * three commands, and {@code sync accept} is a command with no line at
+     * all. An area in that position overrides this, and until one did, a
+     * message naming one of those verbs was truncated at the last word the
+     * help happened to spell. See {@link ai.resourcepack.engine.core.Chat}.
+     */
+    default List<String> signatures() {
+        return help().stream().map(Help::signature).distinct().toList();
+    }
+
+    /**
      * Runs one.
      *
      * @param sub  the subcommand, already lowercased and known to be ours

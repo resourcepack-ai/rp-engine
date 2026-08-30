@@ -26,9 +26,16 @@ class ChatTest {
 
     @BeforeEach
     void setUp() {
-        // What EngineCommand hands it at startup, derived from the help.
-        Chat.vocabulary(Set.of("sync <code>", "sync add <player>", "liquid corner",
-                "liquid fill <id>", "give <id> [amount]", "emote <name|stop>", "distribute <code>",
+        // What EngineCommand hands it at startup. Every command, not every
+        // command with a line of help — the distinction this fixture used to
+        // get wrong, which is why these tests passed while the real thing
+        // truncated "/rp sync accept" to "/rp sync".
+        Chat.commands(Set.of("sync <code>", "sync add <player>", "sync remove <player>",
+                "sync accept", "sync deny", "sync who", "sync leave", "sync stop",
+                "liquid corner", "liquid fill <id>", "liquid clear",
+                "give <id> [amount]", "emote <name|stop>", "reload", "push",
+                "accept", "deny",
+                "distribute <code|off>", "say <text>", "sound <id> [player]",
                 "hud <id|clear> [player]"));
     }
 
@@ -50,6 +57,80 @@ class ChatTest {
             all.append(part.toPlainText());
         }
         return all.toString();
+    }
+
+    @Test
+    void theInvitationLinksTheCommandItNames() {
+        // The one that was wrong in production. "accept" has no line of help,
+        // so a word-list matcher stopped at "sync", and the truncated command
+        // had no placeholder left in it — which made it RUN rather than
+        // SUGGEST. A player clicking the invitation ran "/rp sync" and got a
+        // usage error.
+        ClickEvent click = only("Alice wants to share a pack with you. /rp sync accept, or deny.")
+                .orElseThrow();
+        assertEquals("/rp sync accept", click.getValue());
+        assertEquals(ClickEvent.Action.RUN_COMMAND, click.getAction());
+    }
+
+    @Test
+    void bothHalvesOfAnInvitationAreClickable() {
+        // "or deny" is a word in a sentence, not a command, so only the first
+        // half was ever clickable. The message names both in full now.
+        List<ClickEvent> both =
+                clicks("Alice wants to share a pack with you. /rp sync accept or /rp sync deny.");
+        assertEquals(2, both.size());
+        assertEquals("/rp sync accept", both.get(0).getValue());
+        assertEquals("/rp sync deny", both.get(1).getValue());
+    }
+
+    @Test
+    void aVerbWithNoLineOfHelpIsStillACommand() {
+        assertEquals("/rp sync remove <player>",
+                only("/rp sync remove <player>").orElseThrow().getValue());
+        assertEquals("/rp sync who", only("Nobody else. /rp sync who to check.")
+                .orElseThrow().getValue());
+    }
+
+    @Test
+    void aCommandWordDoesNotEatTheSameWordInTheSentence() {
+        // "stop" is a real command word and "stop serving it" is a sentence.
+        // A word list cannot tell those apart; a prefix match can, because no
+        // command continues "distribute off" with "stop".
+        ClickEvent click = only("/rp distribute off     stop serving it").orElseThrow();
+        assertEquals("/rp distribute off", click.getValue());
+    }
+
+    @Test
+    void aPlaceholderWithSpacesInItIsOneArgument() {
+        // Cut at the first space, this suggested "/rp say <text".
+        assertEquals("/rp say <text with :namespace:id: in it>",
+                only("/rp say <text with :namespace:id: in it>").orElseThrow().getValue());
+    }
+
+    @Test
+    void aTruncatedCommandIsNeverWiredToRun() {
+        // The compounding failure: truncation usually removes the placeholder,
+        // and a command with no placeholder is RUN rather than SUGGEST. So a
+        // wrong span did not just look wrong, it executed something.
+        for (String line : List.of(
+                "Alice wants to share a pack with you. /rp sync accept, or deny.",
+                "/rp sync remove <player>",
+                "/rp distribute off     stop serving it")) {
+            for (ClickEvent click : clicks(line)) {
+                boolean fillIn = click.getValue().indexOf('<') >= 0
+                        || click.getValue().indexOf('[') >= 0
+                        || click.getValue().indexOf('|') >= 0;
+                assertEquals(fillIn ? ClickEvent.Action.SUGGEST_COMMAND : ClickEvent.Action.RUN_COMMAND,
+                        click.getAction(), click.getValue());
+            }
+        }
+    }
+
+    @Test
+    void aWordTheCommandLayerKnowsIsNotACommandInTheWrongPlace() {
+        // "push" is a command. "Nothing to push." is a sentence about one, and
+        // the word is not preceded by a slash, so nothing should link at all.
+        assertTrue(clicks("Nothing to push.").isEmpty());
     }
 
     @Test

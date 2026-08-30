@@ -44,6 +44,24 @@ public final class EmoteCommands implements Area {
                 Help.of("emote", "<name|stop>", "play one on yourself"));
     }
 
+    /**
+     * The help covers {@code /rp emote}; this area also owns two commands of
+     * its own, {@code /emote} and {@code /emotereply}, and their usage lines
+     * are sent as chat like any other message.
+     *
+     * <p>{@code /emotereply} has no line of help on purpose — it is an answer
+     * to an invitation rather than something to go and look up — which is
+     * exactly the case that leaves a message naming it truncated if it is not
+     * declared here.
+     */
+    @Override
+    public List<String> signatures() {
+        List<String> all = new ArrayList<>(Area.super.signatures());
+        all.add("<accept|deny> <token>");
+        all.add("<name|stop> [player...]");
+        return all;
+    }
+
     @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
         if (sub.equals("emotes")) {
