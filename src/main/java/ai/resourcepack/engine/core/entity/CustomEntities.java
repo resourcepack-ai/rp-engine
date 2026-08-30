@@ -3,10 +3,12 @@ package ai.resourcepack.engine.core.entity;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.core.version.Vanilla;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -136,8 +138,17 @@ public final class CustomEntities implements Listener {
 
         if (mob instanceof LivingEntity && info.health() > 0) {
             LivingEntity living = (LivingEntity) mob;
-            living.getAttribute(Attribute.MAX_HEALTH).setBaseValue(info.health());
-            living.setHealth(info.health());
+            // Through a key rather than the constant: the field is called
+            // GENERIC_MAX_HEALTH before 1.21.3, on a type that is an enum
+            // there and an interface now, so naming it here would not compile
+            // against both and would not resolve at runtime on one of them.
+            Attribute maxHealth = Vanilla.maxHealth().orElse(null);
+            AttributeInstance instance =
+                    maxHealth == null ? null : living.getAttribute(maxHealth);
+            if (instance != null) {
+                instance.setBaseValue(info.health());
+                living.setHealth(info.health());
+            }
         }
 
         info.model().flatMap(items::create).ifPresent(item -> dress(mob, item, info.scale()));

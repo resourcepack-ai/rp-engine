@@ -178,8 +178,7 @@ public final class LiquidDefinitions {
      */
     private static boolean isEffect(String name) {
         try {
-            return org.bukkit.Registry.EFFECT.get(
-                    org.bukkit.NamespacedKey.minecraft(name.toLowerCase(Locale.ROOT))) != null;
+            return ai.resourcepack.engine.core.version.Vanilla.effect(name).isPresent();
         } catch (RuntimeException | NoClassDefFoundError | ExceptionInInitializerError e) {
             // No server. Accept it and let the runtime find out, which is the
             // same call ItemDefinitions makes about materials.

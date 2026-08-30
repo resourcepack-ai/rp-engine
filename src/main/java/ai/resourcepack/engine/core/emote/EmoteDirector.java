@@ -10,6 +10,8 @@ import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.animation.Sampler;
 
+import ai.resourcepack.engine.core.model.DisplayCarry;
+
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -2539,7 +2541,7 @@ public final class EmoteDirector implements Listener {
      * over the rig is carried on exactly the same terms as the bones under it.
      */
     private static void carry(Display display) {
-        display.setTeleportDuration(INTERPOLATION_TICKS);
+        displayCarry.carry(display);
     }
 
     /**
@@ -3982,5 +3984,25 @@ public final class EmoteDirector implements Listener {
     /** See {@link #seeThroughNameTags}. Called from the plugin on load and reload. */
     public static void nameTagsSeeThrough(boolean seeThrough) {
         seeThroughNameTags = seeThrough;
+    }
+
+    /**
+     * How a moved rig gets where it is going, which depends on the server's
+     * version — see {@link DisplayCarry}.
+     *
+     * <p>Defaults to the arm that does nothing, so that a code path reaching
+     * {@link #carry} before the plugin has resolved its compatibility snaps
+     * rather than throwing on a server where the smooth arm would not load.
+     */
+    private static volatile DisplayCarry displayCarry = new DisplayCarry.Immediate();
+
+    /** Set from the plugin once the server's version is known. */
+    public static void displayCarry(DisplayCarry carry) {
+        displayCarry = carry == null ? new DisplayCarry.Immediate() : carry;
+    }
+
+    /** How long a carried display is given to cover a move. */
+    public static int interpolationTicks() {
+        return INTERPOLATION_TICKS;
     }
 }

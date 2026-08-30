@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.Sounds;
 
+import ai.resourcepack.engine.core.version.Vanilla;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -188,8 +189,7 @@ public final class ActionRunner {
         if (words.length < 2) {
             return;
         }
-        PotionEffectType type = org.bukkit.Registry.EFFECT.get(
-                NamespacedKey.minecraft(words[0].toLowerCase(Locale.ROOT)));
+        PotionEffectType type = Vanilla.effect(words[0]).orElse(null);
         if (type == null) {
             return;
         }

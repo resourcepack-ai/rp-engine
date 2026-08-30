@@ -67,6 +67,7 @@ import ai.resourcepack.engine.core.liquid.LiquidDefinitions;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
 import ai.resourcepack.engine.core.liquid.Liquids;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
+import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
@@ -339,7 +340,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // survive a crash — and EmoteMessages' own doc says silence there
         // reads as a bug.
         emotes = new EmoteDirector(library, emoteStore);
-        seats = new Seats(this);
+        seats = new Seats(this, compatibility);
         applySeatOffset();
         creatures = new CustomEntities(this, items);
         blockStates = new BlockStates(getDataFolder());
@@ -356,6 +357,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
         getServer().getPluginManager().registerEvents(seats, this);
+        // Separately, because the event it wants is in a different package on
+        // older servers and so cannot be an annotated method. See Seats.
+        seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
         liquids.start();
         getServer().getPluginManager().registerEvents(
@@ -645,6 +649,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             (float) getConfig().getDouble("emotes.held-item-roll", 0.0));
         EmoteDirector.nameTagsSeeThrough(
             getConfig().getBoolean("emotes.nametag-see-through", false));
+        // Not config: whether a moved rig can be asked to glide is the
+        // server's version, not a preference. See DisplayCarry.
+        EmoteDirector.displayCarry(DisplayCarry.forServer(
+            compatibility, EmoteDirector.interpolationTicks()));
     }
 
     /**

@@ -3,6 +3,7 @@ package ai.resourcepack.engine.core.liquid;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LiquidInfo;
 import ai.resourcepack.engine.api.event.PlayerLiquidEvent;
+import ai.resourcepack.engine.core.version.Vanilla;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -180,7 +181,6 @@ public final class Liquids {
     }
 
     private static Optional<PotionEffectType> effectOf(String name) {
-        return Optional.ofNullable(
-                Registry.EFFECT.get(NamespacedKey.minecraft(name.toLowerCase(Locale.ROOT))));
+        return Vanilla.effect(name);
     }
 }
