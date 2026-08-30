@@ -1,11 +1,13 @@
 package ai.resourcepack.engine.core.serve;
 
 import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.api.Feature;
 import ai.resourcepack.engine.api.event.PackSendEvent;
 import org.bukkit.entity.Player;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Logger;
 
 /**
  * Turns a {@link BundleSessions.Delta} into the calls Bukkit understands.
@@ -22,12 +24,20 @@ public final class PackDelivery {
     private final PackHost host;
     private final String prompt;
     private final boolean force;
+    private final PackSending sending;
+    private final Logger logger;
 
-    public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force) {
+    /** Said once rather than on every join, which is where this would land. */
+    private boolean warnedAboutStacking;
+
+    public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
+                        PackSending sending, Logger logger) {
         this.sessions = sessions;
         this.host = host;
         this.prompt = prompt == null || prompt.isEmpty() ? null : prompt;
         this.force = force;
+        this.sending = sending;
+        this.logger = logger;
     }
 
     /**
@@ -45,9 +55,27 @@ public final class PackDelivery {
             return false;
         }
         for (BundleSessions.Held held : delta.remove()) {
-            player.removeResourcePack(held.uuid());
+            sending.remove(player, held.uuid());
         }
-        for (BuiltPack pack : delta.add()) {
+        // On a server with one pack slot, only the last one sent survives, so
+        // sending the whole stack would leave the player holding the top of it
+        // and nothing else — with the earlier sends wasted downloads. Sending
+        // only the top is the same outcome without the waste, and it is said
+        // out loud because a bundle silently not arriving is the worst
+        // version of this.
+        List<BuiltPack> adding = delta.add();
+        if (!sending.stacks() && adding.size() > 1) {
+            BuiltPack top = adding.get(adding.size() - 1);
+            if (!warnedAboutStacking) {
+                warnedAboutStacking = true;
+                logger.warning("This server's Minecraft holds one resource pack at a time, so "
+                        + "of the " + adding.size() + " bundles a player was due, only the last "
+                        + "(" + top.bundle() + ") is sent. Stacking bundles needs Minecraft "
+                        + Feature.PACK_STACKING.since() + ".");
+            }
+            adding = List.of(top);
+        }
+        for (BuiltPack pack : adding) {
             // A pushed pack is already served, at an address Studio signed and
             // the client can reach. Ours are served by us. Asking the host for
             // a pushed pack's address is how a working push became "failed to
@@ -62,7 +90,7 @@ public final class PackDelivery {
                 // an error, and not something to spam a console over.
                 continue;
             }
-            player.addResourcePack(pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
+            sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
             player.getServer().getPluginManager().callEvent(
                     new PackSendEvent(player, pack.bundle(), url.get()));
         }

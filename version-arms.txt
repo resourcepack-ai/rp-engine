@@ -1,0 +1,21 @@
+# Classes allowed to name a Minecraft API newer than the engine's floor.
+#
+# Every one of these is an arm of a version fork: a class that is constructed
+# only after something has checked the server can support it, and is therefore
+# never loaded on a server that cannot. See ItemModelWiring for the argument
+# about why that is a class boundary rather than an `if`.
+#
+# `./gradlew auditOldestApi` compiles the whole plugin against the OLDEST
+# supported API and fails on any error outside this list. So adding a name
+# here is a deliberate act that says: I have checked that nothing constructs
+# this class without first asking Compatibility.
+#
+# One class per line, as a path under src/main/java. Blank lines and lines
+# starting with # are ignored.
+
+ai/resourcepack/engine/core/item/DefinitionsWiring.java
+ai/resourcepack/engine/core/item/ModernItemComponents.java
+ai/resourcepack/engine/core/item/ComponentEquipping.java
+ai/resourcepack/engine/core/model/DisplayCarry.java
+ai/resourcepack/engine/core/model/StringRigTags.java
+ai/resourcepack/engine/core/serve/StackedPackSending.java

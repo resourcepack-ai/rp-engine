@@ -302,12 +302,17 @@ public final class BbModel {
                         continue;
                     }
                     JsonObject channels = channels(entry.getValue().getAsJsonObject());
-                    if (!channels.isEmpty()) {
+                    // size() rather than isEmpty(): JsonObject.isEmpty arrived
+                    // in Gson 2.11, and the Gson a server provides is the one
+                    // its Minecraft bundles — 1.19.4's is 2.10. JsonArray has
+                    // had isEmpty since well before that, so only the object
+                    // form is affected.
+                    if (channels.size() > 0) {
                         animators.add("g:" + group, channels);
                     }
                 }
             }
-            if (animators.isEmpty()) {
+            if (animators.size() == 0) {
                 continue;
             }
 

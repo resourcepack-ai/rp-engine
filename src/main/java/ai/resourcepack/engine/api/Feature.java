@@ -35,9 +35,10 @@ public enum Feature {
     PACK_STACKING(
             McVersion.of(1, 20, 3),
             "Multiple resource packs per player",
-            "Players hold one pack at a time. Bundles are merged into a single "
-                    + "pack per player and swapping bundles re-sends it, so a swap "
-                    + "costs a full download instead of being instant."),
+            "Players hold one pack at a time, so a player due more than one bundle gets "
+                    + "only the last of them and the rest do not arrive. Swapping bundles "
+                    + "still works and costs a full download each time rather than being "
+                    + "instant. A server that uses a single bundle is unaffected."),
 
     /**
      * Item models chosen by name, via the {@code item_model} component and the
