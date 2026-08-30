@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -73,7 +74,10 @@ public final class ContentFolderLoader {
             // ItemsAdder's own layout keeps art at the pack root. Read by the
             // builder from there as well, so warning about it would be telling
             // somebody off for a folder that works.
-            "textures", "models", "sounds", "font");
+            "textures", "models", "sounds", "font",
+            // ModelEngine's layout: a folder of .bbmodel blueprints. Read as
+            // content rather than as definitions, below.
+            "blueprints");
 
     /**
      * Kinds that are NOT put into the id space.
@@ -213,6 +217,69 @@ public final class ContentFolderLoader {
         // packs too: dropping one of their files into a pack of yours works,
         // which is the whole point.
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
+        loadBlueprints(root, folder, claimed, definitions, diagnostics);
+    }
+
+    /**
+     * ModelEngine blueprints, as items that wear them.
+     *
+     * <p>A blueprint is a {@code .bbmodel} in a {@code blueprints/} folder, and
+     * that is the whole of ModelEngine's content format — there is no YAML to
+     * translate, because their models carry everything in the save file. What
+     * is missing on this side is the thing that OWNS a model: an id somebody
+     * can give, place, or bind to a mob. So each blueprint becomes one, named
+     * after the file.
+     *
+     * <p>The bone names already mean the same thing in both engines — {@code
+     * h_}, {@code b_}, {@code p_seat}, {@code mount}, {@code tag_name} are
+     * ModelEngine's, adopted deliberately so a rig somebody already has works
+     * here. See FORMAT.md.
+     */
+    private void loadBlueprints(Path root, Path folder, Namespace namespace,
+                                List<ContentDefinition> definitions,
+                                List<Diagnostic> diagnostics) {
+        Path blueprints = folder.resolve("blueprints");
+        if (!Files.isDirectory(blueprints)) {
+            return;
+        }
+        Set<ContentId> seen = new HashSet<>();
+        for (Path file : blueprintFiles(blueprints, diagnostics, relative(root, blueprints))) {
+            String origin = relative(root, file);
+            String name = file.getFileName().toString();
+            String path = name.substring(0, name.length() - ".bbmodel".length())
+                    .toLowerCase(Locale.ROOT);
+            if (!ContentId.isValidPath(path)) {
+                diagnostics.add(Diagnostic.warning(origin, path,
+                        "A blueprint's file name is its id, and this one is not a valid one. "
+                                + "Use lowercase a-z, digits, and _ . - / only."));
+                continue;
+            }
+
+            // An item of the plainest kind: a thing that wears the model. A
+            // pack wanting more says so in items/ under the same id, and that
+            // wins, because a definition somebody wrote beats one derived from
+            // a file name.
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("material", "PAPER");
+            item.put("model", path);
+            DefinitionNode document = DefinitionNode.of(Map.of(path, item));
+            define(ContentKind.ITEM, namespace, document, path, origin, seen,
+                    definitions, diagnostics);
+        }
+    }
+
+    private List<Path> blueprintFiles(Path folder, List<Diagnostic> diagnostics, String origin) {
+        List<Path> found = new ArrayList<>();
+        for (Path child : list(folder, diagnostics, origin, path -> true)) {
+            if (Files.isDirectory(child)) {
+                // Subfolders organise; like every other category, they
+                // contribute nothing to the id.
+                found.addAll(blueprintFiles(child, diagnostics, origin));
+            } else if (child.getFileName().toString().endsWith(".bbmodel")) {
+                found.add(child);
+            }
+        }
+        return found;
     }
 
     /** Whether this folder holds an ItemsAdder config, which is what makes it a pack of theirs. */
@@ -258,7 +325,8 @@ public final class ContentFolderLoader {
             });
 
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : ItemsAdder.translate(document.get(), origin, diagnostics).entrySet()) {
+                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics)
+                    .entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin,

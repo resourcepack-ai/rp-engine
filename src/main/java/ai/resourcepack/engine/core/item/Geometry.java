@@ -146,6 +146,9 @@ public final class Geometry {
                 file = pack.resolve("models").resolve(name + ".json");
             }
             if (!Files.isRegularFile(file)) {
+                file = pack.resolve("blueprints").resolve(name + ".json");
+            }
+            if (!Files.isRegularFile(file)) {
                 continue;
             }
             try {

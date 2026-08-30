@@ -32,10 +32,10 @@ import java.util.Optional;
  * attributes, durability, stack size, permission, armour slot, and the two
  * behaviours that have an equivalent here — a liquid bucket and furniture.
  *
- * <p>What does not: their entities, whose shape is a different feature rather
- * than a different spelling; and the parts of an item that are ItemsAdder's own
- * plugin behaviour rather than a property of the item — {@code events},
- * {@code drop}, {@code item_flags}.
+ * <p>What does not: the parts of an item that are ItemsAdder's own plugin
+ * behaviour rather than a property of the item — {@code events}, {@code drop},
+ * {@code item_flags} — and the recipe kinds this engine has no equivalent for,
+ * each named as it is skipped.
  *
  * <p>A block's definition comes across but <strong>a world built with their
  * plugin does not</strong>: the vanilla state a block hides in is allocated in
@@ -73,7 +73,7 @@ final class ItemsAdder {
      * @return one map per kind, id path to the body a parser of ours reads
      */
     static Map<ContentKind, Map<String, Object>> translate(
-            DefinitionNode document, String origin, List<Diagnostic> diagnostics) {
+            DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
 
         document.node("items").ifPresent(items -> {
@@ -113,14 +113,169 @@ final class ItemsAdder {
                 out.put(ContentKind.BLOCK, translated);
             }
         });
-        refuse(document, "entities", origin, diagnostics,
-                "ItemsAdder entities are a different feature rather than a different spelling. "
-                        + "Write them as entities/ definitions, which take a type and a model");
-        refuse(document, "recipes", origin, diagnostics,
-                "write them as recipes/ definitions - the shapes are close but the ingredient "
-                        + "syntax is not");
+        document.node("entities").ifPresent(entities -> {
+            Map<String, Object> translated = new LinkedHashMap<>();
+            for (String id : entities.keys()) {
+                entities.node(id).ifPresent(entity ->
+                        translated.put(id, entity(entity, id, namespace)));
+            }
+            if (!translated.isEmpty()) {
+                out.put(ContentKind.ENTITY, translated);
+            }
+        });
+
+        document.node("recipes").ifPresent(recipes -> {
+            Map<String, Object> translated = recipes(recipes, origin, diagnostics);
+            if (!translated.isEmpty()) {
+                out.put(ContentKind.RECIPE, translated);
+            }
+        });
 
         return out;
+    }
+
+    /**
+     * One entity: a real mob wearing a model, in both plugins.
+     *
+     * <p>Their model is a FOLDER of blueprints ({@code model_folder:
+     * entity/robot}), because their models are their own format; ours is an
+     * item id whose model the mob wears. The last segment of that path is
+     * taken as the model name, which is what it is called in practice — and a
+     * pack whose model does not resolve gets the ordinary "no such model"
+     * message rather than a special one.
+     */
+    private static Map<String, Object> entity(DefinitionNode entity, String id, String namespace) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", entity.string("type").orElse("ZOMBIE"));
+        entity.string("display_name").or(() -> entity.string("name"))
+                .ifPresent(name -> out.put("name", name));
+        entity.string("max_health").ifPresent(health -> out.put("health", health));
+        entity.string("scale").ifPresent(scale -> out.put("scale", scale));
+        if (entity.bool("silent").orElse(Boolean.FALSE)) {
+            out.put("silent", true);
+        }
+        entity.string("model_folder").ifPresent(folder -> {
+            String name = folder.substring(folder.lastIndexOf('/') + 1);
+            // Qualified with the pack's own namespace: ours is an item id, and
+            // an unqualified one is not an id at all.
+            out.put("model", namespace + ":" + (name.isEmpty() ? id : name));
+        });
+        return out;
+    }
+
+    /**
+     * Their recipes, which are grouped by machine rather than typed.
+     *
+     * <p>{@code recipes.crafting_table.<name>} and
+     * {@code recipes.cooking.<name>}, where cooking names its machines in a
+     * list — so one of theirs can be several of ours, since a recipe here is
+     * one type. The extra ones are suffixed with the machine, which is both
+     * unique and readable in {@code /rp recipes}.
+     */
+    private static Map<String, Object> recipes(DefinitionNode recipes, String origin,
+                                               List<Diagnostic> diagnostics) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String group : recipes.keys()) {
+            DefinitionNode inGroup = recipes.node(group).orElse(DefinitionNode.empty());
+            for (String name : inGroup.keys()) {
+                DefinitionNode recipe = inGroup.node(name).orElse(DefinitionNode.empty());
+                if (!recipe.bool("enabled").orElse(Boolean.TRUE)) {
+                    continue;
+                }
+                switch (group) {
+                    case "crafting_table":
+                        out.put(name, crafting(recipe));
+                        break;
+                    case "cooking":
+                        cooking(recipe, name, out);
+                        break;
+                    case "campfire_cooking":
+                        out.put(name, cooked(recipe, "campfire"));
+                        break;
+                    case "stonecutter":
+                        out.put(name, cooked(recipe, "stonecutting"));
+                        break;
+                    default:
+                        diagnostics.add(Diagnostic.warning(origin, name,
+                                group + " recipes have no equivalent here and were skipped."));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** A shaped recipe. Their pattern uses undefined letters as blanks. */
+    private static Map<String, Object> crafting(DefinitionNode recipe) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", "shaped");
+        result(recipe, out);
+
+        DefinitionNode ingredients = recipe.node("ingredients").orElse(DefinitionNode.empty());
+        Map<String, Object> keys = new LinkedHashMap<>();
+        for (String key : ingredients.keys()) {
+            ingredients.string(key).ifPresent(item -> keys.put(key, item));
+        }
+        out.put("keys", keys);
+
+        // A letter with no ingredient is a blank in their pattern and a space
+        // in ours. Without this, a pattern of XBX asks for an item called X.
+        List<Object> pattern = new ArrayList<>();
+        for (String row : recipe.strings("pattern")) {
+            StringBuilder line = new StringBuilder();
+            for (char each : row.toCharArray()) {
+                line.append(keys.containsKey(String.valueOf(each)) ? each : ' ');
+            }
+            pattern.add(line.toString());
+        }
+        out.put("pattern", pattern);
+        return out;
+    }
+
+    /** Their cooking, which may name several machines at once. */
+    private static void cooking(DefinitionNode recipe, String name, Map<String, Object> out) {
+        List<String> machines = recipe.strings("machines");
+        if (machines.isEmpty()) {
+            machines = List.of("FURNACE");
+        }
+        boolean first = true;
+        for (String machine : machines) {
+            String type;
+            switch (machine.toUpperCase(Locale.ROOT)) {
+                case "BLAST_FURNACE":
+                    type = "blasting";
+                    break;
+                case "SMOKER":
+                    type = "smoking";
+                    break;
+                default:
+                    type = "smelting";
+            }
+            // One of theirs is several of ours, so all but the first are named
+            // for their machine.
+            out.put(first ? name : name + "_" + type, cooked(recipe, type));
+            first = false;
+        }
+    }
+
+    /** The shape every one-ingredient recipe of ours shares. */
+    private static Map<String, Object> cooked(DefinitionNode recipe, String type) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", type);
+        result(recipe, out);
+        recipe.node("ingredient").flatMap(ingredient -> ingredient.string("item"))
+                .or(() -> recipe.string("ingredient"))
+                .ifPresent(item -> out.put("ingredient", item));
+        recipe.string("exp").ifPresent(exp -> out.put("experience", exp));
+        recipe.integer("cook_time").ifPresent(time -> out.put("time", time));
+        return out;
+    }
+
+    /** {@code result: {item: ns:id, amount: 1}}, which both plugins spell the same. */
+    private static void result(DefinitionNode recipe, Map<String, Object> out) {
+        DefinitionNode result = recipe.node("result").orElse(DefinitionNode.empty());
+        result.string("item").or(() -> recipe.string("result"))
+                .ifPresent(item -> out.put("result", item));
+        result.integer("amount").ifPresent(amount -> out.put("amount", amount));
     }
 
     /**

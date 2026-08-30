@@ -191,7 +191,16 @@ public final class ItemAssets implements PackContributor {
      */
     private static Optional<byte[]> source(Contribution into, String namespace, String path) {
         Optional<byte[]> ours = into.source(namespace, "assets/" + path);
-        return ours.isPresent() ? ours : into.source(namespace, path);
+        if (ours.isPresent()) {
+            return ours;
+        }
+        // An ItemsAdder pack keeps models/ at its root; a ModelEngine one
+        // keeps blueprints/. Both are read where they lie, so a pack copied
+        // out of either needs no folders moved.
+        Optional<byte[]> theirs = into.source(namespace, path);
+        return theirs.isPresent()
+                ? theirs
+                : into.source(namespace, path.replaceFirst("^models/", "blueprints/"));
     }
 
     /**

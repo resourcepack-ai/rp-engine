@@ -67,15 +67,18 @@ public final class PackBuilder {
     static final String ICON = "pack.png";
 
     /**
-     * Where ItemsAdder keeps its art: at the pack root rather than under
-     * {@code assets/}.
+     * Where the other plugins keep their art: at the pack root rather than
+     * under {@code assets/}.
      *
-     * <p>Copied as if they were under {@code assets/}, so somebody who dropped
-     * their {@code contents/<pack>/} folder in gets their pictures as well as
-     * their items. Ours is still the documented layout — this is a second
-     * place to look, not a second way to write a pack.
+     * <p>{@code textures/}, {@code models/}, {@code sounds/} and {@code font/}
+     * are ItemsAdder's layout; {@code blueprints/} is ModelEngine's. Copied as
+     * if they were under {@code assets/}, so somebody who dropped a folder
+     * from either in gets their pictures as well as their content. Ours is
+     * still the documented layout — these are more places to look, not more
+     * ways to write a pack.
      */
-    static final List<String> ITEMSADDER_ASSETS = List.of("textures", "models", "sounds", "font");
+    static final List<String> IMPORTED_ASSETS =
+            List.of("textures", "models", "sounds", "font", "blueprints");
 
     private final int packFormat;
     private final String description;
@@ -133,7 +136,7 @@ public final class PackBuilder {
             Path packFolder = contentRoot.resolve(namespace);
             copyTree(packFolder.resolve(ASSETS), ASSETS + "/" + namespace,
                     namespace, bundle, zip, writtenBy, diagnostics);
-            for (String theirs : ITEMSADDER_ASSETS) {
+            for (String theirs : IMPORTED_ASSETS) {
                 copyTree(packFolder.resolve(theirs), ASSETS + "/" + namespace + "/" + theirs,
                         namespace, bundle, zip, writtenBy, diagnostics);
             }
