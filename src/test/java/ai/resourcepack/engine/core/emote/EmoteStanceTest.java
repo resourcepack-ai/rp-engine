@@ -45,9 +45,9 @@ class EmoteStanceTest {
         // A crouch-walk reads as crouching to everybody watching it, and a
         // sprint cannot happen while sneaking — but the client's sprint flag
         // has been seen set on the tick sneak begins, so the order matters.
-        assertEquals(EmoteTrigger.SNEAK_IDLE, EmoteDirector.stanceState(true, false, false));
-        assertEquals(EmoteTrigger.SNEAK_MOVE, EmoteDirector.stanceState(true, false, true));
-        assertEquals(EmoteTrigger.SNEAK_MOVE, EmoteDirector.stanceState(true, true, true));
+        assertEquals(EmoteTrigger.SNEAK_IDLE, EmoteStance.stanceState(true, false, false));
+        assertEquals(EmoteTrigger.SNEAK_MOVE, EmoteStance.stanceState(true, false, true));
+        assertEquals(EmoteTrigger.SNEAK_MOVE, EmoteStance.stanceState(true, true, true));
     }
 
     @Test
@@ -60,7 +60,7 @@ class EmoteStanceTest {
         // NAMES, and a state meaning "either of two things" cannot drive a
         // clock with room for one.
         for (int bits = 0; bits < 8; bits++) {
-            EmoteTrigger state = EmoteDirector.stanceState(
+            EmoteTrigger state = EmoteStance.stanceState(
                 true, (bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0);
             assertTrue(state != EmoteTrigger.SNEAK, "resolved the umbrella: " + state);
         }
@@ -73,31 +73,31 @@ class EmoteStanceTest {
         // without the fallback its clock would stop the moment somebody
         // crouched — a rig frozen at frame zero, in the state it was made for.
         Set<EmoteTrigger> umbrella = Collections.singleton(EmoteTrigger.SNEAK);
-        assertTrue(EmoteDirector.plays(umbrella, EmoteTrigger.SNEAK_IDLE));
-        assertTrue(EmoteDirector.plays(umbrella, EmoteTrigger.SNEAK_MOVE));
-        assertFalse(EmoteDirector.plays(umbrella, EmoteTrigger.WALK));
+        assertTrue(EmoteStance.plays(umbrella, EmoteTrigger.SNEAK_IDLE));
+        assertTrue(EmoteStance.plays(umbrella, EmoteTrigger.SNEAK_MOVE));
+        assertFalse(EmoteStance.plays(umbrella, EmoteTrigger.WALK));
 
         // And the other direction is NOT symmetric: a pack that named one of
         // the two halves means that half, so crouching the other way is not
         // covered by it.
         Set<EmoteTrigger> half = Collections.singleton(EmoteTrigger.SNEAK_IDLE);
-        assertTrue(EmoteDirector.plays(half, EmoteTrigger.SNEAK_IDLE));
-        assertFalse(EmoteDirector.plays(half, EmoteTrigger.SNEAK_MOVE));
-        assertFalse(EmoteDirector.plays(half, EmoteTrigger.SNEAK));
+        assertTrue(EmoteStance.plays(half, EmoteTrigger.SNEAK_IDLE));
+        assertFalse(EmoteStance.plays(half, EmoteTrigger.SNEAK_MOVE));
+        assertFalse(EmoteStance.plays(half, EmoteTrigger.SNEAK));
     }
 
     @Test
     void sprintingIsOnlySprintingWhileActuallyMoving() {
         // The sprint flag stays set for a moment after somebody stops, so a
         // stance authored for "standing still" must not lose to a stale flag.
-        assertEquals(EmoteTrigger.IDLE, EmoteDirector.stanceState(false, true, false));
-        assertEquals(EmoteTrigger.SPRINT, EmoteDirector.stanceState(false, true, true));
+        assertEquals(EmoteTrigger.IDLE, EmoteStance.stanceState(false, true, false));
+        assertEquals(EmoteTrigger.SPRINT, EmoteStance.stanceState(false, true, true));
     }
 
     @Test
     void movingWithoutSprintingIsAWalk() {
-        assertEquals(EmoteTrigger.WALK, EmoteDirector.stanceState(false, false, true));
-        assertEquals(EmoteTrigger.IDLE, EmoteDirector.stanceState(false, false, false));
+        assertEquals(EmoteTrigger.WALK, EmoteStance.stanceState(false, false, true));
+        assertEquals(EmoteTrigger.IDLE, EmoteStance.stanceState(false, false, false));
     }
 
     @Test
@@ -106,9 +106,9 @@ class EmoteStanceTest {
         // reconciles. Read as walking, that flickers the animation on and off
         // under somebody who has not moved — the symptom this bound exists for.
         Location spot = new Location(null, 100, 64, 100);
-        assertFalse(EmoteDirector.movedHorizontally(spot, spot.clone()));
-        assertFalse(EmoteDirector.movedHorizontally(spot, spot.clone().add(0.004, 0, 0.004)));
-        assertTrue(EmoteDirector.movedHorizontally(spot, spot.clone().add(A_STEP, 0, 0)));
+        assertFalse(EmoteStance.movedHorizontally(spot, spot.clone()));
+        assertFalse(EmoteStance.movedHorizontally(spot, spot.clone().add(0.004, 0, 0.004)));
+        assertTrue(EmoteStance.movedHorizontally(spot, spot.clone().add(A_STEP, 0, 0)));
     }
 
     @Test
@@ -117,7 +117,7 @@ class EmoteStanceTest {
         // wearer drops down a shaft rather than switching to a walk cycle in
         // mid-air.
         Location spot = new Location(null, 100, 64, 100);
-        assertFalse(EmoteDirector.movedHorizontally(spot, spot.clone().add(0, -12, 0)));
+        assertFalse(EmoteStance.movedHorizontally(spot, spot.clone().add(0, -12, 0)));
     }
 
     @Test
@@ -125,7 +125,7 @@ class EmoteStanceTest {
         // `previous` is null until a stance has ticked once, and a stance is
         // put on standing still — so the absent answer has to be "not moving"
         // rather than an exception on the first tick of every stance.
-        assertFalse(EmoteDirector.movedHorizontally(null, new Location(null, 0, 64, 0)));
+        assertFalse(EmoteStance.movedHorizontally(null, new Location(null, 0, 64, 0)));
     }
 
     @Test
@@ -140,12 +140,12 @@ class EmoteStanceTest {
         Location to = from.clone().add(0.28, 0, 0);
 
         // Smoothed, so one pass is half way to the answer rather than at it.
-        Vector first = EmoteDirector.leadFor(new Vector(), from, to, 2.0);
+        Vector first = EmoteStance.leadFor(new Vector(), from, to, 2.0);
         assertEquals(0.28, first.getX(), 1e-9);
         // And it converges on the full two ticks of travel as the wearer keeps
         // going, rather than sitting at half of it.
         Vector settled = first;
-        for (int pass = 0; pass < 8; pass++) settled = EmoteDirector.leadFor(settled, from, to, 2.0);
+        for (int pass = 0; pass < 8; pass++) settled = EmoteStance.leadFor(settled, from, to, 2.0);
         assertEquals(0.56, settled.getX(), 0.01);
     }
 
@@ -160,7 +160,7 @@ class EmoteStanceTest {
         // nothing about it looks wrong in a screenshot.
         Location spot = new Location(null, 0, 64, 0);
         Vector lead = new Vector(0.56, 0, 0);
-        for (int pass = 0; pass < 20; pass++) lead = EmoteDirector.leadFor(lead, spot, spot.clone(), 2.0);
+        for (int pass = 0; pass < 20; pass++) lead = EmoteStance.leadFor(lead, spot, spot.clone(), 2.0);
         assertEquals(0.0, lead.getX(), 0.0, "a standing wearer's lead has to BE zero, not approach it");
         assertEquals(0.0, lead.lengthSquared(), 0.0);
     }
@@ -174,7 +174,7 @@ class EmoteStanceTest {
         Vector lead = new Vector(0.56, 0, 0);
         double previous = lead.getX();
         for (int pass = 0; pass < 6; pass++) {
-            lead = EmoteDirector.leadFor(lead, spot, spot.clone(), 2.0);
+            lead = EmoteStance.leadFor(lead, spot, spot.clone(), 2.0);
             assertTrue(lead.getX() < previous, "the lead has to keep shrinking");
             assertTrue(lead.getX() >= 0, "and never swing past the wearer");
             previous = lead.getX();
@@ -191,7 +191,7 @@ class EmoteStanceTest {
         Location from = new Location(null, 0, 64, 0);
         Location far = from.clone().add(400, 0, 300);
         Vector lead = new Vector();
-        for (int pass = 0; pass < 12; pass++) lead = EmoteDirector.leadFor(lead, from, far, 5.0);
+        for (int pass = 0; pass < 12; pass++) lead = EmoteStance.leadFor(lead, from, far, 5.0);
         assertTrue(lead.length() <= 0.66, "lead ran away: " + lead.length());
     }
 
@@ -200,7 +200,7 @@ class EmoteStanceTest {
         // Vertical is never led: the client is already simulating gravity, and
         // a rig led upward would leave the ground before its wearer did.
         Location from = new Location(null, 0, 64, 0);
-        Vector lead = EmoteDirector.leadFor(new Vector(), from, from.clone().add(0, -3, 0), 2.0);
+        Vector lead = EmoteStance.leadFor(new Vector(), from, from.clone().add(0, -3, 0), 2.0);
         assertEquals(0, lead.getX(), 1e-9);
         assertEquals(0, lead.getY(), 1e-9);
         assertEquals(0, lead.getZ(), 1e-9);
@@ -212,8 +212,8 @@ class EmoteStanceTest {
         // decay toward nothing rather than reckoning off a position that means
         // something else.
         Location spot = new Location(null, 0, 64, 0);
-        assertEquals(0, EmoteDirector.leadFor(new Vector(), null, spot, 2.0).length(), 1e-9);
-        assertEquals(0, EmoteDirector.leadFor(new Vector(), spot, null, 2.0).length(), 1e-9);
+        assertEquals(0, EmoteStance.leadFor(new Vector(), null, spot, 2.0).length(), 1e-9);
+        assertEquals(0, EmoteStance.leadFor(new Vector(), spot, null, 2.0).length(), 1e-9);
     }
 
     @Test
