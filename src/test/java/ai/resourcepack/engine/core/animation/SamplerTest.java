@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The interpolation rules, ported from {@code RigAnimator.sample}.
+ * The interpolation rules, and the only copy of them in the plugin.
  *
  * <p>These have to match the editor's {@code sampleChannel} and the old
  * plugin's sampler exactly. A difference shows up as animation that looks

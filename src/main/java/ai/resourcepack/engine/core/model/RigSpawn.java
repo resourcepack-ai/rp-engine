@@ -76,7 +76,7 @@ final class RigSpawn {
                 continue;
             }
             final int index = p;
-            boolean moving = RigAnimator.hasAnimationProgram(part);
+            boolean moving = RigAnimations.hasAnimationProgram(part);
             Location where = centre.clone();
             // A still part keeps its yaw on the entity; a moving one has the
             // placement yaw baked into every pose instead, so its entity yaw

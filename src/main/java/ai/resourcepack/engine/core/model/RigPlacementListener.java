@@ -243,7 +243,7 @@ public final class RigPlacementListener implements Listener {
             }
         });
         animator.track(hitbox);
-        animator.trigger(hitbox, RigAnimator.TRIGGER_PLACE, placer);
+        animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, placer);
         return hitbox;
     }
 
@@ -253,9 +253,9 @@ public final class RigPlacementListener implements Listener {
         Interaction hitbox = (Interaction) event.getRightClicked();
         if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return;
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
-        if (modelId == null || !animator.hasTrigger(modelId, RigAnimator.TRIGGER_RIGHT_CLICK)) return;
+        if (modelId == null || !animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) return;
         event.setCancelled(true);
-        animator.trigger(hitbox, RigAnimator.TRIGGER_RIGHT_CLICK, event.getPlayer());
+        animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, event.getPlayer());
     }
 
     private ItemDisplay spawnStaticDisplay(Block target, String modelId, ItemStack sourceItem, float yaw, float scale) {
@@ -300,8 +300,8 @@ public final class RigPlacementListener implements Listener {
 
         // A left-click trigger consumes the hit permanently: choosing it makes
         // the placement an unbreakable prop rather than overloading punch.
-        if (animator.hasTrigger(modelId, RigAnimator.TRIGGER_LEFT_CLICK)) {
-            animator.trigger(hitbox, RigAnimator.TRIGGER_LEFT_CLICK, player);
+        if (animator.hasTrigger(modelId, RigAnimations.TRIGGER_LEFT_CLICK)) {
+            animator.trigger(hitbox, RigAnimations.TRIGGER_LEFT_CLICK, player);
             return;
         }
 

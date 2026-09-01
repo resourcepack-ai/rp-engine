@@ -1,7 +1,6 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.Keyframe;
-import ai.resourcepack.engine.api.BoneBehaviour;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.ModelAnimationEndEvent;
 import ai.resourcepack.engine.api.event.ModelAnimationEvent;
@@ -15,9 +14,6 @@ import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
-import org.bukkit.Location;
-import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -25,11 +21,9 @@ import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Transformation;
-import org.bukkit.util.Vector;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -84,26 +78,7 @@ public final class RigAnimator implements Listener {
      * through it.
      */
     static final String OVERLAY_KEY = "rig-overlays";
-    static final String TRIGGER_LOOP = "loop";
-    static final String TRIGGER_RIGHT_CLICK = "right_click";
-    static final String TRIGGER_LEFT_CLICK = "left_click";
-    static final String TRIGGER_RANGE = "range";
-    static final String TRIGGER_PLACE = "place";
-
-    /** What an animation does when it reaches its end. */
-    static final String MODE_LOOP = "loop";
-    static final String MODE_HOLD = "hold";
-    static final String MODE_ONCE = "once";
-
     private static final int RANGE_SCAN_INTERVAL = 5;
-
-    /**
-     * How far a neck turns, in degrees. Vanilla's own for a player's head,
-     * and near enough for everything else — the alternative is a mob whose
-     * head is on backwards, which is what the raw numbers say.
-     */
-    private static final float MAX_NECK_YAW = 75f;
-    private static final float MAX_NECK_PITCH = 89f;
 
     private final Host host;
     private final RigStore rigs;
@@ -250,7 +225,7 @@ public final class RigAnimator implements Listener {
             bones.attach((ItemDisplay) entity, part);
         }
 
-        if (part != null && !hasAnimationProgram(part)) {
+        if (part != null && !RigAnimations.hasAnimationProgram(part)) {
             // Static remainder parts keep their entity yaw and never need
             // transformation metadata resent by the animation task.
             return;
@@ -321,21 +296,21 @@ public final class RigAnimator implements Listener {
         PersistentDataContainer pdc = hitbox.getPersistentDataContainer();
         String modelId = pdc.get(modelKey, PersistentDataType.STRING);
         RigStore.Rig rig = rigs.get(modelId);
-        int animationIndex = findAnimationIndex(rig, triggerType, pdc.get(animationKey, PersistentDataType.STRING));
+        int animationIndex = RigAnimations.findAnimationIndex(rig, triggerType, pdc.get(animationKey, PersistentDataType.STRING));
         return animationIndex >= 0 && startAnimation(hitbox, rig, animationIndex, causeOf(triggerType), player);
     }
 
     /** Which cause an event should report for a trigger type. */
     private static ModelAnimationEvent.Cause causeOf(String triggerType) {
-        if (TRIGGER_PLACE.equals(triggerType)) return ModelAnimationEvent.Cause.PLACE;
-        if (TRIGGER_RIGHT_CLICK.equals(triggerType)) return ModelAnimationEvent.Cause.RIGHT_CLICK;
-        if (TRIGGER_LEFT_CLICK.equals(triggerType)) return ModelAnimationEvent.Cause.LEFT_CLICK;
-        if (TRIGGER_RANGE.equals(triggerType)) return ModelAnimationEvent.Cause.RANGE;
+        if (RigAnimations.TRIGGER_PLACE.equals(triggerType)) return ModelAnimationEvent.Cause.PLACE;
+        if (RigAnimations.TRIGGER_RIGHT_CLICK.equals(triggerType)) return ModelAnimationEvent.Cause.RIGHT_CLICK;
+        if (RigAnimations.TRIGGER_LEFT_CLICK.equals(triggerType)) return ModelAnimationEvent.Cause.LEFT_CLICK;
+        if (RigAnimations.TRIGGER_RANGE.equals(triggerType)) return ModelAnimationEvent.Cause.RANGE;
         return ModelAnimationEvent.Cause.API;
     }
 
     boolean hasTrigger(String modelId, String triggerType) {
-        return findAnimationIndex(rigs.get(modelId), triggerType) >= 0;
+        return RigAnimations.findAnimationIndex(rigs.get(modelId), triggerType) >= 0;
     }
 
     @EventHandler
@@ -383,7 +358,7 @@ public final class RigAnimator implements Listener {
             return;
         }
         RigStore.Part part = rig.parts.get(partIndex);
-        if (!hasAnimationProgram(part)) {
+        if (!RigAnimations.hasAnimationProgram(part)) {
             // Covers a part tracked before its rig manifest became available.
             tracked.remove(display.getUniqueId());
             return;
@@ -400,7 +375,7 @@ public final class RigAnimator implements Listener {
         // The choice decides the resting loop too, not just one-shots: two
         // animations can both claim `loop`.
         int playbackIndex =
-            playbackAnimationIndex(rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING));
+            RigAnimations.playbackAnimationIndex(rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING));
 
         // Event-only rigs are dormant between triggers. Resending the resting
         // transform every tick restarts the client's interpolation, which
@@ -418,8 +393,8 @@ public final class RigAnimator implements Listener {
         Integer posedFor = lastPosed.get(display.getUniqueId());
         if (posedFor == null || posedFor != playbackIndex) {
             double seconds = Math.max(
-                    blendOf(animationAt(rig, playbackIndex)),
-                    posedFor == null ? 0 : blendOf(animationAt(rig, posedFor)));
+                    RigAnimations.blendOf(RigAnimations.animationAt(rig, playbackIndex)),
+                    posedFor == null ? 0 : RigAnimations.blendOf(RigAnimations.animationAt(rig, posedFor)));
             if (seconds > 0 && posedFor != null) {
                 blends.put(display.getUniqueId(), new Blend(display.getTransformation(), tick, seconds));
             }
@@ -434,17 +409,17 @@ public final class RigAnimator implements Listener {
         // A blend has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
         if (!bound && !overlaid && blend == null
-                && !shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
+                && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
             pdc.remove(activeAnimationKey);
             if (playbackIndex < 0) pdc.remove(animationStartKey);
         }
 
-        RigStore.Animation animation = animationAt(rig, playbackIndex);
-        if (animation != null && moves(animation, part)) {
-            double t = animationTime(animation, elapsed);
-            float weight = weightOf(animation);
+        RigStore.Animation animation = RigAnimations.animationAt(rig, playbackIndex);
+        if (animation != null && RigAnimations.moves(animation, part)) {
+            double t = RigAnimations.animationTime(animation, elapsed);
+            float weight = RigAnimations.weightOf(animation);
             for (RigStore.Step step : part.program) {
                 RigMath.applyStep(animationTransform, animation.animators, step.target, step.pivot, t, weight);
             }
@@ -459,7 +434,7 @@ public final class RigAnimator implements Listener {
         // whatever the walk cycle does to it, and looking around is composed
         // on top. Doing it the other way makes an idle animation drag the
         // head back off whatever it was looking at.
-        applyHeadLook(animationTransform, part, display);
+        HeadLook.applyTo(animationTransform, part, display);
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
@@ -548,167 +523,6 @@ public final class RigAnimator implements Listener {
         m.translateLocal(0f, 0.5f * (scale - 1f), 0f);
     }
 
-    static boolean hasAnimationProgram(RigStore.Part part) {
-        return part != null && part.program != null && !part.program.isEmpty();
-    }
-
-    static int findAnimationIndex(RigStore.Rig rig, String triggerType) {
-        return findAnimationIndex(rig, triggerType, null);
-    }
-
-    /**
-     * The animation this event should start, preferring the placement's own
-     * choice (see {@link ModelPlacementListener}). Several animations can
-     * claim one trigger and only one may run, so without a choice the first
-     * in rig order wins and the second is unreachable.
-     *
-     * Falling back to the first claimant is deliberate: a choice names ONE
-     * animation, and a model's other triggers usually belong to different
-     * ones, so picking "Close" for right-click leaves the idle loop alone.
-     */
-    static int findAnimationIndex(RigStore.Rig rig, String triggerType, String chosenName) {
-        if (rig == null || rig.animations == null || triggerType == null) return -1;
-        if (chosenName != null && !chosenName.isEmpty()) {
-            for (int i = 0; i < rig.animations.size(); i++) {
-                RigStore.Animation animation = rig.animations.get(i);
-                if (animation != null && chosenName.equals(animation.name) && hasTrigger(animation, triggerType)) {
-                    return i;
-                }
-            }
-        }
-        // Highest priority among the claimants, and rig order between equals
-        // — which is exactly what this did before priority existed, since
-        // every animation then had the same one.
-        int best = -1;
-        for (int i = 0; i < rig.animations.size(); i++) {
-            if (!hasTrigger(rig.animations.get(i), triggerType)) continue;
-            if (best < 0 || priorityOf(rig.animations.get(i)) > priorityOf(rig.animations.get(best))) {
-                best = i;
-            }
-        }
-        return best;
-    }
-
-    /**
-     * The animation with this name, and the resolver the code API runs on.
-     *
-     * **It asks nothing about triggers**, which is the whole difference from
-     * {@link #findAnimationIndex} and the whole point of the API. A model's
-     * animations are all shipped in the rig manifest whether or not they
-     * claim a trigger — Studio says of an empty trigger list that it
-     * "deliberately makes it editor-only" — so those have been
-     * sitting on every synced server unreachable, because until now the only
-     * way in was by trigger. This is the way in.
-     *
-     * Names are free text in the editor and nothing makes them unique, so
-     * the first match in model order wins: the same rule findAnimationIndex
-     * already uses when several animations claim one trigger. An exact match
-     * is preferred over a case-insensitive one, so a model that really does
-     * have both "Wave" and "wave" keeps both addressable; without that the
-     * second would be unreachable, which is the bug this method exists to
-     * fix, one level down.
-     */
-    static int findAnimationIndexByName(RigStore.Rig rig, String name) {
-        if (rig == null || rig.animations == null || name == null || name.isEmpty()) return -1;
-        int looseMatch = -1;
-        for (int i = 0; i < rig.animations.size(); i++) {
-            RigStore.Animation animation = rig.animations.get(i);
-            if (animation == null || animation.name == null) continue;
-            if (name.equals(animation.name)) return i;
-            if (looseMatch < 0 && name.equalsIgnoreCase(animation.name)) looseMatch = i;
-        }
-        return looseMatch;
-    }
-
-    /**
-     * Every animation this model has, in model order — the list a caller
-     * picks a name out of. Unnamed entries are dropped rather than reported
-     * as empty strings, since a name is how this API addresses them at all.
-     */
-    static List<String> animationNames(RigStore.Rig rig) {
-        if (rig == null || rig.animations == null) return Collections.emptyList();
-        List<String> names = new java.util.ArrayList<>(rig.animations.size());
-        for (RigStore.Animation animation : rig.animations) {
-            if (animation != null && animation.name != null && !animation.name.isEmpty()) names.add(animation.name);
-        }
-        return Collections.unmodifiableList(names);
-    }
-
-    /**
-     * Resolves the pose source without causing playback. With no active
-     * event, only a loop may animate. A completed one-shot returns to the
-     * resting transform unless a separate loop animation is available.
-     */
-    static int playbackAnimationIndex(RigStore.Rig rig, Integer activeIndex, double elapsed) {
-        return playbackAnimationIndex(rig, activeIndex, elapsed, null);
-    }
-
-    static int playbackAnimationIndex(RigStore.Rig rig, Integer activeIndex, double elapsed, String chosenName) {
-        RigStore.Animation active = animationAt(rig, activeIndex);
-        // A held animation never runs out: it stops on its last frame and
-        // stays there until something else is asked for. That is what makes
-        // an open door stay open rather than swinging shut on its own.
-        if (active != null && (loops(active) || holds(active)
-                || elapsed * speedOf(active) <= Math.max(0, active.length))) {
-            return activeIndex;
-        }
-        return findAnimationIndex(rig, TRIGGER_LOOP, chosenName);
-    }
-
-    static boolean shouldUpdatePose(int playbackIndex, Integer activeIndex, boolean forceRestPose) {
-        return playbackIndex >= 0 || activeIndex != null || forceRestPose;
-    }
-
-    static boolean hasTrigger(RigStore.Animation animation, String triggerType) {
-        if (animation == null || triggerType == null) return false;
-        // Backward compatibility with manifests created before the trigger
-        // list: loops stayed active; one-shots ran once when placed.
-        if (animation.triggers == null) {
-            return triggerType.equals(animation.loop ? TRIGGER_LOOP : TRIGGER_PLACE);
-        }
-        for (RigStore.Trigger trigger : animation.triggers) {
-            if (trigger != null && triggerType.equals(trigger.type)) return true;
-        }
-        return false;
-    }
-
-    static double animationTime(RigStore.Animation animation, double elapsed) {
-        if (animation.length <= 0) return 0;
-        double at = elapsed * speedOf(animation);
-        return loops(animation) ? at % animation.length : Math.min(at, animation.length);
-    }
-
-    private static boolean loops(RigStore.Animation animation) {
-        if (MODE_LOOP.equals(animation.mode)) return true;
-        if (MODE_HOLD.equals(animation.mode) || MODE_ONCE.equals(animation.mode)) return false;
-        return animation.triggers == null ? animation.loop : hasTrigger(animation, TRIGGER_LOOP);
-    }
-
-    /**
-     * How fast it plays. Absent or nonsensical is 1 rather than a refusal:
-     * every manifest written before this has no speed at all, and a rig that
-     * froze because somebody typed a zero would be worse than one that runs
-     * at the speed it was authored.
-     */
-    static double speedOf(RigStore.Animation animation) {
-        return animation == null || animation.speed <= 0 ? 1 : animation.speed;
-    }
-
-    /** Higher wins. Equal falls back to rig order, as it always did. */
-    static int priorityOf(RigStore.Animation animation) {
-        return animation == null ? 0 : animation.priority;
-    }
-
-    /** Seconds of ease in and out. 0, the old behaviour, is a hard cut. */
-    static double blendOf(RigStore.Animation animation) {
-        return animation == null || animation.blend <= 0 ? 0 : Math.min(5, animation.blend);
-    }
-
-    /** Whether it stops on its last frame instead of going back to rest. */
-    static boolean holds(RigStore.Animation animation) {
-        return animation != null && MODE_HOLD.equals(animation.mode);
-    }
-
     private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex,
             ModelAnimationEvent.Cause cause, Player player) {
         return startAnimation(hitbox, rig, animationIndex, false, cause, player);
@@ -721,7 +535,7 @@ public final class RigAnimator implements Listener {
      */
     private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex, boolean restart,
             ModelAnimationEvent.Cause cause, Player player) {
-        RigStore.Animation animation = animationAt(rig, animationIndex);
+        RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
         if (animation == null) return false;
         List<ItemDisplay> displays = displaysOf(hitbox);
         if (displays.isEmpty()) return false;
@@ -774,8 +588,8 @@ public final class RigAnimator implements Listener {
      */
     boolean playOn(List<ItemDisplay> displays, String modelId, String animationName, boolean restart) {
         RigStore.Rig rig = rigs.get(modelId);
-        int index = findAnimationIndexByName(rig, animationName);
-        RigStore.Animation animation = animationAt(rig, index);
+        int index = RigAnimations.findAnimationIndexByName(rig, animationName);
+        RigStore.Animation animation = RigAnimations.animationAt(rig, index);
         if (animation == null || displays.isEmpty()) return false;
         if (animation.layer > 0) {
             return playOverlay(displays, modelId, animationName);
@@ -817,37 +631,8 @@ public final class RigAnimator implements Listener {
     private boolean isMidOneShot(List<ItemDisplay> displays, RigStore.Animation animation, int animationIndex, long now) {
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
-            return isMidOneShot(animation, pdc.get(activeAnimationKey, PersistentDataType.INTEGER),
+            return RigAnimations.isMidOneShot(animation, pdc.get(activeAnimationKey, PersistentDataType.INTEGER),
                 pdc.get(animationStartKey, PersistentDataType.LONG), animationIndex, now);
-        }
-        return false;
-    }
-
-    /**
-     * The rule itself, with the entity read taken out so it can be pinned by a
-     * test: is a one-shot at {@code wantIndex} still running?
-     *
-     * A loop is never "mid" anything — it has no end to be before, so asking
-     * for one always restarts its phase. Ticks rather than seconds because
-     * that's what the clock on the display is in.
-     */
-    static boolean isMidOneShot(RigStore.Animation animation, Integer activeIndex, Long startedTick,
-            int wantIndex, long now) {
-        if (animation == null || loops(animation)) return false;
-        return activeIndex != null && activeIndex == wantIndex && startedTick != null
-            && now - startedTick <= Math.ceil(animation.length * 20.0);
-    }
-
-    /**
-     * Whether a rig has anything that can move, which is what separates a real
-     * rig from a model that places as one still display. The still one still
-     * gets a hitbox and a model id, so this is the only thing telling them
-     * apart — see the guard in {@link #play}.
-     */
-    static boolean anyPartAnimates(RigStore.Rig rig) {
-        if (rig == null || rig.parts == null) return false;
-        for (RigStore.Part part : rig.parts) {
-            if (hasAnimationProgram(part)) return true;
         }
         return false;
     }
@@ -866,14 +651,14 @@ public final class RigAnimator implements Listener {
     boolean play(Interaction hitbox, String animationName, boolean restart) {
         if (hitbox == null || !hitbox.isValid()) return false;
         RigStore.Rig rig = rigOf(hitbox);
-        int index = findAnimationIndexByName(rig, animationName);
+        int index = RigAnimations.findAnimationIndexByName(rig, animationName);
         if (index < 0) return false;
         List<ItemDisplay> displays = displaysOf(hitbox);
         // An animation that says which layer it belongs on is asking to play
         // OVER whatever is running, not instead of it. Routed here rather than
         // through a second method, so every caller gets it and none of them
         // has to know layers exist.
-        if (animationAt(rig, index).layer > 0) {
+        if (RigAnimations.animationAt(rig, index).layer > 0) {
             return playOverlay(displays, modelIdOf(hitbox), animationName);
         }
         // A model with no rig parts places as one still display: it has a
@@ -881,7 +666,7 @@ public final class RigAnimator implements Listener {
         // would be written and success reported for something that cannot
         // move. Vanilla fires no event to notice that by.
         if (!hasMovingPart(displays)) return false;
-        if (!restart && isMidOneShot(displays, animationAt(rig, index), index, hitbox.getWorld().getGameTime())) {
+        if (!restart && isMidOneShot(displays, RigAnimations.animationAt(rig, index), index, hitbox.getWorld().getGameTime())) {
             // Deliberately false where a trigger gets true: a trigger means
             // "this event is handled", an API call asks "did my request take
             // effect", and it did not.
@@ -946,8 +731,8 @@ public final class RigAnimator implements Listener {
      * its own clock, but the task that was going to speak for it is gone.
      */
     private void scheduleEnd(Interaction hitbox, RigStore.Animation animation, int index, long startedAt) {
-        if (placements == null || loops(animation) || holds(animation)) return;
-        double speed = speedOf(animation);
+        if (placements == null || RigAnimations.loops(animation) || RigAnimations.holds(animation)) return;
+        double speed = RigAnimations.speedOf(animation);
         if (speed <= 0 || animation.length <= 0) return;
 
         long ticks = Math.max(1L, Math.round(animation.length / speed * 20.0));
@@ -987,7 +772,7 @@ public final class RigAnimator implements Listener {
             double elapsed = started == null
                 ? 0
                 : Math.max(0, display.getWorld().getGameTime() - started) / 20.0;
-            RigStore.Animation animation = animationAt(rig, playbackAnimationIndex(rig, active, elapsed, chosen));
+            RigStore.Animation animation = RigAnimations.animationAt(rig, RigAnimations.playbackAnimationIndex(rig, active, elapsed, chosen));
             return animation == null ? null : animation.name;
         }
         return null;
@@ -1021,12 +806,12 @@ public final class RigAnimator implements Listener {
     }
 
     List<String> animationNamesOf(String modelId) {
-        return animationNames(rigs.get(modelId));
+        return RigAnimations.animationNames(rigs.get(modelId));
     }
 
     /** Whether this model places as a rig that can move at all, rather than one still display. */
     boolean isAnimated(String modelId) {
-        return anyPartAnimates(rigs.get(modelId));
+        return RigAnimations.anyPartAnimates(rigs.get(modelId));
     }
 
     private RigStore.Rig rigOf(Interaction hitbox) {
@@ -1054,9 +839,9 @@ public final class RigAnimator implements Listener {
             String modelId = hitboxPdc.get(modelKey, PersistentDataType.STRING);
             RigStore.Rig rig = rigs.get(modelId);
             int animationIndex =
-                findAnimationIndex(rig, TRIGGER_RANGE, hitboxPdc.get(animationKey, PersistentDataType.STRING));
-            RigStore.Animation animation = animationAt(rig, animationIndex);
-            RigStore.Trigger trigger = triggerOf(animation, TRIGGER_RANGE);
+                RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RANGE, hitboxPdc.get(animationKey, PersistentDataType.STRING));
+            RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
+            RigStore.Trigger trigger = RigAnimations.triggerOf(animation, RigAnimations.TRIGGER_RANGE);
             if (trigger == null) {
                 rangeOccupants.remove(entry.getKey());
                 continue;
@@ -1104,19 +889,6 @@ public final class RigAnimator implements Listener {
         return displays;
     }
 
-    private static RigStore.Animation animationAt(RigStore.Rig rig, Integer index) {
-        if (rig == null || rig.animations == null || index == null || index < 0 || index >= rig.animations.size()) return null;
-        return rig.animations.get(index);
-    }
-
-    private static RigStore.Trigger triggerOf(RigStore.Animation animation, String triggerType) {
-        if (animation == null || animation.triggers == null) return null;
-        for (RigStore.Trigger trigger : animation.triggers) {
-            if (trigger != null && triggerType.equals(trigger.type)) return trigger;
-        }
-        return null;
-    }
-
     /**
      * Composes every overlay this part is playing, in layer order.
      *
@@ -1140,13 +912,13 @@ public final class RigAnimator implements Listener {
             try {
                 int index = Integer.parseInt(one.substring(0, colon));
                 long started = Long.parseLong(one.substring(colon + 1));
-                RigStore.Animation animation = animationAt(rig, index);
+                RigStore.Animation animation = RigAnimations.animationAt(rig, index);
                 if (animation == null) {
                     continue;
                 }
                 double elapsed = Math.max(0, now - started) / 20.0;
-                if (!loops(animation) && !holds(animation)
-                        && elapsed * speedOf(animation) > Math.max(0, animation.length)) {
+                if (!RigAnimations.loops(animation) && !RigAnimations.holds(animation)
+                        && elapsed * RigAnimations.speedOf(animation) > Math.max(0, animation.length)) {
                     continue;
                 }
                 playing.add(new long[]{animation.layer, index, started});
@@ -1160,62 +932,16 @@ public final class RigAnimator implements Listener {
         playing.sort((a, b) -> Long.compare(a[0], b[0]));
 
         for (long[] one : playing) {
-            RigStore.Animation animation = animationAt(rig, (int) one[1]);
-            if (!moves(animation, part)) {
+            RigStore.Animation animation = RigAnimations.animationAt(rig, (int) one[1]);
+            if (!RigAnimations.moves(animation, part)) {
                 continue;
             }
-            double t = animationTime(animation, Math.max(0, now - one[2]) / 20.0);
-            float weight = weightOf(animation);
+            double t = RigAnimations.animationTime(animation, Math.max(0, now - one[2]) / 20.0);
+            float weight = RigAnimations.weightOf(animation);
             for (RigStore.Step step : part.program) {
                 RigMath.applyStep(m, animation.animators, step.target, step.pivot, t, weight);
             }
         }
-    }
-
-    /**
-     * How strongly an animation applies. Absent is full strength, which is
-     * what every manifest written before weights means.
-     */
-    static float weightOf(RigStore.Animation animation) {
-        if (animation == null || animation.weight <= 0) {
-            return 1f;
-        }
-        return (float) Math.min(1, animation.weight);
-    }
-
-    /**
-     * Whether this animation touches this part at all.
-     *
-     * <p>A bone mask names bones, and a part belongs to one \u2014 but masking a
-     * torso has to reach the arms inside it, so the match is against the
-     * part's whole LINEAGE rather than its own name. That is why the lineage
-     * is on the manifest at all.
-     *
-     * <p>No mask means every part, which is what an animation without one has
-     * always done.
-     */
-    static boolean moves(RigStore.Animation animation, RigStore.Part part) {
-        if (animation == null || animation.bones == null || animation.bones.length == 0) {
-            return true;
-        }
-        if (part == null || part.bones == null) {
-            // A loose cube, or a part from a manifest older than lineages.
-            // Left out rather than in: a mask is an author saying "only
-            // these", and answering "and also everything I cannot identify"
-            // is the opposite of what they asked for.
-            return false;
-        }
-        for (String wanted : animation.bones) {
-            if (wanted == null) {
-                continue;
-            }
-            for (String mine : part.bones) {
-                if (wanted.equalsIgnoreCase(mine)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**
@@ -1230,8 +956,8 @@ public final class RigAnimator implements Listener {
      */
     boolean playOverlay(List<ItemDisplay> displays, String modelId, String animationName) {
         RigStore.Rig rig = rigs.get(modelId);
-        int index = findAnimationIndexByName(rig, animationName);
-        RigStore.Animation animation = animationAt(rig, index);
+        int index = RigAnimations.findAnimationIndexByName(rig, animationName);
+        RigStore.Animation animation = RigAnimations.animationAt(rig, index);
         if (animation == null || animation.layer <= 0 || displays.isEmpty()) {
             return false;
         }
@@ -1251,7 +977,7 @@ public final class RigAnimator implements Listener {
                         continue;
                     }
                     try {
-                        RigStore.Animation other = animationAt(rig, Integer.parseInt(one.substring(0, colon)));
+                        RigStore.Animation other = RigAnimations.animationAt(rig, Integer.parseInt(one.substring(0, colon)));
                         // Anything on another layer is kept; this layer is
                         // being taken over.
                         if (other != null && other.layer != animation.layer) {
@@ -1278,110 +1004,6 @@ public final class RigAnimator implements Listener {
                 pose(display, true);
             }
         }
-    }
-
-    /**
-     * Turns a head bone toward whatever its host is looking at.
-     *
-     * <p>Only on a model worn by an entity: a placed statue has nothing to
-     * look with, and a head that swivelled to follow a passing player would be
-     * a different feature and a much creepier one.
-     *
-     * <p><strong>The yaw is a difference, not an angle.</strong> The whole rig
-     * already turns with the body (see {@code yawOf}), so applying the head's
-     * absolute yaw here would turn it twice and leave a mob whose head faces
-     * backwards while it walks. What is left over is exactly how far the head
-     * is turned relative to the shoulders, which is what a neck does.
-     *
-     * <p>Clamped the way vanilla clamps a neck. Without it a mob looking
-     * behind itself gets its head on backwards, which is what the numbers
-     * literally say and not what anybody wants to see.
-     */
-    private void applyHeadLook(Matrix4f m, RigStore.Part part, ItemDisplay display) {
-        if (part.behaviour == null || part.pivot == null || part.pivot.length != 3) return;
-        if (!isHeadBone(part)) return;
-        Entity host = display.getVehicle();
-        if (!(host instanceof LivingEntity)) return;
-
-        float[] look = lookOf((LivingEntity) host);
-        float yaw = clamp(wrap(look[0]), MAX_NECK_YAW);
-        float pitch = clamp(look[1], MAX_NECK_PITCH);
-        if (yaw == 0f && pitch == 0f) return;
-
-        float px = (part.pivot[0] - 8f) / 16f;
-        float py = (part.pivot[1] - 8f) / 16f;
-        float pz = (part.pivot[2] - 8f) / 16f;
-        m.translate(px, py, pz);
-        // Yaw negated for the same reason the placement yaw is: the rig's
-        // space turns the other way round from the world's.
-        m.rotateY((float) Math.toRadians(-yaw));
-        m.rotateX((float) Math.toRadians(pitch));
-        m.translate(-px, -py, -pz);
-    }
-
-    /**
-     * How far the head is turned from the body: yaw relative to the shoulders,
-     * then pitch.
-     *
-     * <p><strong>Bukkit does not expose a mob's head yaw.</strong>
-     * {@code getEyeLocation()} carries the entity's own yaw, which IS the body
-     * yaw for everything that is not a player — so the obvious implementation
-     * subtracts a number from itself, gets zero, and quietly does nothing but
-     * pitch while looking like it does more.
-     *
-     * <p>So the answer is taken from what the mob is actually looking AT. A
-     * mob with a target is turning its head toward it, which is both the thing
-     * a boss should visibly do and the only version of this the API can
-     * honestly support. A mob with no target faces the way its body does,
-     * which is exactly right: an idle mob's head is straight ahead.
-     */
-    private static float[] lookOf(LivingEntity host) {
-        Location eyes = host.getEyeLocation();
-        float pitch = eyes.getPitch();
-        if (!(host instanceof Mob)) {
-            // A player: their yaw already IS their head yaw, and the body is
-            // drawn from it, so there is nothing left over.
-            return new float[]{0f, pitch};
-        }
-        LivingEntity target = ((Mob) host).getTarget();
-        if (target == null || !target.getWorld().equals(host.getWorld())) {
-            return new float[]{0f, pitch};
-        }
-        Vector to = target.getEyeLocation().toVector().subtract(eyes.toVector());
-        if (to.lengthSquared() < 1.0E-4) {
-            return new float[]{0f, pitch};
-        }
-        float wanted = (float) Math.toDegrees(Math.atan2(-to.getX(), to.getZ()));
-        float flat = (float) Math.sqrt(to.getX() * to.getX() + to.getZ() * to.getZ());
-        return new float[]{
-                wanted - host.getLocation().getYaw(),
-                (float) Math.toDegrees(Math.atan2(-to.getY(), flat))};
-    }
-
-    private static boolean isHeadBone(RigStore.Part part) {
-        BoneBehaviour behaviour = behaviourOf(part);
-        return behaviour.isHead();
-    }
-
-    /** A part's behaviour, or {@link BoneBehaviour#NONE} on an older manifest. */
-    static BoneBehaviour behaviourOf(RigStore.Part part) {
-        if (part == null || part.behaviour == null) return BoneBehaviour.NONE;
-        for (BoneBehaviour behaviour : BoneBehaviour.values()) {
-            if (behaviour.name().equalsIgnoreCase(part.behaviour)) return behaviour;
-        }
-        return BoneBehaviour.NONE;
-    }
-
-    /** Into -180..180, so a turn across north is a small number and not 350 degrees. */
-    static float wrap(float degrees) {
-        float wrapped = degrees % 360f;
-        if (wrapped > 180f) wrapped -= 360f;
-        if (wrapped < -180f) wrapped += 360f;
-        return wrapped;
-    }
-
-    static float clamp(float degrees, float limit) {
-        return Math.max(-limit, Math.min(limit, degrees));
     }
 
 }
