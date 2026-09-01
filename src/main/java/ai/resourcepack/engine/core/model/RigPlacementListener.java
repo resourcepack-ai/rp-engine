@@ -3,6 +3,7 @@ package ai.resourcepack.engine.core.model;
 import ai.resourcepack.engine.api.event.ModelBreakEvent;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -270,7 +271,7 @@ public final class RigPlacementListener implements Listener {
             d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);
             if (scale != 1f) {
                 d.getPersistentDataContainer().set(scaleKey, PersistentDataType.FLOAT, scale);
-                d.setTransformation(RigAnimator.scaledTransformation(scale));
+                d.setTransformation(RigMath.scaledTransformation(scale));
             }
         });
     }

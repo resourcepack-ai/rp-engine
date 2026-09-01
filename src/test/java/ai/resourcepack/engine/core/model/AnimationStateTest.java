@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.api.AnimationSettings;
 
 import com.google.gson.JsonObject;
@@ -157,7 +158,7 @@ class AnimationStateTest {
 
     @Test
     void aBlendEndsWhereItWasGoing() {
-        Transformation mixed = RigAnimator.mix(at(0, 0), at(4, 90), 1f);
+        Transformation mixed = RigMath.mix(at(0, 0), at(4, 90), 1f);
 
         assertEquals(4f, mixed.getTranslation().x, 0.0001);
         assertEquals(at(4, 90).getLeftRotation().y, mixed.getLeftRotation().y, 0.0001);
@@ -165,14 +166,14 @@ class AnimationStateTest {
 
     @Test
     void aBlendStartsWhereItWas() {
-        Transformation mixed = RigAnimator.mix(at(0, 0), at(4, 90), 0f);
+        Transformation mixed = RigMath.mix(at(0, 0), at(4, 90), 0f);
 
         assertEquals(0f, mixed.getTranslation().x, 0.0001);
     }
 
     @Test
     void positionMovesLinearlyThroughTheBlend() {
-        assertEquals(2f, RigAnimator.mix(at(0, 0), at(4, 90), 0.5f).getTranslation().x, 0.0001);
+        assertEquals(2f, RigMath.mix(at(0, 0), at(4, 90), 0.5f).getTranslation().x, 0.0001);
     }
 
     @Test
@@ -182,7 +183,7 @@ class AnimationStateTest {
         // non-unit rotation scales what it rotates. Halfway through a 180
         // degree turn the error is at its worst, and a lerp would visibly
         // collapse the part and spring it back out.
-        Transformation mixed = RigAnimator.mix(at(0, 0), at(0, 180), 0.5f);
+        Transformation mixed = RigMath.mix(at(0, 0), at(0, 180), 0.5f);
         Quaternionf rotation = mixed.getLeftRotation();
         float length = (float) Math.sqrt(rotation.x * rotation.x + rotation.y * rotation.y
                 + rotation.z * rotation.z + rotation.w * rotation.w);
@@ -192,8 +193,8 @@ class AnimationStateTest {
 
     @Test
     void anAmountOutsideZeroToOneIsClamped() {
-        assertEquals(0f, RigAnimator.mix(at(0, 0), at(4, 0), -1f).getTranslation().x, 0.0001);
-        assertEquals(4f, RigAnimator.mix(at(0, 0), at(4, 0), 2f).getTranslation().x, 0.0001);
+        assertEquals(0f, RigMath.mix(at(0, 0), at(4, 0), -1f).getTranslation().x, 0.0001);
+        assertEquals(4f, RigMath.mix(at(0, 0), at(4, 0), 2f).getTranslation().x, 0.0001);
     }
 
     // ---- the neck --------------------------------------------------------

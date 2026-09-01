@@ -5,7 +5,6 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.ContentSource;
-import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.IconInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;

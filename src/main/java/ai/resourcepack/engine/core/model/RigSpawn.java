@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
@@ -95,7 +96,7 @@ final class RigSpawn {
                 if (scale != 1f) {
                     d.getPersistentDataContainer().set(scaleKey, PersistentDataType.FLOAT, scale);
                     if (!moving) {
-                        d.setTransformation(RigAnimator.scaledTransformation(scale));
+                        d.setTransformation(RigMath.scaledTransformation(scale));
                     }
                 }
                 if (moving) {

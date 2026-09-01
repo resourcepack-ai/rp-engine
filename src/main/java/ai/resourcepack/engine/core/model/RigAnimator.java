@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.ModelAnimationEndEvent;
 import ai.resourcepack.engine.api.event.ModelAnimationEvent;
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -26,8 +27,6 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 import org.joml.Matrix4f;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -105,9 +104,6 @@ public final class RigAnimator implements Listener {
      */
     private static final float MAX_NECK_YAW = 75f;
     private static final float MAX_NECK_PITCH = 89f;
-
-    private static final float[] ZERO = { 0f, 0f, 0f };
-    private static final float[] ONE = { 1f, 1f, 1f };
 
     private final Host host;
     private final RigStore rigs;
@@ -450,7 +446,7 @@ public final class RigAnimator implements Listener {
             double t = animationTime(animation, elapsed);
             float weight = weightOf(animation);
             for (RigStore.Step step : part.program) {
-                applyStep(animationTransform, animation.animators, step.target, step.pivot, t, weight);
+                RigMath.applyStep(animationTransform, animation.animators, step.target, step.pivot, t, weight);
             }
         }
         // Layers above the base, composed on top of it in layer order. A
@@ -467,16 +463,16 @@ public final class RigAnimator implements Listener {
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
-        m.mul(toItemDisplaySpace(animationTransform));
+        m.mul(RigMath.toItemDisplaySpace(animationTransform));
         applyRigScale(m, pdc);
 
-        Transformation next = toTransformation(m);
+        Transformation next = RigMath.toTransformation(m);
         if (blend != null) {
             float progress = blend.progress(tick);
             if (progress >= 1f) {
                 blends.remove(display.getUniqueId());
             } else {
-                next = mix(blend.from, next, progress);
+                next = RigMath.mix(blend.from, next, progress);
             }
         }
         // Keyframe holds sample to an identical transform - nothing to send,
@@ -521,10 +517,10 @@ public final class RigAnimator implements Listener {
         Float yaw = pdc.get(yawKey, PersistentDataType.FLOAT);
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
-        m.mul(toItemDisplaySpace(new Matrix4f()));
+        m.mul(RigMath.toItemDisplaySpace(new Matrix4f()));
         applyRigScale(m, pdc);
 
-        Transformation next = toTransformation(m);
+        Transformation next = RigMath.toTransformation(m);
         if (next.equals(display.getTransformation())) return;
         display.setInterpolationDelay(0);
         display.setInterpolationDuration(0);
@@ -552,29 +548,8 @@ public final class RigAnimator implements Listener {
         m.translateLocal(0f, 0.5f * (scale - 1f), 0f);
     }
 
-    /** The same transform for a part with no animation program — see applyRigScale. */
-    static Transformation scaledTransformation(float scale) {
-        Matrix4f m = new Matrix4f();
-        m.scaleLocal(scale);
-        m.translateLocal(0f, 0.5f * (scale - 1f), 0f);
-        return toTransformation(m);
-    }
-
     static boolean hasAnimationProgram(RigStore.Part part) {
         return part != null && part.program != null && !part.program.isEmpty();
-    }
-
-    /**
-     * ItemDisplayRenderer rotates the rendered item 180 degrees around Y
-     * after applying the display transformation. The editor animation is
-     * authored before that built-in rotation, so conjugate the complete
-     * model-space transform into the item's displayed coordinate space.
-     */
-    public static Matrix4f toItemDisplaySpace(Matrix4f modelTransform) {
-        return new Matrix4f()
-            .rotateY((float) Math.PI)
-            .mul(modelTransform)
-            .rotateY((float) -Math.PI);
     }
 
     static int findAnimationIndex(RigStore.Rig rig, String triggerType) {
@@ -1192,7 +1167,7 @@ public final class RigAnimator implements Listener {
             double t = animationTime(animation, Math.max(0, now - one[2]) / 20.0);
             float weight = weightOf(animation);
             for (RigStore.Step step : part.program) {
-                applyStep(m, animation.animators, step.target, step.pivot, t, weight);
+                RigMath.applyStep(m, animation.animators, step.target, step.pivot, t, weight);
             }
         }
     }
@@ -1409,162 +1384,4 @@ public final class RigAnimator implements Listener {
         return Math.max(-limit, Math.min(limit, degrees));
     }
 
-    /**
-     * Composes one animator target's pose into {@code m}, about {@code pivot}.
-     *
-     * Takes the animator map rather than an Animation so emotes can share it:
-     * an emote's keyframes are these keyframes, and its bones are animator
-     * targets with a pivot, so the only thing that differed was the wrapper
-     * type. One implementation means the editor, the rigs and the emotes
-     * cannot drift on what a keyframe means.
-     */
-    public static void applyStep(
-            Matrix4f m,
-            Map<String, Map<String, List<Keyframe>>> animators,
-            String target,
-            float[] pivot,
-            double t) {
-        applyStep(m, animators, target, pivot, t, 1f);
-    }
-
-    /**
-     * As above, at {@code weight} of full strength.
-     *
-     * <p>What lets a layer be half a wave rather than a wave. Weighting is
-     * applied to the SAMPLED VALUES rather than to the finished matrix, which
-     * is the only place it means anything: half of a rotation is a smaller
-     * rotation, and half of a matrix is not a transform at all.
-     *
-     * <p>Scale is weighted toward 1 rather than toward 0, because 1 is what
-     * "no scaling" is. Half of a bone scaled to 2 is 1.5, not 1.
-     *
-     * <p>A weight of exactly 1 takes the same arithmetic as before this
-     * existed, so nothing that was not weighted changed.
-     */
-    public static void applyStep(
-            Matrix4f m,
-            Map<String, Map<String, List<Keyframe>>> animators,
-            String target,
-            float[] pivot,
-            double t,
-            float weight) {
-        if (pivot == null || pivot.length != 3) return;
-        if (weight <= 0f) return;
-        Map<String, List<Keyframe>> animator = animators == null ? null : animators.get(target);
-        // Same px -> block-space mapping as the editor viewport: (v-8)/16,
-        // with the entity sitting at the block center.
-        float px = (pivot[0] - 8f) / 16f;
-        float py = (pivot[1] - 8f) / 16f;
-        float pz = (pivot[2] - 8f) / 16f;
-        float[] rot = sample(animator, "rotation", t, ZERO);
-        float[] pos = sample(animator, "position", t, ZERO);
-        float[] scl = sample(animator, "scale", t, ONE);
-        float w = Math.min(1f, weight);
-        m.translate(px + pos[0] * w / 16f, py + pos[1] * w / 16f, pz + pos[2] * w / 16f);
-        m.rotateXYZ((float) Math.toRadians(rot[0] * w),
-                (float) Math.toRadians(rot[1] * w),
-                (float) Math.toRadians(rot[2] * w));
-        m.scale(nonSingular(1f + (scl[0] - 1f) * w),
-                nonSingular(1f + (scl[1] - 1f) * w),
-                nonSingular(1f + (scl[2] - 1f) * w));
-        m.translate(-px, -py, -pz);
-    }
-
-    // Scaling a part to exactly 0 is the normal way to hide it mid-animation,
-    // and it also makes the matrix singular: rotation extraction divides by
-    // the basis length, so the client gets a NaN quaternion, and since it
-    // interpolates from its rendered pose the NaN propagates forever and the
-    // part never comes back. A thousandth of a block keeps the basis
-    // invertible and isn't visible.
-    private static final float MIN_SCALE = 1e-3f;
-
-    static float nonSingular(float scale) {
-        if (Float.isNaN(scale)) return MIN_SCALE;
-        if (Math.abs(scale) >= MIN_SCALE) return scale;
-        return scale < 0 ? -MIN_SCALE : MIN_SCALE;
-    }
-
-    /**
-     * A pose {@code amount} of the way from {@code from} to {@code to}.
-     *
-     * <p><strong>Rotations are slerped, not lerped.</strong> A component-wise
-     * average of two quaternions is not a rotation: it shortens as the two
-     * diverge, which shows up as a limb shrinking into itself halfway through
-     * a transition and springing back out. Position and scale are ordinary
-     * linear interpolation, where an average IS the answer.
-     */
-    static Transformation mix(Transformation from, Transformation to, float amount) {
-        float t = Math.min(1f, Math.max(0f, amount));
-        return new Transformation(
-                new Vector3f(from.getTranslation()).lerp(to.getTranslation(), t),
-                new Quaternionf(from.getLeftRotation()).slerp(to.getLeftRotation(), t),
-                new Vector3f(from.getScale()).lerp(to.getScale(), t),
-                new Quaternionf(from.getRightRotation()).slerp(to.getRightRotation(), t));
-    }
-
-    // Decompose into Bukkit's Transformation. Exact for a single program step;
-    // a nested bone+cube step with non-uniform bone scale is approximate.
-    public static Transformation toTransformation(Matrix4f m) {
-        Vector3f translation = m.getTranslation(new Vector3f());
-        // Animated scale means the basis vectors aren't unit length.
-        // getNormalizedRotation assumes they are and can emit a non-unit
-        // quaternion, which the client interpolates as a rapid spin.
-        Quaternionf rotation = m.getUnnormalizedRotation(new Quaternionf()).normalize();
-        // Belt and braces alongside nonSingular(): a bone scale and a cube
-        // scale multiplying out to near zero can still degenerate the basis.
-        // Identity is safe, since a basis this small is invisible anyway.
-        if (!isFinite(rotation)) rotation = new Quaternionf();
-        Vector3f scale = m.getScale(new Vector3f());
-        return new Transformation(translation, rotation, scale, new Quaternionf());
-    }
-
-    private static boolean isFinite(Quaternionf q) {
-        return Float.isFinite(q.x) && Float.isFinite(q.y) && Float.isFinite(q.z) && Float.isFinite(q.w);
-    }
-
-    // Mirrors the editor's own channel sampler: hold before the
-    // first and after the last keyframe; a segment is stepped if its left
-    // key is "step", Catmull-Rom if either end is "smooth", else linear.
-    public static float[] sample(Map<String, List<Keyframe>> animator, String channel, double time, float[] fallback) {
-        if (animator == null) return fallback;
-        List<Keyframe> frames = animator.get(channel);
-        if (frames == null || frames.isEmpty()) return fallback;
-        Keyframe first = frames.get(0);
-        if (first.value == null) return fallback;
-        if (time <= first.time) return first.value;
-        Keyframe last = frames.get(frames.size() - 1);
-        if (time >= last.time) return last.value;
-        for (int i = 1; i < frames.size(); i++) {
-            Keyframe b = frames.get(i);
-            if (time <= b.time) {
-                Keyframe a = frames.get(i - 1);
-                if (a.value == null || b.value == null) return fallback;
-                if ("step".equals(a.interpolation)) return a.value;
-                double span = b.time - a.time;
-                float ft = span > 0 ? (float) ((time - a.time) / span) : 1f;
-                if ("smooth".equals(a.interpolation) || "smooth".equals(b.interpolation)) {
-                    Keyframe p0 = i >= 2 ? frames.get(i - 2) : a;
-                    Keyframe p3 = i + 1 < frames.size() ? frames.get(i + 1) : b;
-                    float[] out = new float[3];
-                    for (int axis = 0; axis < 3; axis++) {
-                        out[axis] = catmullRom(p0.value[axis], a.value[axis], b.value[axis], p3.value[axis], ft);
-                    }
-                    return out;
-                }
-                float[] out = new float[3];
-                for (int axis = 0; axis < 3; axis++) {
-                    out[axis] = a.value[axis] + (b.value[axis] - a.value[axis]) * ft;
-                }
-                return out;
-            }
-        }
-        return last.value;
-    }
-
-    private static float catmullRom(float p0, float p1, float p2, float p3, float t) {
-        return 0.5f * (2f * p1
-            + (-p0 + p2) * t
-            + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t * t
-            + (-p0 + 3f * p1 - 3f * p2 + p3) * t * t * t);
-    }
 }
