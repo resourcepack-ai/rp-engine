@@ -5,7 +5,7 @@ import java.util.UUID;
 /**
  * What a pairing reference can look like.
  *
- * <p>Two shapes, both fixed by {@code the pairing service's own spec}: an eight-digit pairing
+ * <p>Two shapes, both fixed by the pairing service: an eight-digit pairing
  * code from the panel, or a 32-hex Minecraft UUID for the permalink flow. They
  * do not collide, which is why one protocol carries both.
  *

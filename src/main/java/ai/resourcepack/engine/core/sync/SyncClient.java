@@ -15,9 +15,9 @@ import java.util.logging.Logger;
  * The websocket to ResourcePack AI Studio, for live-testing a pack.
  *
  * <p><strong>The wire protocol is not ours.</strong> It is fixed by the
- * existing plugin — `the pairing service's own spec` documents it and says so in the first
- * paragraph — so everything here is an implementation of somebody else's
- * spec. Frames are plain text, space-delimited, and split on the first two
+ * pairing service on the other end, which predates this plugin, so everything
+ * here is an implementation of somebody else's spec rather than a design.
+ * Frames are plain text, space-delimited, and split on the first two
  * spaces only, because a URL or a failure reason contains spaces and
  * truncating either is how a push silently does nothing.
  *

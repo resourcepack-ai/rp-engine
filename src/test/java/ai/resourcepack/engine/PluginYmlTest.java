@@ -51,7 +51,8 @@ class PluginYmlTest {
             assertNotNull(yml.get(key), key + " is missing from plugin.yml");
         }
         // Load-bearing beyond this file: every model standing in somebody's
-        // world is keyed to the plugin's name. See the design notes.
+        // world is keyed to the plugin's name, so renaming it orphans every
+        // one of them. See README.md.
         assertTrue("RPEngine".equals(yml.get("name")), "the plugin's name may not change");
         assertTrue(!String.valueOf(yml.get("version")).contains("${"),
             "processResources should have expanded the version, got " + yml.get("version"));
