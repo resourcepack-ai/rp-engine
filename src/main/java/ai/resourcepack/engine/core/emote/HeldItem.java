@@ -139,9 +139,9 @@ final class HeldItem {
      *
      * <p>Absolute, not a delta from the joint: a composed matrix transforms the
      * whole model space rather than being a frame at the bone, which is the
-     * same reading {@code applyPropStep} depends on and the authoring format
-     * states for a prop's offset ("measured from the RIG ORIGIN, not from the
-     * joint it names").
+     * same reading {@code applyPropStep} depends on, and the same one the
+     * authoring format states for a prop's offset: measured from the rig
+     * origin, not from the joint it names.
      */
     static float[] socketPoint(boolean offHand, boolean slim) {
         float side = offHand ? -1f : 1f;

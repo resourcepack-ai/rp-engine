@@ -68,7 +68,8 @@ repositories {
 dependencies {
     // 1.21.4 is the floor and it is load-bearing, not conservatism: the whole
     // id scheme rests on the string-valued minecraft:item_model component,
-    // which arrived in 1.21.4. See the design notes, "The id scheme".
+    // which arrived in 1.21.4. Below it the engine still runs, matching a
+    // model by number instead; see README.md for the version policy.
     compileOnly 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
 
     // Geyser for the Bedrock bridge: per-session pack serving and

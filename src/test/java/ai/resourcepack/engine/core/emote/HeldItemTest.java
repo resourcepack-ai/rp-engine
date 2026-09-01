@@ -83,9 +83,9 @@ class HeldItemTest {
 
     @Test
     void theSocketIsAPlacementSoAnIdentityChainLeavesItWhereItBelongs() {
-        // The reading `applyPropStep` depends on and the authoring format states:
-        // the offset is measured from the RIG ORIGIN, not from the joint it
-        // names. So composing it onto an unposed rig has to land the hand at
+        // The reading `applyPropStep` depends on, and the one the authoring
+        // format states: the offset is measured from the RIG ORIGIN, not from
+        // the joint it names. So composing it onto an unposed rig lands the hand at
         // its rest point rather than at the shoulder.
         Matrix4f m = new Matrix4f();
         HeldItem.applyTo(m, false, false);
