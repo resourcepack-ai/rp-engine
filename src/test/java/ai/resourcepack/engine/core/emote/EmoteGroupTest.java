@@ -184,9 +184,9 @@ class EmoteGroupTest {
         // own — that is what makes "keep the default for jumping" expressible
         // at all. Sneaking and sprinting both lose to it: you can do either in
         // mid-air, and what a viewer sees is somebody jumping.
-        assertEquals(EmoteTrigger.JUMP, EmoteDirector.stanceState(false, false, false, true));
-        assertEquals(EmoteTrigger.JUMP, EmoteDirector.stanceState(true, false, true, true));
-        assertEquals(EmoteTrigger.JUMP, EmoteDirector.stanceState(false, true, true, true));
+        assertEquals(EmoteTrigger.JUMP, EmoteStance.stanceState(false, false, false, true));
+        assertEquals(EmoteTrigger.JUMP, EmoteStance.stanceState(true, false, true, true));
+        assertEquals(EmoteTrigger.JUMP, EmoteStance.stanceState(false, true, true, true));
     }
 
     @Test
@@ -200,9 +200,9 @@ class EmoteGroupTest {
             "\"set\":{\"name\":\"Set\",\"parts\":{\"sneak\":\"crouch\"}}"));
         Map<EmoteTrigger, EmoteStore.Emote> parts = store.partsOf(store.findGroup("set"));
 
-        assertSame(store.find("crouch"), EmoteDirector.memberFor(parts, EmoteTrigger.SNEAK_IDLE));
-        assertSame(store.find("crouch"), EmoteDirector.memberFor(parts, EmoteTrigger.SNEAK_MOVE));
-        assertNull(EmoteDirector.memberFor(parts, EmoteTrigger.WALK));
+        assertSame(store.find("crouch"), EmoteStance.memberFor(parts, EmoteTrigger.SNEAK_IDLE));
+        assertSame(store.find("crouch"), EmoteStance.memberFor(parts, EmoteTrigger.SNEAK_MOVE));
+        assertNull(EmoteStance.memberFor(parts, EmoteTrigger.WALK));
     }
 
     @Test
@@ -215,8 +215,8 @@ class EmoteGroupTest {
                 + "\"sneak\":\"old\"}}"));
         Map<EmoteTrigger, EmoteStore.Emote> parts = store.partsOf(store.findGroup("set"));
 
-        assertSame(store.find("crouch"), EmoteDirector.memberFor(parts, EmoteTrigger.SNEAK_IDLE));
-        assertSame(store.find("creep"), EmoteDirector.memberFor(parts, EmoteTrigger.SNEAK_MOVE));
+        assertSame(store.find("crouch"), EmoteStance.memberFor(parts, EmoteTrigger.SNEAK_IDLE));
+        assertSame(store.find("creep"), EmoteStance.memberFor(parts, EmoteTrigger.SNEAK_MOVE));
     }
 
     @Test
@@ -229,8 +229,8 @@ class EmoteGroupTest {
             boolean sprint = (bits & 2) != 0;
             boolean moving = (bits & 4) != 0;
             assertEquals(
-                EmoteDirector.stanceState(sneak, sprint, moving),
-                EmoteDirector.stanceState(sneak, sprint, moving, false));
+                EmoteStance.stanceState(sneak, sprint, moving),
+                EmoteStance.stanceState(sneak, sprint, moving, false));
         }
     }
 }
