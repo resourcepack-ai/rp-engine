@@ -21,7 +21,7 @@ class ArmSwingTest {
 
     @Test
     void theFrameSentOnTheClickTickIsAlreadyASwing() {
-        // <b>This is the pin that matters.</b> The event arrives partway
+        // This is the pin that matters. The event arrives partway
         // through tick T and poses immediately; if that pose sampled the curve
         // at 0 it would be identical to what is already on screen, and the
         // first movement would land a tick later. Sampling one step in means

@@ -151,8 +151,8 @@ class EmoteStanceTest {
 
     @Test
     void aStoppedWearerSLeadActuallyReachesZero() {
-        // <b>The bug this pins cost every wearer eleven teleports a tick for
-        // the rest of their emote.</b> An easing that halves never arrives, so
+        // The bug this pins cost every wearer eleven teleports a tick for
+        // the rest of their emote. An easing that halves never arrives, so
         // the rig's target differed from where it already stood on every pass
         // for ever — "has it moved" answered yes for ever, and the skip that
         // keeps a standing rig silent never fired again once anybody had taken
