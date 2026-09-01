@@ -29,8 +29,8 @@ import java.util.Optional;
  * into the newest range it knows, which is precisely the case worth telling
  * somebody about instead.
  *
- * <p>This is the same table as studio's {@code Studio's Minecraft version table},
- * kept by hand in both. Add a release in one, add it in the other.
+ * <p>This is the same table as Studio's Minecraft version list, kept by hand
+ * in both. Add a release in one, add it in the other.
  */
 public final class PackFormats {
 

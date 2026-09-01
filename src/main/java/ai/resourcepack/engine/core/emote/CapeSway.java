@@ -8,11 +8,10 @@ import org.joml.Matrix4f;
  * Vanilla's cape physics, on a rig that has replaced the player.
  *
  * <p><b>Until this the cape was a slab.</b> It is baked as an ordinary bone
- * parented to the body (studio's {@code capeElements}), no emote keys it, so it
- * sat rigid against the back through a sprint, a jump and a fall — which reads
- * as a texture painted on rather than as a cape. Studio's {@code Studio's emote skeleton}
- * says so at the point it places the geometry: "real cape motion belongs in an
- * animator".
+ * parented to the body, no emote keys it, so it sat rigid against the back
+ * through a sprint, a jump and a fall — which reads as a texture painted on
+ * rather than as a cape. The skeleton builder says so at the point it places
+ * the geometry: "real cape motion belongs in an animator".
  *
  * <h2>An overlay, like a swing, and for the same reasons</h2>
  *
@@ -49,11 +48,11 @@ import org.joml.Matrix4f;
  *
  * <p><b>The signs are the part that is derived rather than copied.</b> Mojang's
  * numbers are stated in a model space whose y points down and whose cloak is
- * built in FRONT of the body and then flipped — studio's `Studio's emote skeleton` records
+ * built in FRONT of the body and then flipped — the skeleton builder records
  * that flip as the reason the cape's front and back rects are swapped onto
  * south and north. This rig's space is the other one: +y up, the character
- * facing -z, their right hand at +x (studio's `Studio's emote skeleton` again, and the same
- * convention {@link ArmSwing#pitch} states). So each angle is taken as a
+ * facing -z, their right hand at +x (the same convention
+ * {@link ArmSwing#pitch} states). So each angle is taken as a
  * quantity with a meaning — "away from the back", "toward the rig's right" —
  * and turned into a rotation in this space, rather than lifted as a signed
  * degree count. See {@link #applyTo}.

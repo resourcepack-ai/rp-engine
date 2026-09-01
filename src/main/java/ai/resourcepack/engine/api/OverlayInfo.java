@@ -12,7 +12,7 @@ import java.util.Objects;
  * position, because text starts where text starts and art needs to be
  * somewhere else.
  *
- * <p>This is the thing `the previous engine` records as a known gap: a pack
+ * <p>This is the thing the previous engine recorded as a known gap: a pack
  * ships no manifest of its screens, so that engine only ever learns escape
  * sequences at the moment somebody pastes one into a command. Here the build
  * makes the pack, so the ids are known and

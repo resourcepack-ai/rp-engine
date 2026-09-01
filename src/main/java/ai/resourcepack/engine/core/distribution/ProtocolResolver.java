@@ -32,8 +32,8 @@ import java.util.logging.Logger;
  * most of them.
  *
  * <p><b>This class never turns a protocol number into a version name.</b> That
- * table lives in studio ({@code Studio's distribution protocol map}) and arrives in
- * the manifest, entry by entry. A copy here would be a second table in another
+ * table lives in Studio's distribution protocol map and arrives in the
+ * manifest, entry by entry. A copy here would be a second table in another
  * language, in a jar that updates whenever a server owner gets round to it —
  * so a new Minecraft release would need every user to upgrade rather than one
  * deploy of ours.

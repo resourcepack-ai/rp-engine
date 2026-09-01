@@ -271,7 +271,7 @@ class BbModelTest {
     // ---- bones and animations ------------------------------------------
     // Blockbench's Java EXPORT writes neither, so the save file is the only
     // place a hand-authored animation exists at all. Everything here is what
-    // Studio's .bbmodel reader produces, because one animator plays both.
+    // Studio's own .bbmodel reader produces, because one animator plays both.
 
     private static String withRig(String animators) {
         return project(","

@@ -14,12 +14,12 @@ package ai.resourcepack.engine.api;
  * <p>Three arms, but the engine only ever branches two ways — see
  * {@link #NBT} for why the third is carried anyway.
  *
- * <p><b>These names are shared with studio deliberately.</b> Studio's pack
- * exporter has the same three arms under the same names, in
- * {@code Studio's carrier-era table} ({@code CarrierEra}), because a pack
- * exported from studio and a pack built here have to be loadable on the same
- * server. If an arm is added or its boundary moves, it moves in both — there
- * is no shared type between a Worker and a jar to catch it.
+ * <p><b>These names are shared with ResourcePack AI Studio deliberately.</b>
+ * Studio's pack exporter has the same three arms under the same names, on its
+ * own {@code CarrierEra}, because a pack exported from there and a pack built
+ * here have to be loadable on the same server. If an arm is added or its
+ * boundary moves, it moves in both — there is no shared type between a web
+ * exporter and a jar to catch it.
  */
 public enum ItemEra {
 

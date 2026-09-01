@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * What a studio model is, without placing one.
  *
- * <p>Called {@code ModelInfo} in {@code the previous engine}. Renamed here
+ * <p>Called {@code ModelInfo} in the engine this one replaced. Renamed here
  * because this engine already has a {@code ModelInfo}, and the two describe
  * genuinely different things: that one is how a content pack's model gets put
  * down, and this one is what a rig can play.

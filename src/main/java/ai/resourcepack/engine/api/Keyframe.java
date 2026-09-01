@@ -6,7 +6,7 @@ package ai.resourcepack.engine.api;
  * <p><b>Fields rather than accessors, and mutable.</b> Deliberate: gson fills
  * these straight off a manifest reflectively, and a value type with a
  * constructor gson cannot call is a value type that arrives empty. The shape
- * is studio's, in {@code Studio's emote manifest} and {@code Studio's rig builder}.
+ * is set by the emote and rig manifests Studio writes.
  *
  * <p>Three numbers rather than a named triple because the same type carries
  * rotation, position and scale, and a class per channel would be three copies

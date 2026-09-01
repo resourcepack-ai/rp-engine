@@ -20,11 +20,11 @@ import org.joml.Matrix4f;
  * bent elbow because it hangs off the forearm, and it swings when the arm
  * swings, because it is downstream of the arm in the same matrix.
  *
- * <h2>The socket is studio's, not a guess</h2>
+ * <h2>The socket is the editor's, not a guess</h2>
  *
- * Every number here is read off {@code the model editor's display frames}
- * — its {@code thirdPersonSocketPx}, which is the frame that app calibrates a
- * model's {@code thirdperson_righthand} display transform against. That is the
+ * Every number here is read off the third-person socket in Studio's model
+ * editor — the frame that app calibrates a model's
+ * {@code thirdperson_righthand} display transform against. That is the
  * one place in the product that already had to answer "where is the hand", and
  * it answered it against the real game. Deriving a second answer here is how
  * the editor and the plugin end up disagreeing about where a held thing lands,
@@ -147,8 +147,8 @@ final class HeldItem {
         float side = offHand ? -1f : 1f;
         float x = side * (SHOULDER_X_PX + armWidthPx(slim) / 2f);
         float y = SHOULDER_Y_PX - HAND_DOWN_PX + HAND_LIFT_PX;
-        // Forward is -z: Studio's emote skeleton states the character faces -z,
-        // and the entity-model convention its Studio's player rig draws agrees.
+        // Forward is -z: the emote skeleton states the character faces -z,
+        // and the entity-model convention Studio's player rig draws agrees.
         float z = -HAND_FORWARD_PX;
         return rigPxToBlocks(x, y, z);
     }

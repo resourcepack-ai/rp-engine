@@ -18,7 +18,7 @@ import java.util.Set;
 /**
  * Turns a Blockbench project file into a Minecraft model.
  *
- * <p>A port of studio's {@code Studio's .bbmodel reader}, and it exists for one reason:
+ * <p>A port of Studio's own .bbmodel reader, and it exists for one reason:
  * a `.bbmodel` is what Blockbench <em>saves</em>, and a Java model is what it
  * has to be told to <em>export</em>. Somebody who forgets that step gets a
  * build error rather than a model, every time, for ever. Reading the save file
@@ -36,7 +36,7 @@ import java.util.Set;
  * argument for reading it directly, after the one about the forgotten export
  * step.
  *
- * <p>The shapes match studio's {@code Studio's .bbmodel reader} exactly: a flat
+ * <p>The shapes match that reader exactly: a flat
  * {@code groups} array, and {@code animations} whose animators are keyed
  * {@code g:<groupIndex>} rather than by Blockbench's uuids. That is not
  * cosmetic — {@code ModelRigs} and the animator read both sources through one

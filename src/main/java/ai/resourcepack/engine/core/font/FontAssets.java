@@ -196,8 +196,7 @@ public final class FontAssets implements PackContributor {
         // together, because javac translates unicode escapes BEFORE it parses
         // and counts the backslashes in front of the u to decide. Written the
         // obvious way this line is a compile error in a file that never meant
-        // to contain an escape. The same trap is documented in
-        // the previous engine's the design notes.
+        // to contain an escape.
         return "\\" + "u" + String.format("%04X", codepoint);
     }
 }

@@ -26,7 +26,7 @@ import java.util.logging.Logger;
  * push exactly as it does for animation rigs; entries merge in per pack and
  * persist to plugins/&lt;plugin&gt;/emotes.json.
  *
- * JSON shape is produced by Studio's emote manifest — keep the two in
+ * JSON shape is produced by Studio's emote manifest writer — keep the two in
  * sync. It reuses {@link Keyframe} deliberately: an emote's keyframes
  * are the same keyframes a rig has, and one type here means one sampler
  * ({@link ai.resourcepack.engine.core.animation.Sampler#sample}) rather than a second copy of the interpolation
@@ -228,7 +228,7 @@ public final class EmoteStore {
 
     /**
      * The bones the arm width changes, lowercased as they appear in a model
-     * id. Mirrors VARIANT_BONES in Studio's emote skeleton: these two
+     * id. Mirrors the variant-bone set in Studio's emote skeleton: these two
      * are the only bones the pack bakes under a qualified name, so qualifying
      * any other would name a model that isn't there.
      */
@@ -236,8 +236,8 @@ public final class EmoteStore {
         Set.of("rightarm", "leftarm", "rightforearm", "leftforearm");
 
     /**
-     * The key the cape's bone carries. Mirrors {@code CAPE_BONE_KEY} in
-     * Studio's emote skeleton.
+     * The key the cape's bone carries. Mirrors the cape-bone key in Studio's
+     * emote skeleton.
      *
      * <p>Named here rather than matched as a literal at the one place that
      * needs it, because two of them are two chances for the physics in
@@ -247,8 +247,8 @@ public final class EmoteStore {
     static final String CAPE_BONE = "cape";
 
     /** Bone keys, lowercased, whose end a held prop actually rides — the hand
-     *  is on the forearm, the foot on the shin. Mirrors `attachBone` in
-     *  Studio's emote skeleton. Only meaningful on the jointed skeleton; on the
+     *  is on the forearm, the foot on the shin. Mirrors the attach-bone map
+     *  in Studio's emote skeleton. Only meaningful on the jointed skeleton; on the
      *  whole-limb one the end bone doesn't exist and the caller falls back. */
     private static final Map<String, String> ATTACH_END = Map.of(
         "rightarm", "rightForearm",
@@ -267,7 +267,7 @@ public final class EmoteStore {
      * The custom_model_data of one bone of this rig, for a player wearing
      * {@code variant}.
      *
-     * Lowercased to match emoteItemName in Studio's emote manifest. A
+     * Lowercased to match the item names Studio's emote manifest writes. A
      * resource location path may only contain [a-z0-9_.-/], so a camelCase
      * bone key names a model the client cannot load and the limb renders as
      * the missing-model cube. Keep the two in step.
@@ -439,9 +439,8 @@ public final class EmoteStore {
     }
 
     /**
-     * The nil UUID, which studio bakes a vanilla Steve rig under. Mirrors
-     * DEFAULT_EMOTE_PLAYER in Studio's emote manifest — keep the two
-     * in sync.
+     * The nil UUID, which Studio bakes a vanilla Steve rig under. Mirrors the
+     * default emote player in its manifest writer — keep the two in sync.
      */
     private static final String DEFAULT_PLAYER = "00000000000000000000000000000000";
 

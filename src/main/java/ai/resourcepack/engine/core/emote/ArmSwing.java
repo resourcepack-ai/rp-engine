@@ -111,8 +111,8 @@ final class ArmSwing {
      * The forward part of the swing, radians, about the rig's x axis.
      *
      * <p>Positive is forward, and that follows from the rig's own convention
-     * rather than from vanilla's sign: studio's {@code Studio's emote skeleton} states +y
-     * up, the character facing -z and their right hand at +x, so a right-handed
+     * rather than from vanilla's sign: the emote skeleton states +y up, the
+     * character facing -z and their right hand at +x, so a right-handed
      * turn about +x takes the hanging arm (-y) toward -z, which is in front of
      * them. Vanilla's own {@code xRot -= ...} is the same motion said in a model
      * space whose y points down.

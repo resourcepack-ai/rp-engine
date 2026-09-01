@@ -17,8 +17,8 @@ import java.net.URL;
  *
  * <p>Studio used to have to guess, and guessed wrong. Everything reachable from
  * a browser or from a Cloudflare Worker is a CACHE of that property — Mojang's
- * own API refuses datacentre egress (see studio's {@code Studio's profile lookup}),
- * so the fallback path is a mirror serving profiles that may be months old, and
+ * own API refuses datacentre egress, so the fallback path is a mirror
+ * serving profiles that may be months old, and
  * the third-party cape hosts cache too. A Java account can OWN several capes
  * and choose between them, which is what turns "slightly stale" into "somebody
  * else's cape": the design changes while the account does not. Reporting the
@@ -28,7 +28,7 @@ import java.net.URL;
  * <p>Only the HASH goes out, never the texture. Studio fetches the bytes from
  * Mojang's own CDN with it, exactly as it already does for a skin — so a
  * server can say WHICH cape and can never supply the pixels, which is the same
- * line {@code Studio's profile lookup} draws about a mirror.
+ * line Studio's own profile lookup draws about a mirror.
  *
  * <p>Null for a player with no cape, for an offline-mode server, and for a
  * Bedrock player through Floodgate — none of which have one to report. The

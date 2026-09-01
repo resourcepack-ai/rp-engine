@@ -44,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * animation on a per-placement clock and retimes every tracked part
  * display's transformation, letting vanilla's own display interpolation
  * tween the 2-tick gaps into smooth motion. The math mirrors the editor's
- * viewport applier (the editor's animation applier):
+ * viewport applier:
  * pose = T(pivot + position) * Rxyz * S * T(-pivot),
  * composed per program step, with the placement yaw baked in up front
  * (part displays spawn with entity yaw 0).
@@ -620,8 +620,8 @@ public final class RigAnimator implements Listener {
      * **It asks nothing about triggers**, which is the whole difference from
      * {@link #findAnimationIndex} and the whole point of the API. A model's
      * animations are all shipped in the rig manifest whether or not they
-     * claim a trigger — Studio's Minecraft metadata says of an empty trigger list
-     * that it "deliberately makes it editor-only" — so those have been
+     * claim a trigger — Studio says of an empty trigger list that it
+     * "deliberately makes it editor-only" — so those have been
      * sitting on every synced server unreachable, because until now the only
      * way in was by trigger. This is the way in.
      *
@@ -1522,7 +1522,7 @@ public final class RigAnimator implements Listener {
         return Float.isFinite(q.x) && Float.isFinite(q.y) && Float.isFinite(q.z) && Float.isFinite(q.w);
     }
 
-    // Mirrors sampleChannel in the editor (the editor's animation applier): hold before the
+    // Mirrors the editor's own channel sampler: hold before the
     // first and after the last keyframe; a segment is stepped if its left
     // key is "step", Catmull-Rom if either end is "smooth", else linear.
     public static float[] sample(Map<String, List<Keyframe>> animator, String channel, double time, float[] fallback) {

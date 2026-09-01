@@ -13,9 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>These are arithmetic tests rather than rendering ones, and that is the
  * point: the failure mode this subsystem keeps hitting is the plugin and the
  * editor computing the same thing two ways and disagreeing by a conversion.
- * What is pinned here is that this file's answer is derivable from
- * {@code the model editor's display frames}'s, so a change to either is visible as a change to
- * the other.
+ * What is pinned here is that this file's answer is derivable from the
+ * editor's third-person socket, so a change to either is visible as a change
+ * to the other.
  */
 class HeldItemTest {
 

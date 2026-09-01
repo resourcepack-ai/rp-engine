@@ -9,8 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The movement states a stance is worn for, ported from
- * {@code the previous engine}.
+ * The movement states a stance is worn for, ported from the engine this one
+ * replaced.
  *
  * <p>These tests are the port's proof: the wire names and the resolution order
  * are a contract with manifests that already exist, so anything that differs
