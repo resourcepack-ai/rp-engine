@@ -22,6 +22,7 @@ import ai.resourcepack.engine.api.McVersion;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.bedrock.GeyserBridge;
 import ai.resourcepack.engine.core.command.ChatStyle;
+import ai.resourcepack.engine.core.command.CommandWithdrawal;
 import ai.resourcepack.engine.core.command.ContentCommands;
 import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -68,12 +69,10 @@ import ai.resourcepack.engine.core.liquid.LiquidDefinitions;
 import ai.resourcepack.engine.core.liquid.LiquidPools;
 import ai.resourcepack.engine.core.liquid.Liquids;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
-import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
-import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.core.model.BoneListener;
 import ai.resourcepack.engine.core.model.BoundModels;
@@ -111,7 +110,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -301,8 +299,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         // Before anything can talk, including the load diagnostics below.
-        applyChatStyle();
-        applyHeldItemTurn();
+        EngineOptions.chatStyle(getConfig());
+        EngineOptions.emotes(getConfig(), compatibility, this);
         // The allocator is only touched on versions that address models by
         // number, but it is loaded either way: a server that upgrades past
         // 1.21.4 and later comes back down must find the numbers it had.
@@ -358,7 +356,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // reads as a bug.
         emotes = new EmoteDirector(library, emoteStore);
         seats = new Seats(this, compatibility);
-        applySeatOffset();
+        EngineOptions.seatOffset(getConfig(), seats);
         creatures = new CustomEntities(this, items);
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
@@ -491,87 +489,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 continue;
             }
             if (!players && name.equals("emote")) {
-                withdraw(registered);
+                CommandWithdrawal.withdraw(this, registered);
                 continue;
             }
             registered.setExecutor(commands);
             registered.setTabCompleter(commands);
-        }
-    }
-
-    /**
-     * Takes a command back out of the server, name and aliases.
-     *
-     * <p>Bukkit registers everything in plugin.yml before a plugin can say it
-     * would rather not have one, and an unregistered command still answers —
-     * with its usage line, which reads as a broken plugin rather than a
-     * command this server does not have. So the entry is removed from the
-     * command map itself.
-     *
-     * <p>By reflection, because the map is CraftBukkit's and the API exposes
-     * no way to withdraw a command. It fails soft: the worst case is a server
-     * that turned this off still having a /emote that refuses politely, which
-     * is a great deal better than one that will not start.
-     */
-    private void withdraw(PluginCommand command) {
-        try {
-            Object map = declared(getServer().getPluginManager(), "commandMap")
-                    .get(getServer().getPluginManager());
-            Map<?, ?> known = (Map<?, ?>) declared(map, "knownCommands").get(map);
-
-            List<String> names = new ArrayList<>(command.getAliases());
-            names.add(command.getName());
-            for (String name : names) {
-                known.remove(name);
-                known.remove(getName().toLowerCase(Locale.ROOT) + ":" + name);
-            }
-            command.unregister((org.bukkit.command.CommandMap) map);
-
-            // Paper builds a Brigadier tree from the command map at startup,
-            // and a client is told about commands from that rather than from
-            // the map. Not API, so a server that does not have it simply keeps
-            // offering a completion for a command that is no longer there.
-            try {
-                getServer().getClass().getMethod("syncCommands").invoke(getServer());
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
-                getLogger().fine("No syncCommands on this server; completions may lag.");
-            }
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            getLogger().warning("Could not withdraw /" + command.getName()
-                    + "; it will answer with its usage line instead: " + e.getMessage());
-            command.setExecutor((sender, cmd, label, args) -> {
-                sender.sendMessage(EngineCommand.prefix()
-                        + "This server has turned that command off. Use /rp emote.");
-                return true;
-            });
-        }
-    }
-
-    /**
-     * A field on a class or any of its parents, made accessible.
-     *
-     * <p>Up the hierarchy because the field wanted is declared on
-     * {@code SimpleCommandMap} while the object is a server-specific subclass
-     * of it, which is exactly the sort of thing that differs between Paper and
-     * Spigot and between versions of each.
-     */
-    private static Field declared(Object of, String name) throws NoSuchFieldException {
-        for (Class<?> type = of.getClass(); type != null; type = type.getSuperclass()) {
-            try {
-                Field field = type.getDeclaredField(name);
-                field.setAccessible(true);
-                return field;
-            } catch (NoSuchFieldException keepLooking) {
-                // The next class up may have it.
-            }
-        }
-        throw new NoSuchFieldException(name + " on " + of.getClass().getName());
-    }
-
-    /** Hands {@link Seats} the one number a server may have to look at to set. */
-    private void applySeatOffset() {
-        if (seats != null) {
-            seats.calibrate(getConfig().getDouble("models.seat-offset", 0.0));
         }
     }
 
@@ -584,9 +506,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private void reloadContent(CommandSender to) {
         reloadConfig();
-        applyChatStyle();
-        applyHeldItemTurn();
-        applySeatOffset();
+        EngineOptions.chatStyle(getConfig());
+        EngineOptions.emotes(getConfig(), compatibility, this);
+        EngineOptions.seatOffset(getConfig(), seats);
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }
@@ -648,36 +570,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
-     * How a rig's held item is turned in its hand. <b>Calibration only.</b>
-     *
-     * <p>The defaults here are the answer as far as anybody knows, and a server
-     * owner has no reason to set these. They exist because this turn has been
-     * wrong four times and no test can see a rig: they make it something that
-     * can be found by looking, with {@code /rpengine reload} between tries,
-     * rather than one rebuild per guess. See {@code HeldItem.orient}.
-     *
-     * <p>Defaulted to the field values rather than to literals, so the answer
-     * is stated once, in the class that explains it.
-     */
-    private void applyHeldItemTurn() {
-        EmoteDirector.heldItemTurn(
-            (float) getConfig().getDouble("emotes.held-item-pitch", 90.0),
-            (float) getConfig().getDouble("emotes.held-item-yaw", 0.0),
-            (float) getConfig().getDouble("emotes.held-item-roll", 0.0));
-        EmoteDirector.nameTagsSeeThrough(
-            getConfig().getBoolean("emotes.nametag-see-through", false));
-        // Not config: whether a moved rig can be asked to glide is the
-        // server's version, not a preference. See DisplayCarry.
-        EmoteDirector.displayCarry(DisplayCarry.forServer(
-            compatibility, EmoteDirector.interpolationTicks()));
-        // Both holders of the same decision: where a rig part's identity is
-        // carried. One object, so the two can never disagree about a stack.
-        RigTags rigTags = RigTags.forServer(compatibility, this);
-        EmoteDirector.rigTags(rigTags);
-        RigPlacementListener.tags(rigTags);
-    }
-
-    /**
      * Works out what this server can do, says what it cannot, and refuses to
      * run at all below the floor.
      *
@@ -724,20 +616,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             getLogger().info(line);
         }
         return true;
-    }
-
-    private void applyChatStyle() {
-        // Read with no fallbacks: an absent key arrives as null and ChatStyle
-        // falls back to its own default, so the defaults live in one place
-        // rather than being restated here and in config.yml.
-        EngineCommand.style(ChatStyle.of(
-                getConfig().getString("chat.prefix"),
-                getConfig().getString("chat.colour.prefix"),
-                getConfig().getString("chat.colour.brackets"),
-                getConfig().getString("chat.colour.body"),
-                getConfig().getString("chat.colour.accent"),
-                getConfig().getString("chat.colour.error"),
-                getConfig().getString("chat.colour.success")));
     }
 
     /** {@code /rp push}: forget what they are holding and send it again. */

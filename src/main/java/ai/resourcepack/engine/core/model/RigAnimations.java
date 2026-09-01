@@ -1,6 +1,5 @@
 package ai.resourcepack.engine.core.model;
 
-import ai.resourcepack.engine.api.AnimationSettings;
 
 import java.util.ArrayList;
 import java.util.Collections;
