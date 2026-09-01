@@ -69,7 +69,7 @@ final class BoneParts {
      * the size of the dragon would defeat the point of having one.
      */
     void attach(ItemDisplay display, RigStore.Part part) {
-        BoneBehaviour behaviour = RigAnimator.behaviourOf(part);
+        BoneBehaviour behaviour = HeadLook.behaviourOf(part);
         // Always cleared first: this runs whenever a part is tracked, which
         // includes every chunk load, and a hitbox spawned twice is two.
         detach(display);

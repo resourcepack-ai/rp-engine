@@ -270,7 +270,7 @@ public final class ModelPlacementListener implements Listener {
 
         if (partIds != null) {
             animator.track(hitbox);
-            animator.trigger(hitbox, RigAnimator.TRIGGER_PLACE, null);
+            animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, null);
         }
 
         if (info.solid()) {
@@ -340,10 +340,10 @@ public final class ModelPlacementListener implements Listener {
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
-        if (animator != null && animator.hasTrigger(id.get().toString(), RigAnimator.TRIGGER_RIGHT_CLICK)
+        if (animator != null && animator.hasTrigger(id.get().toString(), RigAnimations.TRIGGER_RIGHT_CLICK)
                 && !event.getPlayer().isSneaking()) {
             event.setCancelled(true);
-            animator.trigger(hitbox, RigAnimator.TRIGGER_RIGHT_CLICK, event.getPlayer());
+            animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, event.getPlayer());
             return;
         }
 

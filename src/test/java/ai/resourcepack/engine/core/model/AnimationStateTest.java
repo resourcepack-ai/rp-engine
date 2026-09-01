@@ -51,10 +51,10 @@ class AnimationStateTest {
         // Every manifest written before this has no speed at all, so absent
         // has to mean 1 rather than 0 — a rig frozen on its first frame is a
         // much worse answer than one that ignores a setting.
-        assertEquals(1d, RigAnimator.speedOf(animation(named("wave", ""))), 0.0001);
-        assertEquals(1d, RigAnimator.speedOf(animation(named("wave", ",\"speed\":0"))), 0.0001);
-        assertEquals(1d, RigAnimator.speedOf(animation(named("wave", ",\"speed\":-2"))), 0.0001);
-        assertEquals(1d, RigAnimator.speedOf(null), 0.0001);
+        assertEquals(1d, RigAnimations.speedOf(animation(named("wave", ""))), 0.0001);
+        assertEquals(1d, RigAnimations.speedOf(animation(named("wave", ",\"speed\":0"))), 0.0001);
+        assertEquals(1d, RigAnimations.speedOf(animation(named("wave", ",\"speed\":-2"))), 0.0001);
+        assertEquals(1d, RigAnimations.speedOf(null), 0.0001);
     }
 
     @Test
@@ -62,8 +62,8 @@ class AnimationStateTest {
         RigStore.Animation half = animation(named("wave", ",\"speed\":0.5"));
         RigStore.Animation twice = animation(named("wave", ",\"speed\":2"));
 
-        assertEquals(0.5, RigAnimator.animationTime(half, 1), 0.0001);
-        assertEquals(2, RigAnimator.animationTime(twice, 1), 0.0001);
+        assertEquals(0.5, RigAnimations.animationTime(half, 1), 0.0001);
+        assertEquals(2, RigAnimations.animationTime(twice, 1), 0.0001);
     }
 
     @Test
@@ -72,7 +72,7 @@ class AnimationStateTest {
 
         // Length 2, double speed: over at one second of real time, and it
         // must clamp there rather than sampling off the end of the curve.
-        assertEquals(2, RigAnimator.animationTime(twice, 5), 0.0001);
+        assertEquals(2, RigAnimations.animationTime(twice, 5), 0.0001);
     }
 
     // ---- what happens at the end -----------------------------------------
@@ -84,9 +84,9 @@ class AnimationStateTest {
         // back to rest.
         RigStore.Rig rig = rig(named("open", ",\"mode\":\"hold\""));
 
-        assertEquals(0, RigAnimator.playbackAnimationIndex(rig, 0, 99),
+        assertEquals(0, RigAnimations.playbackAnimationIndex(rig, 0, 99),
                 "long past its length, and still the pose on screen");
-        assertEquals(2, RigAnimator.animationTime(rig.animations.get(0), 99), 0.0001,
+        assertEquals(2, RigAnimations.animationTime(rig.animations.get(0), 99), 0.0001,
                 "clamped to the last frame");
     }
 
@@ -94,8 +94,8 @@ class AnimationStateTest {
     void aOnceAnimationGoesBackToRest() {
         RigStore.Rig rig = rig(named("wave", ",\"mode\":\"once\""));
 
-        assertEquals(0, RigAnimator.playbackAnimationIndex(rig, 0, 1), "still running");
-        assertEquals(-1, RigAnimator.playbackAnimationIndex(rig, 0, 99), "and then nothing");
+        assertEquals(0, RigAnimations.playbackAnimationIndex(rig, 0, 1), "still running");
+        assertEquals(-1, RigAnimations.playbackAnimationIndex(rig, 0, 99), "and then nothing");
     }
 
     @Test
@@ -106,7 +106,7 @@ class AnimationStateTest {
         RigStore.Rig rig = rig("{\"name\":\"spin\",\"length\":2,\"loop\":false,"
                 + "\"mode\":\"loop\",\"triggers\":[{\"type\":\"loop\"}]}");
 
-        assertEquals(0, RigAnimator.playbackAnimationIndex(rig, 0, 99));
+        assertEquals(0, RigAnimations.playbackAnimationIndex(rig, 0, 99));
     }
 
     @Test
@@ -115,8 +115,8 @@ class AnimationStateTest {
                 + "\"triggers\":[{\"type\":\"loop\"}]}");
         RigStore.Rig once = rig(named("wave", ""));
 
-        assertEquals(0, RigAnimator.playbackAnimationIndex(looping, 0, 99));
-        assertEquals(-1, RigAnimator.playbackAnimationIndex(once, 0, 99));
+        assertEquals(0, RigAnimations.playbackAnimationIndex(looping, 0, 99));
+        assertEquals(-1, RigAnimations.playbackAnimationIndex(once, 0, 99));
     }
 
     // ---- which one wins --------------------------------------------------
@@ -125,7 +125,7 @@ class AnimationStateTest {
     void theHighestPriorityClaimantOfATriggerWins() {
         RigStore.Rig rig = rig(named("nudge", ""), named("slam", ",\"priority\":10"));
 
-        assertEquals(1, RigAnimator.findAnimationIndex(rig, RigAnimator.TRIGGER_RIGHT_CLICK));
+        assertEquals(1, RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RIGHT_CLICK));
     }
 
     @Test
@@ -134,7 +134,7 @@ class AnimationStateTest {
         // animation then had the same one.
         RigStore.Rig rig = rig(named("first", ""), named("second", ""));
 
-        assertEquals(0, RigAnimator.findAnimationIndex(rig, RigAnimator.TRIGGER_RIGHT_CLICK));
+        assertEquals(0, RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RIGHT_CLICK));
     }
 
     @Test
@@ -143,7 +143,7 @@ class AnimationStateTest {
         // about that one piece, and priority is a default about the model.
         RigStore.Rig rig = rig(named("nudge", ""), named("slam", ",\"priority\":10"));
 
-        assertEquals(0, RigAnimator.findAnimationIndex(rig, RigAnimator.TRIGGER_RIGHT_CLICK, "nudge"));
+        assertEquals(0, RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RIGHT_CLICK, "nudge"));
     }
 
     // ---- the crossfade ---------------------------------------------------
@@ -204,17 +204,17 @@ class AnimationStateTest {
         // A mob turning from 179 to -179 has moved two degrees, not 358. Left
         // unwrapped, the clamp below reads that as a hard limit hit and snaps
         // the head to the far side.
-        assertEquals(2f, RigAnimator.wrap(362f), 0.0001);
-        assertEquals(-2f, RigAnimator.wrap(358f), 0.0001);
-        assertEquals(-179f, RigAnimator.wrap(181f), 0.0001);
-        assertEquals(0f, RigAnimator.wrap(720f), 0.0001);
+        assertEquals(2f, HeadLook.wrap(362f), 0.0001);
+        assertEquals(-2f, HeadLook.wrap(358f), 0.0001);
+        assertEquals(-179f, HeadLook.wrap(181f), 0.0001);
+        assertEquals(0f, HeadLook.wrap(720f), 0.0001);
     }
 
     @Test
     void aNeckIsClampedRatherThanLettingAHeadGoOnBackwards() {
-        assertEquals(75f, RigAnimator.clamp(200f, 75f), 0.0001);
-        assertEquals(-75f, RigAnimator.clamp(-200f, 75f), 0.0001);
-        assertEquals(30f, RigAnimator.clamp(30f, 75f), 0.0001);
+        assertEquals(75f, HeadLook.clamp(200f, 75f), 0.0001);
+        assertEquals(-75f, HeadLook.clamp(-200f, 75f), 0.0001);
+        assertEquals(30f, HeadLook.clamp(30f, 75f), 0.0001);
     }
 
     @Test
@@ -223,8 +223,8 @@ class AnimationStateTest {
         RigStore.Part part = new com.google.gson.Gson().fromJson(
                 "{\"item\":\"mypack:golem__part0\",\"program\":[]}", RigStore.Part.class);
 
-        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, RigAnimator.behaviourOf(part));
-        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, RigAnimator.behaviourOf(null));
+        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, HeadLook.behaviourOf(part));
+        assertEquals(ai.resourcepack.engine.api.BoneBehaviour.NONE, HeadLook.behaviourOf(null));
     }
 
     @Test
@@ -234,7 +234,7 @@ class AnimationStateTest {
                 RigStore.Part.class);
 
         assertEquals(ai.resourcepack.engine.api.BoneBehaviour.HITBOX_ORIENTED,
-                RigAnimator.behaviourOf(part));
+                HeadLook.behaviourOf(part));
     }
 
     // ---- layers ----------------------------------------------------------
@@ -285,32 +285,32 @@ class AnimationStateTest {
     @Test
     void anAnimationWithNoWeightAppliesAtFullStrength() {
         // Every manifest written before weights, which is all of them.
-        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ""))), 0.0001);
-        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":0"))), 0.0001);
-        assertEquals(1f, RigAnimator.weightOf(null), 0.0001);
-        assertEquals(0.5f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":0.5"))), 0.0001);
+        assertEquals(1f, RigAnimations.weightOf(animation(named("wave", ""))), 0.0001);
+        assertEquals(1f, RigAnimations.weightOf(animation(named("wave", ",\"weight\":0"))), 0.0001);
+        assertEquals(1f, RigAnimations.weightOf(null), 0.0001);
+        assertEquals(0.5f, RigAnimations.weightOf(animation(named("wave", ",\"weight\":0.5"))), 0.0001);
     }
 
     @Test
     void aWeightIsNeverMoreThanFullStrength() {
-        assertEquals(1f, RigAnimator.weightOf(animation(named("wave", ",\"weight\":4"))), 0.0001);
+        assertEquals(1f, RigAnimations.weightOf(animation(named("wave", ",\"weight\":4"))), 0.0001);
     }
 
     @Test
     void anAnimationWithNoMaskMovesEveryPart() {
         RigStore.Animation all = animation(named("wave", ""));
 
-        assertTrue(RigAnimator.moves(all, part("{\"item\":\"a:b__part0\"}")));
-        assertTrue(RigAnimator.moves(all, null));
+        assertTrue(RigAnimations.moves(all, part("{\"item\":\"a:b__part0\"}")));
+        assertTrue(RigAnimations.moves(all, null));
     }
 
     @Test
     void aMaskMovesOnlyTheBonesItNames() {
         RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
 
-        assertTrue(RigAnimator.moves(upper,
+        assertTrue(RigAnimations.moves(upper,
                 part("{\"item\":\"a:b__part0\",\"bone\":\"torso\",\"bones\":[\"root\",\"torso\"]}")));
-        assertFalse(RigAnimator.moves(upper,
+        assertFalse(RigAnimations.moves(upper,
                 part("{\"item\":\"a:b__part1\",\"bone\":\"leg\",\"bones\":[\"root\",\"leg\"]}")));
     }
 
@@ -321,7 +321,7 @@ class AnimationStateTest {
         // else.
         RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
 
-        assertTrue(RigAnimator.moves(upper,
+        assertTrue(RigAnimations.moves(upper,
                 part("{\"item\":\"a:b__part2\",\"bone\":\"arm\",\"bones\":[\"root\",\"torso\",\"arm\"]}")));
     }
 
@@ -332,14 +332,14 @@ class AnimationStateTest {
         // place" is the opposite of that.
         RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"torso\"]"));
 
-        assertFalse(RigAnimator.moves(upper, part("{\"item\":\"a:b__part9\"}")));
+        assertFalse(RigAnimations.moves(upper, part("{\"item\":\"a:b__part9\"}")));
     }
 
     @Test
     void aMaskDoesNotCareAboutCase() {
         RigStore.Animation upper = animation(named("wave", ",\"bones\":[\"Torso\"]"));
 
-        assertTrue(RigAnimator.moves(upper,
+        assertTrue(RigAnimations.moves(upper,
                 part("{\"item\":\"a:b__part0\",\"bone\":\"torso\",\"bones\":[\"torso\"]}")));
     }
 
