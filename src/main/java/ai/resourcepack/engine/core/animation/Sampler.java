@@ -8,8 +8,8 @@ import java.util.Map;
 /**
  * Reads a value out of a keyframe track at a moment in time.
  *
- * <p>Ported from {@code RigAnimator.sample} in {@code the previous engine},
- * which is itself a mirror of the editor's {@code sampleChannel}.
+ * <p>Ported from the previous engine's rig animator, which is itself a
+ * mirror of the editor's own channel sampler.
  * <strong>Those three have to agree.</strong> The curve an author drew in the
  * editor, the curve the old plugin plays, and the curve this plays are the
  * same curve; a difference in any of them is animation that looks subtly wrong

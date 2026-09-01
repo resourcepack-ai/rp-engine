@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The manifest that makes a pushed pack nameable.
  *
- * <p>Its shape is written by studio's `Studio's content-manifest writer`, so the JSON in
- * here is what that file emits rather than what would be convenient.
+ * <p>Its shape is written by Studio's content-manifest writer, so the JSON in
+ * here is what that emits rather than what would be convenient.
  */
 class StudioContentTest {
 

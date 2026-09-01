@@ -8,8 +8,8 @@ import java.util.Optional;
  * Where a container's window sits on the screen, and what that means for a
  * backdrop drawn over it.
  *
- * <p>Ported from studio's {@code Studio's vanilla GUI catalogue}, which is the only
- * place this arithmetic has ever been correct. Guessing at it produces a
+ * <p>Ported from Studio's vanilla GUI catalogue, which is the only place
+ * this arithmetic has ever been correct. Guessing at it produces a
  * picture that is nearly right, which is worse than one that is obviously
  * wrong because it looks like a rounding bug rather than a missing formula.
  *

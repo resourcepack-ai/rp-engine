@@ -32,8 +32,8 @@ import java.util.Set;
  * agreed on the wrong answer, which is what a nested rig animating wrongly
  * from a push turned out to be.
  *
- * <p><strong>It is a port of studio's {@code Studio's rig builder}, and staying a
- * port is the point.</strong> Both sides feed one animator, so a rig computed
+ * <p><strong>It is a port of Studio's own rig builder, and staying a port is
+ * the point.</strong> Both sides feed one animator, so a rig computed
  * here and a rig computed there have to be the same rig — same parts, same
  * program order, same pivots. Change the rule on one side and a model that
  * plays correctly from a push plays wrong from a folder, which is close to

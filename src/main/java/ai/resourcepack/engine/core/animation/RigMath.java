@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Turning sampled keyframes into a display entity's transform.
  *
- * <p>Ported from {@code RigAnimator} in {@code the previous engine}. Every
+ * <p>Ported from the previous engine's own rig animator. Every
  * comment below is a bug somebody already found in game, which is why it is
  * copied rather than rewritten from what the maths obviously ought to be.
  */

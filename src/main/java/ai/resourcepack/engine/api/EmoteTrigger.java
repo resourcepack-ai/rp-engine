@@ -24,7 +24,7 @@ import java.util.Set;
  * somebody started, which is why the wire names are stable: they are what
  * studio writes into an emote's {@code triggers} array.
  *
- * <p><b>Ported verbatim from {@code the previous engine}</b>, wire names and
+ * <p><b>Ported verbatim from the engine this one replaced</b>, wire names and
  * all. The names are a contract with manifests that already exist, so this is
  * a place to copy rather than to improve: a rename here is a stance that
  * silently stops being worn.

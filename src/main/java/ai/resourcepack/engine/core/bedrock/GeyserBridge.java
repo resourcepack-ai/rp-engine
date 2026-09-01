@@ -99,7 +99,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     // like, so new models ride in on the pack-apply reconnect. Slot numbers
     // are the panel's per-model cmd integers, and freed numbers get reused,
     // so this caps concurrently live models per pack rather than lifetime
-    // creations. Mirrors BEDROCK_SLOT_POOL in Studio's Bedrock geometry builder.
+    // creations. Mirrors the slot pool Studio's Bedrock geometry builder uses.
     private static final int SLOT_POOL = 200;
 
     /** One entry of a pack's rpai_items.json. */
@@ -189,8 +189,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         return new File(packsDir, xuid.replaceAll("[^0-9]", "") + ".mcpack");
     }
 
-    // Mirrors sanitizeBedrockName in Studio's Bedrock geometry builder - the two
-    // must agree or animation/entity ids won't match the served pack.
+    // Mirrors the name sanitiser in Studio's Bedrock geometry builder - the
+    // two must agree or animation/entity ids won't match the served pack.
     static String sanitize(String name) {
         String cleaned = name.toLowerCase()
             .replaceAll("[\\s-]+", "_")

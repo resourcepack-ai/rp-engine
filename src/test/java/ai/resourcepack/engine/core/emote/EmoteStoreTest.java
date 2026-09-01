@@ -18,11 +18,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The emote manifest, ported from {@code the previous engine}'s
- * {@code origin/groups}.
+ * The emote manifest.
  *
- * <p>Its shape is produced by studio's {@code Studio's emote manifest} and the
- * two have to stay in step, so these tests are written against the JSON rather
+ * <p>Its shape is produced by Studio's emote manifest writer and the two have
+ * to stay in step, so these tests are written against the JSON rather
  * than against the objects: a field renamed on either side should fail here
  * rather than in game.
  */

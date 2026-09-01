@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Splitting a model into the parts a server can move.
  *
- * <p>Every rule here is also a rule in studio's {@code Studio's rig builder}, and
- * the two have to agree: one animator plays both, so a difference shows up as
+ * <p>Every rule here is also a rule in Studio's rig builder, and the two
+ * have to agree: one animator plays both, so a difference shows up as
  * a model that animates correctly from a push and wrongly from a folder.
  */
 class ModelRigsTest {

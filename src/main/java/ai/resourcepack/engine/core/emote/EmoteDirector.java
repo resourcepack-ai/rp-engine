@@ -248,8 +248,8 @@ public final class EmoteDirector implements Listener {
      * has to be drawn at to be the same size as the player wearing it.
      *
      * <p><b>The rig was 6.7% too big, and the arithmetic says exactly why.</b>
-     * The skeleton is 32px tall in the space studio builds it in (see
-     * RIG_ORIGIN_PX in its Studio's emote skeleton) and an ItemDisplay renders that space
+     * The skeleton is 32px tall in the space Studio builds it in (see the
+     * skeleton's own origin) and an ItemDisplay renders that space
      * at 16px to the block — so left alone it stands 2.0 blocks. Vanilla's
      * player renderer scales the same 32px model by 15/16 before drawing it,
      * which is 1.875 blocks. Nothing was wrong with the model; it was simply
@@ -1418,9 +1418,9 @@ public final class EmoteDirector implements Listener {
             pdc.set(originKey, PersistentDataType.STRING, encode(player.getLocation()));
         }
 
-        // The rig stands one block above the player's feet — RIG_ORIGIN_PX in
-        // Studio's emote skeleton, and the only offset the whole body fits the
-        // block-model bounds at.
+        // The rig stands one block above the player's feet — the skeleton's
+        // own origin, and the only offset the whole body fits the block-model
+        // bounds at.
         Location base = session.origin.clone().add(0, RIG_BASE_Y, 0);
         base.setYaw(0);
         base.setPitch(0);
