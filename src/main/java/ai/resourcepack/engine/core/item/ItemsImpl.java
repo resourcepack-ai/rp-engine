@@ -3,7 +3,6 @@ package ai.resourcepack.engine.core.item;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.ItemStats;
-import ai.resourcepack.engine.api.Feature;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.version.Compatibility;
 import ai.resourcepack.engine.core.version.Vanilla;
