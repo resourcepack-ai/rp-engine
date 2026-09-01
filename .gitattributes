@@ -1,0 +1,13 @@
+# LF in the repository, whatever a contributor's platform checks out.
+# Every blob here is already LF because the machine that wrote them had
+# core.autocrlf set. That is a local setting, not a property of the project,
+# and the first contributor without it would commit a file whose every line
+# reads as changed. This states the policy so nobody has to have it configured.
+* text=auto eol=lf
+
+# Windows runs this one, and it needs CRLF to run at all.
+*.bat text eol=crlf
+
+# The Gradle wrapper is a shell script and a jar; neither survives translation.
+gradlew text eol=lf
+gradle/wrapper/gradle-wrapper.jar binary
