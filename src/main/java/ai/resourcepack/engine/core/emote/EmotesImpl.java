@@ -118,8 +118,8 @@ public final class EmotesImpl implements Emotes {
         Host.requireMainThread();
         if (player == null) return false;
         boolean emoting = director.isEmoting(player.getUniqueId());
-        // <b>Handed over even when they are not emoting, and the return value
-        // still says they weren't.</b> The director's no-session path is a
+        // Handed over even when they are not emoting, and the return value
+        // still says they weren't. The director's no-session path is a
         // restore: it puts the body back for anybody carrying a leftover
         // marker or a leftover invisibility, which is the state a crash — or a
         // jar older than the fix in `restore` — leaves somebody in.

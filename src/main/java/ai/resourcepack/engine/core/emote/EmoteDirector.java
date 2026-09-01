@@ -1443,7 +1443,7 @@ public final class EmoteDirector implements Listener {
         for (int i = 0; i < bones.size(); i++) {
             EmoteStore.Bone bone = bones.get(i);
             if (bone == null || bone.key == null) {
-                // <b>A null slot, never a skipped one.</b> `pose` walks
+                // A null slot, never a skipped one. `pose` walks
                 // `parts` and `bones` together by index, so dropping an entry
                 // from one list and not the other shifts every bone after it
                 // onto its neighbour's model — the forearm's geometry posed by
@@ -1492,8 +1492,8 @@ public final class EmoteDirector implements Listener {
         feet.setPitch(0);
         session.shadow = spawnShadow(session, feet);
         session.nameTag = spawnNameTag(player, session);
-        // <b>The name is hidden from its wearer ALWAYS, not only when the rest
-        // of the rig is.</b> Nobody sees their own nameplate in vanilla — it is
+        // The name is hidden from its wearer ALWAYS, not only when the rest
+        // of the rig is. Nobody sees their own nameplate in vanilla — it is
         // drawn for other people — so the rig's copy of it is the one part of
         // an emote that has no first-person reading at all. On a worn set it
         // went with everything else; on a one-shot, where the wearer is meant
@@ -2062,8 +2062,8 @@ public final class EmoteDirector implements Listener {
         String invis = pdc.get(previousInvisKey, PersistentDataType.STRING);
         String origin = pdc.get(originKey, PersistentDataType.STRING);
 
-        // <b>The body comes back FIRST, before anything that can fail and
-        // before the markers that would let us try again are cleared.</b>
+        // The body comes back FIRST, before anything that can fail and
+        // before the markers that would let us try again are cleared.
         //
         // This used to be the last thing the method did, under a comment
         // saying it had to be the first — and the gap between those two facts
@@ -2564,8 +2564,8 @@ public final class EmoteDirector implements Listener {
     private TextDisplay spawnNameTag(Player player, Session session) {
         String label = nameTagText(player);
         if (label.isEmpty()) return null;
-        // <b>Only a stance reads the wearer's crouch</b>, and for the reason
-        // {@link #carryFollowers} states: a set has a crouching STATE and its
+        // Only a stance reads the wearer's crouch, and for the reason
+        // carryFollowers states: a set has a crouching STATE and its
         // rig really does crouch, while a one-shot plays what it was given
         // whatever the shift key is doing. Spawning a one-shot's name at
         // crouch height put it a third of a block inside the rig's head, and
@@ -2590,7 +2590,7 @@ public final class EmoteDirector implements Listener {
             d.setSeeThrough(seeThroughNameTags && !sneaking);
             d.setViewRange(sneaking ? SNEAK_NAMETAG_RANGE : 1f);
             d.setDefaultBackground(true);
-            // <b>No drop shadow, because a real nametag has none.</b> Vanilla
+            // No drop shadow, because a real nametag has none. Vanilla
             // draws a name plate through the font with shadow off — it is about
             // the only place in the game that does — and a display defaults it
             // on, so ours came out a shade heavier than every other name in the
@@ -3043,7 +3043,7 @@ public final class EmoteDirector implements Listener {
                 spawnProps(player, session, session.emote, base, null);
                 boolean wasHidden = session.rigHidden;
                 setRigHidden(player, session, member == null);
-                // <b>Only where a tween would be wrong, not on every swap.</b>
+                // Only where a tween would be wrong, not on every swap.
                 // Easing between a walk and a run is two cycles blending, which
                 // is what you want; easing out of a rig that was put away is a
                 // tween from whatever pose it happened to be holding when it
