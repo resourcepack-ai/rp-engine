@@ -595,9 +595,15 @@ one-block cube, which is clickable but much smaller than most vehicles look.
 How you drive depends on your server:
 
 - **Paper 1.21.4 and up** — W and S to move, **A and D to steer**, space for
-  the handbrake on land and water or the climb in the air.
+  the handbrake on land and water.
+
+  In the **air** the vertical controls are their own: **space climbs, S
+  descends**, and S only reverses once you are back on the ground — there is
+  nothing to reverse against in mid-air. Your look does not fly it, so you can
+  look around while flying.
 - **Anything else** — right-click speeds up a notch, left-click slows down and
-  then reverses, and you steer by **looking where you want to go**.
+  then reverses, and you steer by **looking where you want to go**. An air
+  vehicle climbs and dives with your look too, since there is no key to read.
 
 Sneak gets out, as it does for a boat. That is also why sneak is not the
 brake: a driver braking would step off at speed.
