@@ -684,6 +684,14 @@ Two honest limits:
   responsive one; everyone else sees the vehicle where the server last said it
   was. Nothing on this side changes that.
 
+**If a seat is consistently a bit off from where the editor drew it**, that is
+`vehicles.seat-offset` (up) and `vehicles.seat-forward` (along) in
+`config.yml`, and `/rp reload`. Where a rider ends up is the chassis, plus the
+seat, plus the game's own rule for placing a passenger — and only the first two
+are ours. That last one cannot be read by a plugin and has changed between
+versions before, so the two nudges close it on your server rather than waiting
+for a release.
+
 One server setting stops all of this working: `armor-stands-tick: false` in
 Paper's config. A stand that does not tick never moves, so every vehicle sits
 still. The engine notices and says so in the console rather than leaving you
