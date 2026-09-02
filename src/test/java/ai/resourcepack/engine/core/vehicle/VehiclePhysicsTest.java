@@ -167,6 +167,69 @@ class VehiclePhysicsTest {
         assertEquals(0, step.dz(), 1e-9);
     }
 
+    // --- where a seat goes ---------------------------------------------
+
+    /**
+     * Minecraft yaw 0 faces SOUTH, and somebody facing south has WEST on their
+     * right. So right is {@code -x}, not {@code +x}.
+     *
+     * <p>This shipped inverted: the basis was written as forward's components
+     * swapped, which looks right and puts every occupant on the wrong side of
+     * the vehicle. It is exactly the class of thing the forward vector was
+     * tested for from the start and this was not.
+     */
+    @Test
+    void atYawZeroForwardIsSouthAndRightIsWest() {
+        double[] forward = VehiclePhysics.seatOffset(0, 0, 1);
+        assertEquals(0, forward[0], 1e-9);
+        assertEquals(1, forward[1], 1e-9);
+
+        double[] right = VehiclePhysics.seatOffset(0, 1, 0);
+        assertEquals(-1, right[0], 1e-9);
+        assertEquals(0, right[1], 1e-9);
+    }
+
+    @Test
+    void atYawNinetyForwardIsWestAndRightIsNorth() {
+        double[] forward = VehiclePhysics.seatOffset(90, 0, 1);
+        assertEquals(-1, forward[0], 1e-9);
+        assertEquals(0, forward[1], 1e-9);
+
+        double[] right = VehiclePhysics.seatOffset(90, 1, 0);
+        assertEquals(0, right[0], 1e-9);
+        assertEquals(-1, right[1], 1e-9);
+    }
+
+    /**
+     * A seat's forward direction and the direction the vehicle actually
+     * travels have to be the same one — the two are computed by different
+     * methods, and a driver placed at the back of their own car is what it
+     * looks like when they drift apart.
+     */
+    @Test
+    void aSeatsForwardIsTheDirectionTheVehicleTravels() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        for (double yaw : new double[] {0, 37, 90, 180, 270, 315}) {
+            VehiclePhysics.Step step =
+                    VehiclePhysics.step(info, new VehiclePhysics.State(yaw, 20, 0), ahead(yaw), GROUND, DT);
+            double[] seat = VehiclePhysics.seatOffset(yaw, 0, 1);
+            double travel = Math.hypot(step.dx(), step.dz());
+            assertEquals(seat[0], step.dx() / travel, 1e-9, "x disagrees at yaw " + yaw);
+            assertEquals(seat[1], step.dz() / travel, 1e-9, "z disagrees at yaw " + yaw);
+        }
+    }
+
+    /** Right and forward are perpendicular, at every angle. */
+    @Test
+    void rightIsSquareToForward() {
+        for (double yaw = 0; yaw < 360; yaw += 17) {
+            double[] forward = VehiclePhysics.seatOffset(yaw, 0, 1);
+            double[] right = VehiclePhysics.seatOffset(yaw, 1, 0);
+            assertEquals(0, forward[0] * right[0] + forward[1] * right[1], 1e-9,
+                    "not perpendicular at yaw " + yaw);
+        }
+    }
+
     // --- up and down ---------------------------------------------------
 
     @Test
