@@ -68,10 +68,16 @@ public final class RigAnimator implements Listener {
     static final String BOUND_KEY = "rig-bound";
 
     /**
-     * On a part display: the uuid of the entity whose yaw this part follows.
+     * On a part display: the uuid of the {@link Interaction} its rig is
+     * anchored on, which is also the marker that this part is CARRIED.
      *
-     * <p>For a rig carried by something that turns but is not ridden — see
-     * {@link #yawOf}. Written by {@code RigCarrier} and by nothing else.
+     * <p>Two jobs, and the second is the load-bearing one. Its presence tells
+     * {@link #yawOf} that this part is turned by its own entity yaw rather than
+     * by the pose matrix — see there for why a carried rig must not bake a
+     * changing yaw into a transform that is only re-sent every
+     * {@link #PERIOD_TICKS} ticks.
+     *
+     * <p>Written by {@code RigCarrier} and by nothing else.
      */
     static final String YAW_HOST_KEY = "rig-yaw-host";
 
@@ -415,20 +421,18 @@ public final class RigAnimator implements Listener {
         // An overlay plays over a base that may itself be at rest, so
         // "nothing is animating" is not a reason to stop sending frames.
         boolean overlaid = pdc.has(overlayKey, PersistentDataType.STRING);
-        // Both kinds of part whose yaw is somebody ELSE'S are exempt, for one
-        // reason: "nothing has changed" is false the moment that somebody
-        // turns. A bound part rides a mob; a carried one follows a yaw host
-        // (a vehicle). Leaving the second out of this is what froze a boat's
-        // art at its spawn heading while the boat itself turned underneath it
-        // — which reads, from the driver's seat, as not being able to steer.
+        // A bound part is exempt: its yaw is its host's and IS in this matrix,
+        // so "nothing has changed" is false the moment the mob turns.
         //
-        // The transform is compared below either way, so a vehicle standing
-        // still still sends nothing.
-        boolean follows = pdc.has(boundKey, PersistentDataType.STRING)
-                || pdc.has(yawHostKey, PersistentDataType.STRING);
+        // A CARRIED part is deliberately NOT exempt, and that is the fix rather
+        // than an omission: its yaw lives on the entity now (see yawOf), so its
+        // matrix holds only the animation and a dormant one genuinely has
+        // nothing to re-send. Its rotation arrives with the per-tick teleport
+        // that already carries its position.
+        boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
         // A blend has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
-        if (!follows && !overlaid && blend == null
+        if (!bound && !overlaid && blend == null
                 && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
@@ -508,18 +512,23 @@ public final class RigAnimator implements Listener {
      * anyway.
      */
     private Float yawOf(ItemDisplay display, PersistentDataContainer pdc) {
-        String yawHost = pdc.get(yawHostKey, PersistentDataType.STRING);
-        if (yawHost != null) {
-            Entity host = null;
-            try {
-                host = Bukkit.getEntity(UUID.fromString(yawHost));
-            } catch (IllegalArgumentException ignored) {
-                // A malformed id costs this part its live yaw and nothing
-                // else, exactly as a malformed display id does in indexDisplays.
-            }
-            // Its carrier is gone, or the chunk holding it is. The last stored
-            // yaw beats snapping to north, same as the bound case.
-            return host == null ? pdc.get(yawKey, PersistentDataType.FLOAT) : host.getLocation().getYaw();
+        // A CARRIED part is turned by its ENTITY yaw, not by this matrix, so
+        // there is no rotation to bake and baking one would apply it twice.
+        //
+        // <p><strong>This is the whole of why a carried rig used to feel
+        // chunky.</strong> The matrix is re-sent every {@link #PERIOD_TICKS}
+        // ticks and interpolated over that window; the entity is teleported
+        // every tick and glides over the vehicle's own duration. Putting a
+        // CONSTANTLY CHANGING yaw in the matrix meant a vehicle's position
+        // updated at 20Hz and its heading at 10Hz, with two different
+        // interpolation windows — so the art visibly lagged and stepped round
+        // corners, and steering felt like it was not being read.
+        //
+        // A placed rig never turns, so baking its one fixed yaw costs nothing
+        // and is what {@code RigSpawn} does. A carried one follows the rule
+        // RigSpawn already states for a STILL part: keep the yaw on the entity.
+        if (pdc.has(yawHostKey, PersistentDataType.STRING)) {
+            return 0f;
         }
         if (pdc.has(boundKey, PersistentDataType.STRING)) {
             Entity host = display.getVehicle();

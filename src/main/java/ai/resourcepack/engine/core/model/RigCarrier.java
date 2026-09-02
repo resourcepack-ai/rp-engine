@@ -44,11 +44,18 @@ import java.util.function.Function;
  * </ul>
  *
  * <p>So the parts are moved by whoever owns them, exactly as the single still
- * display they replace already was, and the live yaw comes from a <strong>yaw
- * host</strong>: one entity whose facing every part reads
- * ({@link RigAnimator#YAW_HOST_KEY}). That is cheaper than the obvious
- * alternative — writing a fresh yaw into every part's persistent data every
- * tick — by exactly the number of parts times twenty.
+ * display they replace already was — <strong>position and heading together, on
+ * one per-tick teleport.</strong>
+ *
+ * <p>That last part is not an implementation detail. A placed rig bakes its yaw
+ * into the pose matrix, which is re-sent every {@link RigAnimator#PERIOD_TICKS}
+ * ticks and interpolated over that window; that is free for a statue, whose yaw
+ * never changes. Do it to a vehicle and its position updates at 20Hz while its
+ * heading steps round at 10Hz on a different interpolation window — the art
+ * visibly lags and chunks through corners, and steering feels like it is not
+ * being read. So a carried part keeps its yaw on its ENTITY, which is the rule
+ * {@code RigSpawn} already states for a still part, and its matrix carries only
+ * the animation.
  *
  * <h2>The anchor is not a hitbox</h2>
  *
@@ -128,7 +135,12 @@ public final class RigCarrier {
             box.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);
         });
 
-        List<ItemDisplay> parts = spawns.parts(anchor, modelId, rig, yaw, null, 1f,
+        // Spawned at yaw ZERO on purpose. RigSpawn bakes the yaw it is given
+        // into every moving part's pose, and a carried rig is turned by its
+        // entity yaw instead (see RigAnimator.yawOf) — passing the real yaw
+        // here would apply it twice for the one frame before the first move.
+        // The `moveTo` below puts the real heading on straight away.
+        List<ItemDisplay> parts = spawns.parts(anchor, modelId, rig, 0f, null, 1f,
                 part -> partItem.apply(part.item));
 
         List<String> ids = new ArrayList<>(parts.size());
@@ -191,17 +203,21 @@ public final class RigCarrier {
             if (anchor == null || anchor.getWorld() == null) {
                 return;
             }
+            Location facing = anchor.clone();
+            facing.setYaw(yaw);
+            facing.setPitch(0);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {
-                Location facing = anchor.clone();
-                facing.setYaw(yaw);
-                facing.setPitch(0);
                 yawHost.teleport(facing);
             }
+            // The yaw rides the SAME teleport as the position, which is the
+            // whole point: both then update every tick and glide over the same
+            // window, instead of the position moving at 20Hz while a
+            // matrix-baked heading stepped round at 10Hz.
             for (String id : partIds) {
                 Entity part = entity(id);
                 if (part != null) {
-                    part.teleport(anchor);
+                    part.teleport(facing);
                 }
             }
         }
