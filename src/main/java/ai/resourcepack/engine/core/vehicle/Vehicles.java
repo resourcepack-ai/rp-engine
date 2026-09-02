@@ -291,9 +291,34 @@ public final class Vehicles implements Listener {
         this.pushPlayers = pushPlayers;
     }
 
-    /** Replaces the catalogue, as a reload does. */
+    /**
+     * Replaces the catalogue, as a reload or a push does.
+     *
+     * <p><strong>Live vehicles are rebuilt, not left holding the old
+     * definition.</strong> {@link #adopt} refuses a chassis it is already
+     * tracking — which is right for a chunk loading twice and wrong here: a
+     * re-sync that moved a seat or resized the hitbox would change the
+     * catalogue and change nothing anybody could see, because every vehicle
+     * already standing in the world kept the definition it was adopted with.
+     * That is most of "I sync and it works, then it stops matching".
+     *
+     * <p>Rebuilding ejects whoever is in one. That is the honest cost and it
+     * beats the alternative: a passenger sitting in a seat that no longer
+     * exists, on a vehicle whose handling numbers nobody can account for.
+     */
     public void replace(Map<ContentId, VehicleInfo> loaded) {
         this.catalogue = loaded == null ? Map.of() : Map.copyOf(loaded);
+        for (UUID chassisId : List.copyOf(live.keySet())) {
+            Ride ride = live.remove(chassisId);
+            if (ride == null) {
+                continue;
+            }
+            ride.evictAll();
+            ride.despawnParts();
+        }
+        // Not re-adopted here: adoptLoaded() runs straight after every call to
+        // this, from the one place that knows the whole load finished. Doing it
+        // twice would spawn a set of parts and immediately drop them.
     }
 
     /** Every vehicle id, sorted. */
@@ -682,6 +707,24 @@ public final class Vehicles implements Listener {
         /** How many ticks in a row a move was asked for and nothing happened. */
         private int stuck;
 
+        /**
+         * What the vehicle moved last tick, so a ridden mount can be aimed
+         * where its seat WILL be rather than where it is.
+         *
+         * <p><strong>This is the whole of the rider sitting too far back.</strong>
+         * Velocity is not a position: it is applied by the entity's own tick,
+         * which runs after ours, so a mount told to cover the gap to its seat
+         * arrives there at the end of the tick — by which time the vehicle has
+         * moved on again. The rider therefore trails by exactly one tick of
+         * travel, permanently, and the faster the vehicle the further back
+         * they sit: at 12 blocks a second that is 0.6 of a block, which is
+         * most of a seat.
+         *
+         * <p>The model has no such lag because it is teleported, which is why
+         * the two visibly disagreed rather than both being late together.
+         */
+        private Vector carriedBy = new Vector();
+
         Ride(VehicleInfo info, Entity chassis) {
             this.info = info;
             this.chassisId = chassis.getUniqueId();
@@ -972,6 +1015,7 @@ public final class Vehicles implements Listener {
 
             VehiclePhysics.Step step = VehiclePhysics.step(info, state, demand, surroundings(), DT);
             state = step.state();
+            carriedBy = new Vector(step.dx(), step.dy(), step.dz());
             if (step.moves()) {
                 apply(step);
                 shoveAside(step);
@@ -1157,7 +1201,13 @@ public final class Vehicles implements Listener {
                 // Somebody is on it. Velocity first — see SEAT_DRIFT — and a
                 // teleport only to correct real drift, because every teleport
                 // costs the rider a round trip they have to acknowledge.
-                Vector wanted = target.toVector().subtract(mount.getLocation().toVector());
+                //
+                // Aimed one tick AHEAD of the seat, because velocity is applied
+                // by the mount's own tick after this one: aiming at where the
+                // seat is now lands the rider there just as the vehicle leaves,
+                // which is the constant backwards offset. See carriedBy.
+                Vector wanted = target.toVector().add(carriedBy)
+                        .subtract(mount.getLocation().toVector());
                 if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT) {
                     if (!seatMover.move(mount, target)) {
                         mount.setVelocity(wanted);

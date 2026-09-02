@@ -50,6 +50,18 @@ public final class VehiclePhysics {
     /** Braking is this much harder than accelerating. */
     public static final double BRAKE_MULTIPLIER = 2.5;
 
+    /**
+     * Below this forward speed the back key stops braking and starts
+     * reversing, in blocks per second.
+     *
+     * <p>Not zero, because {@code approach} lands exactly on zero only if a
+     * tick's step happens to divide the remaining speed — so a threshold of
+     * zero is a vehicle that brakes to a crawl and sits there refusing to
+     * reverse. Half a block a second is slow enough that the changeover is
+     * indistinguishable from stationary.
+     */
+    public static final double REVERSE_THRESHOLD = 0.5;
+
     /** With no throttle at all, a vehicle sheds speed at this fraction of its acceleration. */
     public static final double COAST_FRACTION = 0.35;
 
@@ -124,10 +136,22 @@ public final class VehiclePhysics {
                 ? throttle * top
                 : throttle * top * REVERSE_FRACTION;
 
+        // <strong>The back key brakes before it reverses.</strong> Holding it at
+        // speed used to aim straight at the reverse target, so a vehicle doing
+        // 20 forward crawled down through zero at ordinary acceleration and
+        // then kept going — which reads as a car that will not stop rather
+        // than one changing direction. Now it stops the way a brake does and
+        // only engages reverse once it is actually stationary, which is also
+        // what a real gearbox makes you do.
+        boolean stopping = throttle < 0 && state.speed() > REVERSE_THRESHOLD;
+        if (stopping) {
+            target = 0;
+        }
+
         // Braking beats the throttle rather than being averaged with it: a
         // driver holding both is asking to stop, and half of each would be a
         // vehicle that neither accelerates nor stops.
-        double rate = demand.braking()
+        double rate = demand.braking() || stopping
                 ? accel * BRAKE_MULTIPLIER
                 : throttle == 0 ? accel * COAST_FRACTION : accel;
         if (demand.braking()) {
