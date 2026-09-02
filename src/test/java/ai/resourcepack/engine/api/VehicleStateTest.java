@@ -101,6 +101,49 @@ class VehicleStateTest {
     }
 
     /**
+     * <strong>A boat is ALWAYS submerged, which is what makes this the case
+     * worth pinning down.</strong>
+     *
+     * <p>SUBMERGED sits directly above IDLE, so for a water vehicle — the one
+     * kind that is in that state for its entire life — it is the state most
+     * able to shadow another. A pack that maps only `idle` must still get its
+     * idle animation while floating, or "idle" would be a state a boat can
+     * never be seen in.
+     */
+    @Test
+    void aBoatSittingInWaterPlaysItsIdleAnimation() {
+        Set<VehicleState> floating = EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED);
+
+        // Only idle mapped: submerged is blank, so it falls through to it.
+        assertEquals("idle-animation",
+                VehicleState.choose(floating, named(VehicleState.IDLE)).orElseThrow());
+
+        // And with the whole set mapped, the more specific one wins — a boat
+        // that HAS a floating animation gets it. Both readings are deliberate.
+        assertEquals("submerged-animation",
+                VehicleState.choose(floating, named(VehicleState.values())).orElseThrow());
+    }
+
+    /**
+     * The same boat under way. MOVING beats SUBMERGED, or a boat would play
+     * its floating animation for its whole life and its rowing one never.
+     */
+    @Test
+    void aBoatUnderWayPlaysItsMovingAnimation() {
+        Set<VehicleState> rowing = EnumSet.of(VehicleState.MOVING, VehicleState.SUBMERGED);
+        assertEquals("moving-animation",
+                VehicleState.choose(rowing, named(VehicleState.values())).orElseThrow());
+        // With only idle and moving mapped — the ordinary two-state pack — a
+        // boat rows when it moves and idles when it stops, and never has to
+        // know that SUBMERGED exists at all.
+        Map<VehicleState, String> justTheTwo = named(VehicleState.IDLE, VehicleState.MOVING);
+        assertEquals("moving-animation", VehicleState.choose(rowing, justTheTwo).orElseThrow());
+        assertEquals("idle-animation",
+                VehicleState.choose(EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED), justTheTwo)
+                        .orElseThrow());
+    }
+
+    /**
      * Empty, not a guess. A pack that configured nothing plays nothing, which
      * the runtime turns into stopping rather than into an animation named "".
      */
