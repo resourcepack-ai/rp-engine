@@ -7,6 +7,7 @@ import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.model.Seats;
+import ai.resourcepack.engine.core.vehicle.Vehicles;
 import ai.resourcepack.engine.core.version.Compatibility;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -34,9 +35,20 @@ final class EngineOptions {
     }
 
     /** Hands {@link Seats} the one number a server may have to look at to set. */
-    static void seatOffset(FileConfiguration config, Seats seats) {
+    static void seatOffset(FileConfiguration config, Seats seats, Vehicles vehicles) {
         if (seats != null) {
             seats.calibrate(config.getDouble("models.seat-offset", 0.0));
+        }
+        if (vehicles != null) {
+            // The same escape hatch, one level along: a vehicle seat's height is
+            // arithmetic over a vanilla attachment point no plugin can read, so
+            // it is derived rather than measured and an owner should be able to
+            // nudge every seat on the server without waiting for a release.
+            // push-players rides along because both are read from the same file
+            // at the same two moments.
+            vehicles.configure(
+                    config.getDouble("vehicles.seat-offset", 0.0),
+                    config.getBoolean("vehicles.push-players", false));
         }
     }
 

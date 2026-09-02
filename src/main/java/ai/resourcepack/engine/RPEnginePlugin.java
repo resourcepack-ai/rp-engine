@@ -362,9 +362,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // reads as a bug.
         emotes = new EmoteDirector(library, emoteStore);
         seats = new Seats(this, compatibility);
-        EngineOptions.seatOffset(getConfig(), seats);
         creatures = new CustomEntities(this, items);
         vehicles = new Vehicles(this, items, compatibility);
+        // After the vehicles exist, or the first call has nothing to configure.
+        EngineOptions.seatOffset(getConfig(), seats, vehicles);
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
@@ -526,7 +527,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         reloadConfig();
         EngineOptions.chatStyle(getConfig());
         EngineOptions.emotes(getConfig(), compatibility, this);
-        EngineOptions.seatOffset(getConfig(), seats);
+        EngineOptions.seatOffset(getConfig(), seats, vehicles);
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }

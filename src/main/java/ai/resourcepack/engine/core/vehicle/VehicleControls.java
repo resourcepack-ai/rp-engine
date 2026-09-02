@@ -10,9 +10,12 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEvent;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 /**
  * What the driver is asking the vehicle to do.
@@ -79,7 +82,7 @@ public interface VehicleControls extends Listener {
      * method lookup says whether this is Paper. A Spigot server on 1.21.8
      * passes the first and fails the second.
      */
-    static VehicleControls forServer(Compatibility compatibility) {
+    static VehicleControls forServer(Compatibility compatibility, Logger log) {
         if (!compatibility.has(Feature.PLAYER_INPUT)) {
             return new Clicks();
         }
@@ -89,7 +92,7 @@ public interface VehicleControls extends Listener {
         } catch (NoSuchMethodException | RuntimeException e) {
             return new Clicks();
         }
-        return new Keys(currentInput);
+        return new Keys(currentInput, log);
     }
 
     /**
@@ -113,67 +116,149 @@ public interface VehicleControls extends Listener {
      */
     final class Keys implements VehicleControls {
 
+        /**
+         * What each key might be called on the value {@code getCurrentInput()}
+         * returns.
+         *
+         * <p><strong>Two spellings, because this is not one API.</strong> Paper
+         * published {@code Input} as an interface of {@code isForward()} and
+         * friends; a record of the same shape has accessors named
+         * {@code forward()} instead, and this plugin has to work against
+         * whatever the server it lands on actually shipped. Reflection is
+         * already the price of not depending on Paper — checking two names
+         * costs one extra lookup, once, at the first read.
+         */
+        private static final String[][] NAMES = {
+            {"isForward", "forward"},
+            {"isBackward", "backward"},
+            {"isLeft", "left"},
+            {"isRight", "right"},
+            {"isJump", "jump"},
+        };
+
+        private static final int FORWARD = 0;
+        private static final int BACKWARD = 1;
+        private static final int LEFT = 2;
+        private static final int RIGHT = 3;
+        private static final int JUMP = 4;
+
         private final Method currentInput;
+        private final Logger log;
 
         /**
-         * Resolved off the value {@code getCurrentInput()} returns rather than
-         * from a named type, so this compiles and runs without ever mentioning
-         * a Paper class. Filled on the first read and then constant.
+         * One entry per key, resolved off the value the accessor returns rather
+         * than from a named type — so this compiles and runs without ever
+         * mentioning a Paper class.
+         *
+         * <p><strong>Each is resolved on its own and a missing one disables
+         * only itself.</strong> They used to be resolved together in one try
+         * block, which meant a single unknown name threw before any of them was
+         * used and every read fell back to "no input at all" — a vehicle that
+         * would not move, from one accessor being spelled differently. Now a
+         * server that cannot report the strafe keys still gets its throttle,
+         * and says so.
          */
-        private volatile Method forward;
-        private volatile Method backward;
-        private volatile Method jump;
-        private volatile Method left;
-        private volatile Method right;
+        private volatile Method[] keys;
 
-        Keys(Method currentInput) {
+        Keys(Method currentInput, Logger log) {
             this.currentInput = currentInput;
+            this.log = log;
+        }
+
+        /**
+         * Fills {@link #keys} from the first read, and reports what it found.
+         *
+         * <p>Reported at INFO once, because the alternative is what happened
+         * here: a control that silently did nothing, on a server whose version
+         * nobody could check from the outside, with three equally plausible
+         * explanations and no way to tell them apart.
+         */
+        private Method[] resolve(Object input) {
+            Method[] found = new Method[NAMES.length];
+            List<String> missing = new ArrayList<>();
+            Class<?> type = input.getClass();
+            for (int key = 0; key < NAMES.length; key++) {
+                for (String name : NAMES[key]) {
+                    try {
+                        Method method = type.getMethod(name);
+                        method.setAccessible(true);
+                        found[key] = method;
+                        break;
+                    } catch (NoSuchMethodException | RuntimeException ignored) {
+                        // Try the other spelling.
+                    }
+                }
+                if (found[key] == null) {
+                    missing.add(NAMES[key][0]);
+                }
+            }
+            if (missing.isEmpty()) {
+                log.info("Vehicles read this server's movement keys: W/S drive, A/D steer.");
+            } else {
+                log.warning("This server's player input has no " + String.join(", ", missing)
+                        + " on " + type.getName() + ", so vehicles fall back for those. "
+                        + "Steering follows your look when A and D cannot be read.");
+            }
+            keys = found;
+            return found;
+        }
+
+        private static boolean pressed(Method[] keys, int key, Object input) {
+            Method method = keys[key];
+            if (method == null) {
+                return false;
+            }
+            try {
+                return Boolean.TRUE.equals(method.invoke(input));
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return false;
+            }
         }
 
         @Override
         public VehiclePhysics.Demand read(Player driver, VehicleInfo info) {
             float yaw = driver.getLocation().getYaw();
             float pitch = driver.getLocation().getPitch();
+            Object input;
             try {
-                Object input = currentInput.invoke(driver);
-                if (input == null) {
-                    return VehiclePhysics.Demand.idle(yaw);
-                }
-                if (forward == null) {
-                    Class<?> type = input.getClass();
-                    forward = type.getMethod("isForward");
-                    backward = type.getMethod("isBackward");
-                    jump = type.getMethod("isJump");
-                    left = type.getMethod("isLeft");
-                    right = type.getMethod("isRight");
-                    forward.setAccessible(true);
-                    backward.setAccessible(true);
-                    jump.setAccessible(true);
-                    left.setAccessible(true);
-                    right.setAccessible(true);
-                }
-                boolean ahead = (Boolean) forward.invoke(input);
-                boolean astern = (Boolean) backward.invoke(input);
-                boolean up = (Boolean) jump.invoke(input);
-                boolean port = (Boolean) left.invoke(input);
-                boolean starboard = (Boolean) right.invoke(input);
-                double throttle = (ahead ? 1 : 0) + (astern ? -1 : 0);
-                double steer = (starboard ? 1 : 0) + (port ? -1 : 0);
-                boolean air = info.medium() == VehicleMedium.AIR;
-                return VehiclePhysics.Demand.steering(
-                        yaw, pitch, steer, throttle, air && up ? 1 : 0, !air && up);
+                input = currentInput.invoke(driver);
             } catch (ReflectiveOperationException | RuntimeException e) {
-                // Whatever went wrong, the vehicle still steers and coasts.
-                // Failing to a stationary vehicle somebody can still point
-                // where they want beats throwing inside a tick loop that is
-                // running for every driver on the server.
                 return VehiclePhysics.Demand.idle(yaw);
             }
+            if (input == null) {
+                return VehiclePhysics.Demand.idle(yaw);
+            }
+            Method[] resolved = keys;
+            if (resolved == null) {
+                resolved = resolve(input);
+            }
+
+            double throttle = (pressed(resolved, FORWARD, input) ? 1 : 0)
+                    + (pressed(resolved, BACKWARD, input) ? -1 : 0);
+            boolean up = pressed(resolved, JUMP, input);
+            boolean air = info.medium() == VehicleMedium.AIR;
+            double lift = air && up ? 1 : 0;
+            boolean braking = !air && up;
+
+            // Steering by key only where both keys were actually found. A
+            // server that cannot report them gets look-steering rather than a
+            // vehicle that will not turn at all, which is the failure this
+            // whole arrangement exists to have noticed.
+            if (resolved[LEFT] == null || resolved[RIGHT] == null) {
+                return new VehiclePhysics.Demand(yaw, pitch, throttle, lift, braking);
+            }
+            double steer = (pressed(resolved, RIGHT, input) ? 1 : 0)
+                    + (pressed(resolved, LEFT, input) ? -1 : 0);
+            return VehiclePhysics.Demand.steering(yaw, pitch, steer, throttle, lift, braking);
         }
 
         @Override
         public String describe() {
-            return "W and S to drive, A and D to steer, space to brake or climb";
+            Method[] resolved = keys;
+            boolean steers = resolved == null || (resolved[LEFT] != null && resolved[RIGHT] != null);
+            return steers
+                    ? "W and S to drive, A and D to steer, space to brake or climb"
+                    : "W and S to drive, space to brake or climb, look to steer";
         }
     }
 

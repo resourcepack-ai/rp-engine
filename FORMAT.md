@@ -653,13 +653,17 @@ Two honest limits:
 
 - **It stops at a wall rather than sliding along it.** Driving into a building
   brings you to a halt. Land vehicles step up one block, like a player.
-- **The hitbox is a shape, not a bounding box.** It decides three things: what
-  you click to get in, which blocks stop the vehicle, and who gets shoved out
-  of the way. What it is NOT is a box other things collide with of their own
-  accord — a plugin cannot give an entity a bounding box of its own size, so a
-  vehicle does not physically block an arrow, a minecart, or somebody
-  determined to walk into it. Players standing in the way are pushed aside,
-  which is the part anybody notices.
+- **The hitbox is a shape, not a bounding box.** It decides what you click to
+  get in and which blocks stop the vehicle. What it is NOT is a box other
+  things collide with of their own accord — a plugin cannot give an entity a
+  bounding box of its own size, so a vehicle does not physically block an
+  arrow, a minecart, or somebody walking into it.
+- **A vehicle passes through players and shoves mobs.** Set
+  `vehicles.push-players` in `config.yml` if you want it to shove people too;
+  it is off because cars nudging each other's drivers about in a car park, and
+  a passenger being flung as they get out, are both worse than driving through
+  somebody. Nothing invisible ever blocks anybody — the seats have no collision
+  at all.
 - **Speed above about 20 blocks a second stops looking right for passengers.**
   Their position is broadcast twenty times a second and their own client fills
   in the gaps, so past a point they lag the vehicle however fast the server

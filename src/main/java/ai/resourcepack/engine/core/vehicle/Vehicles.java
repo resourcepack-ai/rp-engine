@@ -236,11 +236,36 @@ public final class Vehicles implements Listener {
     /** Said once, however many vehicles are stuck. */
     private volatile boolean warnedFrozen;
 
+    /**
+     * Added to every vehicle seat, from config.yml.
+     *
+     * <p>The same escape hatch {@code models.seat-offset} is for furniture, and
+     * here for a better reason: a vehicle seat's height is arithmetic over a
+     * vanilla attachment point that a plugin cannot read
+     * ({@link MountOffset#SMALL_STAND_ATTACHMENT}), so it is derived rather
+     * than measured and can be a little out on a version nobody has checked.
+     * Rather than have an owner wait for a release to fix a rider sitting an
+     * inch high, they nudge every seat on the server and type /rp reload.
+     */
+    private volatile double seatOffset;
+
+    /**
+     * Whether a moving vehicle shoves PLAYERS out of its way, from config.yml.
+     *
+     * <p>Off by default, which is the opposite of what it was. Shoving is
+     * right for a mob wandering into the road and wrong for the people you are
+     * driving with: a car park of vehicles nudging each other's drivers about,
+     * and a passenger getting out being flung, are both worse than a vehicle
+     * that passes through somebody. Mobs are shoved either way — a cow should
+     * not stand in the road.
+     */
+    private volatile boolean pushPlayers;
+
     public Vehicles(Plugin plugin, Items items, Compatibility compatibility) {
         this.plugin = plugin;
         this.items = items;
         this.log = plugin.getLogger();
-        this.controls = VehicleControls.forServer(compatibility);
+        this.controls = VehicleControls.forServer(compatibility, plugin.getLogger());
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
         // forVehicleSeat, not forServer: these mounts are small stands
         // rather than markers, and a small stand has an attachment point of
@@ -255,6 +280,15 @@ public final class Vehicles implements Listener {
     /** The control arm, so the plugin can register it and report it. */
     public VehicleControls controls() {
         return controls;
+    }
+
+    /**
+     * Adopts {@code vehicles.seat-offset} and {@code vehicles.push-players}.
+     * Called on enable and on every reload.
+     */
+    public void configure(double seatOffset, boolean pushPlayers) {
+        this.seatOffset = seatOffset;
+        this.pushPlayers = pushPlayers;
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -701,6 +735,11 @@ public final class Vehicles implements Listener {
                     stand.setSmall(true);
                     stand.setVisible(false);
                     stand.setGravity(false);
+                    // A non-marker stand has a bounding box, which is the price
+                    // of it ticking — and an invisible quarter-block box that
+                    // other players walk into is a bug, not a feature. Nothing
+                    // should ever collide with a seat.
+                    stand.setCollidable(false);
                     stand.setInvulnerable(true);
                     stand.setSilent(true);
                     stand.setPersistent(false);
@@ -884,9 +923,9 @@ public final class Vehicles implements Listener {
             // their feet. The pose is what decides that, which is why it is
             // not merely cosmetic. SEATED_POSE is the third of a block the
             // game draws a riding player's hips above their own position.
-            double lift = seat.pose() == VehicleSeat.Pose.SITTING
+            double lift = (seat.pose() == VehicleSeat.Pose.SITTING
                     ? mountOffset - SEATED_POSE
-                    : mountOffset;
+                    : mountOffset) + seatOffset;
 
             Location location = new Location(world, x, at.getY() + seat.y() + lift, z);
             location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
@@ -1072,6 +1111,9 @@ public final class Vehicles implements Listener {
             double reach = Math.max(box.width(), box.length()) / 2 + 0.5;
             for (Entity nearby : world.getNearbyEntities(at, reach, box.height(), reach)) {
                 if (!(nearby instanceof LivingEntity) || occupants.contains(nearby.getUniqueId())) {
+                    continue;
+                }
+                if (nearby instanceof Player && !pushPlayers) {
                     continue;
                 }
                 double dx = nearby.getLocation().getX() - at.getX();
