@@ -50,5 +50,8 @@ public enum ContentKind {
     ENTITY,
 
     /** A pool of liquid somebody can swim in. */
-    LIQUID
+    LIQUID,
+
+    /** A model people ride, with an ordered list of seats. */
+    VEHICLE
 }

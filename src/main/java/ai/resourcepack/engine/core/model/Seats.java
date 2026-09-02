@@ -36,37 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class Seats implements Listener {
 
     /**
-     * How far below a marker armour stand its rider actually sits.
-     *
-     * <p>Measured, not remembered: on 1.21.8 a marker stand at y=100 with a
-     * humanoid passenger puts that passenger at y=99.3. The stand is therefore
-     * spawned this far ABOVE the seat, so the rider's feet land on it.
-     *
-     * <p>It was 1.75 in the other direction, which is a number from the days
-     * when this was a full-size stand — the rider ended up about two and a
-     * half blocks under the chair, which is what "you sit inside the floor"
-     * looks like. Vanilla's rule changed in 1.20.2: a passenger's position is
-     * now the vehicle's attachment point minus the passenger's own, and a
-     * marker's attachment point is zero.
-     *
-     * <p>Which means this number is only right from 1.20.2, and the engine
-     * now runs below that. {@link #LEGACY_MOUNT_OFFSET} is the other one.
-     * Worth saying plainly because nothing catches this: it is arithmetic, not
-     * an API, so it compiles everywhere and is simply wrong on the versions it
-     * is wrong on — the old-API audit cannot see a constant.
-     */
-    private static final double MOUNT_OFFSET = 0.7;
-
-    /**
-     * The same measurement before 1.20.2, where a passenger sat ABOVE its
-     * vehicle by a fixed amount rather than below it by the attachment point.
-     *
-     * <p>Negative because the correction goes the other way: on those versions
-     * the stand is spawned below the seat rather than above it.
-     */
-    private static final double LEGACY_MOUNT_OFFSET = -1.75;
-
-    /**
      * How far a seated player is drawn ABOVE their own position.
      *
      * <p>{@code seat:} in a pack means "where somebody's backside goes", and
@@ -93,9 +62,10 @@ public final class Seats implements Listener {
 
     public Seats(Plugin plugin, Compatibility compatibility) {
         this.plugin = plugin;
-        this.mountOffset = compatibility.has(Feature.MODERN_PASSENGER_OFFSET)
-                ? MOUNT_OFFSET
-                : LEGACY_MOUNT_OFFSET;
+        // MountOffset rather than a constant here: vehicles seat people on the
+        // same kind of marker stand, and this is the number that is invisible
+        // when it is wrong.
+        this.mountOffset = MountOffset.forServer(compatibility);
     }
 
     /**

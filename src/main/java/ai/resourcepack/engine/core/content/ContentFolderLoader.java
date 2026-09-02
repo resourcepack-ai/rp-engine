@@ -113,6 +113,7 @@ public final class ContentFolderLoader {
         map.put("recipes", ContentKind.RECIPE);
         map.put("entities", ContentKind.ENTITY);
         map.put("liquids", ContentKind.LIQUID);
+        map.put("vehicles", ContentKind.VEHICLE);
         return Map.copyOf(map);
     }
 

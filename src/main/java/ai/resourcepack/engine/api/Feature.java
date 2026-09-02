@@ -163,7 +163,33 @@ public enum Feature {
             McVersion.of(1, 21, 6),
             "Tinted water and lava",
             "Liquids keep their vanilla colour. Everything else about a custom liquid "
-                    + "still works; only the tint needs the biome format this version writes.");
+                    + "still works; only the tint needs the biome format this version writes."),
+
+    /**
+     * Reading which movement keys a player is holding, through Paper's
+     * {@code Player#getCurrentInput}.
+     *
+     * <p>The client has always sent this while riding something — that part is
+     * as old as boats — but until 1.21.2 it was a packet with no API in front
+     * of it, and the accessor arrived in Paper 1.21.4. So the floor here is
+     * about what a plugin can <em>ask</em>, not about what the client sends.
+     *
+     * <p>Two things follow, and both are honest rather than grudging. It is
+     * <strong>Paper's</strong>, so a Spigot server of any version is on the
+     * other arm; the engine compiles against Spigot and looks this up
+     * reflectively rather than taking a second Bukkit onto the classpath for
+     * one method. And what the other arm loses is only the THROTTLE — steering
+     * is the driver's look on every version, so a vehicle handles the same
+     * either way and is merely driven with a different finger.
+     */
+    PLAYER_INPUT(
+            McVersion.of(1, 21, 4),
+            "Reading a driver's movement keys",
+            "Vehicles are driven with the mouse instead of the keyboard: look where you "
+                    + "want to go, right-click to speed up a notch and left-click to slow "
+                    + "down or reverse. Steering is unaffected - it follows your look on "
+                    + "every version. Needs Paper; a Spigot server gets this arm whatever "
+                    + "its version.");
 
     private final McVersion since;
     private final String label;

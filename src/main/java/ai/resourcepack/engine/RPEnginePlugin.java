@@ -33,6 +33,7 @@ import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.block.BlockStates;
 import ai.resourcepack.engine.core.block.CustomBlocks;
 import ai.resourcepack.engine.core.command.LiquidCommands;
+import ai.resourcepack.engine.core.command.VehicleCommands;
 import ai.resourcepack.engine.core.command.ModelCommands;
 import ai.resourcepack.engine.core.command.SyncCommands;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
@@ -46,6 +47,8 @@ import ai.resourcepack.engine.core.emote.EmoteWording;
 import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
+import ai.resourcepack.engine.core.vehicle.VehicleDefinitions;
+import ai.resourcepack.engine.core.vehicle.Vehicles;
 import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.hook.CitizensTrait;
@@ -190,6 +193,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelsImpl models;
     private Seats seats;
     private CustomEntities creatures;
+    private Vehicles vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
 
@@ -211,17 +215,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * disconnect. Without this their sync pairing is dropped mid-apply.
      */
     private final Set<UUID> reconnecting = ConcurrentHashMap.newKeySet();
-
-    /**
-     * When each online player's session began, for the presence announcement.
-     *
-     * <p>Kept here rather than read from the server because a Geyser transfer
-     * (above) is a disconnect that is not the end of a session, and because a
-     * player announced again after the socket to studio reconnects has been
-     * standing there all along — dating them from the re-announcement would
-     * have studio push them a pack they are already wearing.
-     */
-    private final Map<UUID, Long> joinedAt = new ConcurrentHashMap<>();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -369,6 +362,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         seats = new Seats(this, compatibility);
         EngineOptions.seatOffset(getConfig(), seats);
         creatures = new CustomEntities(this, items);
+        vehicles = new Vehicles(this, items, compatibility);
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
@@ -387,6 +381,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // older servers and so cannot be an annotated method. See Seats.
         seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
+        getServer().getPluginManager().registerEvents(vehicles, this);
+        // The control arm is a listener of its own on the click fallback and
+        // has nothing to handle on the Paper one. Registered either way, so
+        // nothing here has to know which arm it got.
+        getServer().getPluginManager().registerEvents(vehicles.controls(), this);
+        // Separately, for the same reason Seats does it: the dismount event
+        // is in a different package on older servers, so it cannot be an
+        // annotated method without failing the whole registration.
+        vehicles.registerDismount(this);
+        vehicles.start();
         liquids.start();
         getServer().getPluginManager().registerEvents(
                 new ItemListener(this, items, new ActionRunner(items, sounds),
@@ -450,11 +454,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
-        // The socket reopens itself when lost, and every open re-announces
-        // whoever is here, so a /reload or a reconnect leaves nobody unseen.
-        sync.whenOpen(this::announceEveryone);
         if (sync.announcesPresence() && !sync.open()) {
-            getLogger().warning("Could not reach studio, so this server is not announcing presence yet; retrying.");
+            getLogger().warning("Could not reach studio, so this server is not announcing presence.");
         }
 
         startHost();
@@ -480,7 +481,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
                         this::announceMembers, this::unpush),
-                liquidCommands);
+                liquidCommands,
+                new VehicleCommands(vehicles));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -679,6 +681,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // unloaded — long enough to be a bug report.
             seats.clear();
         }
+        if (vehicles != null) {
+            // Same reasoning, one level up: everybody gets out, and every
+            // derived part goes. The chassis stays — it is the parked vehicle,
+            // and it is the only thing here that is meant to survive.
+            vehicles.clear();
+        }
         if (distribution != null) {
             distribution.shutdown();
         }
@@ -829,6 +837,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
         report(to, "entities", parsedEntities.diagnostics());
         creatures.replace(parsedEntities.entities());
+
+        VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
+        report(to, "vehicles", parsedVehicles.diagnostics());
+        vehicles.replace(parsedVehicles.vehicles());
+        // Anything already parked in a loaded chunk gets its seats and its
+        // model now. A reload can bring back a vehicle whose pack had failed
+        // to load, and this is the moment that chassis becomes usable again.
+        vehicles.adoptLoaded();
 
         LiquidDefinitions.Result parsedLiquids = LiquidDefinitions.parse(loaded);
         report(to, "liquids", parsedLiquids.diagnostics());
@@ -1017,36 +1033,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (here) {
             sync.present(player.getUniqueId(), player.getName(),
                     bedrock.isBedrock(player.getUniqueId()),
-                    ai.resourcepack.engine.core.sync.PlayerCape.token(player),
-                    joinedAt.getOrDefault(player.getUniqueId(), 0L));
+                    ai.resourcepack.engine.core.sync.PlayerCape.token(player));
         } else {
             sync.gone(player.getUniqueId());
         }
     }
 
-    /**
-     * Everybody online, announced again.
-     *
-     * <p>Run each time the socket to studio comes up. The far end keys presence
-     * to the socket that announced it, so a reconnect — studio redeployed, an
-     * idle close, a blip — silently forgot every player here, and a permalinked
-     * player was told to join a server they were standing on until this server
-     * restarted. Scheduled onto the main thread because the socket's thread
-     * is the one calling.
-     */
-    private void announceEveryone() {
-        getServer().getScheduler().runTask(this, () -> {
-            for (Player player : getServer().getOnlinePlayers()) {
-                announcePresence(player, true);
-            }
-        });
-    }
-
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
-        // the real start of that session and this join is not.
-        joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
         announcePresence(event.getPlayer(), true);
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
     }
@@ -1058,7 +1052,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // an apply that is still in flight.
             return;
         }
-        joinedAt.remove(event.getPlayer().getUniqueId());
         announcePresence(event.getPlayer(), false);
         overlays.clear(event.getPlayer());
         if (liquidCommands != null) {
