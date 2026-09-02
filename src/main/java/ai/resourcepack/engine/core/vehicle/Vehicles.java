@@ -9,6 +9,7 @@ import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.model.DisplayCarry;
+import ai.resourcepack.engine.core.model.DisplayLatency;
 import ai.resourcepack.engine.core.model.MountOffset;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.version.Compatibility;
@@ -117,11 +118,15 @@ public final class Vehicles implements Listener {
      * Everything being behind by DIFFERENT amounts is what reads as the
      * player being left behind, and this is the one number that fixes it.
      *
-     * <p>If they still separate, this is the dial: vanilla's figure is not
-     * something a plugin can ask for, so it is copied here and could be
-     * wrong on a version that changed it.
+     * <p>Which is why this is NOT {@code DisplayLatency.glideTicks(1)}, the
+     * rule the emote rig uses. That rule minimises lag against the world and
+     * is right there; here the requirement is to match a rider exactly, and
+     * being a tick tighter than them is the bug rather than an improvement.
+     *
+     * <p>If they still separate, {@link DisplayLatency#TRACKED_ENTITY_TICKS}
+     * is the dial.
      */
-    private static final int MODEL_GLIDE_TICKS = 3;
+    private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /** How far a seated player is drawn above their own position. See {@code Seats}. */
     private static final double SEATED_POSE = 0.3;
