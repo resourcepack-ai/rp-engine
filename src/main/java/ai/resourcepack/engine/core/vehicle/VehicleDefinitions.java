@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -113,6 +114,28 @@ public final class VehicleDefinitions {
                 number(body, "acceleration", 6, MIN_ACCELERATION, MAX_ACCELERATION, origin, where, diagnostics);
         double turnSpeed = number(body, "turn-speed", 120, MIN_TURN, MAX_TURN, origin, where, diagnostics);
 
+        // The body somebody can click and stand in front of. Absent means a
+        // one-block cube rather than nothing: a vehicle with no hitbox has no
+        // way in but its seat markers, which on a small cart overlap each
+        // other and make which seat you get a matter of luck.
+        VehicleHitbox hitbox = VehicleHitbox.DEFAULT;
+        Optional<DefinitionNode> declaredHitbox = body.node("hitbox");
+        if (declaredHitbox.isPresent()) {
+            DefinitionNode box = declaredHitbox.get();
+            hitbox = VehicleHitbox.of(
+                    box.decimal("width").orElse(1d),
+                    box.decimal("height").orElse(1d),
+                    box.decimal("length").orElse(1d));
+            for (String axis : new String[] {"width", "height", "length"}) {
+                Optional<Double> value = box.decimal(axis);
+                if (value.isPresent() && (value.get() < VehicleHitbox.MIN || value.get() > VehicleHitbox.MAX)) {
+                    diagnostics.add(Diagnostic.warning(origin, where,
+                            "hitbox " + axis + ": " + value.get() + " is outside "
+                                    + VehicleHitbox.MIN + " to " + VehicleHitbox.MAX + ". Clamped."));
+                }
+            }
+        }
+
         List<DefinitionNode> declaredSeats = body.nodes("seats");
         if (declaredSeats.isEmpty()) {
             diagnostics.add(Diagnostic.error(origin, where,
@@ -183,7 +206,7 @@ public final class VehicleDefinitions {
         }
 
         return Optional.of(VehicleInfo.of(definition.id(), model, body.string("name").orElse(null),
-                medium, weight, speed, acceleration, turnSpeed, List.copyOf(ordered)));
+                medium, weight, speed, acceleration, turnSpeed, hitbox, List.copyOf(ordered)));
     }
 
     private static Optional<VehicleSeat.Role> role(DefinitionNode node, String origin, String where,

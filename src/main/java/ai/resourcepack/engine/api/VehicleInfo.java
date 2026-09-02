@@ -41,11 +41,12 @@ public final class VehicleInfo {
     private final double speed;
     private final double acceleration;
     private final double turnSpeed;
+    private final VehicleHitbox hitbox;
     private final List<VehicleSeat> seats;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
-                        List<VehicleSeat> seats) {
+                        VehicleHitbox hitbox, List<VehicleSeat> seats) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -55,13 +56,14 @@ public final class VehicleInfo {
         this.speed = speed;
         this.acceleration = acceleration;
         this.turnSpeed = turnSpeed;
+        this.hitbox = hitbox;
         this.seats = seats;
     }
 
     /** Engine internal; built by the vehicle loader. */
     public static VehicleInfo of(ContentId id, String model, String name, VehicleMedium medium,
                                  double weight, double speed, double acceleration, double turnSpeed,
-                                 List<VehicleSeat> seats) {
+                                 VehicleHitbox hitbox, List<VehicleSeat> seats) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 model == null ? "" : model,
@@ -69,6 +71,7 @@ public final class VehicleInfo {
                 name == null ? "" : name,
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
+                hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 seats == null ? List.of() : List.copyOf(seats));
     }
 
@@ -83,7 +86,7 @@ public final class VehicleInfo {
      */
     public static VehicleInfo pushed(ContentId id, String carrier, String name, VehicleMedium medium,
                                      double weight, double speed, double acceleration, double turnSpeed,
-                                     List<VehicleSeat> seats) {
+                                     VehicleHitbox hitbox, List<VehicleSeat> seats) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
@@ -91,6 +94,7 @@ public final class VehicleInfo {
                 name == null ? "" : name,
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
+                hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 seats == null ? List.of() : List.copyOf(seats));
     }
 
@@ -170,6 +174,15 @@ public final class VehicleInfo {
      */
     public double turnSpeed() {
         return turnSpeed;
+    }
+
+    /**
+     * How big it is to click on and to stand in front of.
+     *
+     * <p>Never null; a pack that says nothing gets {@link VehicleHitbox#DEFAULT}.
+     */
+    public VehicleHitbox hitbox() {
+        return hitbox;
     }
 
     /**

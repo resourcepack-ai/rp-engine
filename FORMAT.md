@@ -570,12 +570,21 @@ hatchback:
   acceleration: 7.5         # how fast it gets there
   turn-speed: 140           # degrees per second the body swings round
   weight: 14                # 1-100. Heavier is slower to start and to stop
+  hitbox:                   # what players click to get in, in blocks
+    width: 1.4              # side to side
+    height: 1.2             # up from the base
+    length: 3.0             # front to back
   seats:
     - {role: driver,    x: -0.4, y: 0.6, z: 0.6}
     - {role: passenger, x:  0.4, y: 0.6, z: 0.6}
     - {role: passenger, x: -0.4, y: 0.6, z: -0.5}
     - {role: passenger, x:  0.4, y: 0.6, z: -0.5}
 ```
+
+**Right-click the body to get in** and you take the first free seat — the
+driver seat first, so whoever gets in first is driving. Right-click a
+particular seat to take that one instead. Without a `hitbox:` a vehicle is a
+one-block cube, which is clickable but much smaller than most vehicles look.
 
 `/rp vehicle mypack:hatchback` parks one where you stand,
 `/rp vehicle remove` takes away the nearest, and `/rp vehicles` lists them.
@@ -645,6 +654,10 @@ Two honest limits:
 
 - **It stops at a wall rather than sliding along it.** Driving into a building
   brings you to a halt. Land vehicles step up one block, like a player.
+- **The hitbox is for clicking, not for colliding.** It is what a player aims
+  at to get in; it does not push anybody about and nothing bumps into it. A
+  long vehicle's box is several square tiles laid end to end, because the
+  entity behind it has a square footprint and no separate length.
 - **Passengers are as smooth as vanilla riding.** The driver's view is the
   responsive one; everyone else sees the vehicle where the server last said it
   was. Nothing on this side changes that.
