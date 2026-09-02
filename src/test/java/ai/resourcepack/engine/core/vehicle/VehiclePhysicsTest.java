@@ -5,9 +5,12 @@ import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,7 +30,8 @@ class VehiclePhysicsTest {
     private static VehicleInfo car(VehicleMedium medium) {
         return VehicleInfo.of(ContentId.parse("mypack:car").orElseThrow(), null, null, medium,
                 VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180, VehicleHitbox.DEFAULT,
-                List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)));
+                List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)),
+                Map.of(), List.of());
     }
 
     private static VehiclePhysics.Demand ahead(double yaw) {
@@ -134,10 +138,10 @@ class VehiclePhysicsTest {
     void weightScalesAccelerationAroundTheNominalWeight() {
         VehicleInfo light = VehicleInfo.of(ContentId.parse("mypack:a").orElseThrow(), null, null,
                 VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180,
-                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats());
+                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats(), Map.of(), List.of());
         VehicleInfo heavy = VehicleInfo.of(ContentId.parse("mypack:b").orElseThrow(), null, null,
                 VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT * 2, 20, 10, 180,
-                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats());
+                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats(), Map.of(), List.of());
 
         double lightSpeed = VehiclePhysics.step(light, VehiclePhysics.State.still(0), ahead(0), GROUND, DT)
                 .state().speed();
@@ -459,5 +463,176 @@ class VehiclePhysicsTest {
         VehiclePhysics.Demand broken = new VehiclePhysics.Demand(0, 0, Double.NaN, Double.NaN, false);
         assertEquals(0, broken.throttle());
         assertEquals(0, broken.lift());
+    }
+
+    // --- water vehicles out of water -----------------------------------
+
+    private static final VehiclePhysics.Surroundings WATER =
+            new VehiclePhysics.Surroundings(false, true, 0);
+
+    /**
+     * The bug this was written for: a boat drove on grass exactly as fast as
+     * it sailed, because the medium decided only the vertical rule and nothing
+     * asked whether the hull had anything to push against.
+     */
+    @Test
+    void aBoatOnLandIsMuchSlowerThanABoatInWater() {
+        VehicleInfo boat = car(VehicleMedium.WATER);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+
+        for (int tick = 0; tick < 200; tick++) {
+            state = VehiclePhysics.step(boat, state, ahead(0), WATER, DT).state();
+        }
+        double afloat = state.speed();
+
+        state = VehiclePhysics.State.still(0);
+        for (int tick = 0; tick < 200; tick++) {
+            state = VehiclePhysics.step(boat, state, ahead(0), GROUND, DT).state();
+        }
+        double beached = state.speed();
+
+        assertEquals(boat.speed(), afloat, 1e-6);
+        assertEquals(boat.speed() * VehiclePhysics.BEACHED_FRACTION, beached, 1e-6);
+    }
+
+    /**
+     * Not zero, and this is the test that says so. A boat that cannot move at
+     * all on land beaches itself on the first shore and is lost for ever —
+     * the driver has no way back to the water. It has to crawl.
+     */
+    @Test
+    void aBeachedBoatCanStillCrawlBackToTheWater() {
+        VehicleInfo boat = car(VehicleMedium.WATER);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        for (int tick = 0; tick < 40; tick++) {
+            state = VehiclePhysics.step(boat, state, ahead(0), GROUND, DT).state();
+        }
+        assertTrue(state.speed() > 0, "a beached boat must still be able to move");
+    }
+
+    /** A car is not "beached" for being on a road. */
+    @Test
+    void onlyAWaterVehicleIsSlowedByBeingOutOfWater() {
+        assertTrue(VehiclePhysics.beached(car(VehicleMedium.WATER), GROUND));
+        assertTrue(!VehiclePhysics.beached(car(VehicleMedium.WATER), WATER));
+        assertTrue(!VehiclePhysics.beached(car(VehicleMedium.LAND), GROUND));
+        assertTrue(!VehiclePhysics.beached(car(VehicleMedium.AIR), GROUND));
+    }
+
+    /**
+     * Steering is deliberately NOT slowed with the speed: a beached boat that
+     * could crawl but not turn would be pointed away from the water as often
+     * as toward it.
+     */
+    @Test
+    void aBeachedBoatTurnsAtItsFullRate() {
+        VehicleInfo boat = car(VehicleMedium.WATER);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        double afloat = VehiclePhysics.step(boat, state, ahead(90), WATER, DT).state().yaw();
+        double beached = VehiclePhysics.step(boat, state, ahead(90), GROUND, DT).state().yaw();
+        assertEquals(afloat, beached, 1e-9);
+    }
+
+    // --- the states an animation and a particle hang off ----------------
+
+    /**
+     * Idle and moving are the two every pack uses, and they are decided by
+     * speed alone rather than by whether anybody is holding a key — a vehicle
+     * coasting is moving.
+     */
+    @Test
+    void aStationaryVehicleIsIdleAndAMovingOneIsNot() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        Set<VehicleState> stopped =
+                VehiclePhysics.step(info, VehiclePhysics.State.still(0),
+                        VehiclePhysics.Demand.idle(0), GROUND, DT).states();
+        assertTrue(stopped.contains(VehicleState.IDLE));
+        assertTrue(!stopped.contains(VehicleState.MOVING));
+
+        Set<VehicleState> driving =
+                VehiclePhysics.step(info, new VehiclePhysics.State(0, 10, 0),
+                        ahead(0), GROUND, DT).states();
+        assertTrue(driving.contains(VehicleState.MOVING));
+        assertTrue(!driving.contains(VehicleState.IDLE));
+    }
+
+    @Test
+    void goingBackwardsIsReversingRatherThanMoving() {
+        Set<VehicleState> states =
+                VehiclePhysics.step(car(VehicleMedium.LAND), new VehiclePhysics.State(0, -5, 0),
+                        new VehiclePhysics.Demand(0, 0, -1, 0, false), GROUND, DT).states();
+        assertTrue(states.contains(VehicleState.REVERSING));
+        assertTrue(!states.contains(VehicleState.MOVING));
+        assertTrue(!states.contains(VehicleState.IDLE));
+    }
+
+    /**
+     * Turning is measured against how far the body ACTUALLY came round, not
+     * against what the driver asked for — so a vehicle already pointing where
+     * the driver is looking is not turning however hard they hold the mouse.
+     */
+    @Test
+    void turningIsMeasuredAgainstTheBodyRatherThanTheDriver() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = new VehiclePhysics.State(0, 10, 0);
+
+        assertTrue(VehiclePhysics.step(info, state, ahead(90), GROUND, DT)
+                .states().contains(VehicleState.TURNING));
+        assertTrue(!VehiclePhysics.step(info, state, ahead(0), GROUND, DT)
+                .states().contains(VehicleState.TURNING));
+    }
+
+    /**
+     * The wrap matters, and this is the case that proves it rather than merely
+     * exercising it.
+     *
+     * <p>The threshold is 15 degrees a second, which over one tick is 0.75 of
+     * a degree — so the turn has to be SMALLER than that to tell the two
+     * readings apart. A vehicle drifting from 359.9 to 0.2 has turned three
+     * tenths of a degree and is driving straight; the naive subtraction calls
+     * it 359.7 and would report every vehicle that crosses north as cornering
+     * hard. A two-degree turn is above the threshold either way and proves
+     * nothing.
+     */
+    @Test
+    void turningPastNorthIsTheShortWayRound() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State nearlyNorth = new VehiclePhysics.State(359.9, 10, 0);
+        assertTrue(!VehiclePhysics.step(info, nearlyNorth, ahead(0.2), GROUND, DT)
+                .states().contains(VehicleState.TURNING));
+    }
+
+    /** Water is support, not a fall — a boat riding the surface is doing its job. */
+    @Test
+    void aFloatingBoatIsSubmergedRatherThanAirborne() {
+        Set<VehicleState> states =
+                VehiclePhysics.step(car(VehicleMedium.WATER), VehiclePhysics.State.still(0),
+                        VehiclePhysics.Demand.idle(0), WATER, DT).states();
+        assertTrue(states.contains(VehicleState.SUBMERGED));
+        assertTrue(!states.contains(VehicleState.AIRBORNE));
+    }
+
+    @Test
+    void aVehicleWithNothingUnderItIsAirborne() {
+        Set<VehicleState> states =
+                VehiclePhysics.step(car(VehicleMedium.LAND), VehiclePhysics.State.still(0),
+                        VehiclePhysics.Demand.idle(0), VehiclePhysics.Surroundings.falling(), DT)
+                        .states();
+        assertTrue(states.contains(VehicleState.AIRBORNE));
+    }
+
+    /**
+     * Several at once is the whole point of a set — a car cornering off a kerb
+     * is turning and airborne and moving together, and an emitter naming any
+     * one of them should fire.
+     */
+    @Test
+    void aVehicleIsInSeveralStatesAtOnce() {
+        Set<VehicleState> states =
+                VehiclePhysics.step(car(VehicleMedium.LAND), new VehiclePhysics.State(0, 10, 0),
+                        ahead(90), VehiclePhysics.Surroundings.falling(), DT).states();
+        assertTrue(states.contains(VehicleState.MOVING));
+        assertTrue(states.contains(VehicleState.TURNING));
+        assertTrue(states.contains(VehicleState.AIRBORNE));
     }
 }

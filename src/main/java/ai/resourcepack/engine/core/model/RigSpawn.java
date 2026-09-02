@@ -60,10 +60,24 @@ final class RigSpawn {
      */
     List<ItemDisplay> parts(Block target, String modelId, RigStore.Rig rig, float yaw,
                             String animation, float scale, Function<RigStore.Part, ItemStack> partItem) {
-        World world = target.getWorld();
         // A display renders its model centred on the entity position, so
         // block-centre puts a 16px cube exactly in the block space.
-        Location centre = target.getLocation().add(0.5, 0.5, 0.5);
+        return parts(target.getLocation().add(0.5, 0.5, 0.5), modelId, rig, yaw, animation, scale, partItem);
+    }
+
+    /**
+     * The same, anchored at an arbitrary point rather than at a block centre.
+     *
+     * <p>Every part of a rig sits at ONE shared anchor and carries its offset
+     * from it inside the transformation matrix — see
+     * {@code RigAnimator.applyRigScale}. A placed rig's anchor happens to be a
+     * block centre; a rig riding a vehicle has an anchor that moves every tick
+     * and is not on the block grid at all, which is the only thing the two
+     * cases disagree about.
+     */
+    List<ItemDisplay> parts(Location centre, String modelId, RigStore.Rig rig, float yaw,
+                            String animation, float scale, Function<RigStore.Part, ItemStack> partItem) {
+        World world = centre.getWorld();
         List<ItemDisplay> spawned = new ArrayList<>(rig.parts.size());
 
         for (int p = 0; p < rig.parts.size(); p++) {

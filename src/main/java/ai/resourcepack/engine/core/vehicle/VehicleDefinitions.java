@@ -6,17 +6,22 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Reads vehicle definitions.
@@ -206,7 +211,160 @@ public final class VehicleDefinitions {
         }
 
         return Optional.of(VehicleInfo.of(definition.id(), model, body.string("name").orElse(null),
-                medium, weight, speed, acceleration, turnSpeed, hitbox, List.copyOf(ordered)));
+                medium, weight, speed, acceleration, turnSpeed, hitbox, List.copyOf(ordered),
+                animations(body, origin, where, diagnostics),
+                emitters(body, origin, where, diagnostics)));
+    }
+
+    /**
+     * The {@code animations:} map — a state name to one of the model's
+     * animation names.
+     *
+     * <p>An unreadable state is a warning and a dropped entry rather than a
+     * refused vehicle: the rest of the map is still exactly what the author
+     * meant, and taking the seats and the handling down over a misspelt
+     * {@code movnig} would be out of all proportion. The whole feature is
+     * optional, so the failure it guards against is a state that silently does
+     * nothing, which is what the diagnostic is for.
+     */
+    private static Map<VehicleState, String> animations(DefinitionNode body, String origin, String where,
+                                                        List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node("animations");
+        if (declared.isEmpty()) {
+            if (body.has("animations")) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "animations: is not a map of state to animation name. Try "
+                                + "animations: {idle: idle, moving: drive}."));
+            }
+            return Map.of();
+        }
+        DefinitionNode node = declared.get();
+        Map<VehicleState, String> animations = new EnumMap<>(VehicleState.class);
+        for (String key : node.keys()) {
+            Optional<VehicleState> state = VehicleState.parse(key);
+            if (state.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "animations: " + key + " is not a vehicle state. Known states are "
+                                + stateNames() + "."));
+                continue;
+            }
+            String animation = node.string(key).orElse("").trim();
+            if (animation.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "animations: " + key + " names no animation, so that state does nothing."));
+                continue;
+            }
+            animations.put(state.get(), animation);
+        }
+        return animations;
+    }
+
+    /**
+     * The {@code particles:} list.
+     *
+     * <p>Each entry is dropped on its own if it is unusable, for the same
+     * reason an animation entry is: one bad exhaust pipe is not a reason to
+     * lose a bus. <strong>The effect name is not validated here</strong> —
+     * this class is free of Bukkit so that all of it is testable without a
+     * server, and whether {@code SMOKE} is a particle on THIS server is a
+     * question only a server can answer. {@code VehicleParticles} says so at
+     * spawn time, once.
+     */
+    private static List<VehicleEmitter> emitters(DefinitionNode body, String origin, String where,
+                                                 List<Diagnostic> diagnostics) {
+        List<DefinitionNode> declared = body.nodes("particles");
+        if (declared.isEmpty()) {
+            if (body.has("particles")) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "particles: is not a list. Try particles: [{effect: smoke, states: [moving]}]."));
+            }
+            return List.of();
+        }
+        List<VehicleEmitter> emitters = new ArrayList<>();
+        for (DefinitionNode node : declared) {
+            String effect = node.string("effect").orElse("").trim();
+            if (effect.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "A particle has no effect:, so there is nothing for it to throw. Dropped."));
+                continue;
+            }
+            Set<VehicleState> states = EnumSet.noneOf(VehicleState.class);
+            for (String raw : node.strings("states")) {
+                Optional<VehicleState> state = VehicleState.parse(raw);
+                if (state.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, where,
+                            "A particle's states: " + raw + " is not a vehicle state. Known states are "
+                                    + stateNames() + "."));
+                    continue;
+                }
+                states.add(state.get());
+            }
+            if (states.isEmpty()) {
+                // Not a silent default of "always". An emitter that fires in
+                // every state is a thing somebody can ask for by listing them,
+                // and guessing it here would make a typo in the one state they
+                // wrote into a particle storm they did not.
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "A particle (" + effect + ") names no states it fires in, so it never "
+                                + "fires. Try states: [moving]."));
+                continue;
+            }
+            emitters.add(VehicleEmitter.of(
+                    effect,
+                    states,
+                    offset(node, "x", origin, where, diagnostics),
+                    offset(node, "y", origin, where, diagnostics),
+                    offset(node, "z", origin, where, diagnostics),
+                    node.integer("count").orElse(1),
+                    node.decimal("spread").orElse(0d),
+                    node.decimal("speed").orElse(0d),
+                    node.integer("interval").orElse(1),
+                    node.bool("enabled").orElse(true),
+                    color(node, origin, where, diagnostics),
+                    node.decimal("size").orElse(1d)));
+        }
+        return emitters;
+    }
+
+    /**
+     * A {@code color:}, as {@code #rrggbb} or a plain number, or
+     * {@link VehicleEmitter#NO_COLOR}.
+     *
+     * <p>Only a dust particle reads it, and saying so in the diagnostic would
+     * mean this knowing which effects those are — which is a Bukkit question
+     * (see {@link #emitters}). So a colour on an effect that ignores one is
+     * quietly ignored, exactly as the game ignores it.
+     */
+    private static int color(DefinitionNode node, String origin, String where,
+                             List<Diagnostic> diagnostics) {
+        Optional<String> declared = node.string("color");
+        if (declared.isEmpty()) {
+            return VehicleEmitter.NO_COLOR;
+        }
+        String raw = declared.get().trim();
+        if (raw.isEmpty()) {
+            return VehicleEmitter.NO_COLOR;
+        }
+        try {
+            return Integer.parseInt(raw.startsWith("#") ? raw.substring(1) : raw, raw.startsWith("#") ? 16 : 10)
+                    & 0xFFFFFF;
+        } catch (NumberFormatException e) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "A particle's color: " + raw + " is not a colour. Try #ff8800."));
+            return VehicleEmitter.NO_COLOR;
+        }
+    }
+
+    /** The state vocabulary, for a diagnostic that has to list it. */
+    private static String stateNames() {
+        StringBuilder names = new StringBuilder();
+        for (VehicleState state : VehicleState.values()) {
+            if (names.length() > 0) {
+                names.append(", ");
+            }
+            names.append(state.key());
+        }
+        return names.toString();
     }
 
     private static Optional<VehicleSeat.Role> role(DefinitionNode node, String origin, String where,
