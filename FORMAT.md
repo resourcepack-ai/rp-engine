@@ -605,6 +605,10 @@ How you drive depends on your server:
   then reverses, and you steer by **looking where you want to go**. An air
   vehicle climbs and dives with your look too, since there is no key to read.
 
+**S is the brake before it is reverse.** Holding it at speed stops the vehicle
+the way a brake does, and only engages reverse once it is actually stationary
+— the same order a gearbox makes you use.
+
 Sneak gets out, as it does for a boat. That is also why sneak is not the
 brake: a driver braking would step off at speed.
 

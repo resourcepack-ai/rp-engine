@@ -148,6 +148,27 @@ class VehiclePhysicsTest {
         assertEquals(lightSpeed / 2, heavySpeed, 1e-9);
     }
 
+    /**
+     * The back key at speed is a brake, not a gear change. Aiming straight at
+     * the reverse target made a vehicle doing 20 crawl down through zero at
+     * ordinary acceleration and keep going, which reads as a car that will not
+     * stop rather than one changing direction.
+     */
+    @Test
+    void theBackKeyBrakesBeforeItReverses() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.Demand astern = new VehiclePhysics.Demand(0, 0, -1, 0, false);
+
+        VehiclePhysics.State fast = new VehiclePhysics.State(0, 20, 0);
+        double braked = 20 - VehiclePhysics.step(info, fast, astern, GROUND, DT).state().speed();
+        // Braking rate, not the ordinary one — that is what makes it a brake.
+        assertEquals(10 * VehiclePhysics.BRAKE_MULTIPLIER * DT, braked, 1e-9);
+
+        // Once it is genuinely stopped the same key reverses.
+        VehiclePhysics.State stopped = VehiclePhysics.State.still(0);
+        assertTrue(VehiclePhysics.step(info, stopped, astern, GROUND, DT).state().speed() < 0);
+    }
+
     @Test
     void reverseIsSlowerThanForward() {
         VehicleInfo info = car(VehicleMedium.LAND);
