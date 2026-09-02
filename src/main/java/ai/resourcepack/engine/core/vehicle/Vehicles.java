@@ -104,11 +104,24 @@ public final class Vehicles implements Listener {
      * How long the client is asked to take gliding the model to each new
      * position.
      *
-     * <p>One tick would be exact and stutters whenever a tick is late; three
-     * is visibly behind. Two is one tick of lead, which is what keeps a
-     * vehicle looking smooth on a server that is not perfectly on time.
+     * <p><strong>This matches vanilla's own entity interpolation on purpose,
+     * and that is the whole point of it.</strong> A client lerps an ordinary
+     * entity's position over about three ticks, and a rider is drawn wherever
+     * their mount is — so the rider is three ticks behind. The model is a
+     * Display and lags by whatever this says instead. Set them to different
+     * numbers and the two are behind by different amounts, which is a rider
+     * sliding out of their seat the faster the vehicle goes.
+     *
+     * <p>The lag itself is not what looks wrong. Everything being three ticks
+     * behind is invisible — there is nothing on screen to compare it against.
+     * Everything being behind by DIFFERENT amounts is what reads as the
+     * player being left behind, and this is the one number that fixes it.
+     *
+     * <p>If they still separate, this is the dial: vanilla's figure is not
+     * something a plugin can ask for, so it is copied here and could be
+     * wrong on a version that changed it.
      */
-    private static final int MODEL_GLIDE_TICKS = 2;
+    private static final int MODEL_GLIDE_TICKS = 3;
 
     /** How far a seated player is drawn above their own position. See {@code Seats}. */
     private static final double SEATED_POSE = 0.3;
