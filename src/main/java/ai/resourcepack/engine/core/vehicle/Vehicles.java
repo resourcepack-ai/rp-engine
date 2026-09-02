@@ -125,6 +125,22 @@ public final class Vehicles implements Listener {
      */
     private static final double MODEL_LIFT = 0.5;
 
+    /**
+     * How far the model is turned from the way the vehicle is going.
+     *
+     * <p>A Blockbench model — which is every model either front door produces
+     * — is built facing {@code -z}, and a Minecraft entity at yaw 0 faces
+     * {@code +z}. So the display is turned half a turn from the vehicle's own
+     * heading, or the car drives backwards down the road.
+     *
+     * <p><strong>This is the one number here that was found in a client
+     * rather than derived</strong>, and it is a named constant so that it is
+     * the one thing to change if a model ever faces the wrong way again.
+     * Nothing else depends on it: seat positions are in the vehicle's frame,
+     * not the model's, so turning the art does not move anybody.
+     */
+    private static final float MODEL_YAW_OFFSET = 180;
+
     /** How far ahead a solid block stops the vehicle, in blocks. */
     private static final double NOSE = 0.6;
 
@@ -149,6 +165,15 @@ public final class Vehicles implements Listener {
      */
     private final RigTags tags;
 
+    /**
+     * How this server moves a seat somebody is sitting on.
+     *
+     * <p>Resolved once. See {@link PassengerTeleport} — this is the difference
+     * between a rider who stays in their seat and one who is left standing in
+     * the road.
+     */
+    private final PassengerTeleport seatMover;
+
     /** Marks a chassis as ours, and says which vehicle it is. */
     private final NamespacedKey idKey;
 
@@ -171,6 +196,7 @@ public final class Vehicles implements Listener {
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
         this.mountOffset = MountOffset.forServer(compatibility);
         this.tags = RigTags.forServer(compatibility, plugin);
+        this.seatMover = PassengerTeleport.forServer();
         this.idKey = new NamespacedKey(plugin, "vehicle");
     }
 
@@ -679,14 +705,11 @@ public final class Vehicles implements Listener {
         Location seatLocation(int index) {
             VehicleSeat seat = info.seats().get(index);
             double yaw = state.yaw();
-            double radians = Math.toRadians(yaw);
-            // Right and forward in Minecraft's yaw frame: forward is
-            // (-sin, cos), and right is that turned a quarter clockwise,
-            // which is (cos, sin).
-            double sin = Math.sin(radians);
-            double cos = Math.cos(radians);
-            double x = at.getX() + seat.x() * cos + seat.z() * -sin;
-            double z = at.getZ() + seat.x() * sin + seat.z() * cos;
+            // The basis is VehiclePhysics' and is tested there. It was inline
+            // here once, with `right` pointing left.
+            double[] offset = VehiclePhysics.seatOffset(yaw, seat.x(), seat.z());
+            double x = at.getX() + offset[0];
+            double z = at.getZ() + offset[1];
 
             // SITTING puts the point under their backside, STANDING under
             // their feet. The pose is what decides that, which is why it is
@@ -806,11 +829,11 @@ public final class Vehicles implements Listener {
          * missed a tick catches up rather than falling permanently behind.
          */
         private void place(Entity chassis) {
-            Vector wanted = at.toVector().subtract(chassis.getLocation().toVector());
-            boolean asked = wanted.lengthSquared() > 1e-8;
-            if (asked) {
-                chassis.setVelocity(wanted);
-            }
+            boolean asked = at.toVector().distanceSquared(chassis.getLocation().toVector()) > 1e-8;
+            // The chassis never carries a passenger — the model, the mounts
+            // and the hitboxes are all moved by us rather than riding it — so
+            // a plain teleport always works and is exact.
+            chassis.teleport(at);
 
             for (int i = 0; i < mounts.size(); i++) {
                 Entity mount = plugin.getServer().getEntity(mounts.get(i));
@@ -819,9 +842,10 @@ public final class Vehicles implements Listener {
                 }
                 Location target = seatLocation(i);
                 if (occupants.get(i) == null) {
-                    // Nobody on it, so it can simply be put there.
                     mount.teleport(target);
-                } else {
+                } else if (!seatMover.move(mount, target)) {
+                    // Neither teleport arm worked on this server. Lossy, and
+                    // the rider will trail — but trailing beats standing still.
                     mount.setVelocity(target.toVector().subtract(mount.getLocation().toVector()));
                 }
                 Entity hitbox = plugin.getServer().getEntity(hitboxes.get(i));
@@ -833,13 +857,16 @@ public final class Vehicles implements Listener {
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
             if (model != null) {
                 Location where = at.clone().add(0, MODEL_LIFT, 0);
-                where.setYaw((float) state.yaw());
+                where.setYaw((float) state.yaw() + MODEL_YAW_OFFSET);
                 model.teleport(where);
             }
 
             // The stuck check: asked to move, and the chassis did not. Three
             // ticks rather than one, because a single tick can legitimately
-            // round to nothing.
+            // round to nothing. A teleport that does not arrive is a much
+            // rarer thing than the velocity this used to watch, so this is now
+            // a guard against a world refusing the move rather than against a
+            // server that has switched armour stands off ticking.
             if (asked && chassis.getLocation().distanceSquared(at) > 1e-4) {
                 stuck++;
                 if (stuck > 3) {

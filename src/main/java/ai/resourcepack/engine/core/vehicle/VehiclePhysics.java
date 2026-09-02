@@ -157,6 +157,36 @@ public final class VehiclePhysics {
         return new Step(new State(yaw, speed, vertical), dx, dy, dz);
     }
 
+    /**
+     * Where a seat sits relative to the vehicle, in world x and z.
+     *
+     * <p>Pure, and here rather than inside the runtime, because it is the same
+     * class of thing as the forward vector above: two sines and a sign, and
+     * being wrong puts the driver in the passenger's lap with nothing in a log
+     * to say so. The forward vector was tested from the start and this was not,
+     * and this is the one that was wrong — {@code right} was pointing left.
+     *
+     * <p>The frame, stated once so it can be checked against the tests:
+     * Minecraft yaw 0 faces <strong>south</strong>, {@code +z}. Somebody
+     * facing south has <strong>west</strong> on their right, which is
+     * {@code -x}. So forward is {@code (-sin, cos)} and right is
+     * {@code (-cos, -sin)} — right is NOT forward's components swapped, which
+     * is the shape that looks right and puts everybody on the wrong side.
+     *
+     * @param right   blocks to the vehicle's right; negative is left
+     * @param forward blocks in front of it; negative is behind
+     * @return the world offset as {@code {dx, dz}}
+     */
+    public static double[] seatOffset(double yaw, double right, double forward) {
+        double radians = Math.toRadians(yaw);
+        double sin = Math.sin(radians);
+        double cos = Math.cos(radians);
+        return new double[] {
+            right * -cos + forward * -sin,
+            right * -sin + forward * cos,
+        };
+    }
+
     private static double fall(double vertical, double dt) {
         return Math.max(-TERMINAL_FALL, vertical - GRAVITY * dt);
     }
