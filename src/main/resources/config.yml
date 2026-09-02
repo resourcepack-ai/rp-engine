@@ -75,6 +75,17 @@ vehicles:
   # run /rp reload. Positive is higher.
   seat-offset: 0.0
 
+  # The same, along the vehicle instead of up it. Positive is toward the
+  # front.
+  #
+  # Where a rider ends up is the chassis, plus the seat, plus the game's own
+  # rule for placing a passenger - and only the first two are ours. That last
+  # one cannot be read by a plugin, has changed between versions before, and
+  # is measured rather than derived everywhere it appears in this plugin. So
+  # if a seat is consistently a bit off along the vehicle, this closes it in
+  # one reload rather than waiting for a release.
+  seat-forward: 0.0
+
   # Whether a moving vehicle shoves PLAYERS out of its way.
   #
   # Off, so a vehicle passes through people. Shoving is right for a cow

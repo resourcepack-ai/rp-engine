@@ -48,6 +48,7 @@ final class EngineOptions {
             // at the same two moments.
             vehicles.configure(
                     config.getDouble("vehicles.seat-offset", 0.0),
+                    config.getDouble("vehicles.seat-forward", 0.0),
                     config.getBoolean("vehicles.push-players", false));
         }
     }

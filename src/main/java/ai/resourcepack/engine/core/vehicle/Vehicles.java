@@ -250,6 +250,25 @@ public final class Vehicles implements Listener {
     private volatile double seatOffset;
 
     /**
+     * Added to every vehicle seat along the vehicle's FORWARD axis, from
+     * config.yml.
+     *
+     * <p>The horizontal twin of {@link #seatOffset}, and it exists for the
+     * same reason plus a worse one. Where a rider ends up is
+     * {@code chassis + seat + vanilla's passenger placement}, and only the
+     * first two are ours: the third is a rule inside the game that a plugin
+     * cannot read, that has changed between versions before, and that is
+     * measured rather than derived everywhere it appears in this codebase
+     * (see {@link MountOffset}).
+     *
+     * <p>So when the editor and the game disagree by a constant, this and
+     * {@code seat-offset} are how a server owner closes it in one reload
+     * instead of waiting for somebody to guess the right number from the
+     * outside. Positive is toward the front of the vehicle.
+     */
+    private volatile double seatForward;
+
+    /**
      * Whether a moving vehicle shoves PLAYERS out of its way, from config.yml.
      *
      * <p>Off by default, which is the opposite of what it was. Shoving is
@@ -286,8 +305,9 @@ public final class Vehicles implements Listener {
      * Adopts {@code vehicles.seat-offset} and {@code vehicles.push-players}.
      * Called on enable and on every reload.
      */
-    public void configure(double seatOffset, boolean pushPlayers) {
+    public void configure(double seatOffset, double seatForward, boolean pushPlayers) {
         this.seatOffset = seatOffset;
+        this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
     }
 
@@ -958,7 +978,7 @@ public final class Vehicles implements Listener {
             double yaw = state.yaw();
             // The basis is VehiclePhysics' and is tested there. It was inline
             // here once, with `right` pointing left.
-            double[] offset = VehiclePhysics.seatOffset(yaw, seat.x(), seat.z());
+            double[] offset = VehiclePhysics.seatOffset(yaw, seat.x(), seat.z() + seatForward);
             double x = at.getX() + offset[0];
             double z = at.getZ() + offset[1];
 
