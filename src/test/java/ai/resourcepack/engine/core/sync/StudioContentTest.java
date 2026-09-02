@@ -4,9 +4,11 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 
 import org.junit.jupiter.api.Test;
@@ -267,5 +269,107 @@ class StudioContentTest {
         StudioContent content = read(dir, MANIFEST);
         assertTrue(content.vehicles().isEmpty());
         assertFalse(content.sounds().isEmpty());
+    }
+
+    // --- animations and particles --------------------------------------
+
+    /** The same vehicle, with the two things a zip of art cannot carry. */
+    private static final String WITH_BEHAVIOUR = """
+            {"packId":"ian8vezm","sounds":[],"screens":[],"huds":[],
+             "vehicles":[{"id":"hatchback","carrier":"hatchback","name":"Hatchback",
+               "medium":"land","weight":14,"speed":18,"acceleration":7.5,"turnSpeed":140,
+               "animations":{"idle":"parked","moving":"drive"},
+               "particles":[{"effect":"SMOKE","states":["moving","reversing"],
+                             "x":0,"y":0.4,"z":-1.4,"count":3,"spread":0.1,"speed":0.02,
+                             "interval":2,"enabled":true,"color":16746496,"size":1}],
+               "seats":[{"role":"driver","pose":"sitting","x":0,"y":0.6,"z":0.5,"yaw":0,"name":"wheel"}]}]}
+            """;
+
+    @Test
+    void readsAPushedVehiclesAnimationsAndParticles(@TempDir Path dir) {
+        VehicleInfo car = read(dir, WITH_BEHAVIOUR).vehicles()
+                .get(ContentId.parse("studio:hatchback").orElseThrow());
+
+        assertEquals("parked", car.animations().get(VehicleState.IDLE));
+        assertEquals("drive", car.animations().get(VehicleState.MOVING));
+
+        assertEquals(1, car.emitters().size());
+        VehicleEmitter exhaust = car.emitters().get(0);
+        assertEquals("SMOKE", exhaust.effect());
+        assertTrue(exhaust.firesIn(java.util.Set.of(VehicleState.REVERSING)));
+        assertFalse(exhaust.firesIn(java.util.Set.of(VehicleState.IDLE)));
+        assertEquals(2, exhaust.interval());
+        assertEquals(0xff8800, exhaust.color().orElseThrow());
+    }
+
+    /**
+     * Same rule as the seats above: a vehicle somebody parked has to come back
+     * after a restart still smoking from the same place. Round-tripping is
+     * what {@code studio-content.json} is for, and an emitter that survives
+     * three of its ten fields is one that quietly changes behaviour on every
+     * restart.
+     */
+    @Test
+    void animationsAndParticlesSurviveBeingWrittenOutAndReadBack(@TempDir Path dir) {
+        StudioContent written = read(dir, WITH_BEHAVIOUR);
+        written.save(LOG);
+
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+
+        ContentId id = ContentId.parse("studio:hatchback").orElseThrow();
+        VehicleInfo before = written.vehicles().get(id);
+        VehicleInfo after = reloaded.vehicles().get(id);
+
+        assertEquals(before.animations(), after.animations());
+        // VehicleEmitter's equals covers every field, which is the point —
+        // adding one and forgetting to write it out fails here.
+        assertEquals(before.emitters(), after.emitters());
+    }
+
+    /**
+     * Gson leaves an absent primitive at its zero, and zero is the wrong
+     * default for three of an emitter's fields. An emitter written by an older
+     * studio — no {@code enabled}, no {@code color}, no {@code size} — must
+     * come back switched ON, uncoloured, and full size, not invisible and
+     * black.
+     */
+    @Test
+    void anEmitterMissingItsOptionalFieldsIsOnAndUncoloured(@TempDir Path dir) {
+        StudioContent content = read(dir, """
+                {"packId":"p","sounds":[],"screens":[],"huds":[],
+                 "vehicles":[{"id":"cart","carrier":"cart","medium":"land",
+                   "weight":10,"speed":12,"acceleration":6,"turnSpeed":120,
+                   "particles":[{"effect":"FLAME","states":["idle"]}],
+                   "seats":[{"role":"driver","pose":"sitting","x":0,"y":0.6,"z":0,"yaw":0,"name":""}]}]}
+                """);
+
+        VehicleEmitter emitter = content.vehicles()
+                .get(ContentId.parse("studio:cart").orElseThrow()).emitters().get(0);
+        assertTrue(emitter.enabled());
+        assertTrue(emitter.color().isEmpty());
+        assertEquals(1, emitter.size());
+        assertEquals(1, emitter.interval());
+        assertEquals(1, emitter.count());
+    }
+
+    /**
+     * A state name this jar does not know is a studio newer than it. The
+     * vehicle still works, minus one animation — which is the right end of
+     * that, and much better than refusing the vehicle.
+     */
+    @Test
+    void anUnknownStateIsSkippedRatherThanFailingTheVehicle(@TempDir Path dir) {
+        StudioContent content = read(dir, """
+                {"packId":"p","sounds":[],"screens":[],"huds":[],
+                 "vehicles":[{"id":"cart","carrier":"cart","medium":"land",
+                   "weight":10,"speed":12,"acceleration":6,"turnSpeed":120,
+                   "animations":{"idle":"parked","hovering":"float"},
+                   "seats":[{"role":"driver","pose":"sitting","x":0,"y":0.6,"z":0,"yaw":0,"name":""}]}]}
+                """);
+
+        VehicleInfo cart = content.vehicles().get(ContentId.parse("studio:cart").orElseThrow());
+        assertEquals(1, cart.animations().size());
+        assertEquals("parked", cart.animations().get(VehicleState.IDLE));
     }
 }
