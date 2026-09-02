@@ -4,9 +4,11 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -270,5 +273,160 @@ class VehicleDefinitionsTest {
         for (Diagnostic diagnostic : result.diagnostics()) {
             assertFalse(diagnostic.origin().isEmpty(), "diagnostic with no origin: " + diagnostic);
         }
+    }
+
+    // --- animations ----------------------------------------------------
+
+    /** The minimum a driver's file needs: a seat, and two states. */
+    private static final String DRIVER = "  seats: [{role: driver, y: 0.6}]\n";
+
+    @Test
+    void readsTheAnimationForEachState() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  animations:\n"
+                        + "    idle: parked\n"
+                        + "    moving: drive\n"
+                        + "    turning: lean\n"
+                        + DRIVER);
+
+        VehicleInfo car = one("mypack:hatchback");
+        assertEquals("parked", car.animations().get(VehicleState.IDLE));
+        assertEquals("drive", car.animations().get(VehicleState.MOVING));
+        assertEquals("lean", car.animations().get(VehicleState.TURNING));
+        assertNull(car.animations().get(VehicleState.AIRBORNE));
+    }
+
+    /**
+     * A misspelt state is one lost animation, not a lost vehicle. Taking the
+     * seats and the handling down over "movnig" would be out of all
+     * proportion — but it has to SAY so, or the state silently does nothing.
+     */
+    @Test
+    void anUnknownStateIsAWarningAndTheRestStillLoads() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  animations:\n"
+                        + "    movnig: drive\n"
+                        + "    idle: parked\n"
+                        + DRIVER);
+
+        VehicleDefinitions.Result result = parse();
+        assertTrue(saysSomethingAbout(result, "movnig"));
+        VehicleInfo car = result.vehicles().get(ContentId.parse("mypack:hatchback").orElseThrow());
+        assertEquals("parked", car.animations().get(VehicleState.IDLE));
+    }
+
+    @Test
+    void aVehicleWithNoAnimationsHasNone() throws IOException {
+        write("mypack/vehicles/cars.yml", "hatchback:\n  model: mypack:hatchback\n" + DRIVER);
+        assertTrue(one("mypack:hatchback").animations().isEmpty());
+    }
+
+    // --- particles -----------------------------------------------------
+
+    @Test
+    void readsAWholeParticleEmitter() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  particles:\n"
+                        + "    - effect: smoke\n"
+                        + "      states: [moving, reversing]\n"
+                        + "      x: 0.2\n"
+                        + "      y: 0.4\n"
+                        + "      z: -1.4\n"
+                        + "      count: 3\n"
+                        + "      spread: 0.1\n"
+                        + "      speed: 0.02\n"
+                        + "      interval: 2\n"
+                        + "      color: \"#ff8800\"\n"
+                        + DRIVER);
+
+        VehicleInfo car = one("mypack:hatchback");
+        assertEquals(1, car.emitters().size());
+        VehicleEmitter exhaust = car.emitters().get(0);
+        // Uppercased on the way out, because that is how the enum spells it.
+        assertEquals("SMOKE", exhaust.effect());
+        assertEquals(Set.of(VehicleState.MOVING, VehicleState.REVERSING), exhaust.states());
+        assertEquals(0.2, exhaust.x(), 1e-9);
+        assertEquals(0.4, exhaust.y(), 1e-9);
+        assertEquals(-1.4, exhaust.z(), 1e-9);
+        assertEquals(3, exhaust.count());
+        assertEquals(2, exhaust.interval());
+        assertEquals(0xff8800, exhaust.color().orElseThrow());
+        // Absent means on: an emitter somebody wrote out in full is one they
+        // want, and defaulting it off would be invisible and unexplained.
+        assertTrue(exhaust.enabled());
+    }
+
+    /**
+     * Its own switch rather than deleting the emitter, because turning one
+     * plume off while tuning the others is the ordinary thing an author does
+     * and losing its settings to do it is not.
+     */
+    @Test
+    void anEmitterCanBeSwitchedOffWithoutLosingIt() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  particles:\n"
+                        + "    - {effect: smoke, states: [moving], enabled: false}\n"
+                        + DRIVER);
+
+        VehicleEmitter off = one("mypack:hatchback").emitters().get(0);
+        assertFalse(off.enabled());
+        assertFalse(off.firesIn(Set.of(VehicleState.MOVING)));
+        assertEquals("SMOKE", off.effect());
+    }
+
+    /**
+     * Not a silent default of "always". Guessing would turn a typo in the one
+     * state they wrote into a particle storm they did not ask for.
+     */
+    @Test
+    void anEmitterWithNoStatesIsDroppedWithAReason() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  particles: [{effect: smoke}]\n"
+                        + DRIVER);
+
+        VehicleDefinitions.Result result = parse();
+        assertTrue(saysSomethingAbout(result, "never fires"));
+        assertTrue(result.vehicles().get(ContentId.parse("mypack:hatchback").orElseThrow())
+                .emitters().isEmpty());
+    }
+
+    /** A count of 500 is somebody being optimistic, and has a nearest legal value. */
+    @Test
+    void anAbsurdCountIsClampedRatherThanRefused() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  particles: [{effect: smoke, states: [moving], count: 500}]\n"
+                        + DRIVER);
+
+        assertEquals(VehicleEmitter.MAX_COUNT, one("mypack:hatchback").emitters().get(0).count());
+    }
+
+    /** One bad exhaust pipe is not a reason to lose a bus. */
+    @Test
+    void oneUnusableEmitterDoesNotTakeTheOthersWithIt() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  particles:\n"
+                        + "    - {effect: smoke, states: [moving]}\n"
+                        + "    - {states: [idle]}\n"
+                        + "    - {effect: flame, states: [idle]}\n"
+                        + DRIVER);
+
+        VehicleInfo car = one("mypack:hatchback");
+        assertEquals(2, car.emitters().size());
+        assertEquals("SMOKE", car.emitters().get(0).effect());
+        assertEquals("FLAME", car.emitters().get(1).effect());
     }
 }
