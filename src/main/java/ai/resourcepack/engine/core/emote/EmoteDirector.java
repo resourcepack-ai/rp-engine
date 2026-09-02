@@ -363,8 +363,16 @@ public final class EmoteDirector implements Listener {
      *
      * <p>So there is always a tick of slack in hand. It costs a tick of
      * latency, which is exactly what the lead above is already paying for.
+     *
+     * <p>The rule now lives in {@link DisplayLatency#glideTicks}, shared with
+     * the vehicle runtime, which draws rigs the same way and had reasoned its
+     * own number out separately. <b>The two still differ, and must:</b> an
+     * emote rig is judged against the WORLD, where this is right, and a
+     * vehicle's model is judged against the RIDER sitting on it, which has to
+     * match {@link DisplayLatency#TRACKED_ENTITY_TICKS} instead.
      */
-    private static final int INTERPOLATION_TICKS = PERIOD_TICKS + 1;
+    private static final int INTERPOLATION_TICKS =
+            ai.resourcepack.engine.core.model.DisplayLatency.glideTicks(PERIOD_TICKS);
 
     private final Host host;
     private final EmoteStore emotes;
