@@ -64,6 +64,29 @@ models:
   # run /rp reload. Positive is higher. You should not need it.
   seat-offset: 0.0
 
+vehicles:
+  # The same nudge, for the seats in a vehicle. They need their own because a
+  # vehicle seat is a different kind of mount from a chair's, so the height is
+  # arithmetic over a vanilla number no plugin can read - which means it is
+  # derived rather than measured and can be a little out on a version nobody
+  # has checked yet.
+  #
+  # Sit in a vehicle, compare it with the editor, put the difference here and
+  # run /rp reload. Positive is higher.
+  seat-offset: 0.0
+
+  # Whether a moving vehicle shoves PLAYERS out of its way.
+  #
+  # Off, so a vehicle passes through people. Shoving is right for a cow
+  # standing in the road and wrong for the people you are driving with: cars
+  # nudging each other's drivers about in a car park, and a passenger being
+  # flung as they get out, are both worse than driving through somebody. Mobs
+  # are shoved either way.
+  #
+  # Nothing here changes what a vehicle does about BLOCKS - it always stops at
+  # a wall.
+  push-players: false
+
 emotes:
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that
