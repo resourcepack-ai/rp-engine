@@ -2,15 +2,18 @@ package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.DisplayLatency;
 import ai.resourcepack.engine.core.model.MountOffset;
+import ai.resourcepack.engine.core.model.RigCarrier;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.version.Compatibility;
 import org.bukkit.ChatColor;
@@ -45,7 +48,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -203,6 +208,20 @@ public final class Vehicles implements Listener {
     private final double mountOffset;
 
     /**
+     * How a vehicle wears an ANIMATED model, or null on a build with no rig
+     * system wired in.
+     *
+     * <p>A vehicle whose model has no rig — which is most of them — is one
+     * still {@link ItemDisplay} exactly as before, and nothing here changes for
+     * it. See {@link RigCarrier} for why a vehicle can use neither of the two
+     * arrangements that already existed.
+     */
+    private final RigCarrier rigs;
+
+    /** Throws whatever the pack asked for, for the state the vehicle is in. */
+    private final VehicleParticles particles;
+
+    /**
      * Where a string custom_model_data lives on this server.
      *
      * <p>Only a PUSHED vehicle needs it — an authored one names an item and
@@ -280,10 +299,12 @@ public final class Vehicles implements Listener {
      */
     private volatile boolean pushPlayers;
 
-    public Vehicles(Plugin plugin, Items items, Compatibility compatibility) {
+    public Vehicles(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs) {
         this.plugin = plugin;
         this.items = items;
         this.log = plugin.getLogger();
+        this.rigs = rigs;
+        this.particles = new VehicleParticles(plugin.getLogger());
         this.controls = VehicleControls.forServer(compatibility, plugin.getLogger());
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
         // forVehicleSeat, not forServer: these mounts are small stands
@@ -724,6 +745,41 @@ public final class Vehicles implements Listener {
 
         private UUID modelId;
 
+        /**
+         * Its animated model, or null when this vehicle's art is one still
+         * display.
+         *
+         * <p>Exactly one of this and {@link #modelId} is ever set. Which one
+         * is decided once, at spawn, by whether the model has a rig with
+         * anything that moves in it — so a vehicle that gains an animation in
+         * studio becomes animated on the next chunk load, and one that loses
+         * its last keyframe goes quietly back to a single display.
+         */
+        private RigCarrier.CarriedRig rig;
+
+        /**
+         * What the rig is playing, so a state change is noticed rather than
+         * re-asked twenty times a second.
+         *
+         * <p>{@code Placement.play} already ignores a repeat of a one-shot
+         * that is mid-play, but a LOOP would be restarted every tick — which
+         * is an animation that never gets past its first frame. This is the
+         * memo that stops that.
+         */
+        private String playing;
+
+        /** Its own age in ticks, which is what a particle interval counts against. */
+        private long age;
+
+        /**
+         * Whether the driver has already been told this hull is out of water.
+         *
+         * <p>Latched rather than sent per tick, and cleared when it floats
+         * again, so beaching a boat says one line and refloating it re-arms
+         * the warning for the next time.
+         */
+        private boolean toldBeached;
+
         /** How many ticks in a row a move was asked for and nothing happened. */
         private int stuck;
 
@@ -829,7 +885,90 @@ public final class Vehicles implements Listener {
                 body.add(part.getUniqueId());
             }
 
-            art().ifPresent(this::spawnModel);
+            // An animated model first: a vehicle whose art moves is several
+            // displays the animator retimes, and a still one is a single
+            // display. Same branch, and for the same reason, as
+            // ModelPlacementListener's — which is why it is a question about
+            // the MODEL rather than about the vehicle.
+            if (!spawnRig()) {
+                art().ifPresent(this::spawnModel);
+            }
+        }
+
+        /**
+         * Spawns the animated model, if this vehicle has one.
+         *
+         * @return whether it did, so the caller knows not to spawn a still
+         *         display as well — two models on one vehicle is one model
+         *         and a ghost
+         */
+        private boolean spawnRig() {
+            String id = artId();
+            if (rigs == null || id == null || !rigs.animates(id)) {
+                return false;
+            }
+            rig = rigs.carry(modelAnchor(), id, modelYaw(), this::partStack).orElse(null);
+            return rig != null;
+        }
+
+        /**
+         * Which model this vehicle's art IS, by whichever name it was
+         * delivered under.
+         *
+         * <p>The rig store is keyed by model id, and both front doors put the
+         * model's own id in it — studio's {@code carrier} string IS the model
+         * id, and an authored vehicle's {@code model:} is the item whose model
+         * it wears. So this is one lookup key from two spellings, which is the
+         * same fork {@link #art()} makes one line further down.
+         */
+        private String artId() {
+            Optional<String> carrier = info.carrier();
+            if (carrier.isPresent()) {
+                return carrier.get();
+            }
+            return info.model().map(ContentId::toString).orElse(null);
+        }
+
+        /**
+         * What one part of the rig renders as.
+         *
+         * <p>The same two ways of naming art as {@link #art()}: paper wearing
+         * a string for a pushed pack, the vehicle's own item wearing the
+         * part's model for an authored one.
+         */
+        private ItemStack partStack(String partItem) {
+            if (info.carrier().isPresent()) {
+                return StudioCarrier.item(tags, partItem);
+            }
+            ItemStack stack = info.model().flatMap(items::create).orElse(null);
+            if (stack == null) {
+                return null;
+            }
+            stack.setAmount(1);
+            // Through the service rather than setItemModel, because how a
+            // model is addressed is a version fork — see Items.wearModel.
+            ContentId.parse(partItem).ifPresent(model -> items.wearModel(stack, model));
+            return stack;
+        }
+
+        /** Where the model sits: half a block up, so its base is on the chassis. */
+        private Location modelAnchor() {
+            return at.clone().add(0, MODEL_LIFT, 0);
+        }
+
+        /**
+         * Which way the model is drawn.
+         *
+         * <p>The same value for a rig as for a still display, deliberately.
+         * {@code RigPlacementListener} passes ONE yaw to both arms of its own
+         * branch — the still display's entity yaw and the rig's baked pose use
+         * the same number — so a vehicle that did otherwise would have its
+         * animated art facing a different way from its still art for no reason
+         * anybody could find. {@link #MODEL_YAW_OFFSET} is the whole of the
+         * difference from the vehicle's heading.
+         */
+        private float modelYaw() {
+            return (float) state.yaw() + MODEL_YAW_OFFSET;
         }
 
         /** Where body tile {@code index} sits, turned with the vehicle. */
@@ -884,6 +1023,11 @@ public final class Vehicles implements Listener {
             }
             body.clear();
             removeEntity(modelId);
+            if (rig != null) {
+                rig.despawn();
+                rig = null;
+                playing = null;
+            }
         }
 
         private void removeEntity(UUID id) {
@@ -1028,12 +1172,14 @@ public final class Vehicles implements Listener {
                 return;
             }
 
+            age++;
             Player driver = driver();
             VehiclePhysics.Demand demand = driver == null
                     ? VehiclePhysics.Demand.idle(state.yaw())
                     : controls.read(driver, info);
 
-            VehiclePhysics.Step step = VehiclePhysics.step(info, state, demand, surroundings(), DT);
+            VehiclePhysics.Surroundings around = surroundings();
+            VehiclePhysics.Step step = VehiclePhysics.step(info, state, demand, around, DT);
             state = step.state();
             carriedBy = new Vector(step.dx(), step.dy(), step.dz());
             if (step.moves()) {
@@ -1041,6 +1187,78 @@ public final class Vehicles implements Listener {
                 shoveAside(step);
             }
             place(chassis);
+
+            // AFTER the move, so both read the position the vehicle actually
+            // ended up at rather than the one it was asked to go to — a
+            // vehicle stopped by a wall should not throw its exhaust inside
+            // the wall.
+            animate(step.states());
+            particles.emit(world, at, state.yaw(), info, step.states(), age);
+            sayIfBeached(driver, around);
+        }
+
+        /**
+         * Plays whatever this vehicle's state asks for.
+         *
+         * <p>Only on a CHANGE. {@code Placement.play} ignores a repeated
+         * one-shot on its own, but a looping animation asked for again is
+         * rewound — so calling this unconditionally would be a drive cycle
+         * stuck on its first frame for ever.
+         *
+         * <p>A state the pack did not configure falls through to the next one
+         * it did rather than stopping; see {@link VehicleState#choose}. So the
+         * only thing that stops a vehicle animating is a pack that configured
+         * nothing at all, which is a vehicle that never started.
+         */
+        private void animate(Set<VehicleState> states) {
+            if (rig == null || info.animations().isEmpty()) {
+                return;
+            }
+            String wanted = VehicleState.choose(states, info.animations()).orElse(null);
+            if (Objects.equals(wanted, playing)) {
+                return;
+            }
+            Optional<Placement> placement = rig.placement();
+            if (placement.isEmpty()) {
+                // The rig has been broken or its chunk went. Forgetting what
+                // we thought was playing means the next tick that finds it
+                // again starts cleanly rather than believing a stale answer.
+                playing = null;
+                return;
+            }
+            if (wanted == null) {
+                placement.get().stop();
+            } else if (!placement.get().play(wanted)) {
+                // The model has no animation by that name — a pack naming one
+                // that was since renamed in the editor. Left unrecorded so the
+                // next genuine change is still tried, and silent because this
+                // is a per-tick path.
+                return;
+            }
+            playing = wanted;
+        }
+
+        /**
+         * Tells the driver once that this hull is out of water.
+         *
+         * <p>Because the alternative is a boat that has quietly become eight
+         * times slower with nothing on screen to say why, which reads as lag
+         * or as a broken vehicle rather than as a rule. See
+         * {@link VehiclePhysics#BEACHED_FRACTION} — it can still crawl, and
+         * the message is what makes that legible as "get back in the water"
+         * instead of "this is broken now".
+         */
+        private void sayIfBeached(Player driver, VehiclePhysics.Surroundings around) {
+            if (!VehiclePhysics.beached(info, around)) {
+                toldBeached = false;
+                return;
+            }
+            if (toldBeached || driver == null) {
+                return;
+            }
+            toldBeached = true;
+            Chat.send(driver, nameOf(info) + " is out of the water, so it can barely move. "
+                    + "Steer back to the water.");
         }
 
         private Player driver() {
@@ -1248,10 +1466,18 @@ public final class Vehicles implements Listener {
                 }
             }
 
+            if (rig != null) {
+                // Every part to the SAME point, which is the rig invariant —
+                // a part's offset from the anchor lives in its transformation
+                // matrix, not in its position. The yaw goes to the rig's yaw
+                // host and turns the whole thing; see RigCarrier.
+                rig.moveTo(modelAnchor(), modelYaw());
+            }
+
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
             if (model != null) {
-                Location where = at.clone().add(0, MODEL_LIFT, 0);
-                where.setYaw((float) state.yaw() + MODEL_YAW_OFFSET);
+                Location where = modelAnchor();
+                where.setYaw(modelYaw());
                 // Stated rather than inherited. `at` carries no pitch now, but
                 // a display that ever acquires one is a vehicle lying on its
                 // side, and this is the line that makes that impossible.

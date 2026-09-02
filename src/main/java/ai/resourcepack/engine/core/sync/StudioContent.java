@@ -8,10 +8,12 @@ import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
+import ai.resourcepack.engine.api.VehicleState;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -21,10 +23,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -108,6 +113,40 @@ public final class StudioContent {
         double hitboxHeight;
         double hitboxLength;
         List<Seat> seats;
+        /**
+         * State name to animation name. Absent on a manifest older than this,
+         * which is a vehicle that animates nothing.
+         */
+        Map<String, String> animations;
+        List<Emitter> particles;
+    }
+
+    /**
+     * One particle emitter on a pushed vehicle.
+     *
+     * <p><strong>Every optional number here is boxed, and that is not
+     * tidiness.</strong> Gson leaves an absent primitive at its zero, and zero
+     * is a meaningful value for three of these that is not the right default:
+     * {@code enabled} would be false (an emitter nobody can see and nothing
+     * explains), {@code color} would be black rather than "no colour asked
+     * for", and {@code size} would be clamped up from nothing. A box makes
+     * absent distinguishable from written, which is the whole difference.
+     */
+    static final class Emitter {
+        String effect;
+        List<String> states;
+        /** In BLOCKS, like a seat's — see {@link Vehicle}. */
+        double x;
+        double y;
+        double z;
+        int count;
+        double spread;
+        double speed;
+        int interval;
+        Boolean enabled;
+        /** {@code 0xRRGGBB}, or absent for none. */
+        Integer color;
+        Double size;
     }
 
     static final class Seat {
@@ -293,7 +332,60 @@ public final class StudioContent {
         return java.util.Optional.of(VehicleInfo.pushed(id, vehicle.carrier, vehicle.name,
                 VehicleMedium.parse(vehicle.medium).orElse(VehicleMedium.LAND),
                 vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
-                hitbox, List.copyOf(ordered)));
+                hitbox, List.copyOf(ordered),
+                animations(vehicle.animations), emitters(vehicle.particles)));
+    }
+
+    /**
+     * A pushed vehicle's state-to-animation map.
+     *
+     * <p>An unreadable state is skipped in silence, for the reason the class
+     * note gives about a vehicle with no driver seat: there is nobody here to
+     * show a diagnostic to, this runs off a websocket frame, and studio's
+     * editor only ever writes names out of a fixed list. A state name this
+     * build does not know is a studio newer than this jar, and dropping it is
+     * the right end of that — the vehicle still works, minus one animation.
+     */
+    private static Map<VehicleState, String> animations(Map<String, String> declared) {
+        if (declared == null || declared.isEmpty()) {
+            return Map.of();
+        }
+        Map<VehicleState, String> animations = new EnumMap<>(VehicleState.class);
+        for (Map.Entry<String, String> entry : declared.entrySet()) {
+            String animation = entry.getValue();
+            if (animation == null || animation.isEmpty()) {
+                continue;
+            }
+            VehicleState.parse(entry.getKey()).ifPresent(state -> animations.put(state, animation));
+        }
+        return animations;
+    }
+
+    /** A pushed vehicle's particle emitters, skipping any that could never fire. */
+    private static List<VehicleEmitter> emitters(List<Emitter> declared) {
+        if (declared == null || declared.isEmpty()) {
+            return List.of();
+        }
+        List<VehicleEmitter> emitters = new ArrayList<>();
+        for (Emitter emitter : declared) {
+            if (emitter == null || emitter.effect == null || emitter.effect.isEmpty()) {
+                continue;
+            }
+            Set<VehicleState> states = EnumSet.noneOf(VehicleState.class);
+            for (String raw : emitter.states == null ? List.<String>of() : emitter.states) {
+                VehicleState.parse(raw).ifPresent(states::add);
+            }
+            if (states.isEmpty()) {
+                continue;
+            }
+            emitters.add(VehicleEmitter.of(
+                    emitter.effect, states, emitter.x, emitter.y, emitter.z,
+                    emitter.count, emitter.spread, emitter.speed, emitter.interval,
+                    emitter.enabled == null || emitter.enabled,
+                    emitter.color == null ? VehicleEmitter.NO_COLOR : emitter.color,
+                    emitter.size == null ? 1 : emitter.size));
+        }
+        return emitters;
     }
 
     /**
@@ -436,6 +528,34 @@ public final class StudioContent {
             written.yaw = seat.yaw();
             written.name = seat.name().orElse("");
             out.seats.add(written);
+        }
+        if (!info.animations().isEmpty()) {
+            out.animations = new LinkedHashMap<>();
+            for (Map.Entry<VehicleState, String> entry : info.animations().entrySet()) {
+                out.animations.put(entry.getKey().key(), entry.getValue());
+            }
+        }
+        if (!info.emitters().isEmpty()) {
+            out.particles = new ArrayList<>();
+            for (VehicleEmitter emitter : info.emitters()) {
+                Emitter written = new Emitter();
+                written.effect = emitter.effect();
+                written.states = new ArrayList<>();
+                for (VehicleState state : emitter.states()) {
+                    written.states.add(state.key());
+                }
+                written.x = emitter.x();
+                written.y = emitter.y();
+                written.z = emitter.z();
+                written.count = emitter.count();
+                written.spread = emitter.spread();
+                written.speed = emitter.speed();
+                written.interval = emitter.interval();
+                written.enabled = emitter.enabled();
+                written.color = emitter.color().orElse(null);
+                written.size = emitter.size();
+                out.particles.add(written);
+            }
         }
         return out;
     }

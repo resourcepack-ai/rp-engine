@@ -1,6 +1,9 @@
 package ai.resourcepack.engine.api;
 
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -43,10 +46,13 @@ public final class VehicleInfo {
     private final double turnSpeed;
     private final VehicleHitbox hitbox;
     private final List<VehicleSeat> seats;
+    private final Map<VehicleState, String> animations;
+    private final List<VehicleEmitter> emitters;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
-                        VehicleHitbox hitbox, List<VehicleSeat> seats) {
+                        VehicleHitbox hitbox, List<VehicleSeat> seats,
+                        Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -58,12 +64,15 @@ public final class VehicleInfo {
         this.turnSpeed = turnSpeed;
         this.hitbox = hitbox;
         this.seats = seats;
+        this.animations = animations;
+        this.emitters = emitters;
     }
 
     /** Engine internal; built by the vehicle loader. */
     public static VehicleInfo of(ContentId id, String model, String name, VehicleMedium medium,
                                  double weight, double speed, double acceleration, double turnSpeed,
-                                 VehicleHitbox hitbox, List<VehicleSeat> seats) {
+                                 VehicleHitbox hitbox, List<VehicleSeat> seats,
+                                 Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 model == null ? "" : model,
@@ -72,7 +81,8 @@ public final class VehicleInfo {
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
-                seats == null ? List.of() : List.copyOf(seats));
+                seats == null ? List.of() : List.copyOf(seats),
+                copyAnimations(animations), copyEmitters(emitters));
     }
 
     /**
@@ -86,7 +96,8 @@ public final class VehicleInfo {
      */
     public static VehicleInfo pushed(ContentId id, String carrier, String name, VehicleMedium medium,
                                      double weight, double speed, double acceleration, double turnSpeed,
-                                     VehicleHitbox hitbox, List<VehicleSeat> seats) {
+                                     VehicleHitbox hitbox, List<VehicleSeat> seats,
+                                     Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
@@ -95,7 +106,32 @@ public final class VehicleInfo {
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
-                seats == null ? List.of() : List.copyOf(seats));
+                seats == null ? List.of() : List.copyOf(seats),
+                copyAnimations(animations), copyEmitters(emitters));
+    }
+
+    /**
+     * An {@link EnumMap}, so iterating it is in {@link VehicleState}'s
+     * declaration order — which is the animation precedence. Nothing depends
+     * on that (see {@link VehicleState#choose}, which walks the enum rather
+     * than the map), but a map whose order contradicts the rule beside it is
+     * a thing somebody will eventually read as the rule.
+     */
+    private static Map<VehicleState, String> copyAnimations(Map<VehicleState, String> animations) {
+        if (animations == null || animations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<VehicleState, String> copy = new EnumMap<>(VehicleState.class);
+        for (Map.Entry<VehicleState, String> entry : animations.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                copy.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return Collections.unmodifiableMap(copy);
+    }
+
+    private static List<VehicleEmitter> copyEmitters(List<VehicleEmitter> emitters) {
+        return emitters == null ? List.of() : List.copyOf(emitters);
     }
 
     /** Its id. */
@@ -201,6 +237,36 @@ public final class VehicleInfo {
      */
     public List<VehicleSeat> seats() {
         return seats;
+    }
+
+    /**
+     * Which animation this vehicle plays in which {@link VehicleState}.
+     *
+     * <p>Empty for a vehicle that animates nothing, which is every vehicle
+     * written before this existed and most of them since — a vehicle is a
+     * model that moves, and whether its wheels also turn is a separate
+     * ambition.
+     *
+     * <p><strong>A state with no entry falls through to the next one</strong>
+     * rather than stopping what is playing; {@link VehicleState#choose} is the
+     * rule and the reason. The names are the model's own animation names, so
+     * they are only meaningful against a model that has a rig — one that
+     * places as a single still display can carry this map and never use it,
+     * which is a half-finished vehicle rather than an error.
+     */
+    public Map<VehicleState, String> animations() {
+        return animations;
+    }
+
+    /**
+     * Where it throws particles, and when.
+     *
+     * <p>Independent of each other and of {@link #animations()} — an exhaust
+     * plume is not an animation and a pack that wants one should not need a
+     * rig for it.
+     */
+    public List<VehicleEmitter> emitters() {
+        return emitters;
     }
 
     /** The seat that steers. Always present, always {@code seats().get(0)}. */

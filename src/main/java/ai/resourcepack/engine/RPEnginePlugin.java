@@ -80,6 +80,7 @@ import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.core.model.BoneListener;
 import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.ModelRigs;
+import ai.resourcepack.engine.core.model.RigCarrier;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.pack.PackBuilder;
@@ -363,7 +364,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emotes = new EmoteDirector(library, emoteStore);
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items);
-        vehicles = new Vehicles(this, items, compatibility);
+        // The rig carrier, so a vehicle whose model animates wears the rig
+        // rather than one still display. Built here rather than inside
+        // Vehicles because everything it needs — the store, the animator, the
+        // placement handles — was assembled above and a second copy of any of
+        // them would be a second animator fighting over the same entities.
+        vehicles = new Vehicles(this, items, compatibility,
+                new RigCarrier(library, rigs, animator, models));
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         blockStates = new BlockStates(getDataFolder());

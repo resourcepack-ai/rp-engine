@@ -2,6 +2,11 @@ package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
+import ai.resourcepack.engine.api.VehicleState;
+
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
 
 /**
  * How a vehicle moves, as arithmetic.
@@ -88,6 +93,51 @@ public final class VehiclePhysics {
     /** How fast an air vehicle climbs on the jump key, as a fraction of its top speed. */
     public static final double AIR_CLIMB_FRACTION = 0.5;
 
+    /**
+     * What fraction of its top speed a water vehicle does out of water.
+     *
+     * <p><strong>A boat used to drive on grass exactly as fast as it sailed</strong>,
+     * because the medium decided only the VERTICAL rule — buoyancy against
+     * gravity — and nothing ever asked whether a hull had anything to push
+     * against. {@link VehicleMedium#WATER} has said "dead weight on land" since
+     * it was written; this is the line that makes it true.
+     *
+     * <p>Not zero, and that is the whole of the number. A boat that cannot move
+     * at all on land is one that beaches itself on the first shore and is stuck
+     * there for ever — the driver has no way back to the water, and a vehicle
+     * that can be permanently lost by driving it is a trap rather than a rule.
+     * At 0.15 of top speed a hull drags over sand a shade slower than a walking
+     * player: unmistakably wrong, obviously deliberate, and recoverable.
+     *
+     * <p>Steering is deliberately NOT reduced with it. A beached boat that
+     * could crawl but not turn would be pointed away from the water as often
+     * as toward it.
+     */
+    public static final double BEACHED_FRACTION = 0.15;
+
+    /**
+     * Below this speed a vehicle counts as {@link VehicleState#IDLE} rather
+     * than moving, in blocks per second.
+     *
+     * <p>Its own constant rather than {@link #REVERSE_THRESHOLD}, though they
+     * happen to agree today: one is about when a gearbox changes direction and
+     * the other about when an animation changes, and tying them together would
+     * make tuning either move the other for no reason anybody could see.
+     */
+    public static final double MOVING_THRESHOLD = 0.5;
+
+    /**
+     * Above this rate of turn a vehicle counts as {@link VehicleState#TURNING},
+     * in degrees per second.
+     *
+     * <p>Measured against how fast the body ACTUALLY came round this tick, not
+     * against what the driver asked for — so a vehicle held against a wall is
+     * not turning, and one at its {@code turn-speed} clamp is. Fifteen degrees
+     * a second is a slow, deliberate corner; the drift a look-steered vehicle
+     * shows while driving straight is well under it.
+     */
+    public static final double TURNING_THRESHOLD = 15;
+
     private VehiclePhysics() {
     }
 
@@ -131,7 +181,11 @@ public final class VehiclePhysics {
         double heaviness = Math.max(0.1, info.weight() / NOMINAL_WEIGHT);
         double accel = info.acceleration() / heaviness;
 
-        double top = info.speed();
+        // A hull out of water drags rather than sails. Applied to the top speed
+        // rather than to the throttle so that braking, reversing and the coast
+        // rate all scale with it for free — a beached boat that stopped like a
+        // sailing one would slide the length of the beach.
+        double top = beached(info, around) ? info.speed() * BEACHED_FRACTION : info.speed();
         double target = throttle >= 0
                 ? throttle * top
                 : throttle * top * REVERSE_FRACTION;
@@ -218,7 +272,72 @@ public final class VehiclePhysics {
         double dz = Math.cos(radians) * planar * dt;
         double dy = (air ? climb : vertical) * dt;
 
-        return new Step(new State(yaw, speed, vertical), dx, dy, dz);
+        return new Step(new State(yaw, speed, vertical), dx, dy, dz,
+                states(info, state.yaw(), yaw, speed, around, dt));
+    }
+
+    /**
+     * Whether a water vehicle is out of its element.
+     *
+     * <p>Only ever true for {@link VehicleMedium#WATER} — a car is not
+     * "beached" for being on a road, and a submarine that flooded is not a
+     * different kind of vehicle.
+     */
+    public static boolean beached(VehicleInfo info, Surroundings around) {
+        return info.medium() == VehicleMedium.WATER && !around.inWater();
+    }
+
+    /**
+     * Every {@link VehicleState} the vehicle is in this tick.
+     *
+     * <p>Pure, and here rather than in the runtime, for the reason the whole
+     * class exists: whether a vehicle counts as moving is arithmetic over its
+     * speed, and a rule that lives in the runtime is one that can only be
+     * checked by driving a car around a test server. The states drive both the
+     * animation a rig plays and which particle emitters fire, so being subtly
+     * wrong about one is visible in two places at once.
+     *
+     * <p>Several are true at once and that is the point — see
+     * {@link VehicleState}.
+     *
+     * @param wasYaw where the body pointed before this step, so TURNING is
+     *               measured against what actually happened rather than
+     *               against what the driver asked for
+     */
+    static Set<VehicleState> states(VehicleInfo info, double wasYaw, double yaw, double speed,
+                                    Surroundings around, double dt) {
+        Set<VehicleState> active = EnumSet.noneOf(VehicleState.class);
+
+        if (speed > MOVING_THRESHOLD) {
+            active.add(VehicleState.MOVING);
+        } else if (speed < -MOVING_THRESHOLD) {
+            active.add(VehicleState.REVERSING);
+        } else {
+            active.add(VehicleState.IDLE);
+        }
+
+        // The SHORT way round, or a vehicle crossing north from 359 to 1
+        // reports a 358-degree turn and every wheel on it spins the wrong way
+        // once a lap. Divided by dt so the threshold can be quoted per second
+        // like every other constant here.
+        if (dt > 0 && Math.abs(wrap180(yaw - wasYaw)) / dt >= TURNING_THRESHOLD) {
+            active.add(VehicleState.TURNING);
+        }
+
+        if (around.inWater()) {
+            active.add(VehicleState.SUBMERGED);
+        }
+
+        // An air vehicle is airborne whenever it is off the ground, which is
+        // most of its life; a land or water one only when it has left both the
+        // ground and the water, which is a jump or a fall. Water counts as
+        // support here even though it is not solid: a boat riding the surface
+        // is doing its job, not falling.
+        if (!around.supported() && !around.inWater()) {
+            active.add(VehicleState.AIRBORNE);
+        }
+
+        return active;
     }
 
     /**
@@ -490,17 +609,34 @@ public final class VehiclePhysics {
         private final double dx;
         private final double dy;
         private final double dz;
+        private final Set<VehicleState> states;
 
-        Step(State state, double dx, double dy, double dz) {
+        Step(State state, double dx, double dy, double dz, Set<VehicleState> states) {
             this.state = state;
             this.dx = dx;
             this.dy = dy;
             this.dz = dz;
+            this.states = states == null
+                    ? Collections.<VehicleState>emptySet()
+                    : Collections.unmodifiableSet(states);
         }
 
         /** Where the vehicle is going now. */
         public State state() {
             return state;
+        }
+
+        /**
+         * What the vehicle is doing, which decides what it plays and what it
+         * throws.
+         *
+         * <p>Several at once — see {@link VehicleState}. Computed here rather
+         * than by the runtime because every input it needs is already in hand,
+         * and because a rule about when a vehicle counts as moving is one that
+         * should be checkable without a server.
+         */
+        public Set<VehicleState> states() {
+            return states;
         }
 
         /** East, in blocks, this tick. */

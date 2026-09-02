@@ -68,6 +68,14 @@ public final class RigAnimator implements Listener {
     static final String BOUND_KEY = "rig-bound";
 
     /**
+     * On a part display: the uuid of the entity whose yaw this part follows.
+     *
+     * <p>For a rig carried by something that turns but is not ridden — see
+     * {@link #yawOf}. Written by {@code RigCarrier} and by nothing else.
+     */
+    static final String YAW_HOST_KEY = "rig-yaw-host";
+
+    /**
      * PDC key holding the overlays a part is playing: {@code index:startTick}
      * pairs, semicolon separated.
      *
@@ -93,6 +101,7 @@ public final class RigAnimator implements Listener {
     private final NamespacedKey displayKey;
     private final NamespacedKey displaysKey;
     private final NamespacedKey boundKey;
+    private final NamespacedKey yawHostKey;
     private final NamespacedKey overlayKey;
 
     private final Map<UUID, ItemDisplay> tracked = new ConcurrentHashMap<>();
@@ -163,6 +172,7 @@ public final class RigAnimator implements Listener {
         this.displayKey = host.key("display-uuid");
         this.displaysKey = host.key("display-uuids");
         this.boundKey = host.key(BOUND_KEY);
+        this.yawHostKey = host.key(YAW_HOST_KEY);
         this.overlayKey = host.key(OVERLAY_KEY);
     }
 
@@ -473,8 +483,34 @@ public final class RigAnimator implements Listener {
      * bound one, whichever way its host is looking right now \u2014 read off the
      * vehicle rather than stored, because a mob turns and nothing would write
      * a new value on the tick it did.
+     *
+     * <p>And for a rig CARRIED by something that turns without being ridden \u2014
+     * a vehicle \u2014 whichever way the entity named by {@link #YAW_HOST_KEY} is
+     * facing. That is a third case rather than a reuse of the bound one for a
+     * concrete reason: bound reads {@code display.getVehicle()}, and a vehicle's
+     * rig parts cannot be passengers of its chassis. CraftBukkit refuses
+     * {@code teleport} on an entity that is being ridden, and an exact teleport
+     * of the chassis is the whole of how a vehicle moves.
+     *
+     * <p>The alternative was writing a fresh yaw into every part's container
+     * every tick, which is a persistent-data write per part per tick per
+     * vehicle for a value that is already sitting on an entity we are moving
+     * anyway.
      */
     private Float yawOf(ItemDisplay display, PersistentDataContainer pdc) {
+        String yawHost = pdc.get(yawHostKey, PersistentDataType.STRING);
+        if (yawHost != null) {
+            Entity host = null;
+            try {
+                host = Bukkit.getEntity(UUID.fromString(yawHost));
+            } catch (IllegalArgumentException ignored) {
+                // A malformed id costs this part its live yaw and nothing
+                // else, exactly as a malformed display id does in indexDisplays.
+            }
+            // Its carrier is gone, or the chunk holding it is. The last stored
+            // yaw beats snapping to north, same as the bound case.
+            return host == null ? pdc.get(yawKey, PersistentDataType.FLOAT) : host.getLocation().getYaw();
+        }
         if (pdc.has(boundKey, PersistentDataType.STRING)) {
             Entity host = display.getVehicle();
             return host == null
