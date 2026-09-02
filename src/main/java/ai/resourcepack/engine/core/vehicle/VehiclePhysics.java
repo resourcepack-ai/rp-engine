@@ -96,20 +96,40 @@ public final class VehiclePhysics {
                 ? wrap360(state.yaw() + demand.steer() * info.turnSpeed() * dt)
                 : turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
 
+        boolean air = info.medium() == VehicleMedium.AIR;
+        double throttle = demand.throttle();
+        double lift = demand.lift();
+
+        // <strong>An aircraft in the air descends on the back key rather than
+        // reversing.</strong> There is nothing to reverse against up there, and
+        // an aeroplane that flew backwards on S would be the only vehicle here
+        // that did something no real one does. On the GROUND it reverses like
+        // anything else, which is what taxiing is.
+        //
+        // Space wins if both are held: asking to climb and to descend at once
+        // is asking to climb, and the alternative is a cancellation nobody can
+        // see the cause of.
+        if (air && !around.supported() && throttle < 0) {
+            if (lift == 0) {
+                lift = throttle;
+            }
+            throttle = 0;
+        }
+
         double heaviness = Math.max(0.1, info.weight() / NOMINAL_WEIGHT);
         double accel = info.acceleration() / heaviness;
 
         double top = info.speed();
-        double target = demand.throttle() >= 0
-                ? demand.throttle() * top
-                : demand.throttle() * top * REVERSE_FRACTION;
+        double target = throttle >= 0
+                ? throttle * top
+                : throttle * top * REVERSE_FRACTION;
 
         // Braking beats the throttle rather than being averaged with it: a
         // driver holding both is asking to stop, and half of each would be a
         // vehicle that neither accelerates nor stops.
         double rate = demand.braking()
                 ? accel * BRAKE_MULTIPLIER
-                : demand.throttle() == 0 ? accel * COAST_FRACTION : accel;
+                : throttle == 0 ? accel * COAST_FRACTION : accel;
         if (demand.braking()) {
             target = 0;
         }
@@ -119,12 +139,22 @@ public final class VehiclePhysics {
         double climb = 0;
         switch (info.medium()) {
             case AIR:
-                // Vanilla's own answer for a flying multi-seat vehicle, and
-                // worth copying rather than inventing: forward goes where the
-                // driver is LOOKING, and jump goes straight up. No stall, no
-                // airspeed, no lift curve — see VehicleMedium.AIR.
-                climb = speed * Math.sin(Math.toRadians(-demand.pitch()))
-                        + demand.lift() * top * AIR_CLIMB_FRACTION;
+                // <strong>Height is space and the back key, not the driver's
+                // pitch — where the keys can be read.</strong> Vanilla's own
+                // flying vehicle climbs by looking up, because it has no other
+                // control to spare; a server that can read a key has one, and
+                // steering by look was already costing the driver their head.
+                // Tying the climb to it as well would mean glancing at the
+                // scenery puts the aircraft into a dive.
+                //
+                // Where the keys CANNOT be read there is nothing else to use,
+                // so that arm keeps vanilla's answer. `steersByKeys` stands in
+                // for "this server can read the driver's keys at all", which
+                // is the same question by the time it reaches here.
+                climb = (demand.steersByKeys()
+                                ? 0
+                                : speed * Math.sin(Math.toRadians(-demand.pitch())))
+                        + lift * top * AIR_CLIMB_FRACTION;
                 vertical = 0;
                 break;
             case WATER:
@@ -148,8 +178,10 @@ public final class VehiclePhysics {
         // The horizontal component shrinks as the nose comes up, so a climbing
         // aircraft covers less ground rather than the same ground plus a
         // vertical bonus — the alternative reads as the vehicle speeding up
-        // whenever you look at the sky.
-        double planar = info.medium() == VehicleMedium.AIR
+        // whenever you look at the sky. Only on the arm where the pitch is
+        // still flying the thing: where space and the back key do the climbing,
+        // the driver's head has nothing to do with how far the aircraft gets.
+        double planar = air && !demand.steersByKeys()
                 ? speed * Math.cos(Math.toRadians(demand.pitch()))
                 : speed;
 
@@ -160,7 +192,7 @@ public final class VehiclePhysics {
         // in the file to get wrong, so it is written out rather than inlined.
         double dx = -Math.sin(radians) * planar * dt;
         double dz = Math.cos(radians) * planar * dt;
-        double dy = (info.medium() == VehicleMedium.AIR ? climb : vertical) * dt;
+        double dy = (air ? climb : vertical) * dt;
 
         return new Step(new State(yaw, speed, vertical), dx, dy, dz);
     }

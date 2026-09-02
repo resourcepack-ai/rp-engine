@@ -352,6 +352,66 @@ class VehiclePhysicsTest {
         assertTrue(climbing < level, "a climbing aircraft covers less ground");
     }
 
+    /**
+     * There is nothing to reverse against in the air, so the back key means
+     * "down" — and an aeroplane that flew backwards on S would be the only
+     * vehicle here doing something no real one does.
+     */
+    @Test
+    void anAirborneAircraftDescendsOnTheBackKeyRatherThanReversing() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        VehiclePhysics.State cruising = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.Demand back = VehiclePhysics.Demand.steering(0, 0, 0, -1, 0, false);
+        VehiclePhysics.Step step =
+                VehiclePhysics.step(plane, cruising, back, VehiclePhysics.Surroundings.falling(), DT);
+
+        assertTrue(step.dy() < 0, "the back key should descend");
+        assertTrue(step.state().speed() > 0, "and must not put it into reverse");
+    }
+
+    /** On the ground it taxis backwards like anything else. */
+    @Test
+    void aGroundedAircraftStillReverses() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        VehiclePhysics.Demand back = VehiclePhysics.Demand.steering(0, 0, 0, -1, 0, false);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        for (int tick = 0; tick < 40; tick++) {
+            state = VehiclePhysics.step(plane, state, back, GROUND, DT).state();
+        }
+        assertTrue(state.speed() < 0, "on the ground the back key reverses");
+    }
+
+    /** Asking to climb and descend at once is asking to climb. */
+    @Test
+    void spaceBeatsTheBackKey() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        VehiclePhysics.Demand both = VehiclePhysics.Demand.steering(0, 0, 0, -1, 1, false);
+        VehiclePhysics.Step step = VehiclePhysics.step(plane, new VehiclePhysics.State(0, 20, 0),
+                both, VehiclePhysics.Surroundings.falling(), DT);
+        assertTrue(step.dy() > 0);
+    }
+
+    /**
+     * Where the keys can be read, looking around must not fly the aircraft —
+     * steering already costs the driver their head and the climb must not too.
+     */
+    @Test
+    void pitchDoesNotFlyItWhenTheKeysAreReadable() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        VehiclePhysics.State cruising = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.Demand looking = VehiclePhysics.Demand.steering(0, -45, 0, 1, 0, false);
+        assertEquals(0, VehiclePhysics.step(plane, cruising, looking, GROUND, DT).dy(), 1e-9);
+    }
+
+    /** The arm that has no keys keeps vanilla's answer: look up to climb. */
+    @Test
+    void pitchStillFliesItWhenTheKeysCannotBeRead() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        VehiclePhysics.State cruising = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.Demand looking = new VehiclePhysics.Demand(0, -45, 1, 0, false);
+        assertTrue(VehiclePhysics.step(plane, cruising, looking, GROUND, DT).dy() > 0);
+    }
+
     @Test
     void anAirVehicleIgnoresTheGround() {
         VehicleInfo plane = car(VehicleMedium.AIR);
