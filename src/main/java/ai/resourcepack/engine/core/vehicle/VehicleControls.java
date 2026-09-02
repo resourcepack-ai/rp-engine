@@ -17,11 +17,12 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * What the driver is asking the vehicle to do.
  *
- * <p><strong>Steering is not in here.</strong> It is the driver's look, on
- * every version, because their own client renders the camera the instant they
- * move the mouse — so a vehicle that follows it feels responsive even though
- * everything else is a server tick behind. What this interface is for is the
- * one thing that genuinely differs between servers: the THROTTLE.
+ * <p><strong>Steering differs between the arms, and that turned out to matter
+ * more than the throttle did.</strong> Where the keys can be read, A and D
+ * turn the vehicle. Where they cannot, the body turns toward wherever the
+ * driver is LOOKING — which works, and costs them their head: a player's body
+ * follows their head, so steering by look swings the driver round on every
+ * corner and leaves them unable to look anywhere except where they are going.
  *
  * <p>Two arms, and {@link Feature#PLAYER_INPUT} is the fork. The keys a player
  * is holding have been on the wire since long before the engine's floor —
@@ -94,10 +95,18 @@ public interface VehicleControls extends Listener {
     /**
      * Paper 1.21.4 and up: the keys the driver is actually holding.
      *
-     * <p>W and S are the throttle, space is the handbrake on the ground and
-     * the climb in the air. A and D are read and deliberately ignored — they
-     * are the driver's strafe keys, and a vehicle that strafed would slide
-     * sideways rather than steer. Steering is the look, here as everywhere.
+     * <p>W and S are the throttle, A and D turn the vehicle, space is the
+     * handbrake on the ground and the climb in the air.
+     *
+     * <p><strong>A and D steer here and cannot on the other arm, and that is
+     * the whole reason this arm is worth having beyond the throttle.</strong>
+     * Steering by look means steering IS turning your head, and a player's
+     * body follows their head — so the driver visibly swings round on every
+     * corner. Reading the keys leaves their head out of it. This was written
+     * off early on the grounds that A and D are strafe keys and a vehicle
+     * answering them would slide sideways; that is true of moving the PLAYER
+     * and irrelevant to turning the vehicle, which is what they are consumed
+     * for here.
      *
      * <p>There is no "down" key, which is vanilla's own limitation on its own
      * flying multi-seat vehicle: sneak dismounts. Look down and go forward.
@@ -114,6 +123,8 @@ public interface VehicleControls extends Listener {
         private volatile Method forward;
         private volatile Method backward;
         private volatile Method jump;
+        private volatile Method left;
+        private volatile Method right;
 
         Keys(Method currentInput) {
             this.currentInput = currentInput;
@@ -133,16 +144,24 @@ public interface VehicleControls extends Listener {
                     forward = type.getMethod("isForward");
                     backward = type.getMethod("isBackward");
                     jump = type.getMethod("isJump");
+                    left = type.getMethod("isLeft");
+                    right = type.getMethod("isRight");
                     forward.setAccessible(true);
                     backward.setAccessible(true);
                     jump.setAccessible(true);
+                    left.setAccessible(true);
+                    right.setAccessible(true);
                 }
                 boolean ahead = (Boolean) forward.invoke(input);
                 boolean astern = (Boolean) backward.invoke(input);
                 boolean up = (Boolean) jump.invoke(input);
+                boolean port = (Boolean) left.invoke(input);
+                boolean starboard = (Boolean) right.invoke(input);
                 double throttle = (ahead ? 1 : 0) + (astern ? -1 : 0);
+                double steer = (starboard ? 1 : 0) + (port ? -1 : 0);
                 boolean air = info.medium() == VehicleMedium.AIR;
-                return new VehiclePhysics.Demand(yaw, pitch, throttle, air && up ? 1 : 0, !air && up);
+                return VehiclePhysics.Demand.steering(
+                        yaw, pitch, steer, throttle, air && up ? 1 : 0, !air && up);
             } catch (ReflectiveOperationException | RuntimeException e) {
                 // Whatever went wrong, the vehicle still steers and coasts.
                 // Failing to a stationary vehicle somebody can still point
@@ -154,7 +173,7 @@ public interface VehicleControls extends Listener {
 
         @Override
         public String describe() {
-            return "W and S to drive, space to brake or climb, look to steer";
+            return "W and S to drive, A and D to steer, space to brake or climb";
         }
     }
 

@@ -187,9 +187,9 @@ public enum Feature {
             "Reading a driver's movement keys",
             "Vehicles are driven with the mouse instead of the keyboard: look where you "
                     + "want to go, right-click to speed up a notch and left-click to slow "
-                    + "down or reverse. Steering is unaffected - it follows your look on "
-                    + "every version. Needs Paper; a Spigot server gets this arm whatever "
-                    + "its version.");
+                    + "down or reverse. The cost is that steering is your head, so the "
+                    + "driver turns with the vehicle and cannot look around while driving. "
+                    + "Needs Paper; a Spigot server gets this arm whatever its version.");
 
     private final McVersion since;
     private final String label;

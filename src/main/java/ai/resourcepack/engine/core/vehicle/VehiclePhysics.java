@@ -86,7 +86,15 @@ public final class VehiclePhysics {
      *           per second rather than per tick
      */
     public static Step step(VehicleInfo info, State state, Demand demand, Surroundings around, double dt) {
-        double yaw = turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
+        // Two ways to steer, and which one a server gets is the same fork as
+        // the throttle. Keys turn the body directly and leave the driver's
+        // head alone; look-steering turns the body toward wherever they are
+        // looking, which means steering IS turning your head - and a player's
+        // body follows their head, so the driver visibly swings round on every
+        // corner. That is the cost the key arm exists to remove.
+        double yaw = demand.steersByKeys()
+                ? wrap360(state.yaw() + demand.steer() * info.turnSpeed() * dt)
+                : turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
 
         double heaviness = Math.max(0.1, info.weight() / NOMINAL_WEIGHT);
         double accel = info.acceleration() / heaviness;
@@ -296,8 +304,28 @@ public final class VehiclePhysics {
         private final double throttle;
         private final double lift;
         private final boolean braking;
+        private final double steer;
+        private final boolean steersByKeys;
 
+        /** Steering by look: the body turns toward wherever the driver faces. */
         public Demand(double yaw, double pitch, double throttle, double lift, boolean braking) {
+            this(yaw, pitch, throttle, lift, braking, 0, false);
+        }
+
+        /**
+         * Steering by key: {@code steer} runs -1 (left) to 1 (right) and the
+         * driver's look is left out of it entirely.
+         *
+         * <p>The PITCH is still theirs, because an air vehicle climbs by
+         * looking up and that is a different control from turning.
+         */
+        public static Demand steering(double yaw, double pitch, double steer,
+                                      double throttle, double lift, boolean braking) {
+            return new Demand(yaw, pitch, throttle, lift, braking, steer, true);
+        }
+
+        private Demand(double yaw, double pitch, double throttle, double lift, boolean braking,
+                       double steer, boolean steersByKeys) {
             this.yaw = yaw;
             this.pitch = pitch;
             // Clamped here rather than trusted, because both arms of the
@@ -305,6 +333,18 @@ public final class VehiclePhysics {
             this.throttle = clamp(throttle);
             this.lift = clamp(lift);
             this.braking = braking;
+            this.steer = clamp(steer);
+            this.steersByKeys = steersByKeys;
+        }
+
+        /** -1 hard left to 1 hard right. Only read when {@link #steersByKeys}. */
+        public double steer() {
+            return steer;
+        }
+
+        /** Whether the body turns from a key rather than from the driver's look. */
+        public boolean steersByKeys() {
+            return steersByKeys;
         }
 
         /** A vehicle nobody is driving: it keeps its heading and coasts to a stop. */

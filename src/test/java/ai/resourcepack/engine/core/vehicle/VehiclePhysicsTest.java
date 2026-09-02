@@ -65,6 +65,40 @@ class VehiclePhysicsTest {
         assertEquals(189, VehiclePhysics.turnToward(180, 0, 9));
     }
 
+    /**
+     * The key arm turns the body directly rather than pointing it at the
+     * driver's look, which is the whole reason it exists: steering by look
+     * means steering is turning your head, and a player's body follows their
+     * head.
+     */
+    @Test
+    void keysTurnTheBodyAndIgnoreTheLook() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        // Looking hard left, steering hard right: the keys win and the look is
+        // not consulted at all.
+        VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(270, 0, 1, 1, 0, false);
+        assertEquals(9, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    @Test
+    void steeringLeftTurnsAnticlockwise() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(0, 0, -1, 1, 0, false);
+        // 360 - 9: Minecraft yaw runs clockwise, so left is down through zero.
+        assertEquals(351, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    /** No steer key held is a vehicle that keeps its heading, not one that centres. */
+    @Test
+    void noSteerKeyHoldsTheHeading() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = VehiclePhysics.State.still(123);
+        VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(0, 0, 0, 1, 0, false);
+        assertEquals(123, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+    }
+
     @Test
     void neverTurnsPastWhatWasAskedFor() {
         assertEquals(90, VehiclePhysics.turnToward(80, 90, 45));
