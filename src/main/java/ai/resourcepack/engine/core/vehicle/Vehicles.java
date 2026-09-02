@@ -222,6 +222,16 @@ public final class Vehicles implements Listener {
     private final VehicleParticles particles;
 
     /**
+     * How an occupant's body is dressed, or null on a build without emotes.
+     *
+     * <p>A vehicle occupant is the first thing that wants a worn rig for a
+     * reason that is not movement, which is what {@code Emotes.wear} was added
+     * for. Nullable because a vehicle whose seats animate nothing must not
+     * depend on the emote system existing at all.
+     */
+    private final ai.resourcepack.engine.api.Emotes emotes;
+
+    /**
      * Where a string custom_model_data lives on this server.
      *
      * <p>Only a PUSHED vehicle needs it — an authored one names an item and
@@ -299,7 +309,9 @@ public final class Vehicles implements Listener {
      */
     private volatile boolean pushPlayers;
 
-    public Vehicles(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs) {
+    public Vehicles(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
+                    ai.resourcepack.engine.api.Emotes emotes) {
+        this.emotes = emotes;
         this.plugin = plugin;
         this.items = items;
         this.log = plugin.getLogger();
@@ -772,6 +784,17 @@ public final class Vehicles implements Listener {
         private long age;
 
         /**
+         * What each occupant is currently wearing, or null for their own body.
+         *
+         * <p>Per OCCUPANT rather than per vehicle: two seats wear different
+         * things in the same state, which is most of why a seat carries its own
+         * map. A key with a null value is meaningful — it says "we have already
+         * asked for nothing", which is what stops a seat whose state maps to
+         * nothing being re-asked every tick.
+         */
+        private final Map<UUID, String> worn = new java.util.HashMap<>();
+
+        /**
          * Whether the driver has already been told this hull is out of water.
          *
          * <p>Latched rather than sent per tick, and cleared when it floats
@@ -1092,6 +1115,7 @@ public final class Vehicles implements Listener {
                     occupants.set(i, null);
                 }
             }
+            undress(player);
         }
 
         void evictAll() {
@@ -1105,6 +1129,7 @@ public final class Vehicles implements Listener {
                     mount.eject();
                 }
                 occupants.set(i, null);
+                undress(id);
                 riders.remove(id);
                 controls.forget(id);
             }
@@ -1193,8 +1218,67 @@ public final class Vehicles implements Listener {
             // vehicle stopped by a wall should not throw its exhaust inside
             // the wall.
             animate(step.states());
+            dressOccupants(step.states());
             particles.emit(world, at, state.yaw(), info, step.states(), age);
             sayIfBeached(driver, around);
+        }
+
+        /**
+         * Puts each occupant's body into whatever their seat asks for.
+         *
+         * <p>An occupant animation is an EMOTE — see {@link VehicleSeat#animations()}
+         * — worn through {@link ai.resourcepack.engine.api.Emotes#wear}, which
+         * is the movement-set machinery with the movement taken out. So a
+         * driver leaning on the door and a driver hauling the wheel round are
+         * authored in the emote editor like anything else, and this only
+         * decides which one is on.
+         *
+         * <p>Only on a CHANGE, for the same reason {@link #animate} is: the
+         * swap restarts the emote's clock, so asking every tick is a cycle
+         * stuck on its first frame. {@code worn} remembers per seat rather than
+         * per vehicle because two seats in one vehicle wear different things in
+         * the same state — which is most of the point.
+         */
+        private void dressOccupants(Set<VehicleState> states) {
+            if (emotes == null) {
+                return;
+            }
+            for (int i = 0; i < occupants.size(); i++) {
+                UUID id = occupants.get(i);
+                VehicleSeat seat = info.seats().get(i);
+                if (id == null || seat.animations().isEmpty()) {
+                    continue;
+                }
+                Player player = plugin.getServer().getPlayer(id);
+                if (player == null) {
+                    continue;
+                }
+                // A state this seat left blank is the player's own body, NOT a
+                // fall-through to the next state — see VehicleSeat.animations.
+                // A fall-through would leave a driver hauling an imaginary
+                // wheel round while the car sat still.
+                String wanted = VehicleState.choose(states, seat.animations()).orElse(null);
+                if (Objects.equals(wanted, worn.get(id))) {
+                    continue;
+                }
+                // Recorded before the call rather than after, so a refusal —
+                // this player is mid-emote of their own, the pack has no rig
+                // for them — is not retried twenty times a second.
+                worn.put(id, wanted);
+                emotes.wear(player, wanted);
+            }
+        }
+
+        /** Gives an occupant their own body back as they get out. */
+        private void undress(UUID id) {
+            String had = worn.remove(id);
+            if (emotes == null || had == null) {
+                return;
+            }
+            Player player = plugin.getServer().getPlayer(id);
+            if (player != null) {
+                emotes.stop(player);
+            }
         }
 
         /**

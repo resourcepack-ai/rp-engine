@@ -185,7 +185,8 @@ public final class VehicleDefinitions {
                     offset(node, "y", origin, where, diagnostics),
                     offset(node, "z", origin, where, diagnostics),
                     (float) wrapDegrees(node.decimal("yaw").orElse(0d)),
-                    node.string("name").orElse(null)));
+                    node.string("name").orElse(null),
+                    animations(node, origin, where, diagnostics)));
         }
 
         if (!driverTaken) {

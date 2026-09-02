@@ -114,6 +114,18 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public EmoteResult wear(Player player, String emoteId) {
+        Host.requireMainThread();
+        if (player == null || !player.isOnline()) {
+            return EmoteResult.refused(EmoteResult.Reason.LEAD_OFFLINE);
+        }
+        // A null id is NOT refused here, unlike play's: for a worn rig it means
+        // "this state wears nothing", which is a state a pack is allowed to
+        // leave blank. See Emotes.wear.
+        return director.wear(player, emoteId);
+    }
+
+    @Override
     public boolean stop(Player player) {
         Host.requireMainThread();
         if (player == null) return false;

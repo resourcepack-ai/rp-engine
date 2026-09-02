@@ -581,6 +581,20 @@ public final class EmoteDirector implements Listener {
          */
         EmoteStore.Emote rest;
         /**
+         * Whether what this wears is decided by somebody else.
+         *
+         * <p>Set by {@link #wear}, and the only thing it changes is that
+         * {@code tickStance} does not resolve a movement state for it — see
+         * {@link ai.resourcepack.engine.api.Emotes#wear}. Everything else about
+         * a driven session is a stance: the rig follows its wearer, there is no
+         * anchor, and moving does not end it.
+         *
+         * <p>It is a flag rather than a null {@code group} because "no group"
+         * already means "a plain stance that names its own triggers", and those
+         * two want opposite things from the state machine.
+         */
+        boolean driven;
+        /**
          * Each bone's real item, so a hidden rig can be brought back.
          *
          * <p>Hiding is done by swapping every display's item for AIR rather
@@ -933,6 +947,143 @@ public final class EmoteDirector implements Listener {
      * it changes as the player moves, and the bones are the same bones either
      * way. {@link #tickStance} does that swap.
      */
+    /**
+     * Wears an emote chosen by the caller. See
+     * {@link ai.resourcepack.engine.api.Emotes#wear}.
+     *
+     * <p>Two jobs in one entry point, because from outside they are one thing:
+     * starting a driven session, and swapping what an existing one wears. A
+     * caller that had to know which it was doing would have to track whether a
+     * player is already wearing something, which is what this class is for.
+     */
+    public EmoteResult wear(Player player, String emoteId) {
+        if (player == null) {
+            return EmoteResult.refused(Reason.INCOMPLETE_EMOTE_DATA);
+        }
+        // Null is a real answer — a state the pack left blank — and it means
+        // the player's own body, not the end of the session. Resolved before
+        // anything else so a bad id is refused rather than quietly becoming it.
+        EmoteStore.Emote wanted = null;
+        if (emoteId != null && !emoteId.isEmpty()) {
+            wanted = emotes.find(emoteId);
+            if (wanted == null) {
+                return EmoteResult.refused(Reason.UNKNOWN_EMOTE, emoteId, ids());
+            }
+        }
+
+        Session session = active.get(player.getUniqueId());
+        if (session != null && !session.driven) {
+            // They are mid-emote of their own. Theirs wins: a vehicle dressing
+            // somebody who is halfway through a handshake would be the vehicle
+            // deciding something about that player's game.
+            return EmoteResult.refused(Reason.ALREADY_EMOTING);
+        }
+        if (session == null) {
+            EmoteResult started = beginDriven(player);
+            if (!started.started()) {
+                return started;
+            }
+            session = active.get(player.getUniqueId());
+            if (session == null) {
+                return EmoteResult.refused(Reason.NO_RIG_FOR_PLAYER);
+            }
+        }
+
+        swapWorn(player, session, wanted);
+        return EmoteResult.started(wanted != null ? wanted.name : "", false);
+    }
+
+    /**
+     * Starts a driven session wearing nothing yet.
+     *
+     * <p>{@code startGroup} without the group: the same checks in the same
+     * order, because every one of them is about whether this player can wear a
+     * rig at all rather than about what they are wearing. The rig starts hidden
+     * for the reason that one gives — a rig posed at the rest emote's identity
+     * is a body standing to attention inside the player for one pass.
+     */
+    private EmoteResult beginDriven(Player player) {
+        EmoteStore.PlayerRig rig = emotes.rigFor(player.getUniqueId());
+        if (rig == null) {
+            return EmoteResult.refused(
+                emotes.hasAnyRig() ? Reason.NO_RIG_FOR_PLAYER : Reason.NO_RIGS_IN_PACK);
+        }
+        if (emotes.bones().isEmpty()) {
+            return EmoteResult.refused(Reason.INCOMPLETE_EMOTE_DATA);
+        }
+        if (player.getGameMode() == GameMode.SPECTATOR) {
+            return EmoteResult.refused(Reason.IN_SPECTATOR);
+        }
+
+        // No START_COOLDOWN_MS check, and no EmoteStartEvent: this is not
+        // somebody running a command, it is a seat being sat in, and a cooldown
+        // that refused the second vehicle somebody got into in four seconds
+        // would be a vehicle whose driver is invisible for no stated reason.
+
+        Location origin = player.getLocation().clone();
+        Session session = begin(player, drivenRest(), Collections.emptyMap(), null, emotes.bones(),
+            rig, origin, Math.round(origin.getYaw()), player.getWorld().getGameTime(),
+            Collections.singletonList(player.getUniqueId()), null, null, false);
+        if (session == null) {
+            return EmoteResult.refused(Reason.NO_RIG_FOR_PLAYER);
+        }
+        session.driven = true;
+        setRigHidden(player, session, true);
+        return EmoteResult.started("", false);
+    }
+
+    /**
+     * Puts {@code wanted} on, or takes the rig away when it is null.
+     *
+     * <p>The group branch of {@code tickStance}, lifted out so both callers
+     * follow one set of rules — <strong>including the one that is easy to lose:
+     * the swap is keyed on the EMOTE, not on what the caller called the
+     * state.</strong> Two vehicle states answered by one emote is an ordinary
+     * shape (idle and submerged both sitting still), and re-keying on the state
+     * would restart that emote's clock every time the boat touched the water.
+     */
+    private void swapWorn(Player player, Session session, EmoteStore.Emote wanted) {
+        if (wanted == session.memberEmote && session.memberState == null && session.startTick != 0) {
+            return;
+        }
+        session.memberEmote = wanted;
+        session.memberState = null;
+        session.emote = wanted != null ? wanted : session.rest;
+        session.animators = wanted != null && wanted.animators != null
+            ? wanted.animators
+            : Collections.<String, Map<String, List<Keyframe>>>emptyMap();
+        session.root = wanted != null ? wanted.root : null;
+        // From the top, every time — a cycle joined halfway through because the
+        // last state ran for two seconds is a limp.
+        session.startTick = player.getWorld().getGameTime();
+        Location base = player.getLocation().clone()
+            .add(session.lead.getX(), RIG_BASE_Y, session.lead.getZ());
+        base.setYaw(0);
+        base.setPitch(0);
+        spawnProps(player, session, session.emote, base, null);
+        boolean wasHidden = session.rigHidden;
+        setRigHidden(player, session, wanted == null);
+        // Only where a tween would be wrong: easing out of a rig that was put
+        // away is a tween from whatever pose it happened to be holding.
+        if (wasHidden) session.snap = true;
+        pose(player.getUniqueId(), session, true);
+    }
+
+    /**
+     * The stand-in a driven session holds while it wears nothing.
+     *
+     * <p>{@code session.emote} is read by the poser, the ending and two logs,
+     * and a null there would put a check in each — the same reasoning
+     * {@link Session#rest} already carries for a group.
+     */
+    private static EmoteStore.Emote drivenRest() {
+        EmoteStore.Emote rest = new EmoteStore.Emote();
+        rest.name = "";
+        rest.length = 0;
+        rest.loop = true;
+        return rest;
+    }
+
     private EmoteResult startGroup(Player player, EmoteStore.Group group, boolean showSelf) {
         if (active.containsKey(player.getUniqueId())) {
             return EmoteResult.refused(Reason.ALREADY_EMOTING);
@@ -2430,7 +2581,15 @@ public final class EmoteDirector implements Listener {
         base.setYaw(0);
         base.setPitch(0);
 
-        if (session.group != null) {
+        if (session.driven) {
+            // Nothing to resolve: whoever asked for this session decides what
+            // it wears and has already written it in. The swap itself is done
+            // by `wear`, which shares the group branch's rules — see there.
+            // This arm exists so that a driven session does not fall into the
+            // plain-stance branch below and have its clock restarted by a
+            // movement state it does not have.
+            session.memberState = null;
+        } else if (session.group != null) {
             // A group resolves every state, the air included — see
             // `EmoteTrigger`. Which emote drives the rig follows from it, and
             // a state the set left alone is the player's own body.

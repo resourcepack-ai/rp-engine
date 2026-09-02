@@ -354,6 +354,43 @@ class StudioContentTest {
     }
 
     /**
+     * What a seat's occupant wears is an EMOTE id, and it has to survive the
+     * trip and the restart like everything else — a driver who came back from
+     * a restart holding an imaginary wheel in every state, or in none, is the
+     * same class of defect as a seat that moved.
+     */
+    @Test
+    void aSeatCarriesWhatItsOccupantWears(@TempDir Path dir) {
+        StudioContent content = read(dir, """
+                {"packId":"p","sounds":[],"screens":[],"huds":[],
+                 "vehicles":[{"id":"cart","carrier":"cart","medium":"land",
+                   "weight":10,"speed":12,"acceleration":6,"turnSpeed":120,
+                   "seats":[{"role":"driver","pose":"sitting","x":0,"y":0.6,"z":0,"yaw":0,"name":"",
+                             "animations":{"idle":"lean","moving":"steer"}}]}]}
+                """);
+
+        ContentId id = ContentId.parse("studio:cart").orElseThrow();
+        VehicleSeat driver = content.vehicles().get(id).driverSeat();
+        assertEquals("lean", driver.animations().get(VehicleState.IDLE));
+        assertEquals("steer", driver.animations().get(VehicleState.MOVING));
+        assertTrue(driver.animations().get(VehicleState.TURNING) == null);
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        assertEquals(driver.animations(),
+                reloaded.vehicles().get(id).driverSeat().animations());
+    }
+
+    /** A seat that dresses nobody is every seat written before this existed. */
+    @Test
+    void aSeatWithNoOccupantAnimationHasNone(@TempDir Path dir) {
+        VehicleInfo car = read(dir, WITH_VEHICLE).vehicles()
+                .get(ContentId.parse("studio:hatchback").orElseThrow());
+        assertTrue(car.driverSeat().animations().isEmpty());
+    }
+
+    /**
      * A state name this jar does not know is a studio newer than it. The
      * vehicle still works, minus one animation — which is the right end of
      * that, and much better than refusing the vehicle.

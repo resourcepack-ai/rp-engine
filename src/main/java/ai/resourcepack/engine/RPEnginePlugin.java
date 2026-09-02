@@ -369,8 +369,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Vehicles because everything it needs — the store, the animator, the
         // placement handles — was assembled above and a second copy of any of
         // them would be a second animator fighting over the same entities.
+        // emotes() is a fresh facade each call and holds no state of its own —
+        // it is a view of the director, which is what actually owns a session.
+        // So handing one to Vehicles is handing it the same director everything
+        // else uses rather than a second emote system.
         vehicles = new Vehicles(this, items, compatibility,
-                new RigCarrier(library, rigs, animator, models));
+                new RigCarrier(library, rigs, animator, models), emotes());
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         blockStates = new BlockStates(getDataFolder());
