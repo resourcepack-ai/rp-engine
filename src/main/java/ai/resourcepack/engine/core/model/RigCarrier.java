@@ -93,16 +93,7 @@ public final class RigCarrier {
      * for a vehicle is one plain display.
      */
     public boolean animates(String modelId) {
-        RigStore.Rig rig = modelId == null ? null : rigs.get(modelId);
-        if (rig == null || rig.parts == null || rig.parts.isEmpty()) {
-            return false;
-        }
-        for (RigStore.Part part : rig.parts) {
-            if (part != null && RigAnimator.hasAnimationProgram(part)) {
-                return true;
-            }
-        }
-        return false;
+        return RigAnimations.anyPartAnimates(modelId == null ? null : rigs.get(modelId));
     }
 
     /**
@@ -114,7 +105,7 @@ public final class RigCarrier {
      * @return the rig, or empty when this model does not animate
      */
     public Optional<CarriedRig> carry(Location anchor, String modelId, float yaw,
-                                      Function<String, ItemStack> partItem) {
+                                      DisplayCarry glide, Function<String, ItemStack> partItem) {
         if (anchor == null || anchor.getWorld() == null || !animates(modelId)) {
             return Optional.empty();
         }
@@ -145,6 +136,18 @@ public final class RigCarrier {
             ids.add(part.getUniqueId().toString());
             part.getPersistentDataContainer()
                     .set(yawHostKey, PersistentDataType.STRING, yawHost.getUniqueId().toString());
+            // Without this a carried rig STROBES. A placed rig never moves, so
+            // it has never needed a teleport duration; a carried one is
+            // teleported every tick by whatever owns it, and a display told to
+            // be somewhere new simply appears there. The single still display
+            // this replaces was carried from the start, which is why an
+            // animated vehicle looked worse than an unanimated one.
+            //
+            // The duration is the caller's to choose because it has to match
+            // whatever else is moving alongside — for a vehicle that is its
+            // riders, and being a tick tighter than them is the bug rather
+            // than an improvement. See Vehicles.MODEL_GLIDE_TICKS.
+            glide.carry(part);
         }
         yawHost.getPersistentDataContainer()
                 .set(displaysKey, PersistentDataType.STRING, String.join(",", ids));

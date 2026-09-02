@@ -415,10 +415,20 @@ public final class RigAnimator implements Listener {
         // An overlay plays over a base that may itself be at rest, so
         // "nothing is animating" is not a reason to stop sending frames.
         boolean overlaid = pdc.has(overlayKey, PersistentDataType.STRING);
-        boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
+        // Both kinds of part whose yaw is somebody ELSE'S are exempt, for one
+        // reason: "nothing has changed" is false the moment that somebody
+        // turns. A bound part rides a mob; a carried one follows a yaw host
+        // (a vehicle). Leaving the second out of this is what froze a boat's
+        // art at its spawn heading while the boat itself turned underneath it
+        // — which reads, from the driver's seat, as not being able to steer.
+        //
+        // The transform is compared below either way, so a vehicle standing
+        // still still sends nothing.
+        boolean follows = pdc.has(boundKey, PersistentDataType.STRING)
+                || pdc.has(yawHostKey, PersistentDataType.STRING);
         // A blend has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
-        if (!bound && !overlaid && blend == null
+        if (!follows && !overlaid && blend == null
                 && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
 
         if (activeIndex != null && playbackIndex != activeIndex) {
@@ -525,7 +535,11 @@ public final class RigAnimator implements Listener {
     // The pose a part holds when nothing is animating it: placement yaw only.
     // Sent without interpolation, since this is recovery, not playback.
     private void applyRestPose(ItemDisplay display, PersistentDataContainer pdc) {
-        Float yaw = pdc.get(yawKey, PersistentDataType.FLOAT);
+        // yawOf, not the stored yaw: a part whose rig went missing under it
+        // still belongs to something that may be turning, and freezing it at
+        // the heading it was spawned at is the same defect the dormant-rig
+        // exemption above exists to prevent.
+        Float yaw = yawOf(display, pdc);
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
         m.mul(RigMath.toItemDisplaySpace(new Matrix4f()));

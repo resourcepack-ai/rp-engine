@@ -907,7 +907,7 @@ public final class Vehicles implements Listener {
             if (rigs == null || id == null || !rigs.animates(id)) {
                 return false;
             }
-            rig = rigs.carry(modelAnchor(), id, modelYaw(), this::partStack).orElse(null);
+            rig = rigs.carry(modelAnchor(), id, modelYaw(), carry, this::partStack).orElse(null);
             return rig != null;
         }
 
