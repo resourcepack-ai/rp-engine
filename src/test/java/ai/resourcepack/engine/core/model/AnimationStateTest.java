@@ -119,6 +119,64 @@ class AnimationStateTest {
         assertEquals(-1, RigAnimations.playbackAnimationIndex(once, 0, 99));
     }
 
+    // ---- a driven rig has no resting loop --------------------------------
+
+    /**
+     * <strong>A rig somebody else drives falls back to NOTHING.</strong>
+     *
+     * <p>A rig standing in the world resting on its own {@code loop}-triggered
+     * animation is what makes a windmill turn unattended, and that is right for
+     * a statue. It is wrong for a vehicle, where playback belongs to the
+     * vehicle: "this state animates nothing" has to be expressible, and it is
+     * not if the model's own loop reclaims the rig the moment nothing is asked
+     * for.
+     *
+     * <p>Found the hard way. A kayak's rowing cycle is exactly the kind of
+     * animation an author marks as a loop, so removing its idle mapping changed
+     * nothing on screen and the boat kept rowing while moored.
+     */
+    @Test
+    void aDrivenRigDoesNotFallBackToTheModelsOwnLoop() {
+        RigStore.Rig rowing = rig("{\"name\":\"row\",\"length\":2,\"loop\":true,"
+                + "\"triggers\":[{\"type\":\"loop\"}]}");
+
+        // Standing in the world: nothing active, so its own loop takes over.
+        assertEquals(0, RigAnimations.playbackAnimationIndex(rowing, null, 0, null, true));
+        // Driven: nothing active means nothing plays.
+        assertEquals(-1, RigAnimations.playbackAnimationIndex(rowing, null, 0, null, false));
+    }
+
+    /**
+     * What it is TOLD to play still loops, driven or not — the flag is about
+     * the fallback, not about honouring a loop that was actually asked for.
+     */
+    @Test
+    void aDrivenRigStillLoopsWhatItWasAskedFor() {
+        RigStore.Rig rowing = rig("{\"name\":\"row\",\"length\":2,\"loop\":true,"
+                + "\"triggers\":[{\"type\":\"loop\"}]}");
+        assertEquals(0, RigAnimations.playbackAnimationIndex(rowing, 0, 99, null, false),
+                "asked for and looping, so it keeps going");
+    }
+
+    /**
+     * And a one-shot on a driven rig runs out rather than being replaced by a
+     * resting loop — which is what lets a vehicle notice it has stopped and
+     * ask for it again. See Vehicles.animate.
+     */
+    @Test
+    void aDrivenOneShotRunsOutRatherThanRestingOnALoop() {
+        RigStore.Rig mixed = rig(
+                "{\"name\":\"row\",\"length\":2,\"loop\":false,\"mode\":\"once\","
+                        + "\"triggers\":[{\"type\":\"place\"}]}",
+                "{\"name\":\"bob\",\"length\":2,\"loop\":true,"
+                        + "\"triggers\":[{\"type\":\"loop\"}]}");
+
+        assertEquals(1, RigAnimations.playbackAnimationIndex(mixed, 0, 99, null, true),
+                "a placed rig settles onto its idle loop");
+        assertEquals(-1, RigAnimations.playbackAnimationIndex(mixed, 0, 99, null, false),
+                "a driven one reports that it has finished");
+    }
+
     // ---- which one wins --------------------------------------------------
 
     @Test
