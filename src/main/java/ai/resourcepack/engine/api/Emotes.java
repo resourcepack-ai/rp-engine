@@ -102,6 +102,34 @@ public interface Emotes {
     List<String> castCandidates(CommandSender sender, String[] words);
 
     /**
+     * Wears an emote whose choice belongs to the CALLER rather than to the
+     * player's own movement.
+     *
+     * <p>Everything a stance does — the rig follows its wearer every tick,
+     * there is no anchor and no drift-cancel, and the wearer is free to move —
+     * with the one difference that nothing here reads
+     * {@link EmoteTrigger}. A movement set decides what to wear from whether
+     * you are walking; this decides nothing at all, and waits to be told.
+     *
+     * <p>It exists because a vehicle occupant is the first thing that wants a
+     * worn rig for a reason that is not movement: what a driver's body should
+     * be doing is decided by the VEHICLE — steering, idling, reversing — and
+     * their own legs are not walking anywhere. Driving that through a movement
+     * set would mean spelling "the vehicle is turning" as a walk cycle.
+     *
+     * <p><strong>Calling it again swaps</strong>, without restarting the
+     * session or respawning the rig — the same swap a movement set does when
+     * its wearer breaks into a run, and keyed the same way, on the emote rather
+     * than on whatever the caller called the state. Passing {@code null} puts
+     * the rig away and gives the player their own body back while keeping the
+     * session, which is what a state the pack left blank means.
+     *
+     * @return {@link EmoteResult#started()} once it is on — including on a
+     *         swap — or a reason specific enough to act on
+     */
+    EmoteResult wear(Player player, String emoteId);
+
+    /**
      * Stops this player's emote, and everybody else's in the same troupe.
      *
      * @return whether they were emoting.

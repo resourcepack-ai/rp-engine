@@ -727,6 +727,38 @@ A vehicle whose model has no animated parts can carry this map and it simply
 never plays anything — the model is drawn as one still piece. That is a
 half-finished vehicle rather than an error.
 
+### What the occupant does
+
+A seat can say what its OCCUPANT's body is doing, per state:
+
+```yaml
+  seats:
+    - role: driver
+      y: 0.6
+      animations:
+        idle: mypack:lean-on-door
+        moving: mypack:steering
+```
+
+**These are emote ids, not a new kind of animation.** The engine already has a
+rig that animates a player's body and an editor that authors one by hand, so a
+driver hauling a wheel round is an emote like any other — you make it the way
+you make any emote, and this only says when it is worn.
+
+It is worn the way a movement set is: the rig follows its wearer, there is no
+anchor, and getting out puts their own body back. The difference is only who
+decides — a movement set reads your legs, and this reads the vehicle.
+
+**A state you leave out is the player's own body, NOT a fall-through.** That is
+the opposite of the vehicle's own `animations:` above, and deliberately so:
+falling through would leave a driver hauling an imaginary wheel round while the
+car sat still. "Nothing" is a real answer here and a fall-through cannot spell
+it.
+
+If the occupant is already mid-emote of their own when they get in, theirs
+wins and the seat dresses nobody — a vehicle should not interrupt somebody's
+handshake.
+
 ### Particles
 
 `particles:` is a list of emitters. Each one is a spot on the bodywork that

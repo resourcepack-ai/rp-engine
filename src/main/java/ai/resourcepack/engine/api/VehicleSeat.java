@@ -1,6 +1,9 @@
 package ai.resourcepack.engine.api;
 
 import java.util.Locale;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -61,8 +64,10 @@ public final class VehicleSeat {
     private final double z;
     private final float yaw;
     private final String name;
+    private final Map<VehicleState, String> animations;
 
-    private VehicleSeat(Role role, Pose pose, double x, double y, double z, float yaw, String name) {
+    private VehicleSeat(Role role, Pose pose, double x, double y, double z, float yaw, String name,
+                        Map<VehicleState, String> animations) {
         this.role = role;
         this.pose = pose;
         this.x = x;
@@ -70,15 +75,67 @@ public final class VehicleSeat {
         this.z = z;
         this.yaw = yaw;
         this.name = name;
+        this.animations = animations;
     }
 
     /** Engine internal; built by the vehicle loader. */
     public static VehicleSeat of(Role role, Pose pose, double x, double y, double z, float yaw, String name) {
+        return of(role, pose, x, y, z, yaw, name, null);
+    }
+
+    /**
+     * The same, with what its occupant's body does in each vehicle state.
+     *
+     * <p>A second factory rather than a longer one everywhere, because most
+     * seats have no occupant animation at all and a null argument at every
+     * call site is how a field nobody uses becomes a field nobody notices.
+     */
+    public static VehicleSeat of(Role role, Pose pose, double x, double y, double z, float yaw,
+                                 String name, Map<VehicleState, String> animations) {
         return new VehicleSeat(
                 Objects.requireNonNull(role, "role"),
                 pose == null ? Pose.SITTING : pose,
                 x, y, z, yaw,
-                name == null ? "" : name);
+                name == null ? "" : name,
+                copyAnimations(animations));
+    }
+
+    /** An EnumMap, so iterating it is in VehicleState's declaration order. */
+    private static Map<VehicleState, String> copyAnimations(Map<VehicleState, String> animations) {
+        if (animations == null || animations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<VehicleState, String> copy = new EnumMap<>(VehicleState.class);
+        for (Map.Entry<VehicleState, String> entry : animations.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                copy.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return Collections.unmodifiableMap(copy);
+    }
+
+    /**
+     * Which EMOTE this seat's occupant wears in which state.
+     *
+     * <p>An emote id, not an animation name — and that is the whole design.
+     * The engine already has a rig that animates a player's body, an editor
+     * that authors one by hand, and a manifest that ships them; what a driver's
+     * arms are doing while they steer is exactly that thing, so it is that
+     * thing rather than a second player-animation system beside it.
+     *
+     * <p>Worn through {@link Emotes#wear}, which is the movement-set machinery
+     * with the movement taken out: the rig follows its wearer, there is no
+     * anchor to drift off, and what it wears is the vehicle's decision.
+     *
+     * <p>Empty for a seat whose occupant is just themselves, which is every
+     * seat written before this existed. A state with no entry is the player's
+     * own body rather than a fall-through — unlike the VEHICLE's animation map,
+     * and deliberately: falling through would leave a driver stuck in a
+     * steering pose while the car sits still, and "no pose" is a perfectly good
+     * answer that a fall-through cannot spell.
+     */
+    public Map<VehicleState, String> animations() {
+        return animations;
     }
 
     /** Whether this seat steers. */

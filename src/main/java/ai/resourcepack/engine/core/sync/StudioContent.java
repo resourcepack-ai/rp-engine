@@ -157,6 +157,11 @@ public final class StudioContent {
         double z;
         double yaw;
         String name;
+        /**
+         * State name to EMOTE id — what this seat's occupant wears while the
+         * vehicle is in that state. Absent on a manifest older than this.
+         */
+        Map<String, String> animations;
     }
 
     static final class Overlay {
@@ -302,7 +307,8 @@ public final class StudioContent {
                     "standing".equalsIgnoreCase(seat.pose)
                             ? VehicleSeat.Pose.STANDING
                             : VehicleSeat.Pose.SITTING,
-                    seat.x, seat.y, seat.z, (float) seat.yaw, seat.name));
+                    seat.x, seat.y, seat.z, (float) seat.yaw, seat.name,
+                    animations(seat.animations)));
         }
         if (!driverTaken) {
             return java.util.Optional.empty();
@@ -527,6 +533,12 @@ public final class StudioContent {
             written.z = seat.z();
             written.yaw = seat.yaw();
             written.name = seat.name().orElse("");
+            if (!seat.animations().isEmpty()) {
+                written.animations = new LinkedHashMap<>();
+                for (Map.Entry<VehicleState, String> entry : seat.animations().entrySet()) {
+                    written.animations.put(entry.getKey().key(), entry.getValue());
+                }
+            }
             out.seats.add(written);
         }
         if (!info.animations().isEmpty()) {
