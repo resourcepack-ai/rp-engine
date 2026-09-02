@@ -226,6 +226,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * that catalogue without losing the pushed half or keeping a stale one.
      */
     private Map<ContentId, SoundInfo> authoredSounds = Map.of();
+    /** The content folder's own vehicles, kept so a push can be merged over them. */
+    private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
     private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
@@ -556,6 +558,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new LinkedHashMap<>(authoredHuds);
         allHuds.putAll(pushed.huds());
         overlays.replace(allScreens, allHuds);
+
+        Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> allVehicles =
+                new LinkedHashMap<>(authoredVehicles);
+        allVehicles.putAll(pushed.vehicles());
+        vehicles.replace(allVehicles);
+        // A vehicle already parked from a previous push of the same pack gets
+        // its seats and its model back the moment its definition returns.
+        // Without this, re-syncing leaves a chassis in the world that the
+        // catalogue no longer knows how to dress until its chunk reloads.
+        vehicles.adoptLoaded();
     }
 
     /**
@@ -840,7 +852,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
         report(to, "vehicles", parsedVehicles.diagnostics());
-        vehicles.replace(parsedVehicles.vehicles());
+        authoredVehicles = parsedVehicles.vehicles();
+        vehicles.replace(authoredVehicles);
         // Anything already parked in a loaded chunk gets its seats and its
         // model now. A reload can bring back a vehicle whose pack had failed
         // to load, and this is the moment that chassis becomes usable again.

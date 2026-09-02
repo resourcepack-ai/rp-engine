@@ -8,6 +8,7 @@ import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.MountOffset;
+import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.version.Compatibility;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -108,6 +109,22 @@ public final class Vehicles implements Listener {
     /** How far a seated player is drawn above their own position. See {@code Seats}. */
     private static final double SEATED_POSE = 0.3;
 
+    /**
+     * How far above the chassis the model display sits.
+     *
+     * <p>An {@link ItemDisplay} draws its model CENTRED on itself: model space
+     * 0..16 renders as -0.5..+0.5 around the entity, whatever the model's own
+     * height. So a display at the chassis buries the bottom half of the
+     * vehicle in the ground, and half a block up puts the model's base exactly
+     * on the chassis — which is the ground, and is what every other number
+     * here is measured from. A seat's {@code y} is "above the base" for the
+     * same reason {@code place: seat:} is.
+     *
+     * <p>Independent of how tall the model is: 0 is always half a block below
+     * the display, so a three-block vehicle stands on the ground too.
+     */
+    private static final double MODEL_LIFT = 0.5;
+
     /** How far ahead a solid block stops the vehicle, in blocks. */
     private static final double NOSE = 0.6;
 
@@ -120,6 +137,17 @@ public final class Vehicles implements Listener {
     private final VehicleControls controls;
     private final DisplayCarry carry;
     private final double mountOffset;
+
+    /**
+     * Where a string custom_model_data lives on this server.
+     *
+     * <p>Only a PUSHED vehicle needs it — an authored one names an item and
+     * the item factory writes its own tags. Resolved once here rather than
+     * read off RigPlacementListener's static: that one is set from the plugin
+     * for the rig path, and a second reader of somebody else's private state
+     * is a coupling nobody would find.
+     */
+    private final RigTags tags;
 
     /** Marks a chassis as ours, and says which vehicle it is. */
     private final NamespacedKey idKey;
@@ -142,6 +170,7 @@ public final class Vehicles implements Listener {
         this.controls = VehicleControls.forServer(compatibility);
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
         this.mountOffset = MountOffset.forServer(compatibility);
+        this.tags = RigTags.forServer(compatibility, plugin);
         this.idKey = new NamespacedKey(plugin, "vehicle");
     }
 
@@ -541,11 +570,30 @@ public final class Vehicles implements Listener {
                 hitboxes.set(i, hitbox.getUniqueId());
             }
 
-            info.model().flatMap(items::create).ifPresent(this::spawnModel);
+            art().ifPresent(this::spawnModel);
+        }
+
+        /**
+         * The stack the model display holds.
+         *
+         * <p>Two ways in, and neither is a branch on where the vehicle came
+         * from — it is a branch on how its art was NAMED. A pack built here
+         * ships the model beside an item, so the item is the handle; a pack
+         * built by Studio ships a zip with no plugin behind it, so its models
+         * borrow paper wearing a {@code custom_model_data} string. Exactly the
+         * fork {@code RigSpawn} already describes for a rig's parts, and the
+         * only thing that differs between an authored and a pushed vehicle.
+         */
+        private Optional<ItemStack> art() {
+            Optional<String> carrier = info.carrier();
+            if (carrier.isPresent()) {
+                return Optional.of(StudioCarrier.item(tags, carrier.get()));
+            }
+            return info.model().flatMap(items::create);
         }
 
         private void spawnModel(ItemStack item) {
-            ItemDisplay display = world.spawn(at, ItemDisplay.class, d -> {
+            ItemDisplay display = world.spawn(at.clone().add(0, MODEL_LIFT, 0), ItemDisplay.class, d -> {
                 d.setItemStack(item);
                 // NONE for the same reason a placed model uses it: every other
                 // transform applies the model's own display block, and a
@@ -784,7 +832,7 @@ public final class Vehicles implements Listener {
 
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
             if (model != null) {
-                Location where = at.clone();
+                Location where = at.clone().add(0, MODEL_LIFT, 0);
                 where.setYaw((float) state.yaw());
                 model.teleport(where);
             }
