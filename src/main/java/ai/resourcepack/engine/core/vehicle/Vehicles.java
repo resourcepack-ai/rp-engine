@@ -242,7 +242,11 @@ public final class Vehicles implements Listener {
         this.log = plugin.getLogger();
         this.controls = VehicleControls.forServer(compatibility);
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
-        this.mountOffset = MountOffset.forServer(compatibility);
+        // forVehicleSeat, not forServer: these mounts are small stands
+        // rather than markers, and a small stand has an attachment point of
+        // its own that the marker figure does not account for. Using the
+        // marker one sat every rider about three quarters of a block high.
+        this.mountOffset = MountOffset.forVehicleSeat(compatibility);
         this.tags = RigTags.forServer(compatibility, plugin);
         this.seatMover = PassengerTeleport.forServer();
         this.idKey = new NamespacedKey(plugin, "vehicle");

@@ -592,24 +592,23 @@ one-block cube, which is clickable but much smaller than most vehicles look.
 
 ### Driving one
 
-**Look where you want to go.** Steering is your view, on every version, and
-that is deliberate: your own client draws the camera the instant you move the
-mouse, so a vehicle that follows it feels immediate even though everything
-else is a tick behind the server. `turn-speed` is how quickly the body catches
-up with your head — a low number is a lorry, a high one is a go-kart.
+How you drive depends on your server:
 
-The throttle depends on your server:
-
-- **Paper 1.21.4 and up** — W and S. Space is the handbrake on land and water,
-  and the climb in the air.
+- **Paper 1.21.4 and up** — W and S to move, **A and D to steer**, space for
+  the handbrake on land and water or the climb in the air.
 - **Anything else** — right-click speeds up a notch, left-click slows down and
-  then reverses. Four clicks from a standstill to full.
+  then reverses, and you steer by **looking where you want to go**.
 
 Sneak gets out, as it does for a boat. That is also why sneak is not the
 brake: a driver braking would step off at speed.
 
-**A and D do nothing**, on any version. They are your strafe keys, and a
-vehicle that answered them would slide sideways rather than steer.
+`turn-speed` is how fast the body comes round — a low number is a lorry, a
+high one is a go-kart.
+
+**Steering by look costs the driver their head**, and that is the real reason
+to be on Paper for this. A player's body follows their head, so if steering is
+looking then the driver swings round on every corner and cannot look at
+anything except where they are going. With A and D their head is their own.
 
 ### Seats
 

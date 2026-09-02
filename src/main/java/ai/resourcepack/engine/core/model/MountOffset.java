@@ -36,6 +36,28 @@ public final class MountOffset {
      */
     public static final double LEGACY = -1.75;
 
+    /**
+     * A SMALL armour stand's passenger attachment point, in blocks.
+     *
+     * <p>Everything above is about a MARKER stand, whose attachment point is
+     * zero — which is what makes the numbers above the whole story for a
+     * chair. A vehicle seat is not a marker: it has to tick, because a mount
+     * that does not tick never applies the velocity that carries its rider at
+     * speed, and a marker is excluded from much of vanilla's entity ticking.
+     * So it is a small stand, and a small stand has a real attachment point
+     * that has to come back off the offset.
+     *
+     * <p>Derived rather than measured: vanilla's default passenger attachment
+     * is three quarters of an entity's height, and a small armour stand is
+     * 0.9875 tall. It is consistent with the marker figure above — a marker's
+     * dimensions are zero, so its attachment is zero, which is exactly what
+     * that constant assumes.
+     *
+     * <p><strong>This is the dial if a rider sits too high or too low in a
+     * vehicle</strong>, and only in a vehicle: furniture is unaffected.
+     */
+    public static final double SMALL_STAND_ATTACHMENT = 0.74;
+
     private MountOffset() {
     }
 
@@ -44,5 +66,20 @@ public final class MountOffset {
         return compatibility != null && compatibility.has(Feature.MODERN_PASSENGER_OFFSET)
                 ? MODERN
                 : LEGACY;
+    }
+
+    /**
+     * The same, for a vehicle seat — which is a small stand rather than a
+     * marker. See {@link #SMALL_STAND_ATTACHMENT}.
+     *
+     * <p>The correction only applies on the modern arm, where a passenger sits
+     * at the vehicle's attachment point minus its own. Below 1.20.2 the rule
+     * is a fixed offset that does not read the attachment at all, so there is
+     * nothing to subtract — and that arm is the less verified of the two here,
+     * because the figure it carries was measured with a marker.
+     */
+    public static double forVehicleSeat(Compatibility compatibility) {
+        boolean modern = compatibility != null && compatibility.has(Feature.MODERN_PASSENGER_OFFSET);
+        return modern ? MODERN - SMALL_STAND_ATTACHMENT : LEGACY;
     }
 }
