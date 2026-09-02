@@ -4,6 +4,9 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.api.VehicleInfo;
+import ai.resourcepack.engine.api.VehicleMedium;
+import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 
 import org.junit.jupiter.api.Test;
@@ -144,5 +147,125 @@ class StudioContentTest {
         // and the rest of the manifest is still worth having.
         assertEquals(1, content.sounds().size());
         assertTrue(content.screens().isEmpty());
+    }
+
+    // --- vehicles -----------------------------------------------------
+
+    /**
+     * A vehicle carried by the manifest, in the shape studio's
+     * {@code collectVehicles} emits: seat offsets already in BLOCKS, and the
+     * art named by a carrier string rather than an item id.
+     */
+    private static final String WITH_VEHICLE = """
+            {"packId":"ian8vezm","sounds":[],"screens":[],"huds":[],
+             "vehicles":[{"id":"hatchback","carrier":"hatchback","name":"Hatchback",
+               "medium":"land","weight":14,"speed":18,"acceleration":7.5,"turnSpeed":140,
+               "seats":[{"role":"passenger","pose":"sitting","x":0.4,"y":0.6,"z":-0.5,"yaw":0,"name":"back"},
+                        {"role":"driver","pose":"sitting","x":-0.4,"y":0.6,"z":0.5,"yaw":0,"name":"wheel"},
+                        {"role":"passenger","pose":"standing","x":0,"y":1.2,"z":-1.4,"yaw":180,"name":"gunner"}]}]}
+            """;
+
+    @Test
+    void readsAPushedVehicle(@TempDir Path dir) {
+        VehicleInfo car = read(dir, WITH_VEHICLE).vehicles()
+                .get(ContentId.parse("studio:hatchback").orElseThrow());
+        assertEquals(VehicleMedium.LAND, car.medium());
+        assertEquals(18, car.speed());
+        assertEquals(140, car.turnSpeed());
+        assertEquals(3, car.capacity());
+    }
+
+    /**
+     * A pushed vehicle names its art with a carrier string, never an item id.
+     * A studio pack is a zip with no plugin behind it, so its models borrow
+     * paper — there is no item to name.
+     */
+    @Test
+    void aPushedVehicleNamesACarrierRatherThanAnItem(@TempDir Path dir) {
+        VehicleInfo car = read(dir, WITH_VEHICLE).vehicles()
+                .get(ContentId.parse("studio:hatchback").orElseThrow());
+        assertEquals("hatchback", car.carrier().orElseThrow());
+        assertTrue(car.model().isEmpty(), "a pushed vehicle has no item to name");
+    }
+
+    /**
+     * Seat order is the contract on this side too: the driver is moved to the
+     * front and everybody else keeps the order the manifest wrote them in.
+     */
+    @Test
+    void putsTheDriverFirstAndKeepsTheRestInOrder(@TempDir Path dir) {
+        VehicleInfo car = read(dir, WITH_VEHICLE).vehicles()
+                .get(ContentId.parse("studio:hatchback").orElseThrow());
+        assertEquals("wheel", car.seats().get(0).name().orElseThrow());
+        assertTrue(car.seats().get(0).isDriver());
+        assertEquals("back", car.seats().get(1).name().orElseThrow());
+        assertEquals("gunner", car.seats().get(2).name().orElseThrow());
+        assertEquals(VehicleSeat.Pose.STANDING, car.seats().get(2).pose());
+    }
+
+    /**
+     * The editor already refuses to call such a model finished and studio
+     * filters it out before sending, so one arriving here is a manifest from a
+     * version that did not — and a vehicle nobody can steer is worse than no
+     * vehicle.
+     */
+    @Test
+    void skipsAVehicleWithNoDriverSeat(@TempDir Path dir) {
+        StudioContent content = new StudioContent(dir.toFile());
+        assertTrue(content.updateFromJson("""
+                {"vehicles":[{"id":"bench","carrier":"bench","medium":"land",
+                  "seats":[{"role":"passenger","pose":"sitting","x":0,"y":0.5,"z":0,"yaw":0}]}]}
+                """).ok());
+        assertTrue(content.vehicles().isEmpty());
+    }
+
+    @Test
+    void aVehicleIsRegisteredUnderTheStudioNamespace(@TempDir Path dir) {
+        StudioContent content = read(dir, WITH_VEHICLE);
+        ContentRegistryImpl registry = new ContentRegistryImpl();
+        content.register(registry, LOG);
+        assertTrue(registry.ids(ContentKind.VEHICLE)
+                .contains(ContentId.parse("studio:hatchback").orElseThrow()));
+    }
+
+    /**
+     * A vehicle somebody parked has to come back after a restart with the same
+     * seats in the same order, or the people who get into it end up somewhere
+     * else.
+     */
+    @Test
+    void aVehicleSurvivesBeingWrittenOutAndReadBack(@TempDir Path dir) {
+        StudioContent written = read(dir, WITH_VEHICLE);
+        written.save(LOG);
+
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+
+        VehicleInfo before = written.vehicles().get(ContentId.parse("studio:hatchback").orElseThrow());
+        VehicleInfo after = reloaded.vehicles().get(ContentId.parse("studio:hatchback").orElseThrow());
+        assertEquals(before.capacity(), after.capacity());
+        assertEquals(before.carrier(), after.carrier());
+        assertEquals(before.medium(), after.medium());
+        assertEquals(before.speed(), after.speed());
+        for (int i = 0; i < before.capacity(); i++) {
+            assertEquals(before.seats().get(i).name(), after.seats().get(i).name());
+            assertEquals(before.seats().get(i).role(), after.seats().get(i).role());
+            assertEquals(before.seats().get(i).pose(), after.seats().get(i).pose());
+            assertEquals(before.seats().get(i).x(), after.seats().get(i).x());
+            assertEquals(before.seats().get(i).y(), after.seats().get(i).y());
+            assertEquals(before.seats().get(i).yaw(), after.seats().get(i).yaw());
+        }
+    }
+
+    /**
+     * A manifest from a studio that predates vehicles has no such key, and
+     * must not be a parse failure — that would take the sounds and screens
+     * down with it.
+     */
+    @Test
+    void aManifestWithNoVehiclesKeyIsFine(@TempDir Path dir) {
+        StudioContent content = read(dir, MANIFEST);
+        assertTrue(content.vehicles().isEmpty());
+        assertFalse(content.sounds().isEmpty());
     }
 }

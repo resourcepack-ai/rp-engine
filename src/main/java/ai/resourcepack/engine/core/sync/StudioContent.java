@@ -8,6 +8,9 @@ import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.api.VehicleInfo;
+import ai.resourcepack.engine.api.VehicleMedium;
+import ai.resourcepack.engine.api.VehicleSeat;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -66,6 +69,7 @@ public final class StudioContent {
         List<Sound> sounds;
         List<Overlay> screens;
         List<Overlay> huds;
+        List<Vehicle> vehicles;
     }
 
     static final class Sound {
@@ -73,6 +77,43 @@ public final class StudioContent {
         /** The sounds.json key, which is NOT the id — see {@link SoundInfo#event()}. */
         String event;
         String category;
+    }
+
+    /**
+     * A vehicle, whose art is named the way a pushed pack names art.
+     *
+     * <p>{@code carrier} rather than {@code model}: a Studio pack is a zip
+     * with no plugin behind it, so its models borrow paper wearing a string
+     * {@code custom_model_data}, and that string is the only handle there is.
+     * See {@link VehicleInfo#carrier()}.
+     *
+     * <p><strong>Seat offsets arrive in BLOCKS.</strong> Studio authors them
+     * in model pixels, because that is what its editor's inspector prints for
+     * a cube, and converts on the way out — so both sides of this manifest
+     * speak the same unit as a hand-written {@code vehicles/*.yml}. The
+     * conversion is stated in studio's {@code lib/studio-content.ts}; getting
+     * it wrong is a seat a sixteenth of the way to where it should be.
+     */
+    static final class Vehicle {
+        String id;
+        String carrier;
+        String name;
+        String medium;
+        double weight;
+        double speed;
+        double acceleration;
+        double turnSpeed;
+        List<Seat> seats;
+    }
+
+    static final class Seat {
+        String role;
+        String pose;
+        double x;
+        double y;
+        double z;
+        double yaw;
+        String name;
     }
 
     static final class Overlay {
@@ -91,6 +132,7 @@ public final class StudioContent {
     private volatile Map<ContentId, SoundInfo> sounds = Map.of();
     private volatile Map<ContentId, OverlayInfo> screens = Map.of();
     private volatile Map<ContentId, OverlayInfo> huds = Map.of();
+    private volatile Map<ContentId, VehicleInfo> vehicles = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -115,9 +157,14 @@ public final class StudioContent {
         return huds;
     }
 
+    /** The pushed vehicles, keyed by id. */
+    public Map<ContentId, VehicleInfo> vehicles() {
+        return vehicles;
+    }
+
     /** Whether there is anything at all. */
     public boolean isEmpty() {
-        return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty();
+        return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty();
     }
 
     /**
@@ -168,11 +215,74 @@ public final class StudioContent {
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot))));
         }
 
+        Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
+        for (Vehicle vehicle : manifest.vehicles == null ? List.<Vehicle>of() : manifest.vehicles) {
+            id(vehicle == null ? null : vehicle.id)
+                    .flatMap(id -> vehicle(id, vehicle))
+                    .ifPresent(info -> readVehicles.put(info.id(), info));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         huds = Map.copyOf(readHuds);
+        vehicles = Map.copyOf(readVehicles);
         packId = manifest.packId == null ? "" : manifest.packId;
-        return MergeResult.ok(packId, sounds.size() + screens.size() + huds.size());
+        return MergeResult.ok(packId,
+                sounds.size() + screens.size() + huds.size() + vehicles.size());
+    }
+
+    /**
+     * One vehicle off the manifest, or empty if it is not usable.
+     *
+     * <p><strong>Skipped rather than refused, and a vehicle with no driver
+     * seat is skipped.</strong> That is the same rule the folder loader
+     * enforces with a diagnostic — a vehicle nobody can steer is not a vehicle
+     * — but there is nobody to show a diagnostic to here: this runs off a
+     * websocket frame, and studio's own editor already refuses to call such a
+     * model finished. Dropping it silently is the honest end of a check that
+     * has already been made somewhere a person could see it.
+     */
+    private static java.util.Optional<VehicleInfo> vehicle(ContentId id, Vehicle vehicle) {
+        if (vehicle.seats == null || vehicle.seats.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        List<VehicleSeat> seats = new ArrayList<>();
+        boolean driverTaken = false;
+        for (Seat seat : vehicle.seats) {
+            if (seat == null) {
+                continue;
+            }
+            boolean driver = "driver".equalsIgnoreCase(seat.role) && !driverTaken;
+            driverTaken |= driver;
+            seats.add(VehicleSeat.of(
+                    driver ? VehicleSeat.Role.DRIVER : VehicleSeat.Role.PASSENGER,
+                    "standing".equalsIgnoreCase(seat.pose)
+                            ? VehicleSeat.Pose.STANDING
+                            : VehicleSeat.Pose.SITTING,
+                    seat.x, seat.y, seat.z, (float) seat.yaw, seat.name));
+        }
+        if (!driverTaken) {
+            return java.util.Optional.empty();
+        }
+        // The driver to the front, everything else keeping its order — the
+        // same partition VehicleDefinitions does, and for the same reason:
+        // seat order is the contract, and nothing downstream searches for the
+        // driver.
+        List<VehicleSeat> ordered = new ArrayList<>();
+        for (VehicleSeat seat : seats) {
+            if (seat.isDriver()) {
+                ordered.add(seat);
+            }
+        }
+        for (VehicleSeat seat : seats) {
+            if (!seat.isDriver()) {
+                ordered.add(seat);
+            }
+        }
+        return java.util.Optional.of(VehicleInfo.pushed(id, vehicle.carrier, vehicle.name,
+                VehicleMedium.parse(vehicle.medium).orElse(VehicleMedium.LAND),
+                vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
+                List.copyOf(ordered)));
     }
 
     /**
@@ -203,6 +313,9 @@ public final class StudioContent {
         }
         for (ContentId id : huds.keySet()) {
             claimed.define(ContentKind.HUD, id.path());
+        }
+        for (ContentId id : vehicles.keySet()) {
+            claimed.define(ContentKind.VEHICLE, id.path());
         }
     }
 
@@ -268,12 +381,49 @@ public final class StudioContent {
         for (Map.Entry<ContentId, OverlayInfo> entry : huds.entrySet()) {
             manifest.huds.add(overlay(entry.getKey(), entry.getValue(), false));
         }
+        manifest.vehicles = new ArrayList<>();
+        for (Map.Entry<ContentId, VehicleInfo> entry : vehicles.entrySet()) {
+            manifest.vehicles.add(vehicleOf(entry.getKey(), entry.getValue()));
+        }
         try {
             Files.createDirectories(file.getParentFile().toPath());
             Files.write(file.toPath(), gson.toJson(manifest).getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             log.warning("Could not write " + file.getName() + ": " + e.getMessage());
         }
+    }
+
+    /**
+     * A vehicle back out, in the shape it arrived in.
+     *
+     * <p>Round-tripping matters here more than for the others: this is what is
+     * written to {@code studio-content.json}, and a vehicle somebody parked
+     * before a restart has to come back with the same seats in the same order
+     * or the people who get into it end up somewhere else.
+     */
+    private static Vehicle vehicleOf(ContentId id, VehicleInfo info) {
+        Vehicle out = new Vehicle();
+        out.id = id.path();
+        out.carrier = info.carrier().orElse("");
+        out.name = info.name().orElse("");
+        out.medium = info.medium().key();
+        out.weight = info.weight();
+        out.speed = info.speed();
+        out.acceleration = info.acceleration();
+        out.turnSpeed = info.turnSpeed();
+        out.seats = new ArrayList<>();
+        for (VehicleSeat seat : info.seats()) {
+            Seat written = new Seat();
+            written.role = seat.role().key();
+            written.pose = seat.pose().key();
+            written.x = seat.x();
+            written.y = seat.y();
+            written.z = seat.z();
+            written.yaw = seat.yaw();
+            written.name = seat.name().orElse("");
+            out.seats.add(written);
+        }
+        return out;
     }
 
     private static Overlay overlay(ContentId id, OverlayInfo info, boolean screen) {

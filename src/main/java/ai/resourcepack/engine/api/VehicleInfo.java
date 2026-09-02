@@ -34,6 +34,7 @@ public final class VehicleInfo {
 
     private final ContentId id;
     private final String model;
+    private final String carrier;
     private final String name;
     private final VehicleMedium medium;
     private final double weight;
@@ -42,11 +43,12 @@ public final class VehicleInfo {
     private final double turnSpeed;
     private final List<VehicleSeat> seats;
 
-    private VehicleInfo(ContentId id, String model, String name, VehicleMedium medium,
+    private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         List<VehicleSeat> seats) {
         this.id = id;
         this.model = model;
+        this.carrier = carrier;
         this.name = name;
         this.medium = medium;
         this.weight = weight;
@@ -63,6 +65,29 @@ public final class VehicleInfo {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 model == null ? "" : model,
+                "",
+                name == null ? "" : name,
+                medium == null ? VehicleMedium.LAND : medium,
+                weight, speed, acceleration, turnSpeed,
+                seats == null ? List.of() : List.copyOf(seats));
+    }
+
+    /**
+     * The same, for a vehicle that arrived on a Studio push.
+     *
+     * <p>Its art is named differently and that is the whole difference — see
+     * {@link #carrier()}. A second constructor rather than a nullable
+     * argument, and the same shape {@code SoundInfo.pushed} already uses for
+     * exactly the same reason: the two ways of naming a thing are separate
+     * facts, and a caller has to say which one it is holding.
+     */
+    public static VehicleInfo pushed(ContentId id, String carrier, String name, VehicleMedium medium,
+                                     double weight, double speed, double acceleration, double turnSpeed,
+                                     List<VehicleSeat> seats) {
+        return new VehicleInfo(
+                Objects.requireNonNull(id, "id"),
+                "",
+                carrier == null ? "" : carrier,
                 name == null ? "" : name,
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
@@ -84,6 +109,25 @@ public final class VehicleInfo {
      */
     public Optional<ContentId> model() {
         return model.isEmpty() ? Optional.empty() : ContentId.parse(model);
+    }
+
+    /**
+     * The {@code custom_model_data} string its art is drawn with, or empty
+     * when it names an item instead.
+     *
+     * <p><strong>Exactly one of this and {@link #model()} is set</strong>, and
+     * which one says how the art was delivered rather than where it came from.
+     * A pack built here ships the model beside an item, so the item id is
+     * enough. A pack built by Studio ships a zip with no plugin behind it, so
+     * its models borrow a vanilla item — paper wearing a string — and the
+     * string is the only handle there is.
+     *
+     * <p>This is the same split {@code SoundInfo.event()} makes, for the same
+     * reason: two ways of naming one thing, and pretending they are one field
+     * means one of them is wrong.
+     */
+    public Optional<String> carrier() {
+        return carrier.isEmpty() ? Optional.empty() : Optional.of(carrier);
     }
 
     /** What to call it in a message, or empty for its id. */
