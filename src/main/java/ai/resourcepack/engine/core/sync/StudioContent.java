@@ -8,6 +8,7 @@ import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -103,6 +104,9 @@ public final class StudioContent {
         double speed;
         double acceleration;
         double turnSpeed;
+        double hitboxWidth;
+        double hitboxHeight;
+        double hitboxLength;
         List<Seat> seats;
     }
 
@@ -279,10 +283,17 @@ public final class StudioContent {
                 ordered.add(seat);
             }
         }
+        // A manifest from a studio that predates the hitbox has three zeroes
+        // here, and zero is not a size — VehicleHitbox clamps it to its
+        // minimum, which would be a sliver nobody can click. So an unset box
+        // is the default block rather than a clamped nothing.
+        VehicleHitbox hitbox = vehicle.hitboxWidth > 0 && vehicle.hitboxHeight > 0 && vehicle.hitboxLength > 0
+                ? VehicleHitbox.of(vehicle.hitboxWidth, vehicle.hitboxHeight, vehicle.hitboxLength)
+                : VehicleHitbox.DEFAULT;
         return java.util.Optional.of(VehicleInfo.pushed(id, vehicle.carrier, vehicle.name,
                 VehicleMedium.parse(vehicle.medium).orElse(VehicleMedium.LAND),
                 vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
-                List.copyOf(ordered)));
+                hitbox, List.copyOf(ordered)));
     }
 
     /**
@@ -411,6 +422,9 @@ public final class StudioContent {
         out.speed = info.speed();
         out.acceleration = info.acceleration();
         out.turnSpeed = info.turnSpeed();
+        out.hitboxWidth = info.hitbox().width();
+        out.hitboxHeight = info.hitbox().height();
+        out.hitboxLength = info.hitbox().length();
         out.seats = new ArrayList<>();
         for (VehicleSeat seat : info.seats()) {
             Seat written = new Seat();

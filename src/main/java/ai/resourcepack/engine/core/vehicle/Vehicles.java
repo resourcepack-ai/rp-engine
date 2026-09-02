@@ -2,10 +2,12 @@ package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
+import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.MountOffset;
 import ai.resourcepack.engine.core.model.RigTags;
@@ -39,6 +41,7 @@ import org.bukkit.util.Vector;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -307,8 +310,19 @@ public final class Vehicles implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) {
             return;
         }
+        UUID clicked = event.getRightClicked().getUniqueId();
         for (Ride ride : live.values()) {
-            int index = ride.seatIndexOfHitbox(event.getRightClicked().getUniqueId());
+            int index = ride.seatIndexOfHitbox(clicked);
+            if (index < 0 && ride.isBody(clicked)) {
+                // The body seats you in the first free seat rather than a
+                // particular one — see firstFreeSeat.
+                index = ride.firstFreeSeat();
+                if (index < 0) {
+                    event.setCancelled(true);
+                    Chat.send(event.getPlayer(), nameOf(ride.info) + " is full.");
+                    return;
+                }
+            }
             if (index >= 0) {
                 event.setCancelled(true);
                 sit(event.getPlayer(), ride, index);
@@ -394,9 +408,39 @@ public final class Vehicles implements Listener {
             return;
         }
         riders.put(player.getUniqueId(), ride.chassisId);
-        if (ride.info.seats().get(index).isDriver()) {
+        VehicleSeat seat = ride.info.seats().get(index);
+        if (seat.isDriver()) {
             controls.take(player.getUniqueId());
         }
+        // Said out loud, because who is driving was a mystery worth solving
+        // from the outside: on a small vehicle the seat markers overlap, and
+        // somebody who meant to drive and got a passenger seat had nothing to
+        // tell them so. The controls come with it, since they differ by
+        // server and nobody reads a startup report.
+        Chat.send(player, seat.isDriver()
+                ? "You are driving " + nameOf(ride.info) + ". " + controls.describe() + "."
+                : "You are riding in " + nameOf(ride.info) + ", "
+                        + seatName(ride.info, seat).toLowerCase(Locale.ROOT) + ".");
+    }
+
+    /** What to call a seat in a message: its own name, or its role and number. */
+    private static String seatName(VehicleInfo info, VehicleSeat seat) {
+        if (seat.name().isPresent()) {
+            return seat.name().get();
+        }
+        if (seat.isDriver()) {
+            return "the driver seat";
+        }
+        int number = 0;
+        for (VehicleSeat other : info.seats()) {
+            if (!other.isDriver()) {
+                number++;
+            }
+            if (other == seat) {
+                break;
+            }
+        }
+        return "passenger seat " + number;
     }
 
     /**
@@ -541,6 +585,15 @@ public final class Vehicles implements Listener {
         private final List<UUID> hitboxes = new ArrayList<>();
         private final List<UUID> occupants = new ArrayList<>();
 
+        /**
+         * The vehicle's own body, as one or more Interaction boxes.
+         *
+         * <p>Tiled along the forward axis because an Interaction's footprint is
+         * SQUARE — its width applies to both horizontal axes — so a bus needs
+         * several of them to be bus-shaped. See {@link VehicleHitbox}.
+         */
+        private final List<UUID> body = new ArrayList<>();
+
         private UUID modelId;
 
         /** How many ticks in a row a move was asked for and nothing happened. */
@@ -550,8 +603,16 @@ public final class Vehicles implements Listener {
             this.info = info;
             this.chassisId = chassis.getUniqueId();
             this.world = chassis.getWorld();
-            this.at = chassis.getLocation().clone();
-            this.state = VehiclePhysics.State.still(at.getYaw());
+            // `at` is a POSITION and carries no rotation at all — the heading
+            // lives in `state` and the pitch is nobody's. A chassis is spawned
+            // at the player's own location, which brings their pitch with it,
+            // and an ItemDisplay honours pitch: a vehicle parked by somebody
+            // looking at the ground sat tilted until the first move replaced
+            // `at` with a fresh Location (which is why it "fixed itself" as
+            // soon as anybody drove it).
+            Location spawned = chassis.getLocation();
+            this.at = new Location(spawned.getWorld(), spawned.getX(), spawned.getY(), spawned.getZ());
+            this.state = VehiclePhysics.State.still(spawned.getYaw());
             for (int i = 0; i < info.seats().size(); i++) {
                 mounts.add(null);
                 hitboxes.add(null);
@@ -596,7 +657,25 @@ public final class Vehicles implements Listener {
                 hitboxes.set(i, hitbox.getUniqueId());
             }
 
+            VehicleHitbox box = info.hitbox();
+            for (int tile = 0; tile < box.tiles(); tile++) {
+                Interaction part = world.spawn(bodyLocation(tile), Interaction.class, b -> {
+                    b.setInteractionWidth((float) box.width());
+                    b.setInteractionHeight((float) box.height());
+                    b.setResponsive(true);
+                    b.setPersistent(false);
+                });
+                body.add(part.getUniqueId());
+            }
+
             art().ifPresent(this::spawnModel);
+        }
+
+        /** Where body tile {@code index} sits, turned with the vehicle. */
+        private Location bodyLocation(int index) {
+            double[] offset =
+                    VehiclePhysics.seatOffset(state.yaw(), 0, info.hitbox().tileOffset(index));
+            return new Location(world, at.getX() + offset[0], at.getY(), at.getZ() + offset[1]);
         }
 
         /**
@@ -639,6 +718,10 @@ public final class Vehicles implements Listener {
             for (UUID id : hitboxes) {
                 removeEntity(id);
             }
+            for (UUID id : body) {
+                removeEntity(id);
+            }
+            body.clear();
             removeEntity(modelId);
         }
 
@@ -656,6 +739,33 @@ public final class Vehicles implements Listener {
 
         int seatIndexOfHitbox(UUID hitbox) {
             return hitboxes.indexOf(hitbox);
+        }
+
+        boolean isBody(UUID entity) {
+            return body.contains(entity);
+        }
+
+        /**
+         * The first seat nobody is in, in the pack's order — so the driver
+         * seat is filled first and the first person into a vehicle is the one
+         * driving it.
+         *
+         * <p>This is what clicking the BODY does, and it is the reason the
+         * body is worth having beyond being a thing to aim at. The seat
+         * markers are small and, on anything the size of a cart, overlap each
+         * other — so which one a click resolves to is a matter of where the
+         * crosshair happened to land, and "whoever got in first is driving"
+         * was not reliably true. Clicking a seat still picks that seat.
+         *
+         * @return the seat index, or -1 when the vehicle is full
+         */
+        int firstFreeSeat() {
+            for (int i = 0; i < occupants.size(); i++) {
+                if (occupants.get(i) == null) {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         UUID occupant(int index) {
@@ -722,6 +832,24 @@ public final class Vehicles implements Listener {
             Location location = new Location(world, x, at.getY() + seat.y() + lift, z);
             location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
             return location;
+        }
+
+        /**
+         * Where a seat's MOUNT goes, which is the seat without its rotation.
+         *
+         * <p>A passenger's body is dragged round by its vehicle's yaw, so a
+         * mount that turned with the vehicle spun the rider's body every time
+         * the car did — they could not look where they liked while being
+         * carried. The mount therefore stays at yaw zero for ever and the
+         * seat's own yaw is spent once, on the teleport that aims somebody as
+         * they sit down. Which is all a seat yaw was ever meant to do; see
+         * {@link VehicleSeat#yaw()}.
+         */
+        Location mountLocation(int index) {
+            Location seat = seatLocation(index);
+            seat.setYaw(0);
+            seat.setPitch(0);
+            return seat;
         }
 
         // --- moving ---------------------------------------------------
@@ -840,7 +968,7 @@ public final class Vehicles implements Listener {
                 if (mount == null) {
                     continue;
                 }
-                Location target = seatLocation(i);
+                Location target = mountLocation(i);
                 if (occupants.get(i) == null) {
                     mount.teleport(target);
                 } else if (!seatMover.move(mount, target)) {
@@ -854,10 +982,21 @@ public final class Vehicles implements Listener {
                 }
             }
 
+            for (int tile = 0; tile < body.size(); tile++) {
+                Entity part = plugin.getServer().getEntity(body.get(tile));
+                if (part != null) {
+                    part.teleport(bodyLocation(tile));
+                }
+            }
+
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
             if (model != null) {
                 Location where = at.clone().add(0, MODEL_LIFT, 0);
                 where.setYaw((float) state.yaw() + MODEL_YAW_OFFSET);
+                // Stated rather than inherited. `at` carries no pitch now, but
+                // a display that ever acquires one is a vehicle lying on its
+                // side, and this is the line that makes that impossible.
+                where.setPitch(0);
                 model.teleport(where);
             }
 

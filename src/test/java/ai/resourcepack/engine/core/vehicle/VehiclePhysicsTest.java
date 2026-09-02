@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -25,7 +26,7 @@ class VehiclePhysicsTest {
 
     private static VehicleInfo car(VehicleMedium medium) {
         return VehicleInfo.of(ContentId.parse("mypack:car").orElseThrow(), null, null, medium,
-                VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180,
+                VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180, VehicleHitbox.DEFAULT,
                 List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)));
     }
 
@@ -98,9 +99,11 @@ class VehiclePhysicsTest {
     @Test
     void weightScalesAccelerationAroundTheNominalWeight() {
         VehicleInfo light = VehicleInfo.of(ContentId.parse("mypack:a").orElseThrow(), null, null,
-                VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180, car(VehicleMedium.LAND).seats());
+                VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180,
+                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats());
         VehicleInfo heavy = VehicleInfo.of(ContentId.parse("mypack:b").orElseThrow(), null, null,
-                VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT * 2, 20, 10, 180, car(VehicleMedium.LAND).seats());
+                VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT * 2, 20, 10, 180,
+                VehicleHitbox.DEFAULT, car(VehicleMedium.LAND).seats());
 
         double lightSpeed = VehiclePhysics.step(light, VehiclePhysics.State.still(0), ahead(0), GROUND, DT)
                 .state().speed();
