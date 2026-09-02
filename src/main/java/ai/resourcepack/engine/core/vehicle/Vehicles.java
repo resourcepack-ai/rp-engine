@@ -780,6 +780,14 @@ public final class Vehicles implements Listener {
          */
         private String playing;
 
+        /**
+         * Whether {@link #playing} is a name the model actually has.
+         *
+         * <p>Guards the re-assert below from becoming a lookup per tick for a
+         * vehicle whose pack names an animation that has since been renamed.
+         */
+        private boolean playable;
+
         /** Its own age in ticks, which is what a particle interval counts against. */
         private long age;
 
@@ -1299,27 +1307,51 @@ public final class Vehicles implements Listener {
                 return;
             }
             String wanted = VehicleState.choose(states, info.animations()).orElse(null);
-            if (Objects.equals(wanted, playing)) {
-                return;
-            }
-            Optional<Placement> placement = rig.placement();
-            if (placement.isEmpty()) {
+            Optional<Placement> found = rig.placement();
+            if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
                 // we thought was playing means the next tick that finds it
                 // again starts cleanly rather than believing a stale answer.
                 playing = null;
+                playable = false;
                 return;
             }
-            if (wanted == null) {
-                placement.get().stop();
-            } else if (!placement.get().play(wanted)) {
-                // The model has no animation by that name — a pack naming one
-                // that was since renamed in the editor. Left unrecorded so the
-                // next genuine change is still tried, and silent because this
-                // is a per-tick path.
+            Placement placement = found.get();
+
+            if (!Objects.equals(wanted, playing)) {
+                playing = wanted;
+                if (wanted == null) {
+                    placement.stop();
+                    playable = false;
+                } else {
+                    // Restarted rather than resumed: a state change is a cut,
+                    // and joining a cycle halfway through because the last
+                    // state happened to have run for two seconds is a limp.
+                    //
+                    // The answer is recorded even when it FAILS — a pack naming
+                    // an animation the model no longer has — because this runs
+                    // twenty times a second and retrying a name that cannot
+                    // work is a lookup per tick for ever.
+                    playable = placement.play(wanted, true);
+                }
                 return;
             }
-            playing = wanted;
+
+            // <strong>Nothing changed, and that is when this matters.</strong>
+            // A vehicle state is a condition that HOLDS, so what it names has
+            // to run for as long as it holds — but an animation authored as a
+            // one-shot runs out after its own length and hands the rig back to
+            // the model's idle loop. With one animation mapped to every state
+            // that is a rowing cycle which plays once on spawn and never again,
+            // because no state change ever comes along to restart it.
+            //
+            // So it is re-asked the moment it has fallen idle, which loops it
+            // whatever its own end mode says. `playing()` is what the placement
+            // is actually doing rather than what it was last told, so a HOLD or
+            // a genuine loop never trips this.
+            if (playable && wanted != null && placement.playing().isEmpty()) {
+                placement.play(wanted, true);
+            }
         }
 
         /**
