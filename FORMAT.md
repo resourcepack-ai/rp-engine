@@ -579,6 +579,17 @@ hatchback:
     - {role: passenger, x:  0.4, y: 0.6, z: 0.6}
     - {role: passenger, x: -0.4, y: 0.6, z: -0.5}
     - {role: passenger, x:  0.4, y: 0.6, z: -0.5}
+  animations:               # optional — which animation plays when
+    idle: parked
+    moving: drive
+  particles:                # optional — what it throws, and when
+    - effect: smoke
+      states: [moving, reversing]
+      x: 0
+      y: 0.3
+      z: -1.5
+      count: 2
+      interval: 2
 ```
 
 **Right-click the body to get in** and you take the first free seat — the
@@ -650,6 +661,120 @@ worth getting right.
 **A vehicle with no driver seat does not load at all**, and says so naming the
 file. One that did would be a model claiming to be a vehicle with no way to
 move, and there would be nothing to go on but it not working.
+
+### Water vehicles need water
+
+`medium: water` is a hull, and a hull out of water **crawls**: it does about a
+seventh of its top speed, which is a shade slower than walking. It keeps its
+full turning rate, and the driver is told once in chat.
+
+It is not stopped dead, deliberately. A boat that could not move at all on land
+would beach itself on the first shore and be stuck there for ever — the driver
+would have no way back to the water and nothing to do but log off. Crawling is
+slow enough to be unmistakably wrong and fast enough to get you off the sand.
+
+A `land` vehicle driven into deep water is unaffected by any of this. It falls
+in and drives along the bottom, which is what a car does.
+
+### States
+
+A vehicle is always doing something, and six words describe it:
+
+| State | When |
+|---|---|
+| `airborne` | Off the ground with nothing holding it up — a jump, a fall, or an aircraft in flight |
+| `reversing` | Travelling backwards |
+| `moving` | Travelling forwards |
+| `turning` | Swinging round faster than a nudge |
+| `submerged` | Its base is in water |
+| `idle` | Stationary, or near enough |
+
+**It is in several of them at once.** A car coming down off a kerb mid-corner
+is `moving`, `turning` and `airborne` together, and a boat under way is
+`moving` and `submerged`. That is why `animations:` and `particles:` read the
+list differently — see each below.
+
+`turning` is measured against how fast the body **actually** came round, not
+against how hard you are steering. A vehicle already pointing where you are
+looking is not turning, and one held against a wall is not either.
+
+### Animations
+
+`animations:` maps a state to one of the model's own animations, authored the
+usual way — bones and keyframes on the model itself. Nothing new is defined
+here; this only says when each one plays.
+
+**One animation at a time**, because a rig has one clock. The state is chosen
+by the order in the table above, top first: an airborne car plays its jump
+animation over its drive cycle.
+
+**A state you leave out falls through to the next one down.** That is the part
+worth internalising, because it is what makes a short answer a complete one:
+
+```yaml
+  animations:
+    idle: parked
+    moving: drive
+```
+
+is a finished vehicle. Cornering plays `drive`, because `turning` is unset and
+falls through to `moving`. Going over a bump plays `drive` too. You only write
+`turning:` if you have actually drawn a leaning animation, and you never have
+to think about `submerged` unless you want a boat that bobs differently at
+rest.
+
+A vehicle whose model has no animated parts can carry this map and it simply
+never plays anything — the model is drawn as one still piece. That is a
+half-finished vehicle rather than an error.
+
+### Particles
+
+`particles:` is a list of emitters. Each one is a spot on the bodywork that
+throws a particle effect while the vehicle is doing something.
+
+```yaml
+  particles:
+    - effect: smoke           # a particle name
+      states: [moving, reversing]
+      x: 0                    # the same frame as a seat: right, up, forward
+      y: 0.3
+      z: -1.5
+      count: 2                # particles per burst, at most 16
+      interval: 2             # ticks between bursts; 1 is every tick
+      spread: 0.1             # how far they scatter, in blocks
+      speed: 0.02             # how fast they drift away
+      enabled: true           # the default
+    - effect: dust            # the one effect that takes a colour
+      states: [idle]
+      y: 1.2
+      color: "#ff8800"
+      size: 1
+```
+
+**An emitter fires if the vehicle is in ANY of its states**, which is the
+opposite reading from `animations:` and is what makes one exhaust plume one
+emitter rather than two. An emitter that lists no states never fires, and says
+so at load rather than being guessed into meaning "always" — guessing would
+turn a typo in the one state you wrote into a particle storm you did not ask
+for.
+
+`x`, `y` and `z` are **the same frame as a seat**: right, above the base, and
+in front, in blocks, turning with the body. An exhaust pipe placed behind the
+model stays behind it however the vehicle is parked.
+
+`enabled: false` keeps the emitter and its settings and stops it firing, which
+is what you want while tuning the other three.
+
+**Particle names were renamed in 1.20.5** — `SMOKE_NORMAL` became `SMOKE`,
+`REDSTONE` became `DUST`, and about twenty others. Write either; the engine
+tries every spelling and uses whichever one your server has. What it cannot do
+is invent one: a name no version has, or one that needs a block or an item to
+draw itself with (`block`, `item`, `falling_dust`), is skipped with a line in
+the console saying which and why. It says it once, not twenty times a second.
+
+Keep `count` and `interval` modest. Every particle is drawn by every player in
+range, so the cost of a generous emitter lands on other people's frame rates
+rather than on the server that authored it.
 
 ### What a vehicle is, underneath
 
