@@ -390,8 +390,11 @@ public final class RigAnimator implements Listener {
             : Math.max(0, display.getWorld().getGameTime() - animationStart) / 20.0;
         // The choice decides the resting loop too, not just one-shots: two
         // animations can both claim `loop`.
-        int playbackIndex =
-            RigAnimations.playbackAnimationIndex(rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING));
+        // A carried rig is DRIVEN: whatever carries it decides what plays, so
+        // it has no resting loop of its own to fall back to. See the overload.
+        boolean carried = pdc.has(yawHostKey, PersistentDataType.STRING);
+        int playbackIndex = RigAnimations.playbackAnimationIndex(
+            rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING), !carried);
 
         // Event-only rigs are dormant between triggers. Resending the resting
         // transform every tick restarts the client's interpolation, which
@@ -831,7 +834,12 @@ public final class RigAnimator implements Listener {
             double elapsed = started == null
                 ? 0
                 : Math.max(0, display.getWorld().getGameTime() - started) / 20.0;
-            RigStore.Animation animation = RigAnimations.animationAt(rig, RigAnimations.playbackAnimationIndex(rig, active, elapsed, chosen));
+            // The same resting-loop rule pose() uses, or this answers with an
+            // animation that rig will never actually play — and a caller that
+            // asks "is it still going" to decide whether to restart it (see
+            // Vehicles.animate) would be told yes for ever.
+            RigStore.Animation animation = RigAnimations.animationAt(rig, RigAnimations.playbackAnimationIndex(
+                rig, active, elapsed, chosen, !pdc.has(yawHostKey, PersistentDataType.STRING)));
             return animation == null ? null : animation.name;
         }
         return null;

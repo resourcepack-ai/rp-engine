@@ -139,6 +139,28 @@ final class RigAnimations {
     }
 
     static int playbackAnimationIndex(RigStore.Rig rig, Integer activeIndex, double elapsed, String chosenName) {
+        return playbackAnimationIndex(rig, activeIndex, elapsed, chosenName, true);
+    }
+
+    /**
+     * @param restingLoop whether this rig falls back to its own
+     *                    {@code loop}-triggered animation when nothing is
+     *                    active. True for a rig standing in the world, which is
+     *                    what makes a windmill turn on its own.
+     *
+     *                    <p><strong>False for a DRIVEN rig</strong> — one whose
+     *                    playback belongs to something else, today a vehicle.
+     *                    The two rules cannot both apply: a vehicle that asks
+     *                    for nothing means nothing, and a model whose animation
+     *                    happens to be marked {@code loop} in the editor would
+     *                    otherwise play it for ever regardless. That is not a
+     *                    corner case — a rowing kayak's cycle is exactly the
+     *                    kind of animation an author marks as a loop, so
+     *                    removing its idle mapping changed nothing and the
+     *                    boat kept rowing while moored.
+     */
+    static int playbackAnimationIndex(RigStore.Rig rig, Integer activeIndex, double elapsed,
+                                      String chosenName, boolean restingLoop) {
         RigStore.Animation active = animationAt(rig, activeIndex);
         // A held animation never runs out: it stops on its last frame and
         // stays there until something else is asked for. That is what makes
@@ -147,7 +169,7 @@ final class RigAnimations {
                 || elapsed * speedOf(active) <= Math.max(0, active.length))) {
             return activeIndex;
         }
-        return findAnimationIndex(rig, TRIGGER_LOOP, chosenName);
+        return restingLoop ? findAnimationIndex(rig, TRIGGER_LOOP, chosenName) : -1;
     }
 
     static boolean shouldUpdatePose(int playbackIndex, Integer activeIndex, boolean forceRestPose) {
