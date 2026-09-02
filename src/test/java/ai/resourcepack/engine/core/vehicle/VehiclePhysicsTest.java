@@ -610,6 +610,10 @@ class VehiclePhysicsTest {
                         VehiclePhysics.Demand.idle(0), WATER, DT).states();
         assertTrue(states.contains(VehicleState.SUBMERGED));
         assertTrue(!states.contains(VehicleState.AIRBORNE));
+        // And IDLE with it: a boat sitting in water is doing nothing, which is
+        // the state most packs actually map. Water is not motion.
+        assertTrue(states.contains(VehicleState.IDLE));
+        assertTrue(!states.contains(VehicleState.MOVING));
     }
 
     @Test

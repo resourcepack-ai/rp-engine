@@ -723,6 +723,18 @@ falls through to `moving`. Going over a bump plays `drive` too. You only write
 to think about `submerged` unless you want a boat that bobs differently at
 rest.
 
+**A boat is always `submerged`**, so that state is the one most able to shadow
+another for a water vehicle. Map only `idle` and `moving` and a boat rows when
+it moves and idles when it stops, exactly as you would expect — `submerged` is
+blank, so it falls through. Map `submerged` as well and a still boat plays that
+instead, which is how you give it a bob at rest. Both readings are deliberate;
+the one to know is that you never have to think about `submerged` at all.
+
+Whatever a state names **loops for as long as that state holds**, whether or
+not the animation itself is authored as a loop. A state is a condition rather
+than an event, so a rowing cycle written as a one-shot still rows continuously
+while the boat is moving.
+
 A vehicle whose model has no animated parts can carry this map and it simply
 never plays anything — the model is drawn as one still piece. That is a
 half-finished vehicle rather than an error.
