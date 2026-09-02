@@ -8,9 +8,6 @@ import java.net.URISyntaxException;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 
@@ -36,12 +33,6 @@ public final class SyncClient {
     /** How long a socket waits before deciding a silent connection is dead. */
     private static final int PING_SECONDS = 30;
 
-    /** The first wait before a trusted server tries to reopen a lost socket. */
-    private static final int RECONNECT_FIRST_SECONDS = 5;
-
-    /** The longest that wait grows to, doubling each failure. */
-    private static final int RECONNECT_MAX_SECONDS = 300;
-
     private final String url;
     private final String serverToken;
     private final Logger logger;
@@ -54,40 +45,6 @@ public final class SyncClient {
     private final Map<String, String> claimed = new ConcurrentHashMap<>();
 
     private volatile WebSocketClient socket;
-
-    /**
-     * Runs each time the socket comes up, first open included. Set by the
-     * plugin so a trusted server can re-announce everybody online.
-     */
-    private volatile Runnable whenOpen;
-
-    /** Set by {@link #close()}; a closed client never reopens itself. */
-    private volatile boolean stopped;
-
-    /**
-     * The reconnect loop, for a trusted server. One daemon thread, so an
-     * attempt blocking for its ten seconds never stalls the server.
-     */
-    private final ScheduledExecutorService reconnects = Executors.newSingleThreadScheduledExecutor(task -> {
-        Thread thread = new Thread(task, "rpengine-sync-reconnect");
-        thread.setDaemon(true);
-        return thread;
-    });
-
-    /**
-     * Guards the two fields below, and is deliberately NOT {@code this}.
-     *
-     * <p>{@link #connect()} holds this object's monitor for the whole blocking
-     * handshake, and when that handshake fails the library's read thread
-     * calls {@code onClose} — which lands in {@link #lost} — before
-     * {@code connectBlocking} returns. Take the monitor there and the two
-     * threads wait on each other for ever: the handshake for its read thread
-     * to finish, the read thread for the handshake to let go. A test found
-     * it; a server with studio down would have hung its main thread.
-     */
-    private final Object reconnectLock = new Object();
-    private boolean reconnectScheduled;
-    private int reconnectDelaySeconds = RECONNECT_FIRST_SECONDS;
 
     /**
      * @param onApply called with the code and the url payload of an
@@ -115,35 +72,10 @@ public final class SyncClient {
      * announces who is online rather than waiting for somebody to type a code.
      * Everybody else connects lazily on their first claim.
      *
-     * <p>"Permanently" is a promise this class keeps, not the network: studio's
-     * end is redeployed, idle sockets get closed by whatever sits between, and
-     * a trusted server whose socket has quietly gone announces nobody — every
-     * permalinked player on it is then "not in game" to studio however many
-     * times they rejoin. So a failed open, and every later close, schedules a
-     * retry with backoff, and {@link #whenOpen} lets the plugin re-announce
-     * everybody once it lands.
-     *
      * @return whether it opened
      */
     public boolean open() {
-        if (connect()) {
-            return true;
-        }
-        if (announcesPresence()) {
-            scheduleReconnect();
-        }
-        return false;
-    }
-
-    /**
-     * Registers what to do each time the socket comes up, first open included.
-     *
-     * <p>Called on whichever thread opened the socket, which is never the
-     * server's main thread guaranteed — the reconnect loop has one of its own —
-     * so anything that touches the server schedules itself back onto it.
-     */
-    public void whenOpen(Runnable hook) {
-        this.whenOpen = hook;
+        return connect();
     }
 
     /**
@@ -165,30 +97,12 @@ public final class SyncClient {
      * and an older plugin simply sends nothing there. See {@link PlayerCape}
      * for why studio cannot work this out for itself. {@code -} for a player
      * with no cape.
-     *
-     * <p>{@code joinedAtMillis} is a fifth field, positional and last like the
-     * fourth, so an older sync ignores it. It is when this player's session
-     * actually began: a player announced again after a reconnect has been
-     * standing there the whole time, still wearing whatever studio last
-     * pushed, and without it studio would date their session from the
-     * re-announcement and push the same pack all over again. Zero or negative
-     * means "now".
-     *
-     * @param since when they joined, as epoch milliseconds, or 0 for now
      */
-    public void present(java.util.UUID playerId, String name, boolean bedrock, String capeHash, long since) {
-        if (!announcesPresence()) {
-            return;
+    public void present(java.util.UUID playerId, String name, boolean bedrock, String capeHash) {
+        if (announcesPresence()) {
+            send("PRESENT " + hex(playerId) + " " + name + " " + (bedrock ? "bedrock" : "java")
+                + " " + (capeHash == null || capeHash.isEmpty() ? PlayerCape.NONE : capeHash));
         }
-        if (!connected()) {
-            // A closed socket drops the frame either way; what matters is that
-            // somebody noticed. The reconnect re-announces them on arrival.
-            scheduleReconnect();
-            return;
-        }
-        send("PRESENT " + hex(playerId) + " " + name + " " + (bedrock ? "bedrock" : "java")
-            + " " + (capeHash == null || capeHash.isEmpty() ? PlayerCape.NONE : capeHash)
-            + " " + (since > 0 ? since : System.currentTimeMillis()));
     }
 
     /** Says a player has gone. */
@@ -304,74 +218,13 @@ public final class SyncClient {
         send("TELL_FAILED " + code + " " + reason);
     }
 
-    /** Closes the socket and forgets every code. Final: nothing reopens after this. */
+    /** Closes the socket and forgets every code. */
     public synchronized void close() {
-        stopped = true;
-        reconnects.shutdownNow();
         WebSocketClient current = socket;
         socket = null;
         claimed.clear();
         if (current != null) {
             current.close();
-        }
-    }
-
-    /**
-     * A socket that closed under us, as opposed to one {@link #close()} shut.
-     *
-     * <p>Only the socket we are currently holding counts: a stale close from
-     * one already replaced must not knock out its successor, and a deliberate
-     * close has already cleared the field, so it schedules nothing.
-     */
-    private void lost(WebSocketClient which) {
-        // No monitor here — see reconnectLock. `socket` is volatile and only
-        // ever assigned a freshly opened client, so a close arriving for any
-        // other object is stale by construction, whatever order it lands in.
-        if (socket != which) {
-            return;
-        }
-        socket = null;
-        if (announcesPresence()) {
-            scheduleReconnect();
-        }
-    }
-
-    /**
-     * Arranges one reconnect attempt, if one is not already pending.
-     *
-     * <p>Only a trusted server does this: an ordinary one opens lazily on the
-     * next {@code /rp sync} and a socket that closed is simply how that flow
-     * works. Failures back off from five seconds to five minutes, so a studio
-     * that is down for an hour is asked a dozen times rather than a thousand.
-     */
-    private void scheduleReconnect() {
-        synchronized (reconnectLock) {
-            if (stopped || reconnectScheduled || !announcesPresence()) {
-                return;
-            }
-            reconnectScheduled = true;
-            int delay = reconnectDelaySeconds;
-            reconnectDelaySeconds = Math.min(reconnectDelaySeconds * 2, RECONNECT_MAX_SECONDS);
-            try {
-                reconnects.schedule(this::retryConnect, delay, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                // close() raced us; nothing to reopen.
-                reconnectScheduled = false;
-            }
-        }
-    }
-
-    private void retryConnect() {
-        synchronized (reconnectLock) {
-            reconnectScheduled = false;
-        }
-        if (stopped) {
-            return;
-        }
-        if (connect()) {
-            logger.info("Reconnected to studio.");
-        } else {
-            scheduleReconnect();
         }
     }
 
@@ -405,10 +258,8 @@ public final class SyncClient {
                 public void onClose(int code, String reason, boolean remote) {
                     // Ordinary. A pairing socket is idle for long stretches and
                     // something in the middle will eventually close it; the next
-                    // /link opens a new one — or, on a trusted server, `lost`
-                    // reopens it itself, because nobody there types a code.
+                    // /link opens a new one.
                     logger.info("Studio pairing closed" + (reason.isEmpty() ? "." : ": " + reason));
-                    lost(this);
                 }
 
                 @Override
@@ -425,13 +276,6 @@ public final class SyncClient {
                 return false;
             }
             socket = client;
-            synchronized (reconnectLock) {
-                reconnectDelaySeconds = RECONNECT_FIRST_SECONDS;
-            }
-            Runnable hook = whenOpen;
-            if (hook != null) {
-                hook.run();
-            }
             return true;
         } catch (URISyntaxException e) {
             logger.warning("The sync url " + url + " is not a url.");

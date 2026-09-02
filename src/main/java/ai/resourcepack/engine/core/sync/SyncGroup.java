@@ -119,22 +119,8 @@ public final class SyncGroup {
         if (matches(owner, invitee)) {
             return Result.SELF;
         }
-        Optional<String> theirs = receiving(invitee);
-        if (theirs.isPresent()) {
-            // A player on a trusted server owns a sync keyed by their own uuid
-            // the moment they touch /rp sync, whether or not anybody joined it
-            // (see SyncCommands.own). Owning that, alone, is not "being on a
-            // sync" in the sense that should refuse an invite - it is the
-            // resting state of everybody there - so an empty one gives way.
-            // A code, or a uuid group with members, is a real sync and stays.
-            boolean idle = SyncCodes.isUuid(theirs.get())
-                    && matches(owners.get(theirs.get()), invitee)
-                    && members.getOrDefault(theirs.get(), Set.of()).isEmpty();
-            if (!idle) {
-                return Result.ALREADY;
-            }
-            owners.remove(theirs.get());
-            members.remove(theirs.get());
+        if (receiving(invitee).isPresent()) {
+            return Result.ALREADY;
         }
         invites.put(key(invitee), code.get());
         return Result.OK;

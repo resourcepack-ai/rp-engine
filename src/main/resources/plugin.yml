@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -53,6 +53,8 @@ permissions:
       rpengine.bind: true
       rpengine.unbind: true
       rpengine.liquid: true
+      rpengine.vehicles: true
+      rpengine.vehicle: true
       rpengine.sync: true
       rpengine.distribute: true
       rpengine.push: true
@@ -133,6 +135,12 @@ permissions:
     default: op
   rpengine.liquid:
     description: Mark out pools of a custom liquid.
+    default: op
+  rpengine.vehicles:
+    description: List the vehicles this server has.
+    default: op
+  rpengine.vehicle:
+    description: Park a vehicle, or take one away.
     default: op
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.

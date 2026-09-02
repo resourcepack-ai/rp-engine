@@ -22,6 +22,7 @@ plugins/RPEngine/content/
     recipes/     *.yml
     entities/    *.yml
     liquids/     *.yml
+    vehicles/    *.yml
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -554,6 +555,104 @@ animates, the bound copy animates: it faces wherever its host is facing, and
 The difference from `entities:` above is who spawns the thing. That defines a
 mob **we** spawn, with a model, from a content file. This puts a model on a mob
 that already exists and belongs to somebody else.
+
+## Vehicles
+
+A model people ride, with somewhere for up to eight of them to sit.
+
+```yaml
+# vehicles/cars.yml
+hatchback:
+  model: mypack:hatchback   # an item id, whose model it wears
+  name: "&bHatchback"
+  medium: land              # land | water | air
+  speed: 18                 # top speed, blocks per second
+  acceleration: 7.5         # how fast it gets there
+  turn-speed: 140           # degrees per second the body swings round
+  weight: 14                # 1-100. Heavier is slower to start and to stop
+  seats:
+    - {role: driver,    x: -0.4, y: 0.6, z: 0.6}
+    - {role: passenger, x:  0.4, y: 0.6, z: 0.6}
+    - {role: passenger, x: -0.4, y: 0.6, z: -0.5}
+    - {role: passenger, x:  0.4, y: 0.6, z: -0.5}
+```
+
+`/rp vehicle mypack:hatchback` parks one where you stand,
+`/rp vehicle remove` takes away the nearest, and `/rp vehicles` lists them.
+**Getting in is a right-click on a seat**, not a command.
+
+### Driving one
+
+**Look where you want to go.** Steering is your view, on every version, and
+that is deliberate: your own client draws the camera the instant you move the
+mouse, so a vehicle that follows it feels immediate even though everything
+else is a tick behind the server. `turn-speed` is how quickly the body catches
+up with your head — a low number is a lorry, a high one is a go-kart.
+
+The throttle depends on your server:
+
+- **Paper 1.21.4 and up** — W and S. Space is the handbrake on land and water,
+  and the climb in the air.
+- **Anything else** — right-click speeds up a notch, left-click slows down and
+  then reverses. Four clicks from a standstill to full.
+
+Sneak gets out, as it does for a boat. That is also why sneak is not the
+brake: a driver braking would step off at speed.
+
+**A and D do nothing**, on any version. They are your strafe keys, and a
+vehicle that answered them would slide sideways rather than steer.
+
+### Seats
+
+**The order of the list is the order people are put in them.** The driver is
+first — write it wherever you like and it is moved to the front — and the rest
+are passenger 1, 2, 3 in exactly the order you wrote them. Somebody who
+right-clicks the third seat gets the third seat. Reordering the list moves
+where people sit, not just how the file reads.
+
+`x` is to the vehicle's **right**, `z` is in **front** of it, both in blocks
+and both negative the other way. They turn with the vehicle, so a bench seats
+people along itself however it is parked — the same reading `place: seat:`
+uses for furniture.
+
+`yaw` turns the occupant, in degrees clockwise from the vehicle's own heading,
+and it aims them **as they sit down** rather than holding them there. A
+rear-facing bench writes `yaw: 180` and the passenger is turned round on
+arrival; where they look after that is up to them.
+
+`pose` is `sitting` (the default) or `standing`, and it decides what the
+position **means**: a sitting seat's point is where the occupant's backside
+goes, a standing one's is where their feet go. That is about a metre, so it is
+worth getting right.
+
+```yaml
+    - {role: passenger, x: 0, y: 1.2, z: -1.4, pose: standing, yaw: 180, name: "Gunner"}
+```
+
+**A vehicle with no driver seat does not load at all**, and says so naming the
+file. One that did would be a model claiming to be a vehicle with no way to
+move, and there would be nothing to go on but it not working.
+
+### What a vehicle is, underneath
+
+An invisible chassis that stays where you left it, wearing your model, with an
+invisible seat for each entry in the list. It is **parked** rather than
+conjured: it is there with nobody in it, it survives a restart, and only the
+chassis is saved — the seats and the model are rebuilt whenever its chunk
+loads.
+
+Two honest limits:
+
+- **It stops at a wall rather than sliding along it.** Driving into a building
+  brings you to a halt. Land vehicles step up one block, like a player.
+- **Passengers are as smooth as vanilla riding.** The driver's view is the
+  responsive one; everyone else sees the vehicle where the server last said it
+  was. Nothing on this side changes that.
+
+One server setting stops all of this working: `armor-stands-tick: false` in
+Paper's config. A stand that does not tick never moves, so every vehicle sits
+still. The engine notices and says so in the console rather than leaving you
+to guess.
 
 ## Custom blocks
 

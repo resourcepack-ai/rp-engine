@@ -235,34 +235,4 @@ class SyncGroupTest {
         assertFalse(group.invited(null));
         assertEquals(SyncGroup.Result.NO_INVITE, group.deny(null));
     }
-
-    @Test
-    void anIdleAccountSyncGivesWayToAnInvite() {
-        // On a trusted server everybody who touches /rp sync owns a group
-        // keyed by their uuid. Owning an empty one is the resting state there,
-        // not "being on a sync", so it must not refuse the invite.
-        group.claim("069a79f4e5ee4c6f8a7a3c1d2e3f4a5b", "Steve");
-
-        assertEquals(SyncGroup.Result.OK, group.invite("Notch", "Steve"));
-        assertEquals("48213097", group.accept("Steve").orElseThrow());
-        assertTrue(group.codeOf("Steve").isEmpty());
-    }
-
-    @Test
-    void anAccountSyncWithMembersIsARealOne() {
-        group.claim("069a79f4e5ee4c6f8a7a3c1d2e3f4a5b", "Steve");
-        group.invite("Steve", "Alex");
-        group.accept("Alex");
-
-        assertEquals(SyncGroup.Result.ALREADY, group.invite("Notch", "Steve"));
-        assertEquals(SyncGroup.Result.ALREADY, group.invite("Notch", "Alex"));
-    }
-
-    @Test
-    void anEmptyCodeSyncStillRefusesAnInvite() {
-        // A code was typed on purpose; it is not the resting state.
-        group.claim("11112222", "Steve");
-
-        assertEquals(SyncGroup.Result.ALREADY, group.invite("Notch", "Steve"));
-    }
 }
