@@ -654,10 +654,19 @@ Two honest limits:
 
 - **It stops at a wall rather than sliding along it.** Driving into a building
   brings you to a halt. Land vehicles step up one block, like a player.
-- **The hitbox is for clicking, not for colliding.** It is what a player aims
-  at to get in; it does not push anybody about and nothing bumps into it. A
-  long vehicle's box is several square tiles laid end to end, because the
-  entity behind it has a square footprint and no separate length.
+- **The hitbox is a shape, not a bounding box.** It decides three things: what
+  you click to get in, which blocks stop the vehicle, and who gets shoved out
+  of the way. What it is NOT is a box other things collide with of their own
+  accord — a plugin cannot give an entity a bounding box of its own size, so a
+  vehicle does not physically block an arrow, a minecart, or somebody
+  determined to walk into it. Players standing in the way are pushed aside,
+  which is the part anybody notices.
+- **Speed above about 20 blocks a second stops looking right for passengers.**
+  Their position is broadcast twenty times a second and their own client fills
+  in the gaps, so past a point they lag the vehicle however fast the server
+  is. The driver holds up better than the passengers, because steering is
+  their own camera. `speed:` allows 60 because a hovercraft skimming a lake is
+  not a car; treat anything above 20 as needing a look before you ship it.
 - **Passengers are as smooth as vanilla riding.** The driver's view is the
   responsive one; everyone else sees the vehicle where the server last said it
   was. Nothing on this side changes that.

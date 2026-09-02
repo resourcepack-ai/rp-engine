@@ -22,6 +22,7 @@ import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
@@ -149,6 +150,32 @@ public final class Vehicles implements Listener {
 
     /** A vehicle can climb this in one step, like a player. */
     private static final double STEP_UP = 1.0;
+
+    /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
+    private static final double SHOVE = 0.35;
+
+    /**
+     * How far an occupied seat may drift before it is teleported back.
+     *
+     * <p><strong>This number is the whole high-speed fix, so it is worth
+     * knowing what it trades.</strong> Teleporting a mount somebody is riding
+     * sends that player a position packet they must acknowledge before the
+     * server will accept their movement again. At twenty of those a second
+     * the acknowledgements cannot keep up with the round trip, so corrections
+     * queue and the rider falls further behind the faster the vehicle goes —
+     * which is exactly what "the server can't keep up" looks like.
+     *
+     * <p>So an occupied mount is moved by VELOCITY, which costs the rider no
+     * acknowledgement at all, and is teleported only when it has drifted
+     * further than this. Half a block is under one tick of travel at 12
+     * blocks a second, so an accurate mount is never teleported and a stuck
+     * one is corrected immediately.
+     *
+     * <p>It degrades safely, which is the point: if velocity turns out not to
+     * move a mount on some server, the drift exceeds this every tick and
+     * every tick teleports — exactly the behaviour this replaced, no worse.
+     */
+    private static final double SEAT_DRIFT = 0.5;
 
     private final Plugin plugin;
     private final Items items;
@@ -639,7 +666,17 @@ public final class Vehicles implements Listener {
             for (int i = 0; i < info.seats().size(); i++) {
                 Location seat = seatLocation(i);
                 ArmorStand mount = world.spawn(seat, ArmorStand.class, stand -> {
-                    stand.setMarker(true);
+                    // NOT a marker, and small. A marker is the right shape for
+                    // a chair — no box, nothing to collide with — but a marker
+                    // is also excluded from a great deal of vanilla's entity
+                    // ticking, and an entity that does not tick never applies
+                    // the velocity it is given. Velocity is what carries a
+                    // rider at speed without a teleport per tick (see
+                    // SEAT_DRIFT), so the mount has to be something that
+                    // moves. Small keeps its box to a quarter block, which is
+                    // the least that can snag on the bodywork around it.
+                    stand.setMarker(false);
+                    stand.setSmall(true);
                     stand.setVisible(false);
                     stand.setGravity(false);
                     stand.setInvulnerable(true);
@@ -876,6 +913,7 @@ public final class Vehicles implements Listener {
             state = step.state();
             if (step.moves()) {
                 apply(step);
+                shoveAside(step);
             }
             place(chassis);
         }
@@ -910,29 +948,25 @@ public final class Vehicles implements Listener {
 
         /** Commits a step, refusing whatever the world will not allow. */
         private void apply(VehiclePhysics.Step step) {
+            VehicleHitbox box = info.hitbox();
             double nextY = at.getY() + step.dy();
-            if (step.dy() < 0) {
-                Block landing = world.getBlockAt(new Location(world, at.getX(), nextY - 0.05, at.getZ()));
-                if (landing.getType().isSolid()) {
-                    nextY = landing.getY() + 1;
-                    state = state.landed();
-                }
+            if (step.dy() < 0 && solidUnder(at.getX(), nextY, at.getZ(), box)) {
+                nextY = Math.floor(nextY - 0.05) + 1;
+                state = state.landed();
             }
 
             double nextX = at.getX() + step.dx();
             double nextZ = at.getZ() + step.dz();
             if (step.dx() != 0 || step.dz() != 0) {
-                double length = Math.hypot(step.dx(), step.dz());
-                // A nose length ahead of where it will be, so a vehicle stops
-                // at a wall rather than with its bonnet inside it.
-                double aheadX = nextX + step.dx() / length * NOSE;
-                double aheadZ = nextZ + step.dz() / length * NOSE;
-                Block ahead = world.getBlockAt(new Location(world, aheadX, nextY + 0.1, aheadZ));
-                if (ahead.getType().isSolid()) {
+                // The WHOLE FOOTPRINT at the destination, not one point a nose
+                // length ahead. A point check is a vehicle whose bodywork goes
+                // through a wall its centre line misses — which is most walls,
+                // for anything wider than a block.
+                if (blocked(nextX, nextY, nextZ, box, state.yaw())) {
                     boolean canStep = info.medium() == VehicleMedium.LAND
-                            && !ahead.getRelative(0, 1, 0).getType().isSolid();
+                            && !blocked(nextX, nextY + STEP_UP, nextZ, box, state.yaw());
                     if (canStep) {
-                        nextY = Math.max(nextY, ahead.getY() + STEP_UP);
+                        nextY += STEP_UP;
                     } else {
                         // Stopped dead rather than sliding along the wall.
                         // Sliding is what a player expects and is a much
@@ -946,6 +980,88 @@ public final class Vehicles implements Listener {
             }
 
             at = new Location(world, nextX, nextY, nextZ);
+        }
+
+        /**
+         * Whether the vehicle's box would be inside a solid block there.
+         *
+         * <p>Sampled at the four corners of the footprint and at its centre,
+         * at every block height the box spans. Sampling rather than a true
+         * swept volume: a real sweep is a much bigger piece of work and this
+         * runs for every moving vehicle every tick, and the failure of
+         * sampling — squeezing a corner through a one-block pillar at very
+         * high speed — is a great deal less visible than the failure it
+         * replaced, which was driving through the side of a house.
+         *
+         * <p>The bottom of the box is deliberately not sampled: a vehicle
+         * rests ON the ground, so its own floor is always in the block it is
+         * standing on.
+         */
+        private boolean blocked(double x, double y, double z, VehicleHitbox box, double yaw) {
+            double halfWidth = box.width() / 2;
+            double halfLength = box.length() / 2;
+            for (double dy = 0.2; dy < box.height(); dy += 1) {
+                for (int corner = 0; corner < 5; corner++) {
+                    double right = corner == 4 ? 0 : (corner < 2 ? -halfWidth : halfWidth);
+                    double forward = corner == 4 ? 0 : (corner % 2 == 0 ? -halfLength : halfLength);
+                    double[] offset = VehiclePhysics.seatOffset(yaw, right, forward);
+                    if (world.getBlockAt(new Location(world, x + offset[0], y + dy, z + offset[1]))
+                            .getType().isSolid()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /** Whether anything solid is under the footprint at {@code y}. */
+        private boolean solidUnder(double x, double y, double z, VehicleHitbox box) {
+            double halfWidth = box.width() / 2;
+            double halfLength = box.length() / 2;
+            for (int corner = 0; corner < 5; corner++) {
+                double right = corner == 4 ? 0 : (corner < 2 ? -halfWidth : halfWidth);
+                double forward = corner == 4 ? 0 : (corner % 2 == 0 ? -halfLength : halfLength);
+                double[] offset = VehiclePhysics.seatOffset(state.yaw(), right, forward);
+                if (world.getBlockAt(new Location(world, x + offset[0], y - 0.05, z + offset[1]))
+                        .getType().isSolid()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Shoves anything standing where the vehicle is going.
+         *
+         * <p><strong>This is what "the hitbox collides" actually means here,
+         * and it is not a bounding box.</strong> A Bukkit plugin cannot give
+         * an entity a bounding box of its own size — a box comes from the
+         * entity TYPE — so a vehicle-shaped solid is not something that can be
+         * asked for. What can be done is the effect: anybody inside the box
+         * gets pushed out of it, away from the centre and along the way the
+         * vehicle is going, so a car shoves you aside instead of passing
+         * through you.
+         *
+         * <p>Occupants are exempt, obviously. So are other vehicles' parts,
+         * which are ours and are already where they should be.
+         */
+        private void shoveAside(VehiclePhysics.Step step) {
+            VehicleHitbox box = info.hitbox();
+            double reach = Math.max(box.width(), box.length()) / 2 + 0.5;
+            for (Entity nearby : world.getNearbyEntities(at, reach, box.height(), reach)) {
+                if (!(nearby instanceof LivingEntity) || occupants.contains(nearby.getUniqueId())) {
+                    continue;
+                }
+                double dx = nearby.getLocation().getX() - at.getX();
+                double dz = nearby.getLocation().getZ() - at.getZ();
+                double away = Math.hypot(dx, dz);
+                // Straight through the middle has no direction to be pushed
+                // in, so it gets the vehicle's own.
+                Vector push = away < 0.05
+                        ? new Vector(step.dx(), 0, step.dz())
+                        : new Vector(dx / away, 0, dz / away).multiply(SHOVE);
+                nearby.setVelocity(nearby.getVelocity().add(push.add(new Vector(step.dx(), 0, step.dz()))));
+            }
         }
 
         /**
@@ -970,11 +1086,20 @@ public final class Vehicles implements Listener {
                 }
                 Location target = mountLocation(i);
                 if (occupants.get(i) == null) {
+                    // Nobody to send a packet to, so exactness is free.
                     mount.teleport(target);
-                } else if (!seatMover.move(mount, target)) {
-                    // Neither teleport arm worked on this server. Lossy, and
-                    // the rider will trail — but trailing beats standing still.
-                    mount.setVelocity(target.toVector().subtract(mount.getLocation().toVector()));
+                    continue;
+                }
+                // Somebody is on it. Velocity first — see SEAT_DRIFT — and a
+                // teleport only to correct real drift, because every teleport
+                // costs the rider a round trip they have to acknowledge.
+                Vector wanted = target.toVector().subtract(mount.getLocation().toVector());
+                if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT) {
+                    if (!seatMover.move(mount, target)) {
+                        mount.setVelocity(wanted);
+                    }
+                } else {
+                    mount.setVelocity(wanted);
                 }
                 Entity hitbox = plugin.getServer().getEntity(hitboxes.get(i));
                 if (hitbox != null) {
