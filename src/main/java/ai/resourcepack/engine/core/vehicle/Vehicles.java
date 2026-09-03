@@ -335,9 +335,6 @@ public final class Vehicles implements Listener {
     /** Said once, however many vehicles are stuck. */
     private volatile boolean warnedFrozen;
 
-    /** Said once, however many riders cannot be put in a rig. */
-    private volatile boolean warnedNoSeatRigs;
-
     /**
      * Which (rider, emote, reason) triples have already been reported.
      *
@@ -907,16 +904,23 @@ public final class Vehicles implements Listener {
      * about any of them, and a chat line per person per seat per journey would
      * be worse than the thing it is reporting.
      */
-    private void warnIfNoSeatRigs(EmoteResult result) {
-        if (warnedNoSeatRigs) {
+    private void warnIfNoSeatRigs(Player player, EmoteResult result) {
+        // Once per PLAYER per reason, not once per server. It was the latter,
+        // and that is close to no diagnostic at all for the question it is
+        // there to answer: "everybody else rides as themselves and I do not"
+        // is a fact about which players the pack carries a rig for, so a line
+        // that fires once and names nobody cannot distinguish one unlucky
+        // rider from all of them. The set is bounded by players times reasons,
+        // which on a server where this is happening is small and on one where
+        // it is not is empty.
+        if (!warnedRefusals.add(player.getUniqueId() + "/@stance/" + result.reason())) {
             return;
         }
-        warnedNoSeatRigs = true;
-        log.warning("Vehicle occupants are riding as ordinary players rather than in their rigs ("
-                + result.reason() + "). A seat puts somebody in their emote rig by default, which "
-                + "needs the pack to carry a baked rig for that player - sync the pack again while "
-                + "they are online, or set vehicles.seat-rig: false in config.yml if you would "
-                + "rather riders stayed themselves.");
+        log.warning("Vehicle: " + player.getName() + " is riding as an ordinary player rather than "
+                + "in their rig (" + result.reason() + "). A seat puts somebody in their emote rig "
+                + "by default, which needs the pack to carry a baked rig for THAT player - sync the "
+                + "pack again while they are online, or set vehicles.seat-rig: false in config.yml "
+                + "if you would rather riders stayed themselves.");
     }
 
     private void warnIfFrozen() {
@@ -1700,7 +1704,7 @@ public final class Vehicles implements Listener {
                 return;
             }
             if (wanted == null) {
-                warnIfNoSeatRigs(result);
+                warnIfNoSeatRigs(player, result);
                 return;
             }
             if (!warnedRefusals.add(player.getUniqueId() + "/" + wanted + "/" + result.reason())) {
