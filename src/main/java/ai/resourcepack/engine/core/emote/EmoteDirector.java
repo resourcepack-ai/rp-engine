@@ -26,8 +26,10 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scoreboard.Team;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
@@ -136,10 +138,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p><b>The potion alone does NOT hide a player, and assuming it did was a
  * bug.</b> Invisibility hides the skin and nothing else: armour still renders,
  * and so does the held item, the name plate and the shadow. So the body is
- * hidden in two halves — {@code hidePlayer} stops everybody else being sent the
- * entity at all (armour included, and with no equipment to take off anybody and
- * hand back), and the potion covers the one view {@code hidePlayer} cannot,
- * because Bukkit cannot hide a player from THEMSELVES.
+ * hidden in three halves. {@code hidePlayer} stops everybody else being sent
+ * the entity at all (armour included, and with no equipment to take off
+ * anybody and hand back). The potion covers the one view {@code hidePlayer}
+ * cannot, because Bukkit cannot hide a player from THEMSELVES. And
+ * {@link #hideArmourFromWearer} covers what the potion leaves in that same
+ * view — a client-side equipment packet for the four armour slots, which is
+ * how a rider stops watching their own helmet ride along inside their rig.
+ * <b>The hands are not in it</b>, and that is the line to leave alone: blanking
+ * a hand is what broke bows, shields and eating, and {@link #conceal} has the
+ * whole account.
  *
  * <p><b>A scoreboard team can undo all of this, and the default is that it
  * does.</b> {@code Team#canSeeFriendlyInvisibles} starts ON, and a client
@@ -150,7 +158,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * entity is still sent to. Nothing here can fix it: the scoreboard belongs to
  * the server, and turning the flag off for a team would be this library
  * making a PvP decision on somebody else's behalf. A server seeing ghosts
- * wants {@code setCanSeeFriendlyInvisibles(false)} on the teams it creates.
+ * wants {@code setCanSeeFriendlyInvisibles(false)} on the teams it creates,
+ * and {@link #warnIfGhosted} says so in the console once rather than leaving
+ * an owner to work out why a rider is still half there.
  *
  * <p><b>There is no combat gate.</b> Starting an emote used to be refused for
  * five seconds after taking damage, on the reasoning that turning invisible
@@ -390,6 +400,16 @@ public final class EmoteDirector implements Listener {
 
     private final Map<UUID, Session> active = new ConcurrentHashMap<>();
     private int taskId = -1;
+
+    /**
+     * Said once, however many players are ghosting. See {@link #warnIfGhosted}.
+     *
+     * <p>Once rather than per player, for the reason every other one-shot
+     * warning in this plugin is: it is one fact about this server's scoreboard,
+     * and repeating it per rider would bury it in the thing it is warning
+     * about.
+     */
+    private volatile boolean warnedGhost;
 
     private static final class Session {
         EmoteStore.Emote emote;
@@ -1920,6 +1940,11 @@ public final class EmoteDirector implements Listener {
                 false, // not ambient: ambient is the beacon look, dimmer but still swirling
                 false, // no particles, which is the whole point of using this
                 false)); // no inventory icon either — this is not a status they chose
+            // The potion hides a skin. This is the rest of the body — see
+            // hideArmourFromWearer — and without it "hidden" meant a helmet and
+            // a pair of boots riding along inside the rig.
+            hideArmourFromWearer(player, true);
+            warnIfGhosted(player);
         }
         hideFromOthers(player);
     }
@@ -1990,6 +2015,9 @@ public final class EmoteDirector implements Listener {
         // `conceal` is what makes that free: the pair being symmetrical is what
         // stops a later change to one of them leaving somebody invisible.
         if (!session.hideFromOwnWearer()) {
+            // Their armour back on their own screen, before the potion, so
+            // there is never a frame of a visible body in an empty set.
+            hideArmourFromWearer(player, false);
             player.removePotionEffect(PotionEffectType.INVISIBILITY);
             String invis = player.getPersistentDataContainer().get(previousInvisKey, PersistentDataType.STRING);
             Invisibility.Stored previous = invis == null
@@ -2171,12 +2199,19 @@ public final class EmoteDirector implements Listener {
         // leaves somebody standing in the wrong place, which they can walk
         // out of. Getting this wrong leaves them a ghost.
         showToOthers(player);
-        // Their own hotbar back, on the same unconditional terms as the potion
-        // below. Nothing blanks it any more (see `conceal`), so in the ordinary
-        // case this is one wasted packet — but a player who was mid-emote when
-        // a jar older than this change was swapped out is carrying a blank
-        // their new session will never clear, and one packet is a cheap price
-        // for that not being permanent.
+        // Their own armour back on their own screen, unconditionally and for
+        // the same reason as the potion below: this is the ENDING, and the
+        // state worth healing is the one where a blank was sent and the pass
+        // that would have cleared it never ran. Sending somebody their real
+        // armour when nothing blanked it is four wasted packets.
+        hideArmourFromWearer(player, false);
+        // Their own hotbar back, on the same unconditional terms. Nothing
+        // blanks the HANDS any more (see `conceal`), so in the ordinary case
+        // this is one wasted packet — but a player who was mid-emote when a jar
+        // older than that change was swapped out is carrying a blank their new
+        // session will never clear, and one packet is a cheap price for that
+        // not being permanent. It is also what puts the armour SLOTS back in an
+        // inventory screen, which the equipment packets above do not.
         player.updateInventory();
         // Unconditional rather than gated on the marker. The marker is our
         // record of what they had BEFORE; the effect is ours either way, and
@@ -2262,13 +2297,90 @@ public final class EmoteDirector implements Listener {
      *
      * <p>The potion stays, and is not redundant: Bukkit cannot hide a player
      * from THEMSELVES, so it is the only thing covering the emoter's own view
-     * of their body in third person. The two together are what the spectator
-     * swap used to do alone.
+     * of their body in third person. It is not sufficient there either, which
+     * is what {@link #hideArmourFromWearer} is for — same leak, one view, and
+     * a packet rather than an inventory edit. The three together are what the
+     * spectator swap used to do alone.
      */
     private void hideFromOthers(Player player) {
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             if (!viewer.getUniqueId().equals(player.getUniqueId())) viewer.hidePlayer(host.plugin(), player);
         }
+    }
+
+    /**
+     * The four slots whose contents keep rendering on an invisible player.
+     *
+     * <p>The hands are deliberately absent, and that omission is the whole
+     * reason this is safe — see {@link #conceal}, which has the wreckage of the
+     * attempt that included them.
+     */
+    private static final EquipmentSlot[] ARMOUR = {
+        EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET
+    };
+
+    /**
+     * Takes the wearer's own armour off their own screen.
+     *
+     * <p><b>The potion hides a skin, and a skin is not a body.</b> Armour keeps
+     * rendering on an invisible player, so somebody who got into a vehicle in a
+     * full set watched a helmet and a pair of boots ride along inside their own
+     * rig. For everybody ELSE that has never been a problem — {@code hidePlayer}
+     * does not send the entity at all, armour included — so this closes the one
+     * view that cannot be closed that way.
+     *
+     * <p><b>Client-side only, and that is what makes it affordable.</b>
+     * {@code sendEquipmentChange} is a packet to one connection; nothing is
+     * taken off anybody and nothing is stored, so there is no armour to lose in
+     * a crash and no marker to recover from — a reconnecting client is sent the
+     * real equipment by the server as a matter of course. That is the trade the
+     * class note says this deliberately avoids making, avoided.
+     *
+     * <p><b>Only the four armour slots</b>, never the hands. Sending a blank
+     * hand is what broke bows, shields, eating and crossbows — a client applies
+     * the packet to its own inventory and then declines to start a use action
+     * it believes it has nothing to start. Armour has no use action to break,
+     * and the armour bar reads a server-synced attribute rather than this. What
+     * it does cost is an inventory screen opened mid-ride showing four empty
+     * slots until {@link #restore}'s {@code updateInventory} or the next real
+     * equipment change puts them back, which is a great deal less than a
+     * floating helmet for the whole journey.
+     */
+    private void hideArmourFromWearer(Player player, boolean hidden) {
+        ItemStack air = new ItemStack(Material.AIR);
+        for (EquipmentSlot slot : ARMOUR) {
+            ItemStack real = player.getInventory().getItem(slot);
+            player.sendEquipmentChange(player, slot, hidden || real == null ? air : real);
+        }
+    }
+
+    /**
+     * Says once that this server's scoreboard is why riders see a ghost of
+     * themselves.
+     *
+     * <p>{@code Team#canSeeFriendlyInvisibles} starts ON, and a client renders
+     * a friendly invisible as a translucent copy rather than as nothing — so on
+     * a server whose tab-list or name-colour plugin puts players on teams,
+     * which is most of them, the wearer sees a see-through version of
+     * themselves standing inside their own rig however thoroughly this hides
+     * them. <b>Nothing here can fix it</b>: the scoreboard belongs to the
+     * server, and turning the flag off for somebody else's team would be this
+     * library making a PvP decision on their behalf.
+     *
+     * <p>So it is SAID instead. The alternative is the one thing worse than the
+     * ghost: an owner who has done everything right, cannot see what is wrong,
+     * and concludes the feature is broken. One line, once, naming the switch.
+     */
+    private void warnIfGhosted(Player player) {
+        if (warnedGhost) return;
+        Team team = player.getScoreboard().getEntryTeam(player.getName());
+        if (team == null || !team.canSeeFriendlyInvisibles()) return;
+        warnedGhost = true;
+        host.plugin().getLogger().warning("A player wearing a rig can still see a see-through copy of "
+            + "themselves, because they are on scoreboard team '" + team.getName() + "' and that team has "
+            + "canSeeFriendlyInvisibles switched on - which makes a client draw a friendly invisible as a "
+            + "ghost rather than as nothing. Whichever plugin creates that team wants "
+            + "setCanSeeFriendlyInvisibles(false); this plugin must not change somebody else's team.");
     }
 
     /** And back. Showing somebody who was never hidden is a no-op. */
