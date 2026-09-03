@@ -34,6 +34,23 @@ import java.util.Optional;
  * reversing round a corner is reversing; and being in water is the least
  * specific of them, because for a boat it is simply the normal case.
  *
+ * <h2>{@link #IDLE} is the floor, and that is the one rule that is not
+ * precedence</h2>
+ *
+ * <p>Every state above it names something the vehicle is <em>doing</em>, so
+ * falling through from a blank one to the next is right: a cornering car with
+ * no {@code turning} animation should carry on driving. {@code IDLE} says it is
+ * doing nothing, and there is nothing quieter to fall through to — so a blank
+ * {@code idle} is silence rather than a licence for a lower state to take over.
+ *
+ * <p>That is not theoretical. {@link #SUBMERGED} is permanently true for a
+ * boat, so under a plain fall-through a rowing cycle mapped to it played for
+ * ever, moored or not, and clearing {@code idle} did nothing at all — the
+ * author had turned the animation off in the one place the engine would never
+ * look. {@code SUBMERGED} therefore sits <em>below</em> {@code IDLE}, where the
+ * class note already said being in water belonged, and {@code IDLE} stops the
+ * walk.
+ *
  * <p>Studio's editor offers exactly these under the same names. There is no
  * shared type between a Worker and a jar, so that agreement is by hand: change
  * a name here and change {@code VEHICLE_STATES} in studio's
@@ -65,11 +82,24 @@ public enum VehicleState {
      */
     TURNING,
 
-    /** Its base is in water. For a boat this is the ordinary case, not an event. */
-    SUBMERGED,
+    /**
+     * Stationary, or near enough that nobody can tell.
+     *
+     * <p><strong>The floor.</strong> Nothing below it may be reached while it
+     * holds — see the class note. A vehicle that is doing nothing plays what
+     * {@code idle} names, or nothing at all.
+     */
+    IDLE,
 
-    /** Stationary, or near enough that nobody can tell. */
-    IDLE;
+    /**
+     * Its base is in water. For a boat this is the ordinary case, not an event.
+     *
+     * <p>Below {@link #IDLE} on purpose, which makes it the state a vehicle
+     * reaches only while it is <em>doing</em> something the pack left blank —
+     * a car crossing a ford with no {@code moving} animation, say. A moored
+     * boat is idle, not submerged, however true the water is.
+     */
+    SUBMERGED;
 
     /** The name an author writes, lowercased. */
     public String key() {
@@ -106,6 +136,13 @@ public enum VehicleState {
      * than "play nothing". Configuring only {@code idle} therefore gives a
      * vehicle that idles when still and holds that pose when driven, which is
      * a reasonable half-finished vehicle rather than one that flickers.
+     *
+     * <p><strong>Except at {@link #IDLE}, where the walk stops.</strong> The
+     * fall-through is "carry on with what you were doing", and a vehicle that
+     * is idle is not doing anything — so a blank {@code idle} means silence.
+     * Without that, the one state a boat can never leave sat under the one it
+     * is in whenever it is moored, and a pack that mapped both got its rowing
+     * cycle for ever with no mapping the editor could write to stop it.
      */
     public static Optional<String> choose(Collection<VehicleState> active,
                                           Map<VehicleState, String> animations) {
@@ -122,6 +159,12 @@ public enum VehicleState {
             String animation = animations.get(state);
             if (animation != null && !animation.isEmpty()) {
                 return Optional.of(animation);
+            }
+            if (state == IDLE) {
+                // The floor. Reaching it means nothing above it is happening,
+                // and nothing below it is a better description of standing
+                // still than standing still is.
+                return Optional.empty();
             }
         }
         return Optional.empty();

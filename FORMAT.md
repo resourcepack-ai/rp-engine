@@ -686,8 +686,8 @@ A vehicle is always doing something, and six words describe it:
 | `reversing` | Travelling backwards |
 | `moving` | Travelling forwards |
 | `turning` | Swinging round faster than a nudge |
-| `submerged` | Its base is in water |
 | `idle` | Stationary, or near enough |
+| `submerged` | Its base is in water |
 
 **It is in several of them at once.** A car coming down off a kerb mid-corner
 is `moving`, `turning` and `airborne` together, and a boat under way is
@@ -720,15 +720,21 @@ worth internalising, because it is what makes a short answer a complete one:
 is a finished vehicle. Cornering plays `drive`, because `turning` is unset and
 falls through to `moving`. Going over a bump plays `drive` too. You only write
 `turning:` if you have actually drawn a leaning animation, and you never have
-to think about `submerged` unless you want a boat that bobs differently at
-rest.
+to think about `submerged` at all.
 
-**A boat is always `submerged`**, so that state is the one most able to shadow
-another for a water vehicle. Map only `idle` and `moving` and a boat rows when
-it moves and idles when it stops, exactly as you would expect — `submerged` is
-blank, so it falls through. Map `submerged` as well and a still boat plays that
-instead, which is how you give it a bob at rest. Both readings are deliberate;
-the one to know is that you never have to think about `submerged` at all.
+**`idle` is where the fall-through stops.** Every state above it names
+something the vehicle is *doing*, so a blank one carrying on with the next is
+right. `idle` says it is doing nothing, and there is nothing quieter to fall
+through to — so **leave `idle` blank and a vehicle standing still plays
+nothing**, which is what makes clearing it a way to switch an animation off.
+
+**A boat is always `submerged`**, which is exactly why that state is the last
+one and sits *below* `idle`. A state that is permanently true describes
+nothing, and while it sat above `idle` it took every quiet moment a boat had: a
+rowing cycle mapped to `submerged` rowed at the mooring, and clearing `idle`
+could not stop it. So a moored boat is `idle`, not `submerged` — put its
+resting animation on `idle`, and reach for `submerged` only for a vehicle that
+does something particular in water while the states above it are blank.
 
 Whatever a state names **loops for as long as that state holds**, whether or
 not the animation itself is authored as a loop. A state is a condition rather
