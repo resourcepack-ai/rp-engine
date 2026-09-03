@@ -222,6 +222,32 @@ public final class Vehicles implements Listener {
     private static final double SHOVE = 0.35;
 
     /**
+     * How often a vehicle nobody is in and that is going nowhere does a full
+     * tick.
+     *
+     * <p><strong>The class note said empty vehicles are not ticked at all, and
+     * that was not true of the code.</strong> Every chassis in a loaded chunk
+     * is adopted and every adopted chassis got the whole tick: five block
+     * reads, a physics step, and then {@link Ride#place} teleporting the
+     * chassis, every seat mount, every seat hitbox, every body tile and the
+     * model — twenty times a second, for a car park nobody is standing in. The
+     * promise that a hundred parked vehicles cost nothing was the design, and
+     * the arithmetic was doing the opposite.
+     *
+     * <p>So a settled empty vehicle does the cheap half — its animation and its
+     * particles, both of which return immediately for a vehicle that has none —
+     * and re-reads the world on this clock. Half a second is short enough that
+     * a vehicle whose ground was mined starts falling before anybody has
+     * finished watching it not fall, and long enough that the saving is an
+     * order of magnitude.
+     *
+     * <p>It is also what keeps {@link Ride#place}'s drift correction alive: a
+     * chassis shoved by another plugin is put back on the next poll rather than
+     * never.
+     */
+    private static final int PARKED_POLL_TICKS = 10;
+
+    /**
      * How far an occupied seat may drift before it is teleported back.
      *
      * <p><strong>This number is the whole high-speed fix, so it is worth
@@ -311,6 +337,16 @@ public final class Vehicles implements Listener {
 
     /** Said once, however many riders cannot be put in a rig. */
     private volatile boolean warnedNoSeatRigs;
+
+    /**
+     * Which (rider, emote, reason) triples have already been reported.
+     *
+     * <p>Bounded by how many distinct things can go wrong rather than by how
+     * long the server has been up: a pack has a handful of seat emotes and a
+     * refusal has a handful of reasons, so this is tens of strings on a server
+     * where something is wrong and empty on one where nothing is.
+     */
+    private final Set<String> warnedRefusals = ConcurrentHashMap.newKeySet();
 
     /**
      * Added to every vehicle seat, from config.yml.
@@ -640,15 +676,37 @@ public final class Vehicles implements Listener {
         if (seat.isDriver()) {
             controls.take(player.getUniqueId());
         }
-        // Said out loud, because who is driving was a mystery worth solving
-        // from the outside: on a small vehicle the seat markers overlap, and
-        // somebody who meant to drive and got a passenger seat had nothing to
-        // tell them so. The controls come with it, since they differ by
-        // server and nobody reads a startup report.
-        Chat.send(player, seat.isDriver()
-                ? "You are driving " + nameOf(ride.info) + ". " + controls.describe() + "."
-                : "You are riding in " + nameOf(ride.info) + ", "
-                        + seatName(ride.info, seat).toLowerCase(Locale.ROOT) + ".");
+        // <strong>On the action bar, not in chat.</strong> Which seat you got
+        // is worth saying — on a small vehicle the markers overlap, and
+        // somebody who meant to drive and got a passenger seat has nothing else
+        // to tell them — and so are the controls, which differ by server and
+        // are not in any startup report a player reads. What it is not worth is
+        // a permanent line in the chat log every time anybody gets into
+        // anything. The action bar is exactly the right shape for it: read once
+        // as you sit down, gone by the time you are driving.
+        overhead(player, seat.isDriver()
+                ? "Driving " + nameOf(ride.info) + " - " + controls.describe()
+                : "Riding in " + nameOf(ride.info) + " - "
+                        + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Puts a line above the hotbar rather than in the chat log.
+     *
+     * <p><strong>Where every transient thing a vehicle says now goes.</strong>
+     * Which seat you took and whether a hull is beached are both conditions of
+     * the next few seconds; in chat they are permanent, they stack, and driving
+     * a boat around a shoreline for a minute leaves a page of them. The action
+     * bar says it where somebody is already looking and takes it away again.
+     *
+     * <p>Spigot's own API, which is the same one {@code ActionRunner} uses for
+     * an item's action bar message — this engine compiles against Spigot, and
+     * {@code Player#sendActionBar} is Paper's.
+     */
+    private static void overhead(Player player, String line) {
+        player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
+                        ChatColor.translateAlternateColorCodes('&', line)));
     }
 
     /** What to call a seat in a message: its own name, or its role and number. */
@@ -884,6 +942,26 @@ public final class Vehicles implements Listener {
         private long age;
 
         /**
+         * Whether the last full tick found this vehicle empty and going
+         * nowhere.
+         *
+         * <p>Latched rather than asked, because asking is the expensive part:
+         * knowing whether a vehicle would move needs the block reads and the
+         * physics step this is there to skip. So the answer from the last full
+         * tick stands until the next one — see {@link #PARKED_POLL_TICKS}.
+         */
+        private boolean parked;
+
+        /**
+         * What it was doing when it parked.
+         *
+         * <p>Kept so the cheap path can still drive the animation and the
+         * emitters: a parked vehicle is in {@code idle} (and, for a boat,
+         * {@code submerged}), and those are states a pack maps things to.
+         */
+        private Set<VehicleState> parkedStates = Set.of();
+
+        /**
          * What each occupant is currently wearing, or null for their own body.
          *
          * <p>Per OCCUPANT rather than per vehicle: two seats wear different
@@ -893,6 +971,25 @@ public final class Vehicles implements Listener {
          * nothing being re-asked every tick.
          */
         private final Map<UUID, String> worn = new java.util.HashMap<>();
+
+        /**
+         * Who is actually wearing something right now, as opposed to who has
+         * been asked to.
+         *
+         * <p><strong>The two are not the same and the difference is a rider
+         * stuck as themselves for the rest of the journey.</strong>
+         * {@link #worn} is written BEFORE the call so that a refusal is not
+         * retried twenty times a second — which is right, and which also means
+         * it keeps saying "wearing the drive pose" after anything outside this
+         * vehicle takes the rig off: {@code /emote stop}, a death, a plugin
+         * ending the session. Nothing changes state afterwards, so the memo
+         * never disagrees with itself and the rig never comes back.
+         *
+         * <p>This is the other half: only somebody whose {@code wear} actually
+         * STARTED is in here, so a rig that has gone missing can be re-asked
+         * without turning a permanent refusal into a lookup per tick.
+         */
+        private final Set<UUID> dressed = new java.util.HashSet<>();
 
         /**
          * Whether the driver has already been told this hull is out of water.
@@ -1206,6 +1303,10 @@ public final class Vehicles implements Listener {
                 return false;
             }
             occupants.set(index, player.getUniqueId());
+            // The cheap tick is latched from the LAST full one, so somebody
+            // getting into a parked vehicle would otherwise wait up to
+            // PARKED_POLL_TICKS before it noticed them.
+            parked = false;
             return true;
         }
 
@@ -1298,6 +1399,18 @@ public final class Vehicles implements Listener {
             }
 
             age++;
+
+            // Nobody in it and going nowhere: the art keeps running and
+            // nothing else does. See PARKED_POLL_TICKS — both calls below
+            // return immediately for a vehicle with no rig and no emitters,
+            // which is most of them, so a parked car park really does cost
+            // nothing.
+            if (parked && age % PARKED_POLL_TICKS != 0) {
+                animate(parkedStates);
+                particles.emit(world, at, state.yaw(), info, parkedStates, age);
+                return;
+            }
+
             Player driver = driver();
             VehiclePhysics.Demand demand = driver == null
                     ? VehiclePhysics.Demand.idle(state.yaw())
@@ -1321,6 +1434,22 @@ public final class Vehicles implements Listener {
             dressOccupants(step.states());
             particles.emit(world, at, state.yaw(), info, step.states(), age);
             sayIfBeached(driver, around);
+
+            // Occupied is never parked, whether or not it is moving: a rider's
+            // rig is aimed every tick, and half a second of a driver's body
+            // pointing where the vehicle used to point is a visible thing.
+            parked = !step.moves() && empty();
+            parkedStates = step.states();
+        }
+
+        /** Whether every seat is free. */
+        private boolean empty() {
+            for (UUID occupant : occupants) {
+                if (occupant != null) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         /**
@@ -1386,14 +1515,26 @@ public final class Vehicles implements Listener {
                         this.state.yaw() + seat.yaw() + SEAT_RIG_YAW_OFFSET));
                 String named = state == null ? null : seat.animations().get(state);
                 String wanted = named != null ? named : fallbackStance(seat);
-                if (Objects.equals(wanted, worn.get(id))) {
+                // A rig that was ON and is not any more is re-asked whatever
+                // the memo says: something outside this vehicle took it off,
+                // and the memo cannot see that. Only somebody we actually
+                // dressed is ever re-asked, which is what stops a permanent
+                // refusal becoming a lookup per tick — see `dressed`.
+                boolean lost = dressed.contains(id) && !emotes.isEmoting(id);
+                if (Objects.equals(wanted, worn.get(id)) && !lost) {
                     continue;
                 }
                 // Recorded before the call rather than after, so a refusal —
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
                 worn.put(id, wanted);
-                sayIfRefused(player, named, emotes.wear(player, wanted));
+                EmoteResult result = emotes.wear(player, wanted);
+                if (wanted != null && result != null && result.started()) {
+                    dressed.add(id);
+                } else {
+                    dressed.remove(id);
+                }
+                sayIfRefused(player, named, result);
             }
         }
 
@@ -1422,27 +1563,25 @@ public final class Vehicles implements Listener {
         }
 
         /**
-         * Tells an occupant why their body did not change, when it did not.
+         * Records why an occupant's body did not change, when it did not.
          *
-         * <p><strong>This was thrown away, and throwing it away is most of why
-         * "I am still just me in the seat" had no answer.</strong> Every way
-         * {@code wear} can refuse is a real, fixable state — the pack carries
-         * no rig for this player, the emote id no longer exists, they are
-         * mid-emote of their own — and every one of them looked identical from
-         * the seat: nothing happened, no message, nothing in the console.
+         * <p>Every way {@code wear} can refuse is a real, fixable state — the
+         * pack carries no rig for this player, the emote id no longer exists,
+         * they are mid-emote of their own — and every one of them looks
+         * identical from the seat: nothing happened. Throwing the reason away
+         * was why "I am still just me in the seat" had no answer.
          *
-         * <p>Said to the RIDER rather than only logged, because they are the
-         * one who can see that nothing happened, and once per change rather
-         * than per tick because {@code worn} has already been written by the
-         * time this runs.
+         * <p><strong>It goes to the console and not to the rider.</strong> It
+         * was a chat line, and chat is the wrong place for it twice over: the
+         * rider can act on none of these — every remedy belongs to whoever owns
+         * the pack — and it fires on a state CHANGE, so a boat crossing in and
+         * out of a mapping while somebody manoeuvres it repeats the same
+         * sentence at them. A server owner debugging a vehicle is not the
+         * person sitting in it, and this is the line they need.
          *
-         * <p><strong>Only when the seat NAMED an emote.</strong> The built-in
-         * stance is asked for on behalf of a pack that said nothing, so its
-         * failure is not that author's mistake and is almost always one fact
-         * about the pack rather than about this rider — it carries no emote
-         * rigs. That goes to the console once and nowhere near chat, because
-         * the alternative is a line per person per seat per journey saying the
-         * same thing.
+         * <p>Once per rider per reason, which {@code worn} does not cover on
+         * its own: that stops the retry within one state, and a seat whose
+         * states genuinely alternate would still write a line each way round.
          */
         private void sayIfRefused(Player player, String wanted, EmoteResult result) {
             if (result == null || result.started()) {
@@ -1452,39 +1591,40 @@ public final class Vehicles implements Listener {
                 warnIfNoSeatRigs(result);
                 return;
             }
+            if (!warnedRefusals.add(player.getUniqueId() + "/" + wanted + "/" + result.reason())) {
+                return;
+            }
             String why;
             switch (result.reason()) {
                 case NO_RIG_FOR_PLAYER:
-                    why = "this pack carries no rig for you. Sync it again while you are online.";
+                    why = "this pack carries no rig for them - sync it again while they are online.";
                     break;
                 case NO_RIGS_IN_PACK:
                 case INCOMPLETE_EMOTE_DATA:
                 case NO_EMOTES:
-                    why = "this pack arrived without its emote rigs. Sync it again.";
+                    why = "this pack arrived without its emote rigs - sync it again.";
                     break;
                 case UNKNOWN_EMOTE:
-                    why = "the seat asks for an emote called '" + wanted + "', which this pack no longer has.";
+                    why = "this pack no longer has an emote called '" + wanted + "'.";
                     break;
                 case ALREADY_EMOTING:
-                    why = "you are in an emote of your own. It wins - stop it and get back in.";
+                    why = "they are in an emote of their own, which wins.";
                     break;
                 case IN_SPECTATOR:
-                    why = "you are in spectator.";
+                    why = "they are in spectator.";
                     break;
                 default:
-                    why = "the emote was refused: " + result.reason().name().toLowerCase(Locale.ROOT) + ".";
+                    why = "it was refused: " + result.reason().name().toLowerCase(Locale.ROOT) + ".";
                     break;
             }
-            Chat.send(player, "Your seat could not dress you, so you are riding as yourself - " + why);
-            // And once in the console, because a server owner debugging a
-            // vehicle is not the person sitting in it.
-            log.warning("Vehicle " + info.id() + ": seat emote '" + wanted + "' refused for "
-                    + player.getName() + " (" + result.reason() + ").");
+            log.warning("Vehicle " + info.id() + ": " + player.getName()
+                    + " is riding as themselves because " + why);
         }
 
         /** Gives an occupant their own body back as they get out. */
         private void undress(UUID id) {
             String had = worn.remove(id);
+            dressed.remove(id);
             if (emotes == null || had == null) {
                 return;
             }
@@ -1578,8 +1718,12 @@ public final class Vehicles implements Listener {
                 return;
             }
             toldBeached = true;
-            Chat.send(driver, nameOf(info) + " is out of the water, so it can barely move. "
-                    + "Steer back to the water.");
+            // Overhead, like the seat line, and for the same reason: this is a
+            // condition somebody is in for a few seconds, not a fact worth a
+            // permanent line in their chat log. Beaching a hull and refloating
+            // it half a dozen times while placing a dock is six lines of chat
+            // for something the boat itself is already showing you.
+            overhead(driver, nameOf(info) + " is out of the water - steer back in");
         }
 
         private Player driver() {
@@ -1723,9 +1867,17 @@ public final class Vehicles implements Listener {
                 double dz = nearby.getLocation().getZ() - at.getZ();
                 double away = Math.hypot(dx, dz);
                 // Straight through the middle has no direction to be pushed
-                // in, so it gets the vehicle's own.
+                // out in, so it gets the vehicle's own — normalised and scaled
+                // like the ordinary case rather than taken raw. It was taken
+                // raw and then had the vehicle's motion added on top, so
+                // somebody standing exactly on the centre line got that motion
+                // twice while everybody a hand's width to the side got a
+                // measured shove.
+                double along = Math.hypot(step.dx(), step.dz());
                 Vector push = away < 0.05
-                        ? new Vector(step.dx(), 0, step.dz())
+                        ? (along < 1e-6
+                                ? new Vector()
+                                : new Vector(step.dx() / along, 0, step.dz() / along).multiply(SHOVE))
                         : new Vector(dx / away, 0, dz / away).multiply(SHOVE);
                 nearby.setVelocity(nearby.getVelocity().add(push.add(new Vector(step.dx(), 0, step.dz()))));
             }
@@ -1755,25 +1907,38 @@ public final class Vehicles implements Listener {
                 if (occupants.get(i) == null) {
                     // Nobody to send a packet to, so exactness is free.
                     mount.teleport(target);
-                    continue;
-                }
-                // Somebody is on it. Velocity first — see SEAT_DRIFT — and a
-                // teleport only to correct real drift, because every teleport
-                // costs the rider a round trip they have to acknowledge.
-                //
-                // Aimed one tick AHEAD of the seat, because velocity is applied
-                // by the mount's own tick after this one: aiming at where the
-                // seat is now lands the rider there just as the vehicle leaves,
-                // which is the constant backwards offset. See carriedBy.
-                Vector wanted = target.toVector().add(carriedBy)
-                        .subtract(mount.getLocation().toVector());
-                if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT) {
-                    if (!seatMover.move(mount, target)) {
+                } else {
+                    // Somebody is on it. Velocity first — see SEAT_DRIFT — and
+                    // a teleport only to correct real drift, because every
+                    // teleport costs the rider a round trip they have to
+                    // acknowledge.
+                    //
+                    // Aimed one tick AHEAD of the seat, because velocity is
+                    // applied by the mount's own tick after this one: aiming at
+                    // where the seat is now lands the rider there just as the
+                    // vehicle leaves, which is the constant backwards offset.
+                    // See carriedBy.
+                    Vector wanted = target.toVector().add(carriedBy)
+                            .subtract(mount.getLocation().toVector());
+                    if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT
+                            && seatMover.move(mount, target)) {
+                        // Moved by teleport; nothing else to apply.
+                        wanted = null;
+                    }
+                    if (wanted != null) {
                         mount.setVelocity(wanted);
                     }
-                } else {
-                    mount.setVelocity(wanted);
                 }
+
+                // <strong>Outside the branch, which is where it was not.</strong>
+                // The empty-seat arm used to `continue`, so a free seat's
+                // hitbox was placed once when the parts were spawned and never
+                // moved again — drive away and the only thing you could click
+                // to get in was a box hanging in the air where the vehicle had
+                // been parked. The body hitbox covered it up: clicking that
+                // still seats you, in the FIRST free seat, so what it looked
+                // like was "you can never pick which seat you get", not "the
+                // seat hitboxes are somewhere else".
                 Entity hitbox = plugin.getServer().getEntity(hitboxes.get(i));
                 if (hitbox != null) {
                     hitbox.teleport(target);
