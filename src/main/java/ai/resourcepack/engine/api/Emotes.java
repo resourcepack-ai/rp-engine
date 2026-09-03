@@ -124,6 +124,13 @@ public interface Emotes {
      * the rig away and gives the player their own body back while keeping the
      * session, which is what a state the pack left blank means.
      *
+     * <p><strong>The wearer sees the rig here</strong>, which is the one place
+     * this differs from a movement set. A set is worn for an hour of walking
+     * around, so it keeps its wearer's own first person vanilla and the rig is
+     * for everybody else; somebody in a seat is looking at the vehicle they are
+     * sitting in, from outside, so their body goes and the rig is what they
+     * watch. Nobody else's view differs between the two.
+     *
      * @return {@link EmoteResult#started()} once it is on — including on a
      *         swap — or a reason specific enough to act on
      */
