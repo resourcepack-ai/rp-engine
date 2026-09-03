@@ -216,6 +216,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * disconnect. Without this their sync pairing is dropped mid-apply.
      */
     private final Set<UUID> reconnecting = ConcurrentHashMap.newKeySet();
+
+    /**
+     * When each online player's session began, for the presence announcement.
+     *
+     * <p>Kept here rather than read from the server because a Geyser transfer
+     * (above) is a disconnect that is not the end of a session, and because a
+     * player announced again after the socket to studio reconnects has been
+     * standing there all along — dating them from the re-announcement would
+     * have studio push them a pack they are already wearing.
+     */
+    private final Map<UUID, Long> joinedAt = new ConcurrentHashMap<>();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -468,8 +479,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
+        // The socket reopens itself when lost, and every open re-announces
+        // whoever is here, so a /reload or a reconnect leaves nobody unseen.
+        sync.whenOpen(this::announceEveryone);
         if (sync.announcesPresence() && !sync.open()) {
-            getLogger().warning("Could not reach studio, so this server is not announcing presence.");
+            getLogger().warning("Could not reach studio, so this server is not announcing presence yet; retrying.");
         }
 
         startHost();
@@ -1058,14 +1072,36 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (here) {
             sync.present(player.getUniqueId(), player.getName(),
                     bedrock.isBedrock(player.getUniqueId()),
-                    ai.resourcepack.engine.core.sync.PlayerCape.token(player));
+                    ai.resourcepack.engine.core.sync.PlayerCape.token(player),
+                    joinedAt.getOrDefault(player.getUniqueId(), 0L));
         } else {
             sync.gone(player.getUniqueId());
         }
     }
 
+    /**
+     * Everybody online, announced again.
+     *
+     * <p>Run each time the socket to studio comes up. The far end keys presence
+     * to the socket that announced it, so a reconnect — studio redeployed, an
+     * idle close, a blip — silently forgot every player here, and a permalinked
+     * player was told to join a server they were standing on until this server
+     * restarted. Scheduled onto the main thread because the socket's thread
+     * is the one calling.
+     */
+    private void announceEveryone() {
+        getServer().getScheduler().runTask(this, () -> {
+            for (Player player : getServer().getOnlinePlayers()) {
+                announcePresence(player, true);
+            }
+        });
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
+        // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
+        // the real start of that session and this join is not.
+        joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
         announcePresence(event.getPlayer(), true);
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
     }
@@ -1077,6 +1113,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // an apply that is still in flight.
             return;
         }
+        joinedAt.remove(event.getPlayer().getUniqueId());
         announcePresence(event.getPlayer(), false);
         overlays.clear(event.getPlayer());
         if (liquidCommands != null) {

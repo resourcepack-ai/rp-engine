@@ -157,4 +157,35 @@ class SyncClientTest {
         assertTrue(!client.link("48213097", "Notch"));
         assertEquals(null, client.claimant("48213097"));
     }
+
+    @Test
+    void aTrustedServerAnnouncingWithNoSocketDoesNotThrow() {
+        // The test server calls present() on every join. With the socket down,
+        // the frame goes nowhere — what must NOT happen is an exception on the
+        // join event, and what must happen is that a reconnect gets scheduled,
+        // which close() then has to be able to cancel cleanly.
+        SyncClient trusted = new SyncClient("wss://example.invalid/connect", "token", Logger.getLogger("test"),
+                (code, payload) -> applied.add(code),
+                (code, command) -> given.add(code),
+                (code, texture) -> skinned.add(code),
+                (code, json) -> told.add(code));
+        assertTrue(trusted.announcesPresence());
+        assertFalse(trusted.connected());
+
+        trusted.present(java.util.UUID.randomUUID(), "Notch", false, "-", System.currentTimeMillis());
+        trusted.gone(java.util.UUID.randomUUID());
+        trusted.close();
+
+        assertFalse(trusted.connected());
+        assertTrue(applied.isEmpty());
+    }
+
+    @Test
+    void anOrdinaryServerNeverAnnounces() {
+        SyncClient ordinary = client();
+        assertFalse(ordinary.announcesPresence());
+        ordinary.present(java.util.UUID.randomUUID(), "Notch", false, "-", 0L);
+        ordinary.close();
+        assertFalse(ordinary.connected());
+    }
 }
