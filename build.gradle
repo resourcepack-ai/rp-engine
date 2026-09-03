@@ -8,7 +8,7 @@ plugins {
 group = 'ai.resourcepack'
 // Bump this before deploying a release: the deploy refuses to overwrite a
 // published RPEngine-<version>.jar, and the versioned key is immutable.
-version = '0.1.3'
+version = '0.1.6'
 
 java {
     toolchain {
