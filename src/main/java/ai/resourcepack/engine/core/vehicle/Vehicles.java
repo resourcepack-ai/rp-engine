@@ -458,17 +458,27 @@ public final class Vehicles implements Listener {
      * already standing in the world kept the definition it was adopted with.
      * That is most of "I sync and it works, then it stops matching".
      *
-     * <p>Rebuilding ejects whoever is in one. That is the honest cost and it
-     * beats the alternative: a passenger sitting in a seat that no longer
-     * exists, on a vehicle whose handling numbers nobody can account for.
+     * <p>Rebuilding ejects whoever is in one, and they are <strong>put
+     * back</strong>. The eviction itself is not negotiable — a passenger cannot
+     * be left sitting in a seat that no longer exists, on a vehicle whose
+     * numbers nobody can account for — but "you are standing in the road now"
+     * is not the honest cost of it, it is a step that was simply not taken. A
+     * re-sync is the single most common reason this runs, and the person who
+     * pressed it is usually sitting in the thing they are adjusting; throwing
+     * them out every time reads as the vehicle breaking on every save.
+     *
+     * @see #adoptLoaded() which is where they are re-seated, because that is
+     *      the call that knows the new parts exist
      */
     public void replace(Map<ContentId, VehicleInfo> loaded) {
         this.catalogue = loaded == null ? Map.of() : Map.copyOf(loaded);
+        reseat.clear();
         for (UUID chassisId : List.copyOf(live.keySet())) {
             Ride ride = live.remove(chassisId);
             if (ride == null) {
                 continue;
             }
+            reseat.put(chassisId, ride.seating());
             ride.evictAll();
             ride.despawnParts();
         }
@@ -476,6 +486,16 @@ public final class Vehicles implements Listener {
         // this, from the one place that knows the whole load finished. Doing it
         // twice would spawn a set of parts and immediately drop them.
     }
+
+    /**
+     * Who was in which seat when {@link #replace} took a vehicle apart.
+     *
+     * <p>Chassis id to a list whose INDEX is the seat number and whose value is
+     * the occupant, exactly as {@code Ride.occupants} holds it. Consumed by
+     * {@link #adoptLoaded()} and empty at every other moment — this is a handoff
+     * between two calls that always run together, not state.
+     */
+    private final Map<UUID, List<UUID>> reseat = new ConcurrentHashMap<>();
 
     /** Every vehicle id, sorted. */
     public Collection<ContentId> ids() {
@@ -642,9 +662,57 @@ public final class Vehicles implements Listener {
                 adopt(entity);
             }
         }
+        putEveryoneBack();
+    }
+
+    /**
+     * Sits everybody {@link #replace} evicted back where they were.
+     *
+     * <p><strong>A tick later, deliberately.</strong> The eject and the respawn
+     * both happened in the call above; {@code sit} refuses anybody who is still
+     * {@code isInsideVehicle()}, and whether that has caught up within the same
+     * tick is exactly the kind of thing that works on one server and not
+     * another. A tick is imperceptible and removes the question.
+     *
+     * <p>Best effort by design. A seat that no longer exists, a vehicle whose
+     * definition went away with the pack, somebody who logged out in between —
+     * all of them simply leave that person standing, which is where the old
+     * behaviour left everybody.
+     */
+    private void putEveryoneBack() {
+        if (reseat.isEmpty()) {
+            return;
+        }
+        Map<UUID, List<UUID>> pending = Map.copyOf(reseat);
+        reseat.clear();
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            for (Map.Entry<UUID, List<UUID>> entry : pending.entrySet()) {
+                Ride ride = live.get(entry.getKey());
+                if (ride == null) {
+                    continue;
+                }
+                List<UUID> seating = entry.getValue();
+                for (int index = 0; index < seating.size() && index < ride.info.seats().size(); index++) {
+                    UUID id = seating.get(index);
+                    Player player = id == null ? null : plugin.getServer().getPlayer(id);
+                    if (player != null) {
+                        sit(player, ride, index, true);
+                    }
+                }
+            }
+        });
     }
 
     private void sit(Player player, Ride ride, int index) {
+        sit(player, ride, index, false);
+    }
+
+    /**
+     * @param quiet whether to skip the line that says which seat this is —
+     *              true when the engine is putting somebody back where they
+     *              already were, which is not news
+     */
+    private void sit(Player player, Ride ride, int index, boolean quiet) {
         if (riders.containsKey(player.getUniqueId()) || player.isInsideVehicle()) {
             return;
         }
@@ -684,10 +752,12 @@ public final class Vehicles implements Listener {
         // a permanent line in the chat log every time anybody gets into
         // anything. The action bar is exactly the right shape for it: read once
         // as you sit down, gone by the time you are driving.
-        overhead(player, seat.isDriver()
-                ? "Driving " + nameOf(ride.info) + " - " + controls.describe()
-                : "Riding in " + nameOf(ride.info) + " - "
-                        + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
+        if (!quiet) {
+            overhead(player, seat.isDriver()
+                    ? "Driving " + nameOf(ride.info) + " - " + controls.describe()
+                    : "Riding in " + nameOf(ride.info) + " - "
+                            + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
+        }
     }
 
     /**
@@ -1295,6 +1365,17 @@ public final class Vehicles implements Listener {
 
         UUID occupant(int index) {
             return occupants.get(index);
+        }
+
+        /**
+         * Who is in which seat, by index, as a snapshot.
+         *
+         * <p>Taken before a rebuild so the same people can be put back in the
+         * same seats — see {@link #replace}. A copy rather than the live list,
+         * which {@code evictAll} is about to empty.
+         */
+        List<UUID> seating() {
+            return new ArrayList<>(occupants);
         }
 
         boolean mount(int index, Player player) {
