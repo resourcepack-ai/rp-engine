@@ -767,11 +767,19 @@ It is worn the way a movement set is: the rig follows its wearer, there is no
 anchor, and getting out puts their own body back. The difference is only who
 decides — a movement set reads your legs, and this reads the vehicle.
 
-**A state you leave out is the player's own body, NOT a fall-through.** That is
-the opposite of the vehicle's own `animations:` above, and deliberately so:
-falling through would leave a driver hauling an imaginary wheel round while the
-car sat still. "Nothing" is a real answer here and a fall-through cannot spell
-it.
+**A state you leave out is the seat's own stance, NOT a fall-through to another
+state.** No fall-through, deliberately: it would leave a driver hauling an
+imaginary wheel round while the car sat still. What a missing state gets
+instead is the engine's own stance for the seat's `pose` — legs out at the hip
+for `sitting`, the rig at rest for `standing` — so an occupant is drawn sitting
+IN the thing rather than standing up to their waist in the hull, on a pack that
+authored no emotes at all.
+
+That still needs the pack to carry a baked rig for that player; without one
+they ride as themselves and the console says so once. Set
+`vehicles.seat-rig: false` in `config.yml` for a server that would rather see
+ordinary players — it costs a rig's worth of entities per occupant. A seat that
+NAMES an emote is unaffected by any of this.
 
 So the state is resolved once, as the highest one in the table that holds, and
 looked up. **A moored boat is `idle`** — if you want your driver in a rig while

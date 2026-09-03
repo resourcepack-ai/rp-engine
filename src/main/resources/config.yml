@@ -98,6 +98,24 @@ vehicles:
   # a wall.
   push-players: false
 
+  # Whether somebody in a vehicle seat rides in their emote rig even when the
+  # pack never said what they should be doing.
+  #
+  # On, because the point of a seat is that somebody is sitting IN something,
+  # and the game draws an ordinary passenger standing up to their waist in the
+  # hull at whatever angle it likes. So the rig goes on and the seat's pose
+  # picks the stance - sitting or standing - which is the same thing that
+  # already decides what the seat's position means.
+  #
+  # Turn it off for a server that would rather see ordinary players: it costs a
+  # rig's worth of entities per occupant, and a full bus is a real number of
+  # them. A seat that NAMES an emote is unaffected either way - that is the
+  # pack asking for something rather than the engine filling a gap.
+  #
+  # It needs the pack to carry a baked rig for that player. Without one the
+  # console says so once and everybody rides as themselves.
+  seat-rig: true
+
 emotes:
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that

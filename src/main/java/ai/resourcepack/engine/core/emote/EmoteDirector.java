@@ -1010,7 +1010,13 @@ public final class EmoteDirector implements Listener {
         // anything else so a bad id is refused rather than quietly becoming it.
         EmoteStore.Emote wanted = null;
         if (emoteId != null && !emoteId.isEmpty()) {
-            wanted = emotes.find(emoteId);
+            // The engine's own stances first, so they work on a pack that
+            // ships no emotes at all — which is most packs, and is exactly the
+            // case a vehicle seat needs covered. See Emotes.BUILT_IN_SITTING.
+            wanted = builtIn(emoteId);
+            if (wanted == null) {
+                wanted = emotes.find(emoteId);
+            }
             if (wanted == null) {
                 return EmoteResult.refused(Reason.UNKNOWN_EMOTE, emoteId, ids());
             }
@@ -1147,6 +1153,73 @@ public final class EmoteDirector implements Listener {
         rest.length = 0;
         rest.loop = true;
         return rest;
+    }
+
+    /**
+     * How far the thigh swings forward for a seated occupant, in degrees.
+     *
+     * <p><b>Studio's {@code SEATED_LEG_DEG}, and it has to stay that.</b> The
+     * seat preview draws the occupant with this angle, and a rider who sits
+     * differently in game from the way the editor drew them is the whole class
+     * of bug the seat height was.
+     *
+     * <p>Positive is forward, which is worth writing down because it is
+     * derivable and nobody wants to derive it twice: the rig faces {@code -z},
+     * a leg hangs at {@code -y} from a hip pivot at 12px, and a right-handed
+     * turn about {@code +x} takes {@code -y} to {@code -z}. Ninety degrees is
+     * therefore a leg straight out in front. The knee stays straight because a
+     * leg is one box on the whole-limb skeleton, which is what the preview
+     * draws too.
+     */
+    private static final float SEATED_LEG_DEG = 90;
+
+    /** Built once: a static pose has no clock and nothing about it is per player. */
+    private static final EmoteStore.Emote BUILT_IN_SITTING_EMOTE =
+        stance(ai.resourcepack.engine.api.Emotes.BUILT_IN_SITTING, "rightLeg", "leftLeg");
+
+    private static final EmoteStore.Emote BUILT_IN_STANDING_EMOTE =
+        stance(ai.resourcepack.engine.api.Emotes.BUILT_IN_STANDING);
+
+    /**
+     * One of the engine's own stances, or null for an ordinary emote id.
+     *
+     * <p>Checked before the pack, which is what makes these work on a pack that
+     * ships no emotes — see {@link ai.resourcepack.engine.api.Emotes#BUILT_IN_SITTING}.
+     */
+    private static EmoteStore.Emote builtIn(String emoteId) {
+        if (ai.resourcepack.engine.api.Emotes.BUILT_IN_SITTING.equals(emoteId)) {
+            return BUILT_IN_SITTING_EMOTE;
+        }
+        if (ai.resourcepack.engine.api.Emotes.BUILT_IN_STANDING.equals(emoteId)) {
+            return BUILT_IN_STANDING_EMOTE;
+        }
+        return null;
+    }
+
+    /**
+     * A built-in stance: one keyframe per named bone, held for ever.
+     *
+     * <p>Length zero and a single key at time zero, so {@link Sampler} holds it
+     * whatever the clock says — a stance is a shape rather than a performance,
+     * and it must not drift, end or be scheduled. Bones the pack does not have
+     * are simply never asked for: {@code pose} walks the PACK's bone table and
+     * looks each key up here, so naming a bone that is missing costs nothing
+     * and a jointed skeleton carries the shin along with the thigh it hangs
+     * off.
+     */
+    private static EmoteStore.Emote stance(String name, String... legsForward) {
+        EmoteStore.Emote stance = new EmoteStore.Emote();
+        stance.name = name;
+        stance.length = 0;
+        stance.loop = true;
+        Map<String, Map<String, List<Keyframe>>> animators = new HashMap<>();
+        for (String bone : legsForward) {
+            animators.put(bone, Collections.singletonMap("rotation",
+                Collections.singletonList(
+                    new Keyframe(0, new float[] { SEATED_LEG_DEG, 0, 0 }, null))));
+        }
+        stance.animators = Collections.unmodifiableMap(animators);
+        return stance;
     }
 
     private EmoteResult startGroup(Player player, EmoteStore.Group group, boolean showSelf) {

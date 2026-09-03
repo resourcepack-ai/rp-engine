@@ -291,6 +291,9 @@ public final class Vehicles implements Listener {
     /** Said once, however many vehicles are stuck. */
     private volatile boolean warnedFrozen;
 
+    /** Said once, however many riders cannot be put in a rig. */
+    private volatile boolean warnedNoSeatRigs;
+
     /**
      * Added to every vehicle seat, from config.yml.
      *
@@ -335,6 +338,24 @@ public final class Vehicles implements Listener {
      */
     private volatile boolean pushPlayers;
 
+    /**
+     * Whether an occupant nobody dressed is put in their rig anyway, from
+     * config.yml.
+     *
+     * <p>On by default, and the default is the point. A vehicle seat exists to
+     * put somebody IN something, and vanilla draws a passenger standing up to
+     * their waist in the hull at whatever angle it likes — so a rider in their
+     * own rig, sitting the way the editor drew them, is the right picture even
+     * on a pack that never authored a pose. {@code Emotes.BUILT_IN_SITTING} is
+     * what fills that gap.
+     *
+     * <p>Off is for a server that would rather see ordinary players: it costs
+     * a rig's worth of entities per occupant, and a full bus is a real number
+     * of them. A seat that NAMES an emote is unaffected either way — that is
+     * the pack asking for something rather than the engine defaulting.
+     */
+    private volatile boolean seatRig = true;
+
     public Vehicles(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
                     ai.resourcepack.engine.api.Emotes emotes) {
         this.emotes = emotes;
@@ -361,13 +382,15 @@ public final class Vehicles implements Listener {
     }
 
     /**
-     * Adopts {@code vehicles.seat-offset} and {@code vehicles.push-players}.
-     * Called on enable and on every reload.
+     * Adopts {@code vehicles.seat-offset}, {@code vehicles.push-players} and
+     * {@code vehicles.seat-rig}. Called on enable and on every reload.
      */
-    public void configure(double seatOffset, double seatForward, boolean pushPlayers) {
+    public void configure(double seatOffset, double seatForward, boolean pushPlayers,
+                          boolean seatRig) {
         this.seatOffset = seatOffset;
         this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
+        this.seatRig = seatRig;
     }
 
     /**
@@ -725,6 +748,31 @@ public final class Vehicles implements Listener {
      * is Paper's and the engine runs on Spigot too. What it looks like from
      * here is a stand that was given a velocity and did not move.
      */
+    /**
+     * Says once that riders are not being put in their rigs, and why.
+     *
+     * <p>The default stance needs one thing the engine cannot supply: a baked
+     * rig for that player, which is their skin and lives in the pack. So on a
+     * pack with no emote rigs every occupant of every vehicle sits as an
+     * ordinary player — correct, and completely silent, which is the failure
+     * this whole class keeps having to make visible.
+     *
+     * <p>Not sent to the riders. It is one fact about the pack rather than
+     * about any of them, and a chat line per person per seat per journey would
+     * be worse than the thing it is reporting.
+     */
+    private void warnIfNoSeatRigs(EmoteResult result) {
+        if (warnedNoSeatRigs) {
+            return;
+        }
+        warnedNoSeatRigs = true;
+        log.warning("Vehicle occupants are riding as ordinary players rather than in their rigs ("
+                + result.reason() + "). A seat puts somebody in their emote rig by default, which "
+                + "needs the pack to carry a baked rig for that player - sync the pack again while "
+                + "they are online, or set vehicles.seat-rig: false in config.yml if you would "
+                + "rather riders stayed themselves.");
+    }
+
     private void warnIfFrozen() {
         if (warnedFrozen) {
             return;
@@ -1292,14 +1340,15 @@ public final class Vehicles implements Listener {
             for (int i = 0; i < occupants.size(); i++) {
                 UUID id = occupants.get(i);
                 VehicleSeat seat = info.seats().get(i);
-                if (id == null || seat.animations().isEmpty()) {
+                if (id == null || (seat.animations().isEmpty() && !seatRig)) {
                     continue;
                 }
                 Player player = plugin.getServer().getPlayer(id);
                 if (player == null) {
                     continue;
                 }
-                String wanted = state == null ? null : seat.animations().get(state);
+                String named = state == null ? null : seat.animations().get(state);
+                String wanted = named != null ? named : fallbackStance(seat);
                 if (Objects.equals(wanted, worn.get(id))) {
                     continue;
                 }
@@ -1307,8 +1356,32 @@ public final class Vehicles implements Listener {
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
                 worn.put(id, wanted);
-                sayIfRefused(player, wanted, emotes.wear(player, wanted));
+                sayIfRefused(player, named, emotes.wear(player, wanted));
             }
+        }
+
+        /**
+         * What an occupant wears when the seat named nothing for this state.
+         *
+         * <p><strong>The engine's own stance, not their own body</strong> — the
+         * point of a vehicle seat is that somebody is sitting IN something, and
+         * a vanilla passenger is drawn standing up to their waist in the hull
+         * at whatever angle the game feels like. So the rig goes on either way
+         * and the seat's {@code pose} picks which stance, which is the same
+         * thing that already decides what the seat's own position means.
+         *
+         * <p>Null when {@code vehicles.seat-rig} is off, which is the whole of
+         * that switch: an occupant nobody dressed goes back to being an
+         * ordinary player. A seat that NAMES an emote is unaffected by it — the
+         * pack asked for something specific and gets it.
+         */
+        private String fallbackStance(VehicleSeat seat) {
+            if (!seatRig) {
+                return null;
+            }
+            return seat.pose() == VehicleSeat.Pose.SITTING
+                    ? ai.resourcepack.engine.api.Emotes.BUILT_IN_SITTING
+                    : ai.resourcepack.engine.api.Emotes.BUILT_IN_STANDING;
         }
 
         /**
@@ -1324,11 +1397,22 @@ public final class Vehicles implements Listener {
          * <p>Said to the RIDER rather than only logged, because they are the
          * one who can see that nothing happened, and once per change rather
          * than per tick because {@code worn} has already been written by the
-         * time this runs. A state that maps to nothing is silent — that is not
-         * a failure, it is a seat saying "be yourself here".
+         * time this runs.
+         *
+         * <p><strong>Only when the seat NAMED an emote.</strong> The built-in
+         * stance is asked for on behalf of a pack that said nothing, so its
+         * failure is not that author's mistake and is almost always one fact
+         * about the pack rather than about this rider — it carries no emote
+         * rigs. That goes to the console once and nowhere near chat, because
+         * the alternative is a line per person per seat per journey saying the
+         * same thing.
          */
         private void sayIfRefused(Player player, String wanted, EmoteResult result) {
-            if (wanted == null || result == null || result.started()) {
+            if (result == null || result.started()) {
+                return;
+            }
+            if (wanted == null) {
+                warnIfNoSeatRigs(result);
                 return;
             }
             String why;

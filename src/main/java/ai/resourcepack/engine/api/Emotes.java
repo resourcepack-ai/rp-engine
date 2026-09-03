@@ -27,6 +27,42 @@ import java.util.UUID;
 public interface Emotes {
 
     /**
+     * The engine's own sitting stance: legs out at the hip, nothing else.
+     *
+     * <p><strong>A stance every pack has without authoring one.</strong>
+     * {@link #wear} resolves this before it looks in the pack, so it works on a
+     * pack that ships no emotes at all — the only thing it still needs is a rig
+     * for that player, because a rig is their skin and no amount of built-in
+     * anything can invent one.
+     *
+     * <p>It exists because a vehicle seat is the one place a rig has to be
+     * worn whether or not anybody authored a pose for it. What the alternative
+     * looked like: a driver in a kayak drawn as a vanilla passenger, which is a
+     * player standing up to their waist in the hull at the wrong angle. The
+     * pose is the same one studio's seat preview draws — the thigh swung
+     * forward 90 degrees, the knee left straight because a leg is one box —
+     * so the editor and the game show the same person in the same seat.
+     *
+     * <p>Reserved rather than namespaced: an emote id is a name somebody types
+     * after {@code /emote}, studio allocates them as slugs, and no slug starts
+     * with {@code @}. So a pack cannot define this and cannot collide with it.
+     * A pack that wants something else maps its own emote to the state, which
+     * wins because a named emote is only ever fallen back FROM.
+     */
+    String BUILT_IN_SITTING = "@sitting";
+
+    /**
+     * The engine's own standing stance: the rig, at rest, and nothing applied.
+     *
+     * <p>The twin of {@link #BUILT_IN_SITTING} for a seat somebody stands on —
+     * a gunner's step, a ferry deck. There is no pose to give it, because
+     * standing upright IS the rest pose; what it buys over passing
+     * {@code null} is that the rig is SHOWN rather than put away, which is the
+     * whole difference between "wear your rig here" and "be yourself here".
+     */
+    String BUILT_IN_STANDING = "@standing";
+
+    /**
      * Every emote this server holds, in manifest order.
      *
      * <p>An emote's id is the name the panel shows for it, which is also what
