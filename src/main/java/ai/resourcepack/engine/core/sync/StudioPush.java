@@ -53,9 +53,19 @@ public final class StudioPush {
             return Fetch.failed("bad-payload");
         }
         Path target = outputDir.resolve(BUNDLE + ".zip");
-        Path partial = outputDir.resolve(BUNDLE + ".zip.part");
+        // <strong>The scratch file is per-download, not per-bundle.</strong> It
+        // was one fixed name, which is correct only while pushes arrive one at
+        // a time — and they do not: the panel reports a slow push as a failure,
+        // whoever is watching presses Sync again, and the second download opens
+        // the same path the first is still writing. Both then wrote into one
+        // file and both moved it into place, so what got served was two zips
+        // interleaved. Worse, the first one's move can land while the second is
+        // still writing, at which point the second is appending to the pack
+        // every joining player is being handed.
+        Path partial = outputDir.resolve(BUNDLE + "." + System.nanoTime() + ".zip.part");
         try {
             Files.createDirectories(outputDir);
+            sweepAbandonedParts(outputDir, partial);
             HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
             connection.setConnectTimeout(15_000);
             connection.setReadTimeout(60_000);
@@ -91,9 +101,48 @@ public final class StudioPush {
             try {
                 Files.deleteIfExists(partial);
             } catch (IOException ignored) {
-                // A leftover .part is untidy and harmless; the next push
-                // overwrites it.
+                // A leftover .part is untidy and harmless. It no longer gets
+                // swept by the next push, since the name is unique now — which
+                // is the trade the uniqueness bought, and the right way round:
+                // a stray file costs disk, a shared one costs a broken pack.
             }
+        }
+    }
+
+    /**
+     * How long an abandoned scratch file is left alone before it is swept.
+     *
+     * <p>Longer than any download could take, because the thing it must never
+     * do is delete a partial file another push is still writing into. An hour
+     * against a 60-second read timeout is not a close call.
+     */
+    private static final long STALE_PART_MS = 60L * 60 * 1000;
+
+    /**
+     * Removes scratch files left behind by a download that never finished.
+     *
+     * <p>Each download names its own, so nothing overwrites anything — the
+     * price of which is that a server killed mid-push leaves a file nobody
+     * comes back for. This is where it is collected: on the next push, which is
+     * the only moment anything here runs at all.
+     */
+    private static void sweepAbandonedParts(Path outputDir, Path mine) {
+        long now = System.currentTimeMillis();
+        try (java.util.stream.Stream<Path> files = Files.list(outputDir)) {
+            files.filter(path -> path.getFileName().toString().endsWith(".zip.part"))
+                    .filter(path -> !path.equals(mine))
+                    .forEach(path -> {
+                        try {
+                            if (now - Files.getLastModifiedTime(path).toMillis() > STALE_PART_MS) {
+                                Files.deleteIfExists(path);
+                            }
+                        } catch (IOException ignored) {
+                            // Untidy and harmless; try again next push.
+                        }
+                    });
+        } catch (IOException ignored) {
+            // Not being able to list the directory is not a reason to fail a
+            // push — the download itself is about to say so if it matters.
         }
     }
 
