@@ -536,6 +536,12 @@ public final class EmoteDirector implements Listener {
          * this says. That is what makes the flag safe to accept on any emote
          * and ignore where it means nothing.
          *
+         * <p><b>Always on for a {@link #driven} session</b>, which is not the
+         * command's flag reaching a second feature but the same question having
+         * the opposite answer there: somebody in a seat is looking at their own
+         * vehicle from the outside, so the rig is the thing they came to see.
+         * See {@link #beginDriven}.
+         *
          * <p>It costs what {@code hideFromWearer} buys: the rig is a server
          * entity carried on a lead sized for OTHER people's latency, so the
          * wearer watches their own set answer their own input a round trip
@@ -583,11 +589,13 @@ public final class EmoteDirector implements Listener {
         /**
          * Whether what this wears is decided by somebody else.
          *
-         * <p>Set by {@link #wear}, and the only thing it changes is that
-         * {@code tickStance} does not resolve a movement state for it — see
+         * <p>Passed to {@link #begin} by {@link #beginDriven}, and the only
+         * thing it changes about playback is that {@code tickStance} does not
+         * resolve a movement state for it — see
          * {@link ai.resourcepack.engine.api.Emotes#wear}. Everything else about
          * a driven session is a stance: the rig follows its wearer, there is no
-         * anchor, and moving does not end it.
+         * anchor, and moving does not end it. {@link #stance()} says so, which
+         * it did not until a vehicle proved why it had to.
          *
          * <p>It is a flag rather than a null {@code group} because "no group"
          * already means "a plain stance that names its own triggers", and those
@@ -675,8 +683,25 @@ public final class EmoteDirector implements Listener {
          */
         boolean swingOffHand;
 
+        /**
+         * Whether this is worn rather than performed.
+         *
+         * <p>A one-shot emote is a performance: it happens at a spot, it ends
+         * the moment its wearer moves, and it puts them back where they
+         * started. Everything else here is a stance — the rig follows its
+         * wearer, moving is expected rather than a reason to stop, and there is
+         * nowhere to put anybody back to.
+         *
+         * <p><strong>{@code driven} counts, and leaving it out was a bug rather
+         * than a nuance.</strong> A vehicle occupant is carried, so the tick
+         * loop's "did they move" test fired on the first tick the vehicle
+         * rolled: the emote ended, the rig came down, and {@code restore}
+         * teleported the rider back to wherever they had climbed in. What is
+         * meant to be a driver leaning on the wheel for a ten-minute journey
+         * lasted one tick and dragged them home at the end of it.
+         */
         boolean stance() {
-            return !triggers.isEmpty() || group != null;
+            return !triggers.isEmpty() || group != null || driven;
         }
 
         /**
@@ -1001,6 +1026,23 @@ public final class EmoteDirector implements Listener {
      * rig at all rather than about what they are wearing. The rig starts hidden
      * for the reason that one gives — a rig posed at the rest emote's identity
      * is a body standing to attention inside the player for one pass.
+     *
+     * <h2>A vehicle occupant watches their own rig, and that is the one place
+     * the stance default is wrong</h2>
+     *
+     * <p>{@code hideFromWearer} keeps a worn set off its own wearer's screen
+     * because they spend an hour walking around in first person, where being
+     * replaced by a server-side rig costs them everything about the game
+     * feeling normal and buys them nothing.
+     *
+     * <p><strong>None of that is true of somebody in a seat.</strong> They are
+     * not walking, their hands are not doing anything vanilla has to keep
+     * responsive, and the thing they are looking at is the vehicle they are
+     * sitting in — from the outside, because that is the camera anybody drives
+     * from. Showing them their own untouched body slumped in the seat while
+     * everybody else sees the rig rowing is the wrong way round for exactly the
+     * duration this is on. So a driven session takes the one-shot treatment:
+     * the body goes (invisibility), the rig stays on their screen.
      */
     private EmoteResult beginDriven(Player player) {
         EmoteStore.PlayerRig rig = emotes.rigFor(player.getUniqueId());
@@ -1021,13 +1063,16 @@ public final class EmoteDirector implements Listener {
         // would be a vehicle whose driver is invisible for no stated reason.
 
         Location origin = player.getLocation().clone();
+        // showSelf, so `hideFromOwnWearer` stays false and the occupant is the
+        // one being hidden rather than the rig. See the note above; it is not
+        // the `--showYourself` flag being borrowed for a second purpose, it is
+        // the same question with the same answer.
         Session session = begin(player, drivenRest(), Collections.emptyMap(), null, emotes.bones(),
             rig, origin, Math.round(origin.getYaw()), player.getWorld().getGameTime(),
-            Collections.singletonList(player.getUniqueId()), null, null, false);
+            Collections.singletonList(player.getUniqueId()), null, null, true, true);
         if (session == null) {
             return EmoteResult.refused(Reason.NO_RIG_FOR_PLAYER);
         }
-        session.driven = true;
         setRigHidden(player, session, true);
         return EmoteResult.started("", false);
     }
@@ -1126,7 +1171,7 @@ public final class EmoteDirector implements Listener {
         Location origin = player.getLocation().clone();
         Session session = begin(player, restEmote(group), Collections.emptyMap(), null, emotes.bones(),
             rig, origin, Math.round(origin.getYaw()), player.getWorld().getGameTime(),
-            Collections.singletonList(player.getUniqueId()), null, group, showSelf);
+            Collections.singletonList(player.getUniqueId()), null, group, showSelf, false);
         if (session == null) {
             return EmoteResult.refused(Reason.NO_RIG_FOR_PLAYER);
         }
@@ -1260,7 +1305,7 @@ public final class EmoteDirector implements Listener {
         for (Player member : troupeCast) troupe.add(member.getUniqueId());
 
         begin(player, emote, emote.animators, emote.root, bones, rig, leadOrigin, leadYaw,
-            startTick, troupe, null, null, showSelf);
+            startTick, troupe, null, null, showSelf, false);
         for (int i = 0; i < troupeCast.size(); i++) {
             Player member = troupeCast.get(i);
             EmoteStore.Performer performer = performers.get(i);
@@ -1274,7 +1319,7 @@ public final class EmoteDirector implements Listener {
             // flag on somebody else's is not theirs to be given.
             begin(member, emote, performer.animators, performer.root, bones,
                 emotes.rigFor(member.getUniqueId()), spot, Math.round(spot.getYaw()), startTick, troupe,
-                performer.id, null, false);
+                performer.id, null, false, false);
             if (host.messages() != null) host.messages().pulledIn(member, player, emote.name);
         }
 
@@ -1397,15 +1442,21 @@ public final class EmoteDirector implements Listener {
             /** The set being worn, or null for an ordinary emote or a stance. */
             EmoteStore.Group group,
             /** Whether the wearer asked to watch their own set. See {@link Session#showSelf}. */
-            boolean showSelf) {
+            boolean showSelf,
+            /** Whether somebody else decides what this wears. See {@link Session#driven}. */
+            boolean driven) {
         if (rig == null) return null;
         boolean isLead = performerId == null;
 
         Session session = new Session();
         // Set first, because `stance()` reads it and three decisions below turn
         // on that answer: whether the displays are carried, whether root motion
-        // may run, and whether an origin marker is written.
+        // may run, and whether an origin marker is written. `driven` is a
+        // parameter rather than a field the caller writes afterwards for
+        // exactly that reason — set late, those three would already have been
+        // decided as if a vehicle occupant were a performance.
         session.group = group;
+        session.driven = driven;
         // Recorded whatever kind of emote this is. Every reader is inside a
         // `stance()` branch, so it decides nothing on a one-shot — which is how
         // the flag is accepted on any emote and quietly means nothing on one
@@ -1930,12 +1981,14 @@ public final class EmoteDirector implements Listener {
      * the tick it was captured at, and the remainder is worked out from now.
      */
     private void reveal(Player player, Session session) {
-        // Only a group ever crosses this boundary, and a group is a stance, so
-        // the potion half is dead for it — until its wearer asks to watch it,
+        // A group and a vehicle seat are what cross this boundary, and for a
+        // group the potion half is dead — until its wearer asks to watch it,
         // which is exactly when `conceal` DID apply one and this has to take it
-        // off again. Reading the same predicate as `conceal` is what makes that
-        // free: the pair being symmetrical is what stops a later change to one
-        // of them leaving somebody invisible.
+        // off again. A vehicle occupant is that case permanently (see
+        // `beginDriven`), so this is the line that gives a rider their body
+        // back between two seat animations. Reading the same predicate as
+        // `conceal` is what makes that free: the pair being symmetrical is what
+        // stops a later change to one of them leaving somebody invisible.
         if (!session.hideFromOwnWearer()) {
             player.removePotionEffect(PotionEffectType.INVISIBILITY);
             String invis = player.getPersistentDataContainer().get(previousInvisKey, PersistentDataType.STRING);
