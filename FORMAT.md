@@ -775,6 +775,13 @@ for `sitting`, the rig at rest for `standing` — so an occupant is drawn sittin
 IN the thing rather than standing up to their waist in the hull, on a pack that
 authored no emotes at all.
 
+**A named emote is worn OVER the seat's stance, not instead of it.** Bone by
+bone: one that only moves the arms keeps its occupant's legs seated, and one
+that deliberately swings a leg out of a kayak keeps its own. Without that,
+naming any emote at all stood the rider up — the emote's animators replaced the
+seated legs, they fell back to rest, and a driver hauled the wheel round
+standing.
+
 That still needs the pack to carry a baked rig for that player; without one
 they ride as themselves and the console says so once. Set
 `vehicles.seat-rig: false` in `config.yml` for a server that would rather see

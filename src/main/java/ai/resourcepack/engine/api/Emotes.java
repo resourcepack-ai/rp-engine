@@ -173,6 +173,32 @@ public interface Emotes {
     EmoteResult wear(Player player, String emoteId);
 
     /**
+     * The same, over a base pose the emote only partly replaces.
+     *
+     * <p><strong>Naming an emote for a seat used to make its occupant stand
+     * up.</strong> A seat with nothing mapped gets {@link #BUILT_IN_SITTING},
+     * which is one keyframe on each leg; the moment it named an emote, that
+     * emote's animators replaced the lot, the legs fell back to rest, and the
+     * rider was drawn standing with their arms doing the steering pose. Every
+     * seat that named anything had it.
+     *
+     * <p>So the base is merged UNDER the emote, per bone: a bone the emote is
+     * silent about keeps the base's pose, and a bone it animates is entirely
+     * the author's. Explicit beats default, which is the rule the arm swing and
+     * the cape already follow — both are applied on top of what an emote asked
+     * for rather than instead of it. An emote that deliberately swings a leg
+     * out of a kayak therefore keeps its leg.
+     *
+     * <p>The merge is done once, when what is worn changes, and never per tick.
+     *
+     * @param under one of the built-in stances, or null for no base — which is
+     *              exactly what {@link #wear(Player, String)} means
+     */
+    default EmoteResult wear(Player player, String emoteId, String under) {
+        return wear(player, emoteId);
+    }
+
+    /**
      * Which way a worn rig FACES, when that is not the way its wearer is
      * looking.
      *

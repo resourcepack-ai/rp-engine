@@ -1021,6 +1021,13 @@ public final class EmoteDirector implements Listener {
      * player is already wearing something, which is what this class is for.
      */
     public EmoteResult wear(Player player, String emoteId) {
+        return wear(player, emoteId, null);
+    }
+
+    /**
+     * The same, over a base pose. See {@link ai.resourcepack.engine.api.Emotes#wear(Player, String, String)}.
+     */
+    public EmoteResult wear(Player player, String emoteId, String under) {
         if (player == null) {
             return EmoteResult.refused(Reason.INCOMPLETE_EMOTE_DATA);
         }
@@ -1059,7 +1066,7 @@ public final class EmoteDirector implements Listener {
             }
         }
 
-        swapWorn(player, session, wanted);
+        swapWorn(player, session, over(builtIn(under), wanted));
         return EmoteResult.started(wanted != null ? wanted.name : "", false);
     }
 
@@ -1251,6 +1258,40 @@ public final class EmoteDirector implements Listener {
      * and a jointed skeleton carries the shin along with the thigh it hangs
      * off.
      */
+    /**
+     * {@code wanted} with {@code base}'s pose filling in the bones it is silent
+     * about.
+     *
+     * <p><strong>Per BONE, not per channel.</strong> An emote that touches a
+     * leg at all owns that leg: half a base pose under half an authored one is
+     * a body nobody drew, and the author who rotated the thigh did not ask for
+     * the engine's rotation on the same joint from the other direction.
+     *
+     * <p>Returns {@code wanted} unchanged whenever there is nothing to merge —
+     * no base, no emote, or a base that poses nothing — so the ordinary paths
+     * allocate nothing and compare identically to how they always did. The
+     * result is a fresh object rather than a mutation of either side: both are
+     * shared, and {@code BUILT_IN_SITTING_EMOTE} in particular is a static.
+     */
+    private static EmoteStore.Emote over(EmoteStore.Emote base, EmoteStore.Emote wanted) {
+        if (base == null || wanted == null || base.animators == null || base.animators.isEmpty()) {
+            return wanted;
+        }
+        Map<String, Map<String, List<Keyframe>>> merged = new HashMap<>(base.animators);
+        if (wanted.animators != null) {
+            merged.putAll(wanted.animators);
+        }
+        EmoteStore.Emote composed = new EmoteStore.Emote();
+        composed.name = wanted.name;
+        composed.length = wanted.length;
+        composed.loop = wanted.loop;
+        composed.root = wanted.root;
+        composed.rootMotion = wanted.rootMotion;
+        composed.props = wanted.props;
+        composed.animators = Collections.unmodifiableMap(merged);
+        return composed;
+    }
+
     private static EmoteStore.Emote stance(String name, String... legsForward) {
         EmoteStore.Emote stance = new EmoteStore.Emote();
         stance.name = name;

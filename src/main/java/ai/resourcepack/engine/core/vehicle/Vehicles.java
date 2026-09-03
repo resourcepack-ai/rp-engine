@@ -1609,7 +1609,18 @@ public final class Vehicles implements Listener {
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
                 worn.put(id, wanted);
-                EmoteResult result = emotes.wear(player, wanted);
+                // The seat's own stance UNDER whatever the pack named, so an
+                // emote that only moves the arms keeps its occupant seated. It
+                // was the alternative to the stance rather than a base for it,
+                // which meant naming ANY emote for a seat stood its rider up:
+                // the emote's animators replaced the lot, the legs fell back to
+                // rest, and a driver hauling a wheel round did it standing.
+                //
+                // Null when the seat named nothing — `wanted` is already the
+                // stance in that case, and merging it under itself is work for
+                // no difference.
+                String under = named != null ? fallbackStance(seat) : null;
+                EmoteResult result = emotes.wear(player, wanted, under);
                 if (wanted != null && result != null && result.started()) {
                     dressed.add(id);
                 } else {
