@@ -67,20 +67,33 @@ public enum VehicleState {
      */
     AIRBORNE,
 
-    /** Travelling backwards. */
-    REVERSING,
-
-    /** Travelling forwards. */
-    MOVING,
-
     /**
      * Swinging round faster than a nudge.
      *
      * <p>Measured against how fast the body is actually turning rather than
      * against what the driver asked for, so a vehicle at its {@code turn-speed}
      * clamp is turning and one being fought by a wall is not.
+     *
+     * <p><strong>Above the two travel states, which is a reversal.</strong> It
+     * used to sit below them on the grounds that a car reversing round a corner
+     * is reversing — which is defensible and meant `turning` never played while
+     * the vehicle was going anywhere, because a corner is nearly always taken
+     * under way. A pack that authored a leaning cycle got it only when spinning
+     * on the spot, which is not a thing anybody drives. Cornering is the more
+     * specific thing a vehicle is doing, so it wins.
+     *
+     * <p>Nothing is lost by the change: an unconfigured state falls through, so
+     * a pack that maps only `moving` still plays it through the corner — see
+     * {@link #choose}. A SEAT has no fall-through, so it gets a narrow one for
+     * exactly this state; see {@link #forSeat}.
      */
     TURNING,
+
+    /** Travelling backwards. */
+    REVERSING,
+
+    /** Travelling forwards. */
+    MOVING,
 
     /**
      * Stationary, or near enough that nobody can tell.
@@ -150,6 +163,42 @@ public enum VehicleState {
             if (active.contains(state)) {
                 return Optional.of(state);
             }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * The state a SEAT should dress its occupant for.
+     *
+     * <p>{@link #current} with one exception, and the exception is the whole
+     * reason this exists: <strong>{@link #TURNING} is a refinement of
+     * travelling, not a separate thing a vehicle does.</strong> It outranks
+     * {@code moving} and {@code reversing} so that a pack which authored a
+     * cornering pose gets it — but a seat has no general fall-through, so
+     * without this a seat that maps {@code moving} and not {@code turning}
+     * would drop its occupant back to their own body on every corner. Their
+     * pose would snap off and on with the steering.
+     *
+     * <p>So an unmapped {@code turning} is passed over and the state underneath
+     * answers. Only that state, and only when it is unmapped: every other blank
+     * row still means the occupant's own body, which is the rule
+     * {@link VehicleSeat#animations()} rests on and the reason this is not
+     * simply {@link #choose}.
+     */
+    public static Optional<VehicleState> forSeat(Collection<VehicleState> active,
+                                                 Map<VehicleState, String> dressed) {
+        if (active == null) {
+            return Optional.empty();
+        }
+        for (VehicleState state : values()) {
+            if (!active.contains(state)) {
+                continue;
+            }
+            if (state == TURNING && (dressed == null || !dressed.containsKey(TURNING))) {
+                // A refinement nobody refined. Ask what it is a refinement OF.
+                continue;
+            }
+            return Optional.of(state);
         }
         return Optional.empty();
     }

@@ -49,15 +49,57 @@ class VehicleStateTest {
                 VehicleState.choose(jumping, named(VehicleState.values())).orElseThrow());
     }
 
-    /** Direction of travel beats turning: a car reversing round a corner is reversing. */
+    /**
+     * Turning beats direction of travel: cornering is the more specific thing a
+     * vehicle is doing.
+     *
+     * <p>This asserted the opposite, and the opposite is defensible — a car
+     * reversing round a corner is reversing. It also meant `turning` never
+     * played while the vehicle was going anywhere, because a corner is nearly
+     * always taken under way, so a pack that authored a leaning cycle got it
+     * only while spinning on the spot. Nothing is lost: a pack that maps only
+     * `moving` still plays it through the corner, because an unconfigured state
+     * falls through.
+     */
     @Test
-    void travelBeatsTurning() {
-        assertEquals("reversing-animation",
+    void turningBeatsTravel() {
+        assertEquals("turning-animation",
                 VehicleState.choose(EnumSet.of(VehicleState.REVERSING, VehicleState.TURNING),
                         named(VehicleState.values())).orElseThrow());
-        assertEquals("moving-animation",
+        assertEquals("turning-animation",
                 VehicleState.choose(EnumSet.of(VehicleState.MOVING, VehicleState.TURNING),
                         named(VehicleState.values())).orElseThrow());
+    }
+
+    /** A pack that never authored a corner keeps driving through one. */
+    @Test
+    void anUnmappedTurningStillDrives() {
+        assertEquals("moving-animation",
+                VehicleState.choose(EnumSet.of(VehicleState.MOVING, VehicleState.TURNING),
+                        named(VehicleState.MOVING)).orElseThrow());
+    }
+
+    /**
+     * A SEAT has no general fall-through, so an unmapped `turning` is the one
+     * state it passes over — otherwise a driver's pose would snap off and on
+     * with the steering.
+     */
+    @Test
+    void aSeatPassesOverATurnItDidNotAuthor() {
+        Set<VehicleState> cornering = EnumSet.of(VehicleState.MOVING, VehicleState.TURNING);
+        assertEquals(VehicleState.MOVING,
+                VehicleState.forSeat(cornering, named(VehicleState.MOVING)).orElseThrow());
+        assertEquals(VehicleState.TURNING,
+                VehicleState.forSeat(cornering, named(VehicleState.MOVING, VehicleState.TURNING))
+                        .orElseThrow());
+    }
+
+    /** Every other blank row still means the occupant's own body. */
+    @Test
+    void aSeatDoesNotFallThroughAnythingElse() {
+        assertEquals(VehicleState.MOVING,
+                VehicleState.forSeat(EnumSet.of(VehicleState.MOVING), named(VehicleState.IDLE))
+                        .orElseThrow());
     }
 
     /**
