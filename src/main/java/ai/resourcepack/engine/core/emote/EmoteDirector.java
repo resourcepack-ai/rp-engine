@@ -510,6 +510,16 @@ public final class EmoteDirector implements Listener {
          */
         Vector lead = new Vector();
         /**
+         * Which glide window this session's displays are currently carrying,
+         * or null before the first pass has decided. See {@link #carryTicksFor}.
+         *
+         * <p>Held so the answer is re-sent on the TRANSITION rather than every
+         * pass. Setting a teleport duration is an entity-data write per
+         * display, and a stance is worn for minutes at a time — getting in and
+         * out of a boat is the only thing that can change it.
+         */
+        Boolean carriedAsRider;
+        /**
          * Whether the next pose should land at once rather than tween.
          *
          * <p>Set by whatever CHANGED the animation and cleared by the pose
@@ -2710,6 +2720,37 @@ public final class EmoteDirector implements Listener {
     }
 
     /**
+     * Puts this session's displays on the glide window that matches whether
+     * their wearer is riding — see {@link #carryTicksFor}.
+     *
+     * <p>Only on the change. Every display this touches is one entity-data
+     * write and a packet to every viewer, and the answer changes exactly twice
+     * a journey: getting in, and getting out.
+     *
+     * <p>The followers go too. A shadow or a name that stayed on the world's
+     * window would separate from the rig it belongs to by the same tick the
+     * rig used to separate from the vehicle, which is the bug one level down
+     * rather than a different one.
+     */
+    private void carryAs(Session session, boolean riding) {
+        if (session.carriedAsRider != null && session.carriedAsRider == riding) {
+            return;
+        }
+        session.carriedAsRider = riding;
+        DisplayCarry how = riding ? riderCarry : displayCarry;
+        for (ItemDisplay display : session.parts) {
+            if (display != null && display.isValid()) how.carry(display);
+        }
+        for (ItemDisplay display : session.propParts) {
+            if (display != null && display.isValid()) how.carry(display);
+        }
+        if (session.mainHand != null && session.mainHand.isValid()) how.carry(session.mainHand);
+        if (session.offHand != null && session.offHand.isValid()) how.carry(session.offHand);
+        if (session.shadow != null && session.shadow.isValid()) how.carry(session.shadow);
+        if (session.nameTag != null) session.nameTag.carryAs(how);
+    }
+
+    /**
      * Whether this player is off the ground, for the purposes of a stance.
      *
      * <p><b>BOTH answers have to say yes, and that asymmetry is the point.</b>
@@ -2745,17 +2786,22 @@ public final class EmoteDirector implements Listener {
      * is read here and the arithmetic under it is reachable from a test.
      */
     private void advanceLead(Player player, Session session, Location now) {
-        double ticks = LEAD_PIPELINE_TICKS;
+        // A passenger is not led at all, whatever their connection is doing —
+        // see leadTicksFor. Asked first because the ping below is only worth
+        // reading to size a lead, and a rider is not getting one.
+        if (player.isInsideVehicle()) {
+            session.lead = EmoteStance.leadFor(session.lead, session.previous, now, leadTicksFor(true, 0));
+            return;
+        }
+        int ping = 0;
         try {
-            // Halved: what matters is how stale the position they sent us is,
-            // which is one leg of the round trip rather than both.
-            ticks += Math.max(0, player.getPing()) / 100.0;
+            ping = player.getPing();
         } catch (RuntimeException | LinkageError e) {
             // A server that cannot answer gets the pipeline delay alone, which
             // is the part that is true of every connection including a local one.
-            ticks = LEAD_PIPELINE_TICKS;
+            ping = 0;
         }
-        session.lead = EmoteStance.leadFor(session.lead, session.previous, now, Math.min(ticks, MAX_LEAD_TICKS));
+        session.lead = EmoteStance.leadFor(session.lead, session.previous, now, leadTicksFor(false, ping));
     }
 
     /**
@@ -2805,6 +2851,11 @@ public final class EmoteDirector implements Listener {
         boolean moving = session.movingFor > 0;
         boolean sneaking = player.isSneaking();
         boolean airborne = airborne(player, now);
+        // Whether the rig is judged against the world or against the seat its
+        // wearer is sitting on. Both of the numbers below turn on it, and both
+        // were the world's answer for a passenger until a vehicle seat started
+        // putting rigs on people who were not walking anywhere.
+        carryAs(session, player.isInsideVehicle());
         // Read before `previous` is overwritten, because it is the difference
         // between the two. See LEAD_PIPELINE_TICKS for what it is for.
         advanceLead(player, session, now);
@@ -3576,9 +3627,24 @@ public final class EmoteDirector implements Listener {
      */
     private static volatile DisplayCarry displayCarry = new DisplayCarry.Immediate();
 
+    /**
+     * The same, for a wearer who is RIDING something. See {@link #carryTicksFor}.
+     *
+     * <p>A second arm rather than a number passed to the first, because the
+     * choice is made per pass and building a {@code DisplayCarry} per pass to
+     * express it would allocate on the hot path for a value that only ever
+     * takes two shapes.
+     */
+    private static volatile DisplayCarry riderCarry = new DisplayCarry.Immediate();
+
     /** Set from the plugin once the server's version is known. */
     public static void displayCarry(DisplayCarry carry) {
         displayCarry = carry == null ? new DisplayCarry.Immediate() : carry;
+    }
+
+    /** The rider arm of the above, set from the same place at the same moment. */
+    public static void riderDisplayCarry(DisplayCarry carry) {
+        riderCarry = carry == null ? new DisplayCarry.Immediate() : carry;
     }
 
     /**
@@ -3598,5 +3664,66 @@ public final class EmoteDirector implements Listener {
     /** How long a carried display is given to cover a move. */
     public static int interpolationTicks() {
         return INTERPOLATION_TICKS;
+    }
+
+    /** The same, for a wearer who is riding. See {@link #carryTicksFor}. */
+    public static int carryTicksForRider() {
+        return carryTicksFor(true);
+    }
+
+    /**
+     * How long a carried display is given to cover a move, given whether its
+     * wearer is riding something.
+     *
+     * <p><b>A rig on a passenger is judged against the RIDER, not the world.</b>
+     * That is the whole of it, and it is the distinction
+     * {@link ai.resourcepack.engine.core.model.DisplayLatency} already draws:
+     * a rider is drawn wherever their mount is, which the client lerps over
+     * {@code TRACKED_ENTITY_TICKS}, so anything that has to stay on the seat
+     * must be behind by exactly that much. The vehicle's own model already is
+     * — see {@code Vehicles.MODEL_GLIDE_TICKS}, which reasoned this out first
+     * and says in as many words that being a tick tighter than the rider is
+     * the bug rather than an improvement.
+     *
+     * <p>Off a mount the old answer is the right one: there the rig is judged
+     * against the WORLD, where less lag is better and a stutter is the only
+     * failure. Nothing about a walking wearer changes.
+     */
+    static int carryTicksFor(boolean riding) {
+        return riding
+                ? ai.resourcepack.engine.core.model.DisplayLatency.TRACKED_ENTITY_TICKS
+                : INTERPOLATION_TICKS;
+    }
+
+    /**
+     * How far ahead of themselves a wearer's rig is placed, in ticks.
+     *
+     * <p><b>Nothing at all for a passenger, and that is not a tuning choice.</b>
+     * The lead exists to cancel how stale a player's SELF-REPORTED position is
+     * — see {@link #LEAD_PIPELINE_TICKS} — and a passenger reports nothing:
+     * the server moves the mount and their location is read back off it. So
+     * there is no staleness to cancel, and every block of lead is overshoot
+     * with nothing underneath it.
+     *
+     * <p>It is not a small overshoot either, because the lead is sized by the
+     * step taken per tick and a vehicle's step dwarfs a gait. At 12 blocks a
+     * second a hull covers 0.6 of a block a tick, so the reckoning wants over
+     * a block and is pinned at {@link EmoteStance#MAX_LEAD} for the whole
+     * journey: the rig sits two thirds of a block in front of the hull and
+     * swings wide of every corner, which is what "it goes faster than the
+     * vehicle" is.
+     *
+     * <p>Zero TICKS rather than a zeroed vector, so climbing into a seat
+     * mid-stance unwinds an existing lead through the smoothing that is
+     * already there instead of snapping the rig back onto the seat.
+     *
+     * @param pingMillis the wearer's round trip, halved here because what
+     *                   matters is the leg from them to us
+     */
+    static double leadTicksFor(boolean riding, int pingMillis) {
+        if (riding) {
+            return 0;
+        }
+        return Math.min(MAX_LEAD_TICKS, LEAD_PIPELINE_TICKS + Math.max(0, pingMillis) / 100.0);
     }
 }

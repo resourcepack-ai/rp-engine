@@ -77,6 +77,13 @@ final class EngineOptions {
         // server's version, not a preference. See DisplayCarry.
         EmoteDirector.displayCarry(DisplayCarry.forServer(
             compatibility, EmoteDirector.interpolationTicks()));
+        // The second arm, for a wearer who is riding something: their rig is
+        // judged against the seat rather than against the world, so it glides
+        // on vanilla's own entity window instead of the emote step. Resolved
+        // here beside the first so the two can never come from different
+        // versions of the same decision.
+        EmoteDirector.riderDisplayCarry(DisplayCarry.forServer(
+            compatibility, EmoteDirector.carryTicksForRider()));
         // Both holders of the same decision: where a rig part's identity is
         // carried. One object, so the two can never disagree about a stack.
         RigTags rigTags = RigTags.forServer(compatibility, plugin);
