@@ -71,10 +71,55 @@ class VehicleStateTest {
         assertEquals("moving-animation",
                 VehicleState.choose(EnumSet.of(VehicleState.MOVING, VehicleState.SUBMERGED),
                         named(VehicleState.values())).orElseThrow());
-        // With nothing else going on it is what a floating boat plays.
-        assertEquals("submerged-animation",
+        // And it loses to standing still, too. SUBMERGED is below IDLE, so a
+        // boat that is not doing anything plays its idle animation rather than
+        // its water one — which is what stops a rowing cycle mapped to
+        // `submerged` running at the mooring.
+        assertEquals("idle-animation",
                 VehicleState.choose(EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED),
                         named(VehicleState.values())).orElseThrow());
+    }
+
+    /**
+     * <strong>The bug this ordering exists to make impossible.</strong>
+     *
+     * <p>A pack that put its rowing cycle on every state and then cleared
+     * {@code idle} to stop the boat rowing while moored got no change at all:
+     * SUBMERGED was above IDLE, it is permanently true for a boat, and it took
+     * the empty slot. Clearing idle now means what it looks like it means.
+     */
+    @Test
+    void clearingIdleSilencesAMooredBoat() {
+        Map<VehicleState, String> everythingButIdle = named(VehicleState.values());
+        everythingButIdle.remove(VehicleState.IDLE);
+
+        assertTrue(VehicleState.choose(EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED),
+                everythingButIdle).isEmpty());
+        // Still rows the moment it is under way, which is the whole point of
+        // clearing only the one state.
+        assertEquals("moving-animation",
+                VehicleState.choose(EnumSet.of(VehicleState.MOVING, VehicleState.SUBMERGED),
+                        everythingButIdle).orElseThrow());
+    }
+
+    /**
+     * IDLE stops the walk, and only IDLE does. A blank state above it still
+     * falls through, or a cornering car with no leaning animation would fall
+     * silent mid-corner.
+     */
+    @Test
+    void idleIsTheFloorAndNothingElseIs() {
+        Map<VehicleState, String> justSubmerged = named(VehicleState.SUBMERGED);
+
+        // Turning is blank, and turning is not the floor: a boat swinging
+        // round in the water reaches SUBMERGED.
+        assertEquals("submerged-animation",
+                VehicleState.choose(EnumSet.of(VehicleState.TURNING, VehicleState.SUBMERGED),
+                        justSubmerged).orElseThrow());
+        // The same boat, stationary. IDLE is blank AND is the floor, so it
+        // never reaches SUBMERGED.
+        assertTrue(VehicleState.choose(EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED),
+                justSubmerged).isEmpty());
     }
 
     /**
@@ -104,23 +149,23 @@ class VehicleStateTest {
      * <strong>A boat is ALWAYS submerged, which is what makes this the case
      * worth pinning down.</strong>
      *
-     * <p>SUBMERGED sits directly above IDLE, so for a water vehicle — the one
-     * kind that is in that state for its entire life — it is the state most
-     * able to shadow another. A pack that maps only `idle` must still get its
-     * idle animation while floating, or "idle" would be a state a boat can
-     * never be seen in.
+     * <p>A water vehicle is in that state for its entire life, so it is the one
+     * state that could shadow every quieter one — which is precisely why it is
+     * the LAST. A moored boat is idle, and what it plays is its idle animation
+     * whether or not it also has a water one.
      */
     @Test
     void aBoatSittingInWaterPlaysItsIdleAnimation() {
         Set<VehicleState> floating = EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED);
 
-        // Only idle mapped: submerged is blank, so it falls through to it.
+        // Only idle mapped.
         assertEquals("idle-animation",
                 VehicleState.choose(floating, named(VehicleState.IDLE)).orElseThrow());
 
-        // And with the whole set mapped, the more specific one wins — a boat
-        // that HAS a floating animation gets it. Both readings are deliberate.
-        assertEquals("submerged-animation",
+        // And with the whole set mapped, still idle: standing still is a more
+        // specific description of a moored boat than being in water, which is
+        // true of it every moment of its life.
+        assertEquals("idle-animation",
                 VehicleState.choose(floating, named(VehicleState.values())).orElseThrow());
     }
 
