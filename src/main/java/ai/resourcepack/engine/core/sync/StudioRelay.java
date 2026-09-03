@@ -13,7 +13,11 @@ import org.bukkit.plugin.Plugin;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -83,20 +87,42 @@ public final class StudioRelay {
             sync.failed(code, "unknown-code");
             return;
         }
+        // <strong>All four downloads at once, and that is about a clock rather
+        // than about throughput.</strong> The far end holds the HTTP request
+        // that started this push open until the ack below goes back, and
+        // reports a failure to the person watching if it does not arrive in
+        // time. Fetched one after another, the three small manifests put three
+        // full round trips in front of the pack — which is itself tens of
+        // megabytes once a pack carries emote rigs — and the sum ran past that
+        // window on an ordinary connection. A push that had worked was then
+        // reported as having timed out, and the retry it provoked raced the
+        // first one.
+        //
+        // Nothing here shares state: three different stores, three different
+        // URLs, and a pack that lands in a file of its own. The MERGES are
+        // still done in order on this thread once everything is in hand, so
+        // what is registered does not depend on which download finished first.
+        CompletableFuture<Optional<String>> rigsJson =
+                fetchAsync(StudioPush.rigsUrl(payload));
+        CompletableFuture<Optional<String>> emotesJson =
+                fetchAsync(StudioPush.emotesUrl(payload));
+        CompletableFuture<Optional<String>> contentJson =
+                fetchAsync(StudioPush.contentUrl(payload));
+
+        StudioPush.Fetch fetched = StudioPush.fetch(payload, output);
+
         // The manifests first: a pack whose art arrives without its keyframes
         // is a pack somebody can wear and not emote in, and the two came down
         // the same push. Different slots of it — see StudioPush.
-        StudioPush.rigsUrl(payload).flatMap(StudioPush::fetchText)
-                .ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
-        StudioPush.emotesUrl(payload).flatMap(StudioPush::fetchText)
+        joined(rigsJson).ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
+        joined(emotesJson)
                 .ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
         // What the pack holds that a command can name. Registered on the main
         // thread below with everything else that touches shared state.
-        StudioPush.contentUrl(payload).flatMap(StudioPush::fetchText)
+        joined(contentJson)
                 .ifPresent(json -> merged("Pushed content", content.updateFromJson(json),
                         () -> content.save(log)));
 
-        StudioPush.Fetch fetched = StudioPush.fetch(payload, output);
         if (fetched.pack().isEmpty()) {
             sync.failed(code, fetched.reason());
             return;
@@ -192,6 +218,42 @@ public final class StudioRelay {
 
     private void onMainThread(Runnable work) {
         plugin.getServer().getScheduler().runTask(plugin, work);
+    }
+
+    /**
+     * Starts one manifest download, or answers immediately when the push
+     * carried no such slot.
+     *
+     * <p>On the common pool rather than a pool of our own: there are at most
+     * three of these in flight per push, they are pure I/O, and a plugin that
+     * spawns an executor for something this small is a thread nobody shuts
+     * down. Nothing here touches Bukkit — the results are merged back on the
+     * websocket thread and applied on the main one.
+     */
+    private static CompletableFuture<Optional<String>> fetchAsync(Optional<String> url) {
+        if (url.isEmpty()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        String address = url.get();
+        return CompletableFuture.supplyAsync(() -> StudioPush.fetchText(address));
+    }
+
+    /**
+     * What a manifest download came back with, or empty if it could not be
+     * had.
+     *
+     * <p>A failed one costs its own manifest and nothing else, which is the
+     * rule {@link StudioPush#fetchText} already follows for a bad response —
+     * the pack is still worth delivering without one of the three, and the
+     * next push replaces it.
+     */
+    private Optional<String> joined(CompletableFuture<Optional<String>> pending) {
+        try {
+            return pending.join();
+        } catch (CompletionException | CancellationException e) {
+            log.warning("A pushed manifest could not be fetched: " + e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**
