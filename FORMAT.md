@@ -782,9 +782,15 @@ ordinary players — it costs a rig's worth of entities per occupant. A seat tha
 NAMES an emote is unaffected by any of this.
 
 So the state is resolved once, as the highest one in the table that holds, and
-looked up. **A moored boat is `idle`** — if you want your driver in a rig while
-they float, that is the entry to write; `submerged` will not do it, for the
-same reason it will not do it for the vehicle's own animation.
+looked up.
+
+**`submerged` on a seat never fires at all**, and it is worth being blunt about
+because the bodywork's table above is different. Every vehicle is always
+`moving`, `reversing` or `idle` — one of the three, every tick, by construction
+— and all three come above `submerged`. The bodywork can still reach it,
+because a blank state there falls through to the next one down; a seat cannot,
+because a seat has no fall-through. **A moored boat is `idle`**: put a rower's
+resting pose there and their rowing cycle on `moving`.
 
 If the occupant is already mid-emote of their own when they get in, theirs
 wins and the seat dresses nobody — a vehicle should not interrupt somebody's
