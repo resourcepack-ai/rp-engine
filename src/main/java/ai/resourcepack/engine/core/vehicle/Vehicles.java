@@ -194,6 +194,24 @@ public final class Vehicles implements Listener {
      */
     private static final float MODEL_YAW_OFFSET = 180;
 
+    /**
+     * How far an OCCUPANT'S RIG is turned from the way their seat points.
+     *
+     * <p>The same half turn as {@link #MODEL_YAW_OFFSET} and, like it, found in
+     * a client rather than derived — a rig faced backwards down the road until
+     * it was put in. Kept as its own constant precisely because it is a
+     * different fact about a different piece of art: that one is the vehicle's
+     * bodywork, this is the baked player rig, and the day one of them is
+     * rebuilt facing the other way the other must not move with it.
+     *
+     * <p>It is needed at all because the value handed over is a real heading —
+     * {@code state.yaw() + seat.yaw()} is the same number the teleport that
+     * aims somebody as they sit down uses, and that one is correct without any
+     * offset. A player and a rig read a yaw differently, and this is the whole
+     * of the difference.
+     */
+    private static final float SEAT_RIG_YAW_OFFSET = 180;
+
     /** How far ahead a solid block stops the vehicle, in blocks. */
     private static final double NOSE = 0.6;
 
@@ -1360,7 +1378,12 @@ public final class Vehicles implements Listener {
                 // Their head still turns wherever they like; only the rig is
                 // held square to the seat, which is what vanilla does with a
                 // real body in a boat.
-                emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seat.yaw()));
+                //
+                // Plus the half turn a rig reads a yaw by — see
+                // SEAT_RIG_YAW_OFFSET. Without it the rider faced backwards
+                // down the road, which is the same symptom the bodywork had.
+                emotes.face(player, (float) VehiclePhysics.wrap360(
+                        this.state.yaw() + seat.yaw() + SEAT_RIG_YAW_OFFSET));
                 String named = state == null ? null : seat.animations().get(state);
                 String wanted = named != null ? named : fallbackStance(seat);
                 if (Objects.equals(wanted, worn.get(id))) {
