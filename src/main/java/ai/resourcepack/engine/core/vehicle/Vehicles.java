@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.VehicleHitbox;
@@ -1276,6 +1277,18 @@ public final class Vehicles implements Listener {
             if (emotes == null) {
                 return;
             }
+            // A state this seat left blank is the player's own body, NOT a
+            // fall-through to the next state — see VehicleSeat.animations. A
+            // fall-through would leave a driver hauling an imaginary wheel
+            // round while the car sat still.
+            //
+            // Which is why this is `current` and not `choose`. It said the
+            // above in a comment and then called the fall-through anyway, and
+            // that gap was invisible until IDLE became a floor: a seat whose
+            // emote was mapped to `submerged` used to reach it whenever the
+            // boat was moored, so the mapping people actually write worked by
+            // accident and stopped when the accident was fixed.
+            VehicleState state = VehicleState.current(states).orElse(null);
             for (int i = 0; i < occupants.size(); i++) {
                 UUID id = occupants.get(i);
                 VehicleSeat seat = info.seats().get(i);
@@ -1286,11 +1299,7 @@ public final class Vehicles implements Listener {
                 if (player == null) {
                     continue;
                 }
-                // A state this seat left blank is the player's own body, NOT a
-                // fall-through to the next state — see VehicleSeat.animations.
-                // A fall-through would leave a driver hauling an imaginary
-                // wheel round while the car sat still.
-                String wanted = VehicleState.choose(states, seat.animations()).orElse(null);
+                String wanted = state == null ? null : seat.animations().get(state);
                 if (Objects.equals(wanted, worn.get(id))) {
                     continue;
                 }
@@ -1298,8 +1307,58 @@ public final class Vehicles implements Listener {
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
                 worn.put(id, wanted);
-                emotes.wear(player, wanted);
+                sayIfRefused(player, wanted, emotes.wear(player, wanted));
             }
+        }
+
+        /**
+         * Tells an occupant why their body did not change, when it did not.
+         *
+         * <p><strong>This was thrown away, and throwing it away is most of why
+         * "I am still just me in the seat" had no answer.</strong> Every way
+         * {@code wear} can refuse is a real, fixable state — the pack carries
+         * no rig for this player, the emote id no longer exists, they are
+         * mid-emote of their own — and every one of them looked identical from
+         * the seat: nothing happened, no message, nothing in the console.
+         *
+         * <p>Said to the RIDER rather than only logged, because they are the
+         * one who can see that nothing happened, and once per change rather
+         * than per tick because {@code worn} has already been written by the
+         * time this runs. A state that maps to nothing is silent — that is not
+         * a failure, it is a seat saying "be yourself here".
+         */
+        private void sayIfRefused(Player player, String wanted, EmoteResult result) {
+            if (wanted == null || result == null || result.started()) {
+                return;
+            }
+            String why;
+            switch (result.reason()) {
+                case NO_RIG_FOR_PLAYER:
+                    why = "this pack carries no rig for you. Sync it again while you are online.";
+                    break;
+                case NO_RIGS_IN_PACK:
+                case INCOMPLETE_EMOTE_DATA:
+                case NO_EMOTES:
+                    why = "this pack arrived without its emote rigs. Sync it again.";
+                    break;
+                case UNKNOWN_EMOTE:
+                    why = "the seat asks for an emote called '" + wanted + "', which this pack no longer has.";
+                    break;
+                case ALREADY_EMOTING:
+                    why = "you are in an emote of your own. It wins - stop it and get back in.";
+                    break;
+                case IN_SPECTATOR:
+                    why = "you are in spectator.";
+                    break;
+                default:
+                    why = "the emote was refused: " + result.reason().name().toLowerCase(Locale.ROOT) + ".";
+                    break;
+            }
+            Chat.send(player, "Your seat could not dress you, so you are riding as yourself - " + why);
+            // And once in the console, because a server owner debugging a
+            // vehicle is not the person sitting in it.
+            log.warning("Vehicle " + info.id() + ": seat emote '" + wanted + "' refused for "
+                    + player.getName() + " (" + result.reason() + ").");
         }
 
         /** Gives an occupant their own body back as they get out. */

@@ -189,6 +189,30 @@ class VehicleStateTest {
     }
 
     /**
+     * <strong>What a SEAT reads, and it is not {@link VehicleState#choose}.</strong>
+     *
+     * <p>A seat's map has no fall-through at all: a state it left blank is the
+     * occupant's own body, which is an answer rather than a gap. So it asks
+     * which state holds and looks that one up, and gets nothing when there is
+     * no entry for it — where the vehicle's own map would have carried on down
+     * the list.
+     */
+    @Test
+    void currentIsThePrecedenceWithoutTheFallThrough() {
+        assertEquals(VehicleState.MOVING,
+                VehicleState.current(EnumSet.of(VehicleState.MOVING, VehicleState.SUBMERGED)).orElseThrow());
+        assertEquals(VehicleState.AIRBORNE,
+                VehicleState.current(EnumSet.of(VehicleState.MOVING, VehicleState.AIRBORNE)).orElseThrow());
+        // A moored boat is IDLE, not SUBMERGED. This is the one a seat gets
+        // wrong if the two ever disagree: it is where a driver sits while
+        // nothing is happening, which is most of the time anybody looks at one.
+        assertEquals(VehicleState.IDLE,
+                VehicleState.current(EnumSet.of(VehicleState.IDLE, VehicleState.SUBMERGED)).orElseThrow());
+        assertTrue(VehicleState.current(EnumSet.noneOf(VehicleState.class)).isEmpty());
+        assertTrue(VehicleState.current(null).isEmpty());
+    }
+
+    /**
      * Empty, not a guess. A pack that configured nothing plays nothing, which
      * the runtime turns into stopping rather than into an animation named "".
      */

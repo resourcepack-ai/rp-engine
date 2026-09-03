@@ -126,6 +126,35 @@ public enum VehicleState {
     }
 
     /**
+     * The single state that best describes what {@code active} is, or empty if
+     * it is nothing.
+     *
+     * <p><strong>The precedence without the fall-through</strong>, which is the
+     * difference between this and {@link #choose} and is the whole reason both
+     * exist. A vehicle's own animation map falls through a blank state, because
+     * a cornering car with no leaning animation should carry on driving. A
+     * SEAT's map must not: a state it left blank means the occupant's own body,
+     * and "no pose" is an answer a fall-through cannot spell — see
+     * {@link VehicleSeat#animations()}. Falling through there would leave a
+     * driver hauling an imaginary wheel round while the car sat still.
+     *
+     * <p>So a caller that wants "what is this vehicle doing" asks here and
+     * looks the answer up itself; a caller that wants "what should it play"
+     * asks {@link #choose}.
+     */
+    public static Optional<VehicleState> current(Collection<VehicleState> active) {
+        if (active == null) {
+            return Optional.empty();
+        }
+        for (VehicleState state : values()) {
+            if (active.contains(state)) {
+                return Optional.of(state);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * The animation to play for a vehicle in {@code active}, given what the
      * pack configured.
      *
