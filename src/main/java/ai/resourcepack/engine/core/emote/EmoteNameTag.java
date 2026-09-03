@@ -124,9 +124,17 @@ final class EmoteNameTag {
      */
     private boolean sneaking;
 
-    private EmoteNameTag(TextDisplay display, boolean sneaking) {
+    /**
+     * Whether this name is MOVED with its rig, rather than standing where it
+     * was put. Only a carried one has a glide window to change — see
+     * {@link #carryAs}.
+     */
+    private final boolean carried;
+
+    private EmoteNameTag(TextDisplay display, boolean sneaking, boolean carried) {
         this.display = display;
         this.sneaking = sneaking;
+        this.carried = carried;
     }
 
     /**
@@ -183,12 +191,24 @@ final class EmoteNameTag {
             d.setPersistent(false);
             if (carried) EmoteDirector.carry(d);
         });
-        return new EmoteNameTag(tag, sneaking);
+        return new EmoteNameTag(tag, sneaking, carried);
     }
 
     /** The entity itself, for the per-viewer hiding the director does. */
     TextDisplay display() {
         return display;
+    }
+
+    /**
+     * Moves the name onto another glide window — see
+     * {@code EmoteDirector.carryTicksFor}.
+     *
+     * <p>Only meaningful on a name that is CARRIED in the first place. One
+     * that stands where it was put is never teleported, so a duration on it
+     * would be a promise about a packet that is never sent.
+     */
+    void carryAs(ai.resourcepack.engine.core.model.DisplayCarry how) {
+        if (carried && display.isValid()) how.carry(display);
     }
 
     void remove() {
