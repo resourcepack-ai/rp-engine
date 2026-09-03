@@ -429,6 +429,15 @@ public final class EmoteDirector implements Listener {
         long startTick;
         float yaw;
         /**
+         * A facing somebody else owns, or null to follow the wearer's look.
+         *
+         * <p>Set through {@link ai.resourcepack.engine.api.Emotes#face} by
+         * whatever is carrying this player — a vehicle seat, today. See there
+         * for why a rider's body and a rider's camera are two different
+         * questions.
+         */
+        Float facing;
+        /**
          * Everyone in this emote, the lead first and this player among them.
          *
          * <p><b>An emote ends for everybody or for nobody.</b> Half a
@@ -1052,6 +1061,31 @@ public final class EmoteDirector implements Listener {
 
         swapWorn(player, session, wanted);
         return EmoteResult.started(wanted != null ? wanted.name : "", false);
+    }
+
+    /**
+     * Points a worn rig somewhere other than its wearer's look, or lets it go.
+     *
+     * <p>See {@link ai.resourcepack.engine.api.Emotes#face}. Nothing is applied
+     * here: the next pass of {@link #tickStance} reads it, which is what keeps
+     * this to a field write on a path a vehicle runs every tick for every
+     * occupant.
+     *
+     * <p>Silent for a player with no session. A facing kept for a rig that does
+     * not exist would outlive the seat that set it and point the next one.
+     *
+     * <p><strong>And silent for a session this caller does not own.</strong>
+     * Somebody who is already mid-emote of their own when they sit down is
+     * refused by {@code wear} and keeps dancing — the seat does not get their
+     * body — so pointing that rig at the vehicle would take over an emote the
+     * seat was told it could not have. {@code driven} is exactly the set of
+     * sessions whose contents belong to somebody else, which is the same
+     * question, so it is the same test.
+     */
+    public void face(Player player, Float yaw) {
+        if (player == null) return;
+        Session session = active.get(player.getUniqueId());
+        if (session != null && session.driven) session.facing = yaw;
     }
 
     /**
@@ -2930,7 +2964,13 @@ public final class EmoteDirector implements Listener {
         // emote is authored at one fixed yaw and a hundredth of a degree there
         // is noise; here it is the difference between a body that turns
         // smoothly with the mouse and one that steps between degrees.
-        session.yaw = now.getYaw();
+        //
+        // Unless somebody else owns it. A passenger's body is carried by what
+        // they are riding and their head is their own, so a seat says which way
+        // its occupant points and their camera is left alone — see
+        // `Emotes.face`. Null is every rig that was never told, which is all of
+        // them until a vehicle says otherwise.
+        session.yaw = session.facing != null ? session.facing : now.getYaw();
         session.origin = now.clone();
         // Two passes that send nothing, and between them they are what pays for
         // stepping every tick rather than every other one:

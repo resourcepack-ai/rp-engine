@@ -83,6 +83,29 @@ that through an invitation, and `play` does not.
 `EmoteResult` carries a typed reason rather than a sentence, so you write the
 words in your own palette and your own language.
 
+### Putting a rig on somebody yourself
+
+```java
+engine.emotes().wear(player, "rowing");  // and again to swap, null to take off
+engine.emotes().face(player, 90f);       // point the body; null follows their look
+```
+
+`wear` is the movement-set machinery with the movement taken out: the rig
+follows its wearer, moving does not end it, and **you** decide what it wears
+rather than their legs deciding. Calling it again swaps without restarting the
+session. `Emotes.BUILT_IN_SITTING` and `BUILT_IN_STANDING` are two stances
+every pack has without authoring one, so a seat can dress somebody on a pack
+that ships no emotes at all — it still needs a baked rig for that player,
+because a rig is their skin.
+
+`face` exists because a carried body and a carried camera are different
+questions. A worn rig normally turns with its wearer's look, which is right for
+somebody walking; it is wrong for a passenger, whose body belongs to whatever
+they are riding while their head is their own. Pass the direction the seat
+points, **every tick** — a vehicle turns — and `null` to hand the rig back to
+their look. It only moves a rig that arrived through your `wear`, so somebody
+who was already mid-emote when they sat down keeps it.
+
 ## Icons in your own text
 
 ```java

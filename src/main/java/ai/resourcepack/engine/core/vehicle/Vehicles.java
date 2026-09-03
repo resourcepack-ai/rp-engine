@@ -1347,6 +1347,20 @@ public final class Vehicles implements Listener {
                 if (player == null) {
                     continue;
                 }
+                // Which way their BODY points, every tick and before the
+                // change-only check below — because unlike what they are
+                // wearing, this changes whenever the vehicle turns.
+                //
+                // The seat's own facing, exactly as `seatLocation` computes it
+                // for the teleport that aims somebody as they sit down. That
+                // teleport is spent once and their camera is theirs afterwards
+                // (see `mountLocation`, which pins the mount at yaw zero for
+                // that reason) — so without this the rig followed the mouse and
+                // a driver sat sideways in a kayak that was going straight on.
+                // Their head still turns wherever they like; only the rig is
+                // held square to the seat, which is what vanilla does with a
+                // real body in a boat.
+                emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seat.yaw()));
                 String named = state == null ? null : seat.animations().get(state);
                 String wanted = named != null ? named : fallbackStance(seat);
                 if (Objects.equals(wanted, worn.get(id))) {

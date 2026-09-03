@@ -173,6 +173,44 @@ public interface Emotes {
     EmoteResult wear(Player player, String emoteId);
 
     /**
+     * Which way a worn rig FACES, when that is not the way its wearer is
+     * looking.
+     *
+     * <p>A worn rig turns with its wearer's camera, because for somebody
+     * walking around the two are the same thing: you face where you look. A
+     * passenger is the case where they are not. Their body is carried by
+     * whatever they are riding and their head is their own — a vanilla player
+     * in a boat keeps their body square to the hull however far round they
+     * turn to look at the scenery — and a rig that spun with the mouse instead
+     * put a seated driver sideways in their own kayak while the boat went
+     * straight on.
+     *
+     * <p>So the caller that OWNS the seat says which way it points, and keeps
+     * saying it: a vehicle turns, so this is per tick rather than once at the
+     * start. It is cheap to repeat — the same value twice changes nothing and
+     * sends nothing.
+     *
+     * <p><strong>{@code null} gives the rig back to its wearer's look</strong>,
+     * which is what every rig that has never been told otherwise already does.
+     * That is the value to pass when somebody gets out, and it is what the end
+     * of a session restores on its own.
+     *
+     * <p>Ignored for a player who is not wearing anything — there is no rig to
+     * point, and a facing remembered for one that might arrive later would be a
+     * setting with no way to clear it.
+     *
+     * <p><strong>Ignored, too, for a rig this caller did not put on.</strong>
+     * Somebody already mid-emote of their own when they sit down keeps it —
+     * {@link #wear} refuses rather than taking their body — and pointing that
+     * rig at the seat would be claiming what was just declined. So this only
+     * moves a rig that arrived through {@code wear}.
+     *
+     * @param yaw degrees, the same frame a {@link org.bukkit.Location}'s yaw
+     *            uses, or {@code null} to follow the wearer's own look
+     */
+    void face(Player player, Float yaw);
+
+    /**
      * Stops this player's emote, and everybody else's in the same troupe.
      *
      * @return whether they were emoting.

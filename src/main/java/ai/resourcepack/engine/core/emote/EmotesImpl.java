@@ -126,6 +126,17 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public void face(Player player, Float yaw) {
+        Host.requireMainThread();
+        // Not refused for an offline player, and not reported either: this is
+        // told to the engine every tick by whatever owns the seat, so the tick
+        // a rider logs out would otherwise be an error somebody has to handle
+        // for a rig that is already being taken down.
+        if (player == null) return;
+        director.face(player, yaw);
+    }
+
+    @Override
     public boolean stop(Player player) {
         Host.requireMainThread();
         if (player == null) return false;
