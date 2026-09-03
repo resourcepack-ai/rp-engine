@@ -133,8 +133,33 @@ public final class Vehicles implements Listener {
      */
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
-    /** How far a seated player is drawn above their own position. See {@code Seats}. */
-    private static final double SEATED_POSE = 0.3;
+    /**
+     * How far above their own position a seated occupant's backside is drawn:
+     * the hip, twelve of the sixteen pixels a player model is tall below the
+     * waist.
+     *
+     * <p><strong>This is the whole of what {@code pose: sitting} means</strong>
+     * — a sitting seat's point is where somebody's backside goes and a standing
+     * one's is where their feet go, and this is the distance between the two.
+     * An entity's position is at its feet, the legs pivot at the hip, and a
+     * riding player's legs swing forward from there; so seating somebody with
+     * their backside on the point means putting their feet a hip below it.
+     *
+     * <p>It was 0.3 — {@code Seats}' figure for a chair — and that made the two
+     * poses less than a third of a block apart, so a seat marked {@code sitting}
+     * put its occupant almost exactly where {@code standing} would have. The
+     * format's own documentation says the difference is "about a metre", and
+     * studio's editor draws it as one: {@code HIP_HEIGHT} in
+     * {@code seat-overlay.tsx} is this same 12/16, which is what makes the
+     * preview and the game agree about where a rider ends up.
+     *
+     * <p>{@code Seats} keeps 0.3 deliberately. A chair's surface is a number
+     * somebody typed while looking at their own model and then nudged with
+     * {@code models.seat-offset} until it sat right, so servers have calibrated
+     * against that figure; a vehicle seat is placed in an editor that draws the
+     * occupant, and the editor is the thing it has to match.
+     */
+    private static final double SEATED_POSE = 12 / 16.0;
 
     /**
      * How far above the chassis the model display sits.
@@ -1161,8 +1186,8 @@ public final class Vehicles implements Listener {
 
             // SITTING puts the point under their backside, STANDING under
             // their feet. The pose is what decides that, which is why it is
-            // not merely cosmetic. SEATED_POSE is the third of a block the
-            // game draws a riding player's hips above their own position.
+            // not merely cosmetic — SEATED_POSE is the hip height between the
+            // two, and it is most of a block rather than a nudge.
             double lift = (seat.pose() == VehicleSeat.Pose.SITTING
                     ? mountOffset - SEATED_POSE
                     : mountOffset) + seatOffset;
