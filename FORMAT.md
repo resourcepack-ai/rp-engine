@@ -666,7 +666,7 @@ move, and there would be nothing to go on but it not working.
 
 `medium: water` is a hull, and a hull out of water **crawls**: it does about a
 seventh of its top speed, which is a shade slower than walking. It keeps its
-full turning rate, and the driver is told once in chat.
+full turning rate, and the driver is told once above their hotbar.
 
 It is not stopped dead, deliberately. A boat that could not move at all on land
 would beach itself on the first shore and be stuck there for ever — the driver
@@ -790,10 +790,20 @@ If the occupant is already mid-emote of their own when they get in, theirs
 wins and the seat dresses nobody — a vehicle should not interrupt somebody's
 handshake.
 
-**When a seat cannot dress somebody it now says so, to them and in the
-console** — the pack carries no rig for that player, the emote id no longer
-exists, they are mid-emote of their own. Every one of those used to look
-identical from the seat: nothing happened, and nothing said why.
+**When a seat cannot dress somebody it says so in the console**, naming the
+vehicle, the player and which of the reasons it was: the pack carries no rig
+for that player, the emote id no longer exists, they are mid-emote of their
+own. Every one of those looks identical from the seat — nothing happens — so
+without the line there is nothing to go on.
+
+It is the console rather than the rider's chat because every remedy belongs to
+whoever owns the pack, and because it fires on a state change: a boat crossing
+in and out of a mapping while somebody manoeuvres it would say the same
+sentence at them over and over. Once per player per reason.
+
+**A rig taken off by something else comes back.** `/emote stop`, a death, or
+another plugin ending the session leaves the rider as themselves; the seat
+notices on its next tick and puts it on again.
 
 ### Particles
 
