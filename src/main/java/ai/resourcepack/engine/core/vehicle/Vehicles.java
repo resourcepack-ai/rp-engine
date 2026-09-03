@@ -1074,22 +1074,37 @@ public final class Vehicles implements Listener {
         private int stuck;
 
         /**
-         * What the vehicle moved last tick, so a ridden mount can be aimed
-         * where its seat WILL be rather than where it is.
+         * Where each seat was last tick, so a ridden mount can be aimed where
+         * its seat WILL be rather than where it is.
          *
-         * <p><strong>This is the whole of the rider sitting too far back.</strong>
-         * Velocity is not a position: it is applied by the entity's own tick,
-         * which runs after ours, so a mount told to cover the gap to its seat
-         * arrives there at the end of the tick — by which time the vehicle has
-         * moved on again. The rider therefore trails by exactly one tick of
-         * travel, permanently, and the faster the vehicle the further back
-         * they sit: at 12 blocks a second that is 0.6 of a block, which is
-         * most of a seat.
+         * <p><strong>This is the whole of the rider trailing, and it used to be
+         * only half of it.</strong> Velocity is not a position: it is applied
+         * by the entity's own tick, which runs after ours, so a mount told to
+         * cover the gap to its seat arrives there at the end of the tick — by
+         * which time the vehicle has moved on again. The rider therefore trails
+         * by exactly one tick of travel, permanently, and the faster the
+         * vehicle the further back they sit.
          *
-         * <p>The model has no such lag because it is teleported, which is why
-         * the two visibly disagreed rather than both being late together.
+         * <p>It was the CHASSIS's translation, {@code step.dx/dy/dz}, which is
+         * right for a vehicle going in a straight line and blind to the other
+         * way a seat moves: <strong>turning</strong>. A seat is offset from the
+         * centre, so a vehicle spinning on the spot moves every seat through an
+         * arc while translating nothing at all — the lead was zero and the
+         * rider trailed the whole corner, drifting outward. Worse at low speed
+         * than high, because a correction that is a small fraction of a fast
+         * tick's travel is most of a slow one, which is what turns a constant
+         * lag into visible bumps.
+         *
+         * <p>So the lead is measured rather than derived: where this seat is
+         * now, minus where it was, which is translation and rotation together
+         * and needs to know about neither. Per seat, because a bench and a
+         * driver's seat sweep different arcs out of the same turn.
+         *
+         * <p>Null until a seat has been placed once — the first tick after a
+         * chassis is adopted has nothing to subtract, and leading by a
+         * made-up vector is worse than not leading for one tick.
          */
-        private Vector carriedBy = new Vector();
+        private final List<Vector> seatWas = new ArrayList<>();
 
         Ride(VehicleInfo info, Entity chassis) {
             this.info = info;
@@ -1109,6 +1124,7 @@ public final class Vehicles implements Listener {
                 mounts.add(null);
                 hitboxes.add(null);
                 occupants.add(null);
+                seatWas.add(null);
             }
         }
 
@@ -1500,7 +1516,6 @@ public final class Vehicles implements Listener {
             VehiclePhysics.Surroundings around = surroundings();
             VehiclePhysics.Step step = VehiclePhysics.step(info, state, demand, around, DT);
             state = step.state();
-            carriedBy = new Vector(step.dx(), step.dy(), step.dz());
             if (step.moves()) {
                 apply(step);
                 shoveAside(step);
@@ -1564,7 +1579,7 @@ public final class Vehicles implements Listener {
             // emote was mapped to `submerged` used to reach it whenever the
             // boat was moored, so the mapping people actually write worked by
             // accident and stopped when the accident was fixed.
-            VehicleState state = VehicleState.current(states).orElse(null);
+
             for (int i = 0; i < occupants.size(); i++) {
                 UUID id = occupants.get(i);
                 VehicleSeat seat = info.seats().get(i);
@@ -1594,6 +1609,11 @@ public final class Vehicles implements Listener {
                 // down the road, which is the same symptom the bodywork had.
                 emotes.face(player, (float) VehiclePhysics.wrap360(
                         this.state.yaw() + seat.yaw() + SEAT_RIG_YAW_OFFSET));
+                // Resolved per SEAT, because the answer depends on what this
+                // seat mapped: turning outranks travelling now, and a seat that
+                // maps `moving` and not `turning` must not lose its occupant's
+                // pose on every corner. See VehicleState.forSeat.
+                VehicleState state = VehicleState.forSeat(states, seat.animations()).orElse(null);
                 String named = state == null ? null : seat.animations().get(state);
                 String wanted = named != null ? named : fallbackStance(seat);
                 // A rig that was ON and is not any more is re-asked whatever
@@ -1996,6 +2016,10 @@ public final class Vehicles implements Listener {
                     continue;
                 }
                 Location target = mountLocation(i);
+                // How far THIS seat moved, which is the lead — see seatWas.
+                Vector was = seatWas.get(i);
+                Vector lead = was == null ? new Vector() : target.toVector().subtract(was);
+                seatWas.set(i, target.toVector());
                 if (occupants.get(i) == null) {
                     // Nobody to send a packet to, so exactness is free.
                     mount.teleport(target);
@@ -2009,8 +2033,9 @@ public final class Vehicles implements Listener {
                     // applied by the mount's own tick after this one: aiming at
                     // where the seat is now lands the rider there just as the
                     // vehicle leaves, which is the constant backwards offset.
-                    // See carriedBy.
-                    Vector wanted = target.toVector().add(carriedBy)
+                    // See seatWas — the lead is this seat's own movement, so a
+                    // corner is led as well as a straight line.
+                    Vector wanted = target.toVector().add(lead)
                             .subtract(mount.getLocation().toVector());
                     if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT
                             && seatMover.move(mount, target)) {
