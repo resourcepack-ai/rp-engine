@@ -773,9 +773,19 @@ falling through would leave a driver hauling an imaginary wheel round while the
 car sat still. "Nothing" is a real answer here and a fall-through cannot spell
 it.
 
+So the state is resolved once, as the highest one in the table that holds, and
+looked up. **A moored boat is `idle`** — if you want your driver in a rig while
+they float, that is the entry to write; `submerged` will not do it, for the
+same reason it will not do it for the vehicle's own animation.
+
 If the occupant is already mid-emote of their own when they get in, theirs
 wins and the seat dresses nobody — a vehicle should not interrupt somebody's
 handshake.
+
+**When a seat cannot dress somebody it now says so, to them and in the
+console** — the pack carries no rig for that player, the emote id no longer
+exists, they are mid-emote of their own. Every one of those used to look
+identical from the seat: nothing happened, and nothing said why.
 
 ### Particles
 
