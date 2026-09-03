@@ -172,11 +172,42 @@ public final class SyncCommands implements Area {
         }
     }
 
+    /**
+     * The ref {@code player}'s pushes arrive under, claiming one if they have
+     * none and this server can vouch for them.
+     *
+     * <p>On an ordinary server that is the code they typed, and nothing else
+     * counts. On a trusted server nobody types a code: studio reaches a
+     * permalinked player by uuid, off the presence this server announces, so
+     * their sync exists whether or not the plugin has a row for it. The row
+     * is what {@code /rp sync add} needs, so it is made here, keyed by the
+     * same uuid studio addresses - which is also what the roster then goes
+     * out under, and the far end accepts a roster by uuid only from the
+     * socket that announced that player. Until 2026-09-04 a permalinked
+     * player was told "You are not synced" by a server that was telling studio
+     * they were.
+     */
+    private Optional<String> own(Player player) {
+        Optional<String> code = group.codeOf(player.getName());
+        if (code.isPresent() || !sync.announcesPresence()) {
+            return code;
+        }
+        String ref = player.getUniqueId().toString().replace("-", "");
+        group.claim(ref, player.getName());
+        return Optional.of(ref);
+    }
+
+    /** How a ref reads in chat: a code as itself, a uuid as what it stands for. */
+    private static String describe(String ref) {
+        return SyncCodes.isUuid(ref) ? "your account" : ref;
+    }
+
     private boolean add(Player player, String[] args) {
         if (args.length < 3) {
             Reply.to(player, "/rpengine sync add <player>");
             return true;
         }
+        own(player);
         Player target = server.getPlayerExact(args[2]);
         if (target == null) {
             Reply.to(player, args[2] + " is not online.");
@@ -259,6 +290,7 @@ public final class SyncCommands implements Area {
             Reply.to(player, "/rpengine sync remove <player>");
             return true;
         }
+        own(player);
         Optional<String> code = group.remove(player.getName(), args[2]);
         if (code.isEmpty()) {
             Reply.to(player, args[2] + " is not on your sync.");
@@ -291,12 +323,23 @@ public final class SyncCommands implements Area {
     }
 
     private boolean stop(Player player) {
+        // Taken before the stop, because afterwards there is no ref left to
+        // announce under - and the far end keeps the last roster it was sent
+        // until told otherwise. A code's roster dies with its UNLINK below; a
+        // uuid's has no such moment, so the empty roster has to be said.
+        Optional<String> ref = group.codeOf(player.getName());
         List<String> were = group.stop(player.getName());
         if (were.isEmpty()) {
             Reply.to(player, "You are not synced.");
             return true;
         }
+        boolean permanent = ref.isPresent() && SyncCodes.isUuid(ref.get());
         for (String name : were) {
+            // A permalinked owner keeps their own pack: stopping ends the
+            // sharing, not the link, which is not this server's to end.
+            if (permanent && name.equalsIgnoreCase(player.getName())) {
+                continue;
+            }
             unpush.accept(name);
             // Everybody except the person who typed it: they get "Stopped."
             // below, and being told twice reads as a bug.
@@ -304,19 +347,22 @@ public final class SyncCommands implements Area {
                 tell(name, player.getName() + " stopped sharing their pack with you.");
             }
         }
-        group.codeOf(player.getName()).ifPresent(announce);
+        ref.ifPresent(announce);
         sync.forget(player.getName());
-        Reply.to(player, "Stopped.");
+        Reply.to(player, permanent ? "Stopped sharing." : "Stopped.");
         return true;
     }
 
     private boolean who(Player player) {
         Optional<String> code = group.receiving(player.getName());
         if (code.isEmpty()) {
+            code = own(player);
+        }
+        if (code.isEmpty()) {
             Reply.to(player, "You are not synced. /rp sync <code> to start.");
             return true;
         }
-        Reply.to(player, code.get() + ": " + String.join(", ", group.recipients(code.get())));
+        Reply.to(player, describe(code.get()) + ": " + String.join(", ", group.recipients(code.get())));
         return true;
     }
 
