@@ -12,6 +12,7 @@ import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.core.Chat;
+import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.DisplayLatency;
 import ai.resourcepack.engine.core.model.MountOffset;
@@ -1300,7 +1301,8 @@ public final class Vehicles implements Listener {
             if (rigs == null || id == null || !rigs.animates(id)) {
                 return false;
             }
-            rig = rigs.carry(modelAnchor(), id, modelYaw(), carry, this::partStack).orElse(null);
+            rig = rigs.carry(modelAnchor(), id, modelYaw(), carry, this::partStack,
+                    (float) info.scale()).orElse(null);
             return rig != null;
         }
 
@@ -1472,6 +1474,15 @@ public final class Vehicles implements Listener {
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
                 d.setBillboard(Display.Billboard.FIXED);
                 d.setPersistent(false);
+                // The same call a placed model of the same size uses, and
+                // MODEL_LIFT above is deliberately NOT multiplied by it:
+                // `scaledTransformation` already carries the 0.5 * (scale - 1)
+                // that keeps a grown model's floor where an ungrown one's was.
+                // Scaling the lift as well would raise the vehicle off the road
+                // by half its own height.
+                if (info.scale() != 1) {
+                    d.setTransformation(RigMath.scaledTransformation((float) info.scale()));
+                }
             });
             carry.carry(display);
             modelId = display.getUniqueId();
@@ -1614,11 +1625,24 @@ public final class Vehicles implements Listener {
             double yaw = state.yaw();
             // The basis is VehiclePhysics' and is tested there. It was inline
             // here once, with `right` pointing left.
-            double[] offset = VehiclePhysics.seatOffset(yaw, seat.x(), seat.z() + seatForward);
+            //
+            // Scaled by the vehicle's own scale, because a seat's offset is
+            // measured against the ART: on a bus drawn twice as big the driver
+            // is twice as far forward and twice as high, or they sit in the
+            // middle of the saloon a metre inside the floor.
+            //
+            // What is NOT scaled is the two corrections either side of it.
+            // {@link #SEATED_POSE} is a hip height on a PLAYER, and a player is
+            // the same size in a big vehicle as in a small one; `seatOffset` is
+            // a server's own calibration nudge and belongs to the server rather
+            // than to the model.
+            double scale = info.scale();
+            double[] offset =
+                    VehiclePhysics.seatOffset(yaw, seat.x() * scale, seat.z() * scale + seatForward);
             double drop = seat.pose() == VehicleSeat.Pose.SITTING ? SEATED_POSE : 0;
             Location location = new Location(world,
                     at.getX() + offset[0],
-                    at.getY() + seat.y() - drop + seatOffset,
+                    at.getY() + seat.y() * scale - drop + seatOffset,
                     at.getZ() + offset[1]);
             location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
             return location;

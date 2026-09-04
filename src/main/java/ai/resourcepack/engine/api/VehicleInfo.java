@@ -49,11 +49,13 @@ public final class VehicleInfo {
     private final List<VehicleSeat> seats;
     private final Map<VehicleState, String> animations;
     private final List<VehicleEmitter> emitters;
+    private final double scale;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
-                        Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
+                        Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
+                        double scale) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -68,6 +70,7 @@ public final class VehicleInfo {
         this.seats = seats;
         this.animations = animations;
         this.emitters = emitters;
+        this.scale = scale;
     }
 
     /**
@@ -101,7 +104,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters));
+                copyAnimations(animations), copyEmitters(emitters), 1);
     }
 
     /**
@@ -136,7 +139,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters));
+                copyAnimations(animations), copyEmitters(emitters), 1);
     }
 
     /**
@@ -245,9 +248,63 @@ public final class VehicleInfo {
      * How big it is to click on and to stand in front of.
      *
      * <p>Never null; a pack that says nothing gets {@link VehicleHitbox#DEFAULT}.
+     *
+     * <p><strong>{@link #scale()} does not touch this.</strong> The art is
+     * grown by the display transform; the box a player collides with is a
+     * number the pack states in blocks, and multiplying it would change what a
+     * vehicle bumps into for somebody who only asked for bigger bodywork. A
+     * pack that scales a car up and wants the collision to follow says so.
      */
     public VehicleHitbox hitbox() {
         return hitbox;
+    }
+
+    /**
+     * How much bigger than built the vehicle is drawn, and everything measured
+     * against the art with it.
+     *
+     * <p><strong>It exists because a block model cannot be more than three
+     * blocks on an axis.</strong> The format bounds an element to -16..32, so
+     * 48 units is the whole ceiling, and no amount of editing geometry makes a
+     * bus or a cargo ship. Growing the DISPLAY is the only way past it, and it
+     * is the same mechanism a placed rig has had all along — see
+     * {@code RigPlacementListener}'s scale marker.
+     *
+     * <p>What it multiplies is the model and the things whose positions are
+     * quoted against the model: every seat's offset from the chassis, and every
+     * emitter's. What it deliberately does NOT multiply is the hitbox, above,
+     * or any of the numbers about how the vehicle MOVES — a scaled lorry is a
+     * bigger lorry, not a faster or heavier one, and tying speed to size would
+     * make one slider quietly two.
+     *
+     * <p>1 for every vehicle written before this and for every pack that says
+     * nothing, which is what {@code of} and {@code pushed} hand back.
+     */
+    public double scale() {
+        return scale;
+    }
+
+    /**
+     * The same vehicle, drawn {@code scale} times as big.
+     *
+     * <p>A wither rather than four more factory arities. The two {@code of}
+     * and two {@code pushed} overloads already carry thirteen positional
+     * arguments between them because {@link VehicleFlight} was added that way,
+     * and a fourteenth would mean four more signatures differing by one
+     * {@code double} — which is the point at which a caller gets it wrong
+     * silently. Every existing caller keeps compiling and keeps getting 1.
+     *
+     * <p>A scale that is not a positive finite number is ignored rather than
+     * refused: this is loaded from a file somebody typed, and a vehicle drawn
+     * at its authored size is a better answer to {@code scale: abc} than no
+     * vehicle at all.
+     */
+    public VehicleInfo withScale(double scale) {
+        if (!Double.isFinite(scale) || scale <= 0 || scale == this.scale) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale);
     }
 
     /**

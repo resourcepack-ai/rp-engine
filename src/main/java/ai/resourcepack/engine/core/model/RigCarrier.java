@@ -113,6 +113,25 @@ public final class RigCarrier {
      */
     public Optional<CarriedRig> carry(Location anchor, String modelId, float yaw,
                                       DisplayCarry glide, Function<String, ItemStack> partItem) {
+        return carry(anchor, modelId, yaw, glide, partItem, 1f);
+    }
+
+    /**
+     * The same, drawn {@code scale} times as big.
+     *
+     * <p>An overload rather than a sixth parameter on the one above, so every
+     * existing caller keeps compiling and keeps getting the size the model was
+     * built at.
+     *
+     * <p>Nothing here has to correct for the growth: {@code RigSpawn} stamps
+     * the scale on every part and {@code RigAnimator.applyRigScale} grows each
+     * posed matrix about the floor, so a scaled rig stands where an unscaled
+     * one did. Which is why {@code anchor} is passed through untouched — the
+     * caller's lift is already right at any size.
+     */
+    public Optional<CarriedRig> carry(Location anchor, String modelId, float yaw,
+                                      DisplayCarry glide, Function<String, ItemStack> partItem,
+                                      float scale) {
         if (anchor == null || anchor.getWorld() == null || !animates(modelId)) {
             return Optional.empty();
         }
@@ -140,7 +159,7 @@ public final class RigCarrier {
         // entity yaw instead (see RigAnimator.yawOf) — passing the real yaw
         // here would apply it twice for the one frame before the first move.
         // The `moveTo` below puts the real heading on straight away.
-        List<ItemDisplay> parts = spawns.parts(anchor, modelId, rig, 0f, null, 1f,
+        List<ItemDisplay> parts = spawns.parts(anchor, modelId, rig, 0f, null, scale,
                 part -> partItem.apply(part.item));
 
         List<String> ids = new ArrayList<>(parts.size());

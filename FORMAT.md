@@ -570,6 +570,7 @@ hatchback:
   acceleration: 7.5         # how fast it gets there
   turn-speed: 140           # degrees per second the body swings round
   weight: 14                # 1-100. Heavier is slower to get going
+  scale: 1                  # how many times its built size it is drawn
   hitbox:                   # what players click to get in, in blocks
     width: 1.4              # side to side
     height: 1.2             # up from the base
@@ -627,6 +628,35 @@ brake: a driver braking would step off at speed.
 
 `turn-speed` is how fast the body comes round — a low number is a lorry, a
 high one is a go-kart.
+
+### Making something bigger than three blocks
+
+**A block model stops at three blocks on an axis.** The format bounds an
+element to -16..32, so 48 units is the whole ceiling, and no amount of
+redrawing geometry gets you a bus, a cargo ship or an airliner.
+
+`scale` is the way past it. It grows the drawn model — 0.125 to 8, and 1
+(the default) is the size it was built at — so a 3-block hull at `scale: 4`
+stands twelve blocks long.
+
+It moves the **seats and the particle emitters with the art**, because both
+are positions quoted against the model: on a bus at `scale: 2` the driver is
+twice as far forward and twice as high, which is where they were always
+drawn relative to the bodywork.
+
+It deliberately does **not** touch two things:
+
+- **`hitbox`** — that is stated in blocks and is what players collide with
+  and click. Scaling the art up and leaving the box alone is a legitimate
+  thing to want (an airship you walk under), so growing it is a separate
+  edit you make on purpose.
+- **`speed`, `acceleration`, `weight`, `turn-speed`** — a bigger lorry is a
+  bigger lorry, not a faster or heavier one. Tying handling to size would
+  make one number quietly into two.
+
+So a scaled vehicle usually wants its `hitbox` raised in the same breath, or
+players will be clicking a box the size of the original around something four
+times as big.
 
 **Steering by look costs the driver their head**, and that is the real reason
 to be on Paper for this. A player's body follows their head, so if steering is
