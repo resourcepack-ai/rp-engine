@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.VehicleFlight;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
@@ -443,6 +444,152 @@ class VehiclePhysicsTest {
         VehiclePhysics.Step step = VehiclePhysics.step(plane, VehiclePhysics.State.still(0),
                 new VehiclePhysics.Demand(0, 0, 0, 1, false), VehiclePhysics.Surroundings.falling(), DT);
         assertTrue(step.dy() > 0, "jump should climb rather than fall");
+    }
+
+    // --- aeroplanes ----------------------------------------------------
+
+    /** The same aircraft, with a takeoff run and a stall. */
+    private static VehicleInfo aeroplane() {
+        return VehicleInfo.of(ContentId.parse("mypack:plane").orElseThrow(), null, null, VehicleMedium.AIR,
+                VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180, VehicleHitbox.DEFAULT,
+                VehicleFlight.of(8, 6, 12, 5),
+                List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)),
+                Map.of(), List.of());
+    }
+
+    /**
+     * The whole of what a takeoff speed means: the climb key does nothing on
+     * the runway until the aircraft is fast enough, and then it flies.
+     */
+    @Test
+    void anAeroplaneWillNotLeaveTheGroundBelowItsTakeoffSpeed() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.Demand climbing = VehiclePhysics.Demand.steering(0, 0, 0, 1, 1, false);
+
+        VehiclePhysics.State stopped = VehiclePhysics.State.still(0);
+        assertEquals(0, VehiclePhysics.step(plane, stopped, climbing, GROUND, DT).dy(), 1e-9,
+                "standing still, the climb key does nothing");
+
+        VehiclePhysics.State rolling = new VehiclePhysics.State(0, 4, 0);
+        assertEquals(0, VehiclePhysics.step(plane, rolling, climbing, GROUND, DT).dy(), 1e-9,
+                "half way down the runway, still nothing");
+
+        VehiclePhysics.State fast = new VehiclePhysics.State(0, 12, 0);
+        assertTrue(VehiclePhysics.step(plane, fast, climbing, GROUND, DT).dy() > 0,
+                "past the takeoff speed it flies");
+    }
+
+    /** The takeoff run really is reachable with the throttle it was given. */
+    @Test
+    void anAeroplaneReachesItsTakeoffSpeedOnItsOwnAcceleration() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        int ticks = 0;
+        while (ticks < 200 && !VehiclePhysics.airborneEnough(plane, state.speed())) {
+            state = VehiclePhysics.step(plane, state, ahead(0), GROUND, DT).state();
+            ticks++;
+        }
+        assertTrue(VehiclePhysics.airborneEnough(plane, state.speed()), "it has to be able to take off at all");
+        // 8 blocks per second at 10 blocks per second squared is eight tenths
+        // of a second, which is exactly sixteen ticks. Worth pinning: the
+        // takeoff RUN is this number and the acceleration together, which is
+        // why the pack states a speed rather than a time.
+        assertEquals(16, ticks);
+    }
+
+    /**
+     * A stall. An aircraft that ran out of speed used to hover there, because
+     * the medium's only vertical rule was "hold your height".
+     */
+    @Test
+    void anAeroplaneTooSlowToFlySinksRatherThanHovering() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.State crawling = new VehiclePhysics.State(0, 2, 0);
+        VehiclePhysics.Step step = VehiclePhysics.step(plane, crawling,
+                VehiclePhysics.Demand.steering(0, 0, 0, 0, 1, false),
+                VehiclePhysics.Surroundings.falling(), DT);
+        assertEquals(-5 * DT, step.dy(), 1e-9, "it sinks at its stall rate, climb key or not");
+    }
+
+    /**
+     * <strong>The complaint this was written for.</strong> Pressing the back
+     * key at cruising speed used to brake the aircraft to a standstill in a few
+     * seconds and leave it hanging in the air. It should go DOWN and keep most
+     * of what it had.
+     */
+    @Test
+    void theBackKeyDivesAnAeroplaneWithoutTakingItsMomentum() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.State state = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.Demand back = VehiclePhysics.Demand.steering(0, 0, 0, -1, 0, false);
+
+        VehiclePhysics.Step first = VehiclePhysics.step(plane, state, back,
+                VehiclePhysics.Surroundings.falling(), DT);
+        assertTrue(first.dy() < 0, "the back key descends");
+
+        // A whole second of it.
+        for (int tick = 0; tick < 20; tick++) {
+            state = VehiclePhysics.step(plane, state, back, VehiclePhysics.Surroundings.falling(), DT).state();
+        }
+        assertTrue(state.speed() > 18, "a second of diving must not scrub the speed: " + state.speed());
+        assertTrue(state.speed() < 20, "but it is not free either");
+    }
+
+    /**
+     * The same number on the ground is a brake, and has to stay one — a plane
+     * taxiing is a vehicle on wheels.
+     */
+    @Test
+    void anAeroplaneOnTheGroundStillStopsLikeAVehicle() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.State ground = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.State air = new VehiclePhysics.State(0, 20, 0);
+        VehiclePhysics.Demand coasting = VehiclePhysics.Demand.steering(0, 0, 0, 0, 0, false);
+        for (int tick = 0; tick < 20; tick++) {
+            ground = VehiclePhysics.step(plane, ground, coasting, GROUND, DT).state();
+            air = VehiclePhysics.step(plane, air, coasting, VehiclePhysics.Surroundings.falling(), DT).state();
+        }
+        assertTrue(ground.speed() < air.speed() - 1,
+                "the runway takes speed off much faster than the air does");
+    }
+
+    /** Up and down are separate numbers, because an aircraft dives faster than it climbs. */
+    @Test
+    void theDiveRateIsItsOwnNumber() {
+        VehicleInfo plane = aeroplane();
+        VehiclePhysics.State cruising = new VehiclePhysics.State(0, 20, 0);
+        double up = VehiclePhysics.step(plane, cruising,
+                VehiclePhysics.Demand.steering(0, 0, 0, 0, 1, false),
+                VehiclePhysics.Surroundings.falling(), DT).dy();
+        double down = VehiclePhysics.step(plane, cruising,
+                VehiclePhysics.Demand.steering(0, 0, 0, 0, -1, false),
+                VehiclePhysics.Surroundings.falling(), DT).dy();
+        assertEquals(6 * DT, up, 1e-9);
+        assertEquals(-12 * DT, down, 1e-9);
+    }
+
+    /**
+     * A pack that says nothing about flight flies exactly as it did before
+     * these numbers existed: lifts from a standstill, climbs at half its top
+     * speed, never stalls. Every air vehicle already published depends on it.
+     */
+    @Test
+    void aVehicleThatSaysNothingAboutFlightKeepsTheOldBehaviour() {
+        VehicleInfo plane = car(VehicleMedium.AIR);
+        assertEquals(0, plane.flight().takeoffSpeed());
+        assertEquals(plane.speed() * VehiclePhysics.AIR_CLIMB_FRACTION, plane.flight().climbRate(), 1e-9);
+        assertTrue(VehiclePhysics.airborneEnough(plane, 0), "it flies from a standstill");
+        VehiclePhysics.Step step = VehiclePhysics.step(plane, VehiclePhysics.State.still(0),
+                new VehiclePhysics.Demand(0, 0, 0, 1, false), VehiclePhysics.Surroundings.falling(), DT);
+        assertEquals(plane.speed() * VehiclePhysics.AIR_CLIMB_FRACTION * DT, step.dy(), 1e-9);
+    }
+
+    /** Being pushed backwards down a runway is not airworthy. */
+    @Test
+    void reversingDoesNotCountAsFlyingSpeed() {
+        VehicleInfo plane = aeroplane();
+        assertTrue(VehiclePhysics.airborneEnough(plane, -12), "the magnitude is what flies it");
+        assertTrue(!VehiclePhysics.airborneEnough(plane, -4));
     }
 
     // --- guarding the inputs -------------------------------------------

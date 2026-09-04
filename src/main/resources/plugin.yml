@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -55,7 +55,6 @@ permissions:
       rpengine.liquid: true
       rpengine.vehicles: true
       rpengine.vehicle: true
-      rpengine.edit: true
       rpengine.sync: true
       rpengine.distribute: true
       rpengine.push: true
@@ -142,13 +141,6 @@ permissions:
     default: op
   rpengine.vehicle:
     description: Park a vehicle, or take one away.
-    default: op
-  rpengine.edit:
-    description: >
-      Open this server's own content in the editors at resourcepack.ai, and
-      write what you change back onto this machine. A real permission rather
-      than a convenience: whoever has it can rewrite files in the content
-      folder from a browser.
     default: op
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.

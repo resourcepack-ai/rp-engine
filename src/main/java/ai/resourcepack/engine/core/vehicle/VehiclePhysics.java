@@ -118,8 +118,38 @@ public final class VehiclePhysics {
      */
     public static final double WATER_DAMPING = 0.75;
 
-    /** How fast an air vehicle climbs on the jump key, as a fraction of its top speed. */
-    public static final double AIR_CLIMB_FRACTION = 0.5;
+    /**
+     * How fast an air vehicle climbs on the jump key, as a fraction of its top
+     * speed, when its pack said nothing.
+     *
+     * <p>Superseded by {@link ai.resourcepack.engine.api.VehicleFlight#climbRate()},
+     * which is where the number now comes from. This is the fraction that
+     * builds the compatibility default and is kept in one place —
+     * {@code VehicleFlight.LEGACY_CLIMB_FRACTION} — so the two cannot drift.
+     */
+    public static final double AIR_CLIMB_FRACTION =
+            ai.resourcepack.engine.api.VehicleFlight.LEGACY_CLIMB_FRACTION;
+
+    /**
+     * What an airborne vehicle sheds with no throttle, as a fraction of its
+     * acceleration — and, unlike every other coast here, with no floor.
+     *
+     * <p><strong>An aircraft that let go of the throttle used to stop like a
+     * car.</strong> The ground coast is floored at {@link #COAST_FLOOR}, four
+     * blocks per second per second, which is a road vehicle rolling to a halt;
+     * applied in mid-air it took a cruising aeroplane to a dead stop in a few
+     * seconds and left it hovering there, and the same rate is what made
+     * pressing the back key read as a brake rather than a dive. Nothing in the
+     * air is rolling on anything, so there is no floor to justify: what slows
+     * an aircraft down is drag, and drag is small.
+     *
+     * <p>At the default acceleration this is a shade under a block per second
+     * per second — half a minute from cruise to a standstill, which is a glide
+     * rather than a stop. Long before the end of it the aircraft is under its
+     * takeoff speed and sinking, which is what an aeroplane with no throttle
+     * should be doing.
+     */
+    public static final double AIR_COAST_FRACTION = 0.15;
 
     /**
      * What fraction of its top speed a water vehicle does out of water.
@@ -237,9 +267,18 @@ public final class VehiclePhysics {
         // acceleration-relative rates still apply to a vehicle that is quick
         // enough for them to exceed the floor, so a sports car brakes harder
         // than a cart; a tractor just no longer slides.
+        boolean flying = air && !around.supported();
         double rate = demand.braking() || stopping
                 ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER)
-                : throttle == 0 ? Math.max(COAST_FLOOR, accel * COAST_FRACTION) : accel;
+                : throttle == 0
+                        // An aircraft off the ground coasts on drag alone — see
+                        // AIR_COAST_FRACTION. This is what keeps a plane's
+                        // momentum through a dive rather than braking it to a
+                        // hover: pressing the back key up there sets the
+                        // throttle to nothing and turns the key into a descent,
+                        // so whatever this rate is IS what "let go" feels like.
+                        ? flying ? accel * AIR_COAST_FRACTION : Math.max(COAST_FLOOR, accel * COAST_FRACTION)
+                        : accel;
         if (demand.braking()) {
             target = 0;
         }
@@ -261,10 +300,29 @@ public final class VehiclePhysics {
                 // so that arm keeps vanilla's answer. `steersByKeys` stands in
                 // for "this server can read the driver's keys at all", which
                 // is the same question by the time it reaches here.
-                climb = (demand.steersByKeys()
-                                ? 0
-                                : speed * Math.sin(Math.toRadians(-demand.pitch())))
-                        + lift * top * AIR_CLIMB_FRACTION;
+                double looking = demand.steersByKeys()
+                        ? 0
+                        : speed * Math.sin(Math.toRadians(-demand.pitch()));
+                if (airborneEnough(info, speed)) {
+                    // Up and down are separate rates because an aircraft does
+                    // not descend as slowly as it climbs.
+                    climb = looking + (lift >= 0
+                            ? lift * info.flight().climbRate()
+                            : lift * info.flight().diveRate());
+                } else if (around.supported()) {
+                    // Too slow to fly, and on the ground: it stays there. This
+                    // IS the takeoff run — the aircraft accelerates down the
+                    // runway with the climb key doing nothing until it is fast
+                    // enough, and then it flies.
+                    climb = 0;
+                } else {
+                    // Too slow to fly, and in the air: a stall. It keeps
+                    // whatever speed it has and sinks, so an aircraft that ran
+                    // out of throttle comes down rather than parking in
+                    // mid-air. Opening the throttle again recovers it, which is
+                    // why this is a glide rather than gravity.
+                    climb = -info.flight().stallSink();
+                }
                 vertical = 0;
                 break;
             case WATER:
@@ -306,6 +364,24 @@ public final class VehiclePhysics {
 
         return new Step(new State(yaw, speed, vertical), dx, dy, dz,
                 states(info, state.yaw(), yaw, speed, around, dt));
+    }
+
+    /**
+     * Whether an aircraft is going fast enough to fly.
+     *
+     * <p>Compared on the SPEED's magnitude, so an aeroplane being pushed
+     * backwards down a runway is not somehow airworthy. Always true for a
+     * vehicle whose {@code takeoff-speed} is zero, which is a helicopter and is
+     * what every air vehicle was before the number existed.
+     *
+     * <p>Its own method rather than a comparison inline, because the answer is
+     * read three times in one step — whether the climb key does anything,
+     * whether the aircraft stalls, and (in a test) how long the run took — and
+     * a rule spelled three ways is one that can drift into three rules.
+     */
+    public static boolean airborneEnough(VehicleInfo info, double speed) {
+        return info.medium() != VehicleMedium.AIR
+                || Math.abs(speed) >= info.flight().takeoffSpeed();
     }
 
     /**

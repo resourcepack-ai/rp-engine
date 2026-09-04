@@ -9,6 +9,7 @@ import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.VehicleEmitter;
+import ai.resourcepack.engine.api.VehicleFlight;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
@@ -112,6 +113,21 @@ public final class StudioContent {
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
+        /**
+         * How it flies, which only {@code medium: air} reads.
+         *
+         * <p><strong>Boxed, for the same reason the emitter's optional numbers
+         * are.</strong> Gson leaves an absent primitive at zero, and zero is a
+         * meaningful value for three of these that is not the right default —
+         * a {@code climbRate} of zero is an aircraft that cannot climb, which
+         * is what every vehicle pushed before this field existed would silently
+         * become. Absent means {@link VehicleFlight#forSpeed}, the behaviour
+         * those vehicles were built against.
+         */
+        Double takeoffSpeed;
+        Double climbRate;
+        Double diveRate;
+        Double stallSink;
         List<Seat> seats;
         /**
          * State name to animation name. Absent on a manifest older than this,
@@ -335,10 +351,18 @@ public final class StudioContent {
         VehicleHitbox hitbox = vehicle.hitboxWidth > 0 && vehicle.hitboxHeight > 0 && vehicle.hitboxLength > 0
                 ? VehicleHitbox.of(vehicle.hitboxWidth, vehicle.hitboxHeight, vehicle.hitboxLength)
                 : VehicleHitbox.DEFAULT;
+        // Field by field rather than all-or-nothing, so a manifest that carries
+        // some of them keeps the old behaviour for the rest.
+        VehicleFlight legacy = VehicleFlight.forSpeed(vehicle.speed);
+        VehicleFlight flight = VehicleFlight.of(
+                vehicle.takeoffSpeed == null ? legacy.takeoffSpeed() : vehicle.takeoffSpeed,
+                vehicle.climbRate == null ? legacy.climbRate() : vehicle.climbRate,
+                vehicle.diveRate == null ? legacy.diveRate() : vehicle.diveRate,
+                vehicle.stallSink == null ? legacy.stallSink() : vehicle.stallSink);
         return java.util.Optional.of(VehicleInfo.pushed(id, vehicle.carrier, vehicle.name,
                 VehicleMedium.parse(vehicle.medium).orElse(VehicleMedium.LAND),
                 vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
-                hitbox, List.copyOf(ordered),
+                hitbox, flight, List.copyOf(ordered),
                 animations(vehicle.animations), emitters(vehicle.particles)));
     }
 

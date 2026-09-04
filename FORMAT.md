@@ -611,7 +611,9 @@ How you drive depends on your server:
   In the **air** the vertical controls are their own: **space climbs, S
   descends**, and S only reverses once you are back on the ground — there is
   nothing to reverse against in mid-air. Your look does not fly it, so you can
-  look around while flying.
+  look around while flying. An aircraft with a `takeoff-speed` will not leave
+  the ground until it is going fast enough — see Aeroplanes and helicopters
+  below.
 - **Anything else** — right-click speeds up a notch, left-click slows down and
   then reverses, and you steer by **looking where you want to go**. An air
   vehicle climbs and dives with your look too, since there is no key to read.
@@ -675,6 +677,55 @@ slow enough to be unmistakably wrong and fast enough to get you off the sand.
 
 A `land` vehicle driven into deep water is unaffected by any of this. It falls
 in and drives along the bottom, which is what a car does.
+
+### Aeroplanes and helicopters
+
+`medium: air` on its own is a **helicopter**: it lifts straight up from a
+standstill, holds whatever height it is at, and never falls. That is what every
+air vehicle here does unless you say otherwise, and for a flying saucer or a
+hovering platform it is exactly right.
+
+An **aeroplane** is the same medium with a `flight:` block:
+
+```yaml
+cessna:
+  model: mypack:cessna
+  medium: air
+  speed: 30
+  acceleration: 8
+  flight:
+    takeoff-speed: 12     # won't fly below this, blocks per second
+    climb-rate: 7         # how fast space gains height
+    dive-rate: 14         # how fast S loses it
+    stall-sink: 6         # how fast it comes down when it's too slow
+  seats:
+    - {role: driver, y: 0.9}
+```
+
+**`takeoff-speed` is the whole of what makes it an aeroplane.** Below it the
+climb key does nothing at all — the plane accelerates down the runway and that
+is your takeoff run — and once you are up, dropping below it again is a stall:
+the aircraft keeps the speed it has and sinks at `stall-sink` until you open
+the throttle or reach the ground. Set it to `0` and you are back to a
+helicopter.
+
+**There is no takeoff *time*, and that is deliberate.** How long the run takes
+is `takeoff-speed` and `acceleration` together — 12 blocks per second at 8
+blocks per second squared is a second and a half, about nine blocks of runway.
+A stated time would be a third number free to disagree with the other two, and
+the only way to honour it would be to quietly override the acceleration you
+set. Want a shorter run: raise the acceleration, or lower the takeoff speed.
+
+**A dive keeps its momentum.** Pressing S in flight puts the nose down and
+leaves the speed almost alone — an aircraft is not rolling on anything, so the
+only thing slowing it is drag, which is small. This is different from letting
+go on the ground, where a plane is a vehicle on wheels and stops like one.
+
+Every number is blocks per second, and every one of them is ignored on a `land`
+or `water` vehicle (the loader says so rather than pretending). `takeoff-speed`
+above `speed` is an aircraft that can never leave the ground; that is a warning
+in the console rather than a refusal, because the numbers are legal and it is
+your vehicle.
 
 ### States
 
