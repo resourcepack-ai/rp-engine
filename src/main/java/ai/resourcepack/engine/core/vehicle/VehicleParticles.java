@@ -152,9 +152,15 @@ public final class VehicleParticles {
             // The same basis a seat uses, so an exhaust pipe placed against
             // the back of the model stays against the back of the model
             // whichever way the vehicle is parked.
-            double[] offset = VehiclePhysics.seatOffset(yaw, emitter.x(), emitter.z());
+            //
+            // Scaled with the bodywork, for the same reason a seat is: an
+            // emitter's position is quoted against the ART, so on a vehicle
+            // drawn twice as big the exhaust pipe is twice as far back. Left
+            // unscaled it would smoke from somewhere inside the cabin.
+            double scale = info.scale();
+            double[] offset = VehiclePhysics.seatOffset(yaw, emitter.x() * scale, emitter.z() * scale);
             double x = base.getX() + offset[0];
-            double y = base.getY() + emitter.y();
+            double y = base.getY() + emitter.y() * scale;
             double z = base.getZ() + offset[1];
 
             if (isDust(particle)) {

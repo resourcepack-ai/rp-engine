@@ -66,6 +66,19 @@ public final class VehicleDefinitions {
     private static final double MAX_ACCELERATION = 40;
     private static final double MIN_TURN = 15;
     private static final double MAX_TURN = 720;
+    /**
+     * How far a vehicle's art may be grown or shrunk.
+     *
+     * <p>The same eighth-to-eight a placed model has always offered, and it is
+     * the same choice for the same reasons: under an eighth a 16px model is
+     * sub-pixel mush at any distance, and over eight one vehicle fills more of
+     * the screen than the world behind it.
+     *
+     * <p>It exists at all because a block model stops at three blocks on an
+     * axis — see {@code VehicleInfo.scale()}.
+     */
+    private static final double MIN_SCALE = 0.125;
+    private static final double MAX_SCALE = 8;
 
     // A seat may sit a little off the geometry — a running board, a tow hook —
     // but not in the next chunk.
@@ -119,6 +132,9 @@ public final class VehicleDefinitions {
         double acceleration =
                 number(body, "acceleration", 6, MIN_ACCELERATION, MAX_ACCELERATION, origin, where, diagnostics);
         double turnSpeed = number(body, "turn-speed", 120, MIN_TURN, MAX_TURN, origin, where, diagnostics);
+        // Absent is 1, "the size it was built at" — which is every vehicle
+        // written before this key existed.
+        double scale = number(body, "scale", 1, MIN_SCALE, MAX_SCALE, origin, where, diagnostics);
 
         // The body somebody can click and stand in front of. Absent means a
         // one-block cube rather than nothing: a vehicle with no hitbox has no
@@ -251,7 +267,8 @@ public final class VehicleDefinitions {
         return Optional.of(VehicleInfo.of(definition.id(), model, body.string("name").orElse(null),
                 medium, weight, speed, acceleration, turnSpeed, hitbox, flight, List.copyOf(ordered),
                 animations(body, origin, where, diagnostics),
-                emitters(body, origin, where, diagnostics)));
+                emitters(body, origin, where, diagnostics))
+                .withScale(scale));
     }
 
     /**

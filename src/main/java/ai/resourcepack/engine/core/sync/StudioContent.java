@@ -110,6 +110,15 @@ public final class StudioContent {
         double speed;
         double acceleration;
         double turnSpeed;
+        /**
+         * How much bigger than built it is drawn — see {@code VehicleInfo.scale}.
+         *
+         * <p><strong>Boxed, on the same argument as the flight numbers below.</strong>
+         * Gson leaves an absent primitive at zero, and a scale of zero is a
+         * vehicle drawn at no size at all — which is what every vehicle pushed
+         * before this field existed would become. Absent means 1.
+         */
+        Double scale;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
@@ -369,7 +378,8 @@ public final class StudioContent {
                 VehicleMedium.parse(vehicle.medium).orElse(VehicleMedium.LAND),
                 vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
                 hitbox, flight, List.copyOf(ordered),
-                animations(vehicle.animations), emitters(vehicle.particles)));
+                animations(vehicle.animations), emitters(vehicle.particles))
+                .withScale(vehicle.scale == null ? 1 : vehicle.scale));
     }
 
     /**
