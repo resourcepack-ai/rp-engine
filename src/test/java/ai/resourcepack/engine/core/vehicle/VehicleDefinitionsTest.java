@@ -499,6 +499,22 @@ class VehicleDefinitionsTest {
         assertTrue(saysSomethingAbout(parse(), "only read by medium: air"));
     }
 
+    // --- hidden seats ----------------------------------------------------
+
+    @Test
+    void aSeatCanHideItsOccupant() throws IOException {
+        write("mypack/vehicles/tanks.yml",
+                "tank:\n"
+                        + "  model: mypack:tank\n"
+                        + "  seats:\n"
+                        + "    - {role: driver, y: 0.6, hidden: true}\n"
+                        + "    - {role: passenger, y: 0.6}\n");
+
+        VehicleInfo tank = one("mypack:tank");
+        assertTrue(tank.driverSeat().hidden());
+        assertFalse(tank.seats().get(1).hidden(), "a seat that says nothing draws its rider");
+    }
+
     /** One bad exhaust pipe is not a reason to lose a bus. */
     @Test
     void oneUnusableEmitterDoesNotTakeTheOthersWithIt() throws IOException {

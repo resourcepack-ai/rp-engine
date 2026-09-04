@@ -222,6 +222,7 @@ public final class VehicleDefinitions {
                     offset(node, "z", origin, where, diagnostics),
                     (float) wrapDegrees(node.decimal("yaw").orElse(0d)),
                     node.string("name").orElse(null),
+                    node.bool("hidden").orElse(false),
                     animations(node, origin, where, diagnostics)));
         }
 

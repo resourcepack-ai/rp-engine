@@ -660,6 +660,19 @@ worth getting right.
     - {role: passenger, x: 0, y: 1.2, z: -1.4, pose: standing, yaw: 180, name: "Gunner"}
 ```
 
+`hidden: true` draws **nobody** in the seat. Not "no pose" — no person: the
+occupant is taken off everybody else's screen and wears no rig at all. It is
+for a vehicle whose model already has its rider built into it, an enclosed
+cockpit or a tank, where any body is a second person inside the fuselage.
+
+```yaml
+    - {role: driver, y: 0.9, hidden: true}
+```
+
+The rider themselves still sees their own body if they press F5, and nothing
+can change that — a plugin cannot hide a player from their own client. In first
+person, which is where somebody driving a tank is, there is nothing to see.
+
 **A vehicle with no driver seat does not load at all**, and says so naming the
 file. One that did would be a model claiming to be a vehicle with no way to
 move, and there would be nothing to go on but it not working.

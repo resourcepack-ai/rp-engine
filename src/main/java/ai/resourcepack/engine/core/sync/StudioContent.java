@@ -174,6 +174,11 @@ public final class StudioContent {
         double yaw;
         String name;
         /**
+         * Whether this seat's occupant is drawn at all. Absent is false, which
+         * is every seat pushed before this existed.
+         */
+        Boolean hidden;
+        /**
          * State name to EMOTE id — what this seat's occupant wears while the
          * vehicle is in that state. Absent on a manifest older than this.
          */
@@ -324,6 +329,7 @@ public final class StudioContent {
                             ? VehicleSeat.Pose.STANDING
                             : VehicleSeat.Pose.SITTING,
                     seat.x, seat.y, seat.z, (float) seat.yaw, seat.name,
+                    seat.hidden != null && seat.hidden,
                     animations(seat.animations)));
         }
         if (!driverTaken) {
