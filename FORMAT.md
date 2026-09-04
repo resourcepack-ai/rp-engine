@@ -661,17 +661,29 @@ worth getting right.
 ```
 
 `hidden: true` draws **nobody** in the seat. Not "no pose" — no person: the
-occupant is taken off everybody else's screen and wears no rig at all. It is
-for a vehicle whose model already has its rider built into it, an enclosed
-cockpit or a tank, where any body is a second person inside the fuselage.
+occupant is taken off every screen including their own, and wears no rig at
+all. It is for a vehicle whose model already has its rider built into it, an
+enclosed cockpit or a tank, where any body is a second person inside the
+fuselage.
 
 ```yaml
     - {role: driver, y: 0.9, hidden: true}
 ```
 
-The rider themselves still sees their own body if they press F5, and nothing
-can change that — a plugin cannot hide a player from their own client. In first
-person, which is where somebody driving a tank is, there is nothing to see.
+Their own view is covered with an invisibility effect while they are in the
+seat, so pressing F5 shows an empty cockpit too. If it shows a **see-through**
+copy of them instead, that is your scoreboard: a team with
+`canSeeFriendlyInvisibles` on — which is the default, and which most tab-list
+and name-colour plugins set up — makes a client draw a friendly invisible as a
+ghost rather than as nothing. The console says so once, naming the team. This
+plugin will not turn that flag off for you; it is a PvP setting and it belongs
+to whichever plugin owns the team.
+
+Somebody who was **already** invisible when they sat down keeps their own
+effect, and nothing is taken off them when they get out.
+
+`/rp vehicles` lists how many hidden seats each vehicle has, which is the way
+to check that a Studio sync actually carried the flag.
 
 **A vehicle with no driver seat does not load at all**, and says so naming the
 file. One that did would be a model claiming to be a vehicle with no way to

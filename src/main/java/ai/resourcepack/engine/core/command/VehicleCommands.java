@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.command;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.VehicleInfo;
+import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.core.vehicle.Vehicles;
 import org.bukkit.Location;
@@ -89,10 +90,27 @@ public final class VehicleCommands implements Area {
             }
             VehicleInfo vehicle = info.get();
             int passengers = vehicle.capacity() - 1;
+            // The two things that are invisible from outside and are the first
+            // question when one of them looks broken: whether a seat is meant
+            // to draw nobody, and whether this aircraft needs a run-up. Both
+            // arrive on a Studio push, so "did my sync actually land" is
+            // otherwise unanswerable without reading a JSON file on the server.
+            int hidden = 0;
+            for (VehicleSeat seat : vehicle.seats()) {
+                if (seat.hidden()) {
+                    hidden++;
+                }
+            }
+            String flight = vehicle.medium() == VehicleMedium.AIR && vehicle.flight().needsTakeoffRun()
+                    ? ", takes off at " + vehicle.flight().takeoffSpeed()
+                    : "";
             Reply.to(sender, "  " + id + " - " + vehicle.medium().key()
                     + ", " + vehicle.speed() + " blocks/s, driver"
                     + (passengers == 0 ? " only" : " and " + passengers
-                    + (passengers == 1 ? " passenger" : " passengers")));
+                    + (passengers == 1 ? " passenger" : " passengers"))
+                    + flight
+                    + (hidden == 0 ? "" : ", " + hidden
+                    + (hidden == 1 ? " hidden seat" : " hidden seats")));
         }
         Reply.to(sender, "Park one with /rp vehicle <id>.");
         return true;
