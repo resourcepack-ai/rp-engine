@@ -438,6 +438,18 @@ public final class EmoteDirector implements Listener {
          */
         Float facing;
         /**
+         * Where the wearer's feet are, when somebody else knows better than
+         * their own position — or null to follow the wearer.
+         *
+         * <p>Set through {@link ai.resourcepack.engine.api.Emotes#anchor} by
+         * whatever is carrying this player, every tick, and the rig is moved
+         * as it is set. What is kept here is only so that the pass in
+         * {@link #tickStance} places the shadow, the name and any respawned
+         * prop against the same point rather than against wherever vanilla
+         * has the passenger this tick.
+         */
+        Location seat;
+        /**
          * Everyone in this emote, the lead first and this player among them.
          *
          * <p><b>An emote ends for everybody or for nobody.</b> Half a
@@ -1093,6 +1105,33 @@ public final class EmoteDirector implements Listener {
         if (player == null) return;
         Session session = active.get(player.getUniqueId());
         if (session != null && session.driven) session.facing = yaw;
+    }
+
+    /**
+     * See {@link ai.resourcepack.engine.api.Emotes#anchor}.
+     *
+     * <p>Moves the rig NOW rather than on the next pass, which is the whole
+     * of why the method exists — see the interface. The same {@code driven}
+     * test as {@link #face}, for the same reason: a rig the caller was refused
+     * is not theirs to move.
+     *
+     * <p>The rig is carried on the rider window before it is moved, without
+     * waiting for the next pass to notice its wearer is a passenger: an
+     * anchored rig is by definition being carried by something, and the first
+     * move on the world's tighter window would step it ahead of the model
+     * for a tick.
+     */
+    public void anchor(Player player, Location feet) {
+        if (player == null) return;
+        Session session = active.get(player.getUniqueId());
+        if (session == null || !session.driven) return;
+        if (feet == null) {
+            session.seat = null;
+            return;
+        }
+        session.seat = feet.clone();
+        carryAs(session, true);
+        follow(session, feet, player.isSneaking());
     }
 
     /**
@@ -2941,7 +2980,15 @@ public final class EmoteDirector implements Listener {
         // centre line, exactly as `begin` placed it — the only offset the whole
         // body fits the block-model bounds at — and forward by however far the
         // wearer will have travelled by the time this is on their screen.
-        Location base = now.clone().add(session.lead.getX(), RIG_BASE_Y, session.lead.getZ());
+        //
+        // Unless a seat has said where the feet are, in which case that is
+        // the feet and the lead is nothing (a rider is never led — see
+        // advanceLead). The rig itself was moved there when the seat said so;
+        // what this pass places against the point is everything else.
+        Location feet = session.seat != null
+            ? session.seat.clone()
+            : now.clone().add(session.lead.getX(), 0, session.lead.getZ());
+        Location base = feet.clone().add(0, RIG_BASE_Y, 0);
         base.setYaw(0);
         base.setPitch(0);
 
@@ -3013,18 +3060,40 @@ public final class EmoteDirector implements Listener {
         // them until a vehicle says otherwise.
         session.yaw = session.facing != null ? session.facing : now.getYaw();
         session.origin = now.clone();
-        // Two passes that send nothing, and between them they are what pays for
-        // stepping every tick rather than every other one:
-        //
-        // A rig that is AWAY is not carried at all. Its displays are standing
-        // where its wearer left them holding air, and a set crossing into a
-        // state it leaves to vanilla can hold that for as long as somebody
-        // keeps running. `setRigHidden` forgets the position, so the pass that
-        // brings the rig back is a pass that moves it.
-        //
-        // A rig that has not MOVED is not re-sent. A teleport is a packet per
-        // display per viewer, and a stance is worn standing still at least as
-        // often as it is worn walking.
+        // The rig, and everything that travels with it. See follow.
+        follow(session, feet, sneaking);
+        return true;
+    }
+
+    /**
+     * Puts the rig and everything that travels with it at {@code feet}.
+     *
+     * <p>Called once a pass from {@link #tickStance}, and again by
+     * {@link #anchor} whenever a seat says where its occupant is — so for a
+     * rider it runs twice a tick, and the second run finds nothing to do.
+     * That is deliberate: which of the two runs first in a server tick is the
+     * scheduler's business, and either order leaves the rig where the seat
+     * put it.
+     *
+     * <p>Two passes that send nothing, and between them they are what pays
+     * for stepping every tick rather than every other one:
+     *
+     * <p>A rig that is AWAY is not carried at all. Its displays are standing
+     * where its wearer left them holding air, and a set crossing into a state
+     * it leaves to vanilla can hold that for as long as somebody keeps
+     * running. {@code setRigHidden} forgets the position, so the pass that
+     * brings the rig back is a pass that moves it.
+     *
+     * <p>A rig that has not MOVED is not re-sent. A teleport is a packet per
+     * display per viewer, and a stance is worn standing still at least as
+     * often as it is worn walking.
+     *
+     * @param feet the wearer's feet, lead included; its yaw is not read
+     */
+    private void follow(Session session, Location feet, boolean sneaking) {
+        Location base = feet.clone().add(0, RIG_BASE_Y, 0);
+        base.setYaw(0);
+        base.setPitch(0);
         boolean moved = session.lastBase == null || !session.lastBase.equals(base);
         session.lastBase = base.clone();
         if (!session.rigHidden && moved) {
@@ -3061,10 +3130,10 @@ public final class EmoteDirector implements Listener {
         // and a shadow left behind would be a blot waiting where the rig came
         // back.
         if (session.shadow != null && session.shadow.isValid()) {
-            Location feet = now.clone().add(session.lead.getX(), 0, session.lead.getZ());
-            feet.setYaw(0);
-            feet.setPitch(0);
-            if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
+            Location flat = feet.clone();
+            flat.setYaw(0);
+            flat.setPitch(0);
+            if (!flat.equals(session.shadow.getLocation())) session.shadow.teleport(flat);
         }
         // No `moved` gate here either, and for the shadow's reason plus one
         // more: the height moves with the crouch as well as with the feet, so
@@ -3077,9 +3146,8 @@ public final class EmoteDirector implements Listener {
         // drifting before — and it goes on following while the rig is away,
         // since that is hidden by view range rather than by being left behind.
         if (session.nameTag != null) {
-            session.nameTag.moveTo(now.clone().add(session.lead.getX(), 0, session.lead.getZ()), sneaking);
+            session.nameTag.moveTo(feet.clone(), sneaking);
         }
-        return true;
     }
 
     /** Gives up following for the rest of the emote, and says why once. */

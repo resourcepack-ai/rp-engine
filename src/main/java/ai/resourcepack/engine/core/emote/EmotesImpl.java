@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.Emotes;
 import ai.resourcepack.engine.api.event.EmoteEndEvent;
 import ai.resourcepack.engine.core.Host;
 
+import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -139,6 +140,15 @@ public final class EmotesImpl implements Emotes {
         // for a rig that is already being taken down.
         if (player == null) return;
         director.face(player, yaw);
+    }
+
+    @Override
+    public void anchor(Player player, Location feet) {
+        Host.requireMainThread();
+        // Not refused for an offline player, for face's reason: this is told
+        // to the engine every tick by whatever owns the seat.
+        if (player == null) return;
+        director.anchor(player, feet);
     }
 
     @Override
