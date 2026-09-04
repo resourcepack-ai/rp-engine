@@ -181,16 +181,20 @@ public final class Vehicles implements Listener {
     /**
      * How far the model is turned from the way the vehicle is going.
      *
-     * <p>A Blockbench model — which is every model either front door produces
-     * — is built facing {@code -z}, and a Minecraft entity at yaw 0 faces
-     * {@code +z}. So the display is turned half a turn from the vehicle's own
-     * heading, or the car drives backwards down the road.
+     * <p>Half a turn, found in a client rather than derived: without it the
+     * car drove backwards down the road. <strong>Measured on 2026-09-04, what
+     * it actually does is put the model's {@code +z} at the front of the
+     * vehicle and its {@code +x} on the vehicle's left</strong> — a studio
+     * model's grille is at high {@code z}, and that is the end that leads.
+     * The explanation this used to carry (that a Blockbench model faces
+     * {@code -z}) was the wrong story for the right number.
      *
-     * <p><strong>This is the one number here that was found in a client
-     * rather than derived</strong>, and it is a named constant so that it is
-     * the one thing to change if a model ever faces the wrong way again.
-     * Nothing else depends on it: seat positions are in the vehicle's frame,
-     * not the model's, so turning the art does not move anybody.
+     * <p>It is a named constant so that it is the one thing to change if a
+     * model ever faces the wrong way again. Seat positions are in the
+     * vehicle's frame, not the model's, so turning the art does not move
+     * anybody — but studio's editor converts model pixels INTO that frame,
+     * and its conversion assumes exactly the half turn above. Change this and
+     * every pushed seat is on the wrong end of its vehicle.
      */
     private static final float MODEL_YAW_OFFSET = 180;
 
