@@ -18,6 +18,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 
@@ -63,8 +67,16 @@ public final class EditSessions {
         final long expiresAt;
         /** The last revision written to disk. Zero until the first save. */
         volatile int applied;
-        /** Set while a pull is being applied, so a slow write is not started twice. */
-        volatile boolean busy;
+        /**
+         * Held while a pull is being applied.
+         *
+         * <p>An {@link AtomicBoolean} rather than a flag, because a repeating
+         * async task <strong>overlaps itself</strong> when one run takes longer
+         * than the period — which a pull that writes a megabyte over a slow
+         * link routinely does. Two runs reading a plain flag both see it clear
+         * and both start writing the same files.
+         */
+        final AtomicBoolean busy = new AtomicBoolean();
 
         Session(String id, String pullToken, String url, UUID owner, String ownerName,
                 EditTarget target, long expiresAt) {
@@ -93,7 +105,7 @@ public final class EditSessions {
     private final EditClient client;
     private final Consumer<CommandSender> reload;
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
-    private BukkitTask poll;
+    private BukkitTask watch;
 
     public EditSessions(Plugin plugin, Path contentRoot, String studioUrl, Consumer<CommandSender> reload) {
         this.plugin = plugin;
@@ -105,25 +117,44 @@ public final class EditSessions {
     /** Starts the watch loop. Called once the plugin is up. */
     public void start() {
         stop();
-        poll = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::tick, POLL_TICKS, POLL_TICKS);
+        watch = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::tick, POLL_TICKS, POLL_TICKS);
     }
 
     /**
      * Stops watching and lets go of every session.
      *
-     * <p>The far end is told, so an abandoned session's storage goes now rather
-     * than at its own expiry — best effort, on the way out, and never worth
-     * holding up a shutdown for.
+     * <p>The far end is told, so a link the server can no longer act on dies
+     * with it rather than sitting there taking edits nobody will apply.
+     *
+     * <p><strong>Bounded, and that is the whole of why this is not a loop.</strong>
+     * This runs on the main thread inside {@code onDisable}, and each close is
+     * an HTTP round trip with a ten-second connect timeout — so three
+     * abandoned sessions and a network that has gone away is half a minute
+     * added to somebody's restart. They go out together and are waited on for
+     * two seconds; whatever has not finished is left to expire on its own,
+     * which it would have done anyway.
      */
     public void stop() {
-        if (poll != null) {
-            poll.cancel();
-            poll = null;
+        if (watch != null) {
+            watch.cancel();
+            watch = null;
         }
-        for (Session session : sessions.values()) {
-            client.close(session.id, session.pullToken);
-        }
+        List<Session> open = new ArrayList<>(sessions.values());
         sessions.clear();
+        if (open.isEmpty()) {
+            return;
+        }
+        ExecutorService closing = Executors.newFixedThreadPool(Math.min(4, open.size()));
+        for (Session session : open) {
+            closing.submit(() -> client.close(session.id, session.pullToken));
+        }
+        closing.shutdown();
+        try {
+            closing.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        closing.shutdownNow();
     }
 
     /**
@@ -238,27 +269,30 @@ public final class EditSessions {
                 tell(session, "The editor link for " + session.target.id + " has expired.");
                 continue;
             }
-            if (session.busy) {
+            if (!session.busy.compareAndSet(false, true)) {
                 continue;
             }
-            Optional<EditWire.Status> status = client.status(session.id, session.pullToken);
-            if (status.isEmpty()) {
-                // Gone at the far end: expired, or closed from a second
-                // server. Dropped quietly — the owner is told only when
-                // something they were waiting for stops, and nothing was.
-                sessions.remove(session.id);
-                continue;
-            }
-            int revision = status.get().revision;
-            if (revision <= session.applied) {
-                continue;
-            }
-            session.busy = true;
             try {
-                pull(session, revision);
+                poll(session);
             } finally {
-                session.busy = false;
+                session.busy.set(false);
             }
+        }
+    }
+
+    /** One session's turn: ask, and pull if anything has been saved. */
+    private void poll(Session session) {
+        Optional<EditWire.Status> status = client.status(session.id, session.pullToken);
+        if (status.isEmpty()) {
+            // Gone at the far end: expired, or closed from somewhere else.
+            // Dropped quietly — the owner is told only when something they
+            // were waiting for stops, and nothing was.
+            sessions.remove(session.id);
+            return;
+        }
+        int revision = status.get().revision;
+        if (revision > session.applied) {
+            pull(session, revision);
         }
     }
 
