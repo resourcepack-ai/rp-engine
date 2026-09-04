@@ -125,6 +125,33 @@ public final class Chat {
     }
 
     /**
+     * A line ending in a clickable web link.
+     *
+     * <p>Separate from {@link #send} rather than folded into it, because a URL
+     * in a message is not the same thing as a command in one: a command is
+     * matched out of the prose by {@link #linkify} and a URL cannot be, since
+     * the whole point of the link is that its text is not the URL. So the
+     * caller says where it goes and what it says, and the two are handed over
+     * as one component.
+     *
+     * <p>A console sender gets the URL written out, because there is nothing
+     * there to click and an invisible link is a link nobody can follow.
+     */
+    public static void link(CommandSender who, String line, String label, String url) {
+        if (!(who instanceof Player)) {
+            who.sendMessage(line + label + ": " + url);
+            return;
+        }
+        List<BaseComponent> out = new ArrayList<>(List.of(linkify(line)));
+        TextComponent shown = new TextComponent(TextComponent.fromLegacyText(label));
+        shown.setUnderlined(true);
+        shown.setClickEvent(new ClickEvent(ClickEvent.Action.OPEN_URL, url));
+        shown.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(url)));
+        out.add(shown);
+        ((Player) who).spigot().sendMessage(out.toArray(new BaseComponent[0]));
+    }
+
+    /**
      * The line as components, with each command a click target.
      *
      * <p>Public for the places that need to put one inside a bigger message

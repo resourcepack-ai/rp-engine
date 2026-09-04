@@ -48,6 +48,25 @@ sync:
   # owner also runs. Empty means pair the ordinary way.
   server-token: ""
 
+# Editing this server's own content in a browser.
+#
+# /rp edit model <id> hands you a link to the real editors at
+# resourcepack.ai, opened on the file in your content folder. You edit it,
+# press Send to server, and the file on this machine changes. No account, no
+# sign-in: the link works once and lasts three hours.
+#
+# What crosses is only the thing being edited - one model, one texture, one
+# vehicle's settings - and nothing on this server changes until you press that
+# button. The plugin asks whether you have, every few seconds, for as long as
+# a link is open.
+edit:
+  # Turn this off and /rp edit says so instead of doing anything. Worth it for
+  # a server that would rather nothing here talked to the outside world.
+  enabled: true
+
+  # Where the editors are. Only worth changing to point at a staging studio.
+  url: "https://studio.resourcepack.ai"
+
 # Serving a published pack to everybody who joins. /rp publish <code> binds
 # this server to one; the code comes from the panel.
 distribution:
