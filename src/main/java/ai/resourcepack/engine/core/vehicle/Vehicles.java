@@ -40,6 +40,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.EquipmentSlot;
@@ -333,6 +334,15 @@ public final class Vehicles implements Listener {
     /** Player uuid -> the chassis they are on, so a quit or a dismount can find it. */
     private final Map<UUID, UUID> riders = new ConcurrentHashMap<>();
 
+    /**
+     * Who is in a seat that draws nobody.
+     *
+     * <p>Per-vehicles rather than per-Ride: a rider is hidden from every client
+     * on the server, not from the ones near their car, and a player joining has
+     * to be told about all of them at once. See {@link HiddenRiders}.
+     */
+    private final HiddenRiders concealed;
+
     /** Said once, however many vehicles are stuck. */
     private volatile boolean warnedFrozen;
 
@@ -422,6 +432,7 @@ public final class Vehicles implements Listener {
         this.standMountOffset = MountOffset.forVehicleSeat(compatibility);
         this.tags = RigTags.forServer(compatibility, plugin);
         this.seatMover = PassengerTeleport.forServer();
+        this.concealed = new HiddenRiders(plugin);
         this.idKey = new NamespacedKey(plugin, "vehicle");
     }
 
@@ -821,6 +832,13 @@ public final class Vehicles implements Listener {
         if (seat.isDriver()) {
             controls.take(player.getUniqueId());
         }
+        // A seat that draws nobody. Done here rather than in the tick because
+        // it is a fact about the SEAT and not about what the vehicle is doing:
+        // asking every tick would be a hide packet twenty times a second for
+        // something that changes when somebody sits down.
+        if (seat.hidden()) {
+            concealed.hide(player);
+        }
         // <strong>On the action bar, not in chat.</strong> Which seat you got
         // is worth saying — on a small vehicle the markers overlap, and
         // somebody who meant to drive and got a passenger seat has nothing else
@@ -936,6 +954,19 @@ public final class Vehicles implements Listener {
         left(event.getPlayer());
     }
 
+    /**
+     * Tells somebody who just arrived about the riders they cannot see.
+     *
+     * <p>{@code hidePlayer} is per-viewer and is sent once, to the clients that
+     * were online at the time — so without this a player logging in beside a
+     * tank is the only person in the world who can see its driver sitting
+     * inside it.
+     */
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        concealed.greet(event.getPlayer());
+    }
+
     // ------------------------------------------------------------------
     // The tick
     // ------------------------------------------------------------------
@@ -1025,6 +1056,12 @@ public final class Vehicles implements Listener {
         }
         live.clear();
         riders.clear();
+        // After the evictions, which reveal their own riders through `undress`.
+        // This is the backstop for anybody the eviction could not reach — their
+        // chunk had gone, their Ride was already dropped — because a player
+        // left invisible by a plugin that is no longer running has nothing at
+        // all to put them back.
+        concealed.clear();
     }
 
     // ------------------------------------------------------------------
@@ -1717,7 +1754,11 @@ public final class Vehicles implements Listener {
             for (int i = 0; i < occupants.size(); i++) {
                 UUID id = occupants.get(i);
                 VehicleSeat seat = info.seats().get(i);
-                if (id == null || (seat.animations().isEmpty() && !seatRig)) {
+                // A hidden seat wears nothing, whatever it mapped: there is no
+                // point spawning a rig for somebody nobody can see, and doing
+                // it anyway would hang a set of displays inside the bodywork
+                // for every occupant. See VehicleSeat.hidden.
+                if (id == null || seat.hidden() || (seat.animations().isEmpty() && !seatRig)) {
                     continue;
                 }
                 Player player = plugin.getServer().getPlayer(id);
@@ -1871,6 +1912,16 @@ public final class Vehicles implements Listener {
         private void undress(UUID id) {
             String had = worn.remove(id);
             dressed.remove(id);
+            // A hidden seat's occupant, put back on everybody's screen. Here
+            // rather than beside `sit`'s hide because this is the one method
+            // every way out of a seat goes through — a dismount, a quit, a
+            // reload, a chunk unload — and the hide was one method with one
+            // caller against four.
+            //
+            // Somebody the emote system is hiding is left hidden: both use this
+            // plugin as the key, so revealing them would take a running emote's
+            // body out of hiding while its rig was still on.
+            concealed.show(id, emotes != null && emotes.isEmoting(id));
             if (emotes == null || had == null) {
                 return;
             }

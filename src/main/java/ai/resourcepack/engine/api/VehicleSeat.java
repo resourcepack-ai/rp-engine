@@ -64,10 +64,11 @@ public final class VehicleSeat {
     private final double z;
     private final float yaw;
     private final String name;
+    private final boolean hidden;
     private final Map<VehicleState, String> animations;
 
     private VehicleSeat(Role role, Pose pose, double x, double y, double z, float yaw, String name,
-                        Map<VehicleState, String> animations) {
+                        boolean hidden, Map<VehicleState, String> animations) {
         this.role = role;
         this.pose = pose;
         this.x = x;
@@ -75,6 +76,7 @@ public final class VehicleSeat {
         this.z = z;
         this.yaw = yaw;
         this.name = name;
+        this.hidden = hidden;
         this.animations = animations;
     }
 
@@ -92,11 +94,18 @@ public final class VehicleSeat {
      */
     public static VehicleSeat of(Role role, Pose pose, double x, double y, double z, float yaw,
                                  String name, Map<VehicleState, String> animations) {
+        return of(role, pose, x, y, z, yaw, name, false, animations);
+    }
+
+    /** The same again, for a seat whose occupant is not drawn at all. */
+    public static VehicleSeat of(Role role, Pose pose, double x, double y, double z, float yaw,
+                                 String name, boolean hidden, Map<VehicleState, String> animations) {
         return new VehicleSeat(
                 Objects.requireNonNull(role, "role"),
                 pose == null ? Pose.SITTING : pose,
                 x, y, z, yaw,
                 name == null ? "" : name,
+                hidden,
                 copyAnimations(animations));
     }
 
@@ -188,6 +197,24 @@ public final class VehicleSeat {
     /** What to call it in a message, or empty for its role and number. */
     public Optional<String> name() {
         return name.isEmpty() ? Optional.empty() : Optional.of(name);
+    }
+
+    /**
+     * Whether this seat's occupant is drawn at all.
+     *
+     * <p>Off by default, and it is not the same thing as a seat that dresses
+     * nobody: an undressed occupant is an ordinary player sitting there, and a
+     * hidden one is nobody. The case for it is a vehicle whose art already has
+     * the rider in it — an enclosed cockpit, a tank, a mech — where any body,
+     * rigged or not, is a second person inside the fuselage.
+     *
+     * <p><strong>It beats {@link #animations()} and the seat stance
+     * both.</strong> A hidden seat wears nothing: there is no rig to put on
+     * somebody nobody can see, and spawning one would be a set of displays
+     * hanging inside the bodywork for every occupant.
+     */
+    public boolean hidden() {
+        return hidden;
     }
 
     @Override
