@@ -1050,6 +1050,23 @@ public final class Vehicles implements Listener {
         private final List<UUID> occupants = new ArrayList<>();
 
         /**
+         * How far below its mount each seat's occupant actually ended up, in
+         * blocks, measured — or null until a rider has been aboard for a tick.
+         *
+         * <p><strong>This is what makes the seat height right on a version
+         * nobody has measured.</strong> Where a passenger sits over its mount
+         * is vanilla's rule, changed between versions before, and every figure
+         * in {@link MountOffset} is one somebody measured by hand. The engine
+         * has a better instrument: the rider. Every tick the mount is exactly
+         * where the previous tick put it, and the rider is exactly where
+         * vanilla put them over it, so the difference between the two IS the
+         * rule on this server. From the second tick aboard the mount is aimed
+         * with that number, and the guess in {@link MountOffset} only ever
+         * decides the first.
+         */
+        private final List<Double> mountDrop = new ArrayList<>();
+
+        /**
          * The vehicle's own body, as one or more Interaction boxes.
          *
          * <p>Tiled along the forward axis because an Interaction's footprint is
@@ -1175,6 +1192,7 @@ public final class Vehicles implements Listener {
                 mounts.add(null);
                 hitboxes.add(null);
                 occupants.add(null);
+                mountDrop.add(null);
             }
         }
 
@@ -1579,11 +1597,13 @@ public final class Vehicles implements Listener {
          *
          * @param stand whether the mount is (or will be) the fallback stand
          *              rather than a display — the two seat a rider at
-         *              different heights, see {@link MountOffset}
+         *              different heights, see {@link MountOffset}. Only the
+         *              guess: a measured drop ({@link #mountDrop}) wins
          */
         Location mountLocation(int index, boolean stand) {
             Location seat = seatLocation(index);
-            seat.add(0, stand ? standMountOffset : displayMountOffset, 0);
+            Double measured = mountDrop.get(index);
+            seat.add(0, measured != null ? measured : stand ? standMountOffset : displayMountOffset, 0);
             seat.setYaw(0);
             seat.setPitch(0);
             return seat;
@@ -2129,6 +2149,17 @@ public final class Vehicles implements Listener {
                     continue;
                 }
                 UUID occupant = occupants.get(i);
+                Player rider = occupant == null ? null : plugin.getServer().getPlayer(occupant);
+                // Measured before the mount moves: the rider is where vanilla
+                // put them over the mount as it stands, and the mount has not
+                // moved since. See mountDrop.
+                if (rider != null && mount.getUniqueId().equals(
+                        rider.getVehicle() == null ? null : rider.getVehicle().getUniqueId())) {
+                    double drop = mount.getLocation().getY() - rider.getLocation().getY();
+                    if (Double.isFinite(drop) && Math.abs(drop) < 4) {
+                        mountDrop.set(i, drop);
+                    }
+                }
                 Location target = mountLocation(i, mount instanceof ArmorStand);
                 if (occupant == null) {
                     // Nobody aboard, so nothing refuses a plain teleport.
@@ -2145,11 +2176,8 @@ public final class Vehicles implements Listener {
                         reseat(i, occupant);
                     }
                 }
-                if (occupant != null && emotes != null) {
-                    Player player = plugin.getServer().getPlayer(occupant);
-                    if (player != null) {
-                        emotes.anchor(player, seatLocation(i));
-                    }
+                if (rider != null && emotes != null) {
+                    emotes.anchor(rider, seatLocation(i));
                 }
 
                 // <strong>Outside the branch, which is where it was not.</strong>
