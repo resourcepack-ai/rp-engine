@@ -71,6 +71,34 @@ public final class VehiclePhysics {
     public static final double COAST_FRACTION = 0.35;
 
     /**
+     * The least a vehicle sheds with no throttle, in blocks per second per
+     * second, whatever its acceleration and weight.
+     *
+     * <p><strong>Coasting and braking do not get weaker with weight, and this
+     * floor is what says so.</strong> They did: both were a fraction of the
+     * weight-adjusted acceleration, so a heavy, slow vehicle — a tractor at
+     * weight 79 and acceleration 2.5 — coasted at a tenth of a block a second
+     * per second and took a minute and a half to stop, and pressing the brake
+     * was not much better. Turning the weight UP made it worse, which is the
+     * opposite of what the slider promises. That is ice, not weight. Rolling
+     * resistance and brakes both scale with the mass they act on, so a heavy
+     * vehicle stops in about the same distance as a light one; what weight
+     * legitimately costs is getting going, which it still does.
+     *
+     * <p>Four is a car in gear with its foot off the pedal: three seconds
+     * from a fast road speed to a stop, long enough to feel like coasting and
+     * short enough that letting go of the key is how you slow down.
+     */
+    public static final double COAST_FLOOR = 4;
+
+    /**
+     * The least a vehicle sheds on the brake, in blocks per second per
+     * second. Ten is a firm stop from a fast road speed in just over a second.
+     * See {@link #COAST_FLOOR}.
+     */
+    public static final double BRAKE_FLOOR = 10;
+
+    /**
      * The weight a vehicle's stated acceleration is quoted at.
      *
      * <p>{@code weight} scales acceleration and braking around this, so a
@@ -205,9 +233,13 @@ public final class VehiclePhysics {
         // Braking beats the throttle rather than being averaged with it: a
         // driver holding both is asking to stop, and half of each would be a
         // vehicle that neither accelerates nor stops.
+        // Slowing down never falls below the floors — see COAST_FLOOR. The
+        // acceleration-relative rates still apply to a vehicle that is quick
+        // enough for them to exceed the floor, so a sports car brakes harder
+        // than a cart; a tractor just no longer slides.
         double rate = demand.braking() || stopping
-                ? accel * BRAKE_MULTIPLIER
-                : throttle == 0 ? accel * COAST_FRACTION : accel;
+                ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER)
+                : throttle == 0 ? Math.max(COAST_FLOOR, accel * COAST_FRACTION) : accel;
         if (demand.braking()) {
             target = 0;
         }

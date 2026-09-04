@@ -569,7 +569,7 @@ hatchback:
   speed: 18                 # top speed, blocks per second
   acceleration: 7.5         # how fast it gets there
   turn-speed: 140           # degrees per second the body swings round
-  weight: 14                # 1-100. Heavier is slower to start and to stop
+  weight: 14                # 1-100. Heavier is slower to get going
   hitbox:                   # what players click to get in, in blocks
     width: 1.4              # side to side
     height: 1.2             # up from the base
