@@ -9,6 +9,7 @@ import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
+import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.model.DisplayCarry;
@@ -18,6 +19,7 @@ import ai.resourcepack.engine.core.model.RigCarrier;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.version.Compatibility;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -34,8 +36,10 @@ import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityEvent;
 import org.bukkit.event.player.PlayerInteractAtEntityEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.EquipmentSlot;
@@ -567,6 +571,88 @@ public final class Vehicles implements Listener {
     // ------------------------------------------------------------------
     // Getting in and out
     // ------------------------------------------------------------------
+
+    /**
+     * A vehicle's own item, placed against a block, parks the vehicle.
+     *
+     * <p><strong>Until this, the item studio hands over after a sync placed
+     * a statue.</strong> The item is the model's — paper wearing the model's
+     * {@code custom_model_data} string — and the model placer claims every
+     * one of those, so a tractor went down as a rig you could look at and not
+     * get into, and the only way to a driveable one was {@code /rp vehicle}.
+     * From the player's side that is "I placed it, I right-clicked it,
+     * nothing happened".
+     *
+     * <p>Lowest priority so this runs before the model placer, which skips a
+     * cancelled event; a model that is a vehicle is a vehicle. Matched on the
+     * CARRIER string rather than the id, because that is exactly what the
+     * item carries — see {@link VehicleInfo#carrier()}. The same
+     * {@link ModelPlaceEvent} is asked first, so whatever keeps statues out
+     * of a lobby keeps vehicles out of it too.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlaceItem(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+        ItemStack item = event.getItem();
+        if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) {
+            return;
+        }
+        List<String> strings = tags.read(item);
+        if (strings.isEmpty() || strings.get(0) == null) {
+            return;
+        }
+        String carrier = strings.get(0);
+        VehicleInfo info = null;
+        for (VehicleInfo candidate : catalogue.values()) {
+            if (candidate.carrier().filter(carrier::equals).isPresent()) {
+                info = candidate;
+                break;
+            }
+        }
+        if (info == null) {
+            return;
+        }
+        Player player = event.getPlayer();
+        Block clicked = event.getClickedBlock();
+        if (clicked == null) {
+            return;
+        }
+        // Chests, doors and the like keep their vanilla click unless the
+        // player sneaks - the model placer's rule, and a block's.
+        if (clicked.getType().isInteractable() && !player.isSneaking()) {
+            return;
+        }
+        // Ours from here on: never also the vanilla use, and never a statue.
+        event.setCancelled(true);
+        Block target = clicked.getRelative(event.getBlockFace());
+        if (!target.getType().isAir()) {
+            return;
+        }
+        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target);
+        plugin.getServer().getPluginManager().callEvent(ask);
+        if (ask.isCancelled()) {
+            return;
+        }
+        // Centred in the block, pointed the way the player is looking - a
+        // vehicle is parked facing away from whoever parked it, as the
+        // command does.
+        Location where = target.getLocation().add(0.5, 0, 0.5);
+        where.setYaw(player.getLocation().getYaw());
+        Optional<Entity> chassis = spawn(where, info.id());
+        if (chassis.isEmpty()) {
+            return;
+        }
+        // Adopted now rather than on the next chunk load, which for a chunk
+        // that is already loaded would be never.
+        adopt(chassis.get());
+        if (player.getGameMode() != GameMode.CREATIVE) {
+            item.setAmount(item.getAmount() - 1);
+        }
+        player.swingMainHand();
+        overhead(player, "Parked " + nameOf(info) + " - right-click a seat to get in.");
+    }
 
     /**
      * A click on a seat's hitbox puts you in THAT seat.
