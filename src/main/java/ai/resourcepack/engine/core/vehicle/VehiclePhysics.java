@@ -710,6 +710,69 @@ public final class VehiclePhysics {
         }
     }
 
+    /** What the runtime does with a step the world has an opinion about. */
+    public enum Collision {
+        /** Take it. */
+        MOVE,
+        /** Take it, a step higher — a kerb. */
+        STEP_UP,
+        /** Refuse it and stop dead. */
+        STOP
+    }
+
+    /**
+     * Whether a step happens, given what is solid where.
+     *
+     * <p>Pure, and here rather than inline in the runtime, because the one rule
+     * it encodes is the difference between a vehicle that stops at a wall and
+     * one that is trapped in it for ever — and the runtime that used to hold it
+     * needs a live world to run at all, so the rule could not be tested.
+     *
+     * <p><strong>A vehicle that is ALREADY overlapping a solid may move, even
+     * further into it.</strong> That is the whole of the fix and it looks wrong
+     * until you follow it through. The refusal used to be decided on the
+     * destination alone, which is right whenever the vehicle is somewhere legal
+     * — but a vehicle can end up inside a wall several ways that never consult
+     * this at all: its yaw chases the driver's camera every tick and rotation
+     * is never collision-checked, so turning while parked flush sweeps a corner
+     * into the bricks; and a fast one covers up to three blocks in a tick
+     * against a destination-only test, so it can land inside a thick wall.
+     *
+     * <p>Once there, every destination within a tick's travel is also blocked,
+     * so every move was refused — and a refusal calls {@code State.stopped()},
+     * which zeroes the speed. From a standstill one tick of reverse is about
+     * 1.5cm, so the vehicle could never accumulate enough displacement to leave
+     * the block it was standing in. It was pinned, permanently, with the back
+     * key doing nothing.
+     *
+     * <p>Refusing buys nothing in that state: it cannot keep a vehicle out of a
+     * wall it is already in. So the only thing it achieves is the trap, and
+     * letting the move through is what gives the driver a way out. Driving
+     * further in is possible and is the right trade — it is recoverable, and
+     * being stuck is not.
+     *
+     * @param destinationBlocked whether the footprint at the destination is in
+     *                           something solid
+     * @param canStepUp          whether a step higher is clear, and this is a
+     *                           land vehicle — a kerb beats both other answers,
+     *                           because climbing it is the move that gets the
+     *                           vehicle out of the way of the obstruction
+     * @param alreadyBlocked     whether the footprint where it stands NOW is in
+     *                           something solid. Only worth asking when the
+     *                           destination is blocked and no kerb was found,
+     *                           which is what keeps the extra block reads off
+     *                           the common path
+     */
+    public static Collision resolve(boolean destinationBlocked, boolean canStepUp, boolean alreadyBlocked) {
+        if (!destinationBlocked) {
+            return Collision.MOVE;
+        }
+        if (canStepUp) {
+            return Collision.STEP_UP;
+        }
+        return alreadyBlocked ? Collision.MOVE : Collision.STOP;
+    }
+
     /** The next state, and the move to try. */
     public static final class Step {
 

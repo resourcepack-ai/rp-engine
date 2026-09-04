@@ -829,4 +829,48 @@ class VehiclePhysicsTest {
         }
         assertEquals(5, state.speed(), 1e-9);
     }
+
+    // --- getting back out of a wall -------------------------------------
+
+    /**
+     * A vehicle already inside something may move, even into more of it.
+     *
+     * <p><strong>This is the whole bug.</strong> The refusal used to be decided
+     * on the destination alone, so once a vehicle overlapped a solid — turned
+     * into it, tunnelled through it at speed, or had a block placed on it —
+     * every destination within a tick's travel overlapped too, every move was
+     * refused, and the refusal zeroed the speed. From a standing start one tick
+     * of reverse is about 1.5cm, so the vehicle could never accumulate enough
+     * to leave the block it was in: it was pinned for good, and the driver's
+     * back key did nothing for ever.
+     *
+     * <p>Refusing achieves nothing here — it cannot keep the vehicle out of a
+     * wall it is already in — so the only thing it buys is the trap.
+     */
+    @Test
+    void aVehicleAlreadyInsideAWallMayDriveOut() {
+        assertEquals(VehiclePhysics.Collision.MOVE,
+                VehiclePhysics.resolve(true, false, true));
+    }
+
+    /** The ordinary case is untouched: clear here, solid there, stop dead. */
+    @Test
+    void aVehicleDrivingIntoAWallStillStops() {
+        assertEquals(VehiclePhysics.Collision.STOP,
+                VehiclePhysics.resolve(true, false, false));
+    }
+
+    /** A clear destination is a move, whatever the vehicle is standing in. */
+    @Test
+    void aClearDestinationIsAlwaysAMove() {
+        assertEquals(VehiclePhysics.Collision.MOVE, VehiclePhysics.resolve(false, false, false));
+        assertEquals(VehiclePhysics.Collision.MOVE, VehiclePhysics.resolve(false, false, true));
+    }
+
+    /** A kerb is still a kerb, and beats both other answers. */
+    @Test
+    void aStepUpBeatsStoppingAndEscaping() {
+        assertEquals(VehiclePhysics.Collision.STEP_UP, VehiclePhysics.resolve(true, true, false));
+        assertEquals(VehiclePhysics.Collision.STEP_UP, VehiclePhysics.resolve(true, true, true));
+    }
 }

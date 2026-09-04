@@ -2430,12 +2430,24 @@ public final class VehicleRuntime implements Listener {
                 // length ahead. A point check is a vehicle whose bodywork goes
                 // through a wall its centre line misses — which is most walls,
                 // for anything wider than a block.
-                if (blocked(nextX, nextY, nextZ, box, state.yaw())) {
-                    boolean canStep = info.medium() == VehicleMedium.LAND
-                            && !blocked(nextX, nextY + STEP_UP, nextZ, box, state.yaw());
-                    if (canStep) {
-                        nextY += STEP_UP;
-                    } else {
+                // Each of the three is only asked when the one before it left
+                // the question open, so a vehicle driving down an empty road —
+                // which is nearly all of them, nearly all the time — still
+                // costs exactly one `blocked` call.
+                boolean into = blocked(nextX, nextY, nextZ, box, state.yaw());
+                boolean canStep = into
+                        && info.medium() == VehicleMedium.LAND
+                        && !blocked(nextX, nextY + STEP_UP, nextZ, box, state.yaw());
+                // Asked only when something is in the way and no kerb explains
+                // it: is the vehicle in fact already inside something? See
+                // VehiclePhysics.resolve — this is what lets a vehicle that
+                // ended up in a wall drive back out of it.
+                boolean stuck = into && !canStep
+                        && blocked(at.getX(), nextY, at.getZ(), box, state.yaw());
+
+                switch (VehiclePhysics.resolve(into, canStep, stuck)) {
+                    case STEP_UP -> nextY += STEP_UP;
+                    case STOP -> {
                         // Stopped dead rather than sliding along the wall.
                         // Sliding is what a player expects and is a much
                         // bigger piece of work; stopping is honest and is what
@@ -2444,6 +2456,9 @@ public final class VehicleRuntime implements Listener {
                         nextZ = at.getZ();
                         state = state.stopped();
                     }
+                    // Either nothing was in the way, or the vehicle is already
+                    // in something and refusing would only trap it.
+                    case MOVE -> { }
                 }
             }
 
