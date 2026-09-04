@@ -45,13 +45,14 @@ public final class VehicleInfo {
     private final double acceleration;
     private final double turnSpeed;
     private final VehicleHitbox hitbox;
+    private final VehicleFlight flight;
     private final List<VehicleSeat> seats;
     private final Map<VehicleState, String> animations;
     private final List<VehicleEmitter> emitters;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
-                        VehicleHitbox hitbox, List<VehicleSeat> seats,
+                        VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         this.id = id;
         this.model = model;
@@ -63,15 +64,32 @@ public final class VehicleInfo {
         this.acceleration = acceleration;
         this.turnSpeed = turnSpeed;
         this.hitbox = hitbox;
+        this.flight = flight;
         this.seats = seats;
         this.animations = animations;
         this.emitters = emitters;
     }
 
-    /** Engine internal; built by the vehicle loader. */
+    /**
+     * Engine internal; built by the vehicle loader.
+     *
+     * <p>The arity without a {@link VehicleFlight} flies the way every air
+     * vehicle did before that type existed — see {@link VehicleFlight#forSpeed}.
+     * Kept rather than replaced so a caller that predates it still compiles and
+     * still behaves.
+     */
     public static VehicleInfo of(ContentId id, String model, String name, VehicleMedium medium,
                                  double weight, double speed, double acceleration, double turnSpeed,
                                  VehicleHitbox hitbox, List<VehicleSeat> seats,
+                                 Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
+        return of(id, model, name, medium, weight, speed, acceleration, turnSpeed,
+                hitbox, VehicleFlight.forSpeed(speed), seats, animations, emitters);
+    }
+
+    /** The same, saying how it flies. */
+    public static VehicleInfo of(ContentId id, String model, String name, VehicleMedium medium,
+                                 double weight, double speed, double acceleration, double turnSpeed,
+                                 VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                                  Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
@@ -81,6 +99,7 @@ public final class VehicleInfo {
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
+                flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters));
     }
@@ -98,6 +117,15 @@ public final class VehicleInfo {
                                      double weight, double speed, double acceleration, double turnSpeed,
                                      VehicleHitbox hitbox, List<VehicleSeat> seats,
                                      Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
+        return pushed(id, carrier, name, medium, weight, speed, acceleration, turnSpeed,
+                hitbox, VehicleFlight.forSpeed(speed), seats, animations, emitters);
+    }
+
+    /** The same, saying how it flies. */
+    public static VehicleInfo pushed(ContentId id, String carrier, String name, VehicleMedium medium,
+                                     double weight, double speed, double acceleration, double turnSpeed,
+                                     VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
+                                     Map<VehicleState, String> animations, List<VehicleEmitter> emitters) {
         return new VehicleInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
@@ -106,6 +134,7 @@ public final class VehicleInfo {
                 medium == null ? VehicleMedium.LAND : medium,
                 weight, speed, acceleration, turnSpeed,
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
+                flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters));
     }
@@ -219,6 +248,18 @@ public final class VehicleInfo {
      */
     public VehicleHitbox hitbox() {
         return hitbox;
+    }
+
+    /**
+     * How it gets off the ground and how it comes back down.
+     *
+     * <p>Never null, and read only when {@link #medium()} is
+     * {@link VehicleMedium#AIR} — a car carries one and never looks at it. A
+     * pack that says nothing gets {@link VehicleFlight#forSpeed}, which is the
+     * behaviour every air vehicle had before these numbers existed.
+     */
+    public VehicleFlight flight() {
+        return flight;
     }
 
     /**

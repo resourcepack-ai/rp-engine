@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.VehicleEmitter;
+import ai.resourcepack.engine.api.VehicleFlight;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
@@ -141,6 +142,41 @@ public final class VehicleDefinitions {
             }
         }
 
+        // How it flies, which only an air vehicle reads. Absent means the way
+        // every air vehicle flew before these numbers existed — see
+        // VehicleFlight.forSpeed. Each field defaults on its own, so a pack
+        // that writes only `takeoff-speed` keeps the old climb.
+        VehicleFlight legacy = VehicleFlight.forSpeed(speed);
+        VehicleFlight flight = legacy;
+        Optional<DefinitionNode> declaredFlight = body.node("flight");
+        if (declaredFlight.isPresent()) {
+            DefinitionNode air = declaredFlight.get();
+            flight = VehicleFlight.of(
+                    number(air, "takeoff-speed", legacy.takeoffSpeed(),
+                            VehicleFlight.MIN, VehicleFlight.MAX_TAKEOFF_SPEED, origin, where, diagnostics),
+                    number(air, "climb-rate", legacy.climbRate(),
+                            VehicleFlight.MIN, VehicleFlight.MAX_CLIMB_RATE, origin, where, diagnostics),
+                    number(air, "dive-rate", legacy.diveRate(),
+                            VehicleFlight.MIN, VehicleFlight.MAX_DIVE_RATE, origin, where, diagnostics),
+                    number(air, "stall-sink", legacy.stallSink(),
+                            VehicleFlight.MIN, VehicleFlight.MAX_STALL_SINK, origin, where, diagnostics));
+            // Said rather than corrected: the numbers are legal and the vehicle
+            // works, it just cannot get off the ground, which from the outside
+            // looks exactly like the whole feature being broken.
+            if (medium == VehicleMedium.AIR && flight.needsTakeoffRun() && flight.takeoffSpeed() > speed) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "flight takeoff-speed: " + flight.takeoffSpeed() + " is faster than speed: "
+                                + speed + ", so this aircraft can never take off."));
+            }
+            if (medium != VehicleMedium.AIR) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "flight: is only read by medium: air, so it does nothing here."));
+            }
+        } else if (medium == VehicleMedium.AIR && body.has("flight")) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "flight: is not a map. Try flight: {takeoff-speed: 8, climb-rate: 6}."));
+        }
+
         List<DefinitionNode> declaredSeats = body.nodes("seats");
         if (declaredSeats.isEmpty()) {
             diagnostics.add(Diagnostic.error(origin, where,
@@ -212,7 +248,7 @@ public final class VehicleDefinitions {
         }
 
         return Optional.of(VehicleInfo.of(definition.id(), model, body.string("name").orElse(null),
-                medium, weight, speed, acceleration, turnSpeed, hitbox, List.copyOf(ordered),
+                medium, weight, speed, acceleration, turnSpeed, hitbox, flight, List.copyOf(ordered),
                 animations(body, origin, where, diagnostics),
                 emitters(body, origin, where, diagnostics)));
     }

@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.VehicleEmitter;
+import ai.resourcepack.engine.api.VehicleFlight;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -410,6 +411,92 @@ class VehicleDefinitionsTest {
                         + DRIVER);
 
         assertEquals(VehicleEmitter.MAX_COUNT, one("mypack:hatchback").emitters().get(0).count());
+    }
+
+    // --- flight ---------------------------------------------------------
+
+    @Test
+    void readsHowAnAircraftFlies() throws IOException {
+        write("mypack/vehicles/planes.yml",
+                "cessna:\n"
+                        + "  model: mypack:cessna\n"
+                        + "  medium: air\n"
+                        + "  speed: 30\n"
+                        + "  flight:\n"
+                        + "    takeoff-speed: 12\n"
+                        + "    climb-rate: 7\n"
+                        + "    dive-rate: 14\n"
+                        + "    stall-sink: 6\n"
+                        + DRIVER);
+
+        VehicleFlight flight = one("mypack:cessna").flight();
+        assertEquals(12, flight.takeoffSpeed());
+        assertEquals(7, flight.climbRate());
+        assertEquals(14, flight.diveRate());
+        assertEquals(6, flight.stallSink());
+        assertTrue(flight.needsTakeoffRun());
+    }
+
+    /**
+     * The compatibility rule, and the one worth a test: an air vehicle written
+     * before these numbers existed must keep flying exactly as it did — off the
+     * ground from a standstill, climbing at half its top speed.
+     */
+    @Test
+    void anAircraftThatSaysNothingAboutFlightHovers() throws IOException {
+        write("mypack/vehicles/planes.yml",
+                "saucer:\n"
+                        + "  model: mypack:saucer\n"
+                        + "  medium: air\n"
+                        + "  speed: 24\n"
+                        + DRIVER);
+
+        VehicleFlight flight = one("mypack:saucer").flight();
+        assertEquals(0, flight.takeoffSpeed());
+        assertFalse(flight.needsTakeoffRun());
+        assertEquals(12, flight.climbRate());
+        assertEquals(0, flight.stallSink());
+    }
+
+    /** Each field defaults on its own, so writing one keeps the rest. */
+    @Test
+    void aPartialFlightBlockKeepsTheOldDefaultsForTheRest() throws IOException {
+        write("mypack/vehicles/planes.yml",
+                "cessna:\n"
+                        + "  model: mypack:cessna\n"
+                        + "  medium: air\n"
+                        + "  speed: 24\n"
+                        + "  flight: {takeoff-speed: 10}\n"
+                        + DRIVER);
+
+        VehicleFlight flight = one("mypack:cessna").flight();
+        assertEquals(10, flight.takeoffSpeed());
+        assertEquals(12, flight.climbRate());
+    }
+
+    /** Legal numbers, and an aircraft that can never leave the ground. */
+    @Test
+    void aTakeoffSpeedAboveTheTopSpeedIsReported() throws IOException {
+        write("mypack/vehicles/planes.yml",
+                "brick:\n"
+                        + "  model: mypack:brick\n"
+                        + "  medium: air\n"
+                        + "  speed: 10\n"
+                        + "  flight: {takeoff-speed: 20}\n"
+                        + DRIVER);
+
+        assertTrue(saysSomethingAbout(parse(), "can never take off"));
+    }
+
+    @Test
+    void flightOnALandVehicleSaysItDoesNothing() throws IOException {
+        write("mypack/vehicles/cars.yml",
+                "hatchback:\n"
+                        + "  model: mypack:hatchback\n"
+                        + "  flight: {takeoff-speed: 8}\n"
+                        + DRIVER);
+
+        assertTrue(saysSomethingAbout(parse(), "only read by medium: air"));
     }
 
     /** One bad exhaust pipe is not a reason to lose a bus. */
