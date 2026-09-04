@@ -14,18 +14,15 @@ import java.lang.reflect.Method;
  *
  * <p>A seat mount has to arrive EXACTLY where it is told, every tick, because
  * vanilla positions a passenger from its vehicle — so the rider is only as
- * accurate as the mount. {@code Entity#teleport} is exact and
- * {@code setVelocity} is not: velocity is a request the entity's own tick then
- * resolves, through friction, collision and whatever else its type does, and
- * an entity that is a little short every tick is a rider who falls further
- * behind the longer the drive goes on. That was the first implementation, and
- * it is what "the player gets left behind" was.
+ * accurate as the mount. Only a teleport is exact, and the mount is a display
+ * (see {@code Vehicles}), which cannot be moved any other way at all: a
+ * display has no physics, so a velocity is simply forgotten.
  *
- * <p>So: teleport. The complication is that CraftBukkit has historically
- * REFUSED to teleport an entity that is being ridden — {@code isVehicle()} is
- * checked and the call returns false having done nothing — which is why the
- * first version reached for velocity in the first place. Paper added a flag
- * for it; Spigot has no equivalent; and this engine supports both.
+ * <p>The complication is that CraftBukkit has historically REFUSED to
+ * teleport an entity that is being ridden — {@code isVehicle()} is checked
+ * and the call returns false having done nothing. Paper added a flag for it;
+ * newer servers position the passengers as a matter of course; and this
+ * engine supports the lot.
  *
  * <p>Three arms, tried in order, and the order is the point:
  *
@@ -37,9 +34,11 @@ import java.lang.reflect.Method;
  *   <li><strong>A plain teleport</strong>, which is what modern CraftBukkit
  *       does happily and older CraftBukkit refuses. Asking is free, and its
  *       return value says which one this is.</li>
- *   <li><strong>Velocity</strong>, the lossy one, kept only so that a server
- *       where neither works still moves its riders approximately rather than
- *       not at all.</li>
+ *   <li><strong>Neither</strong>, which this class cannot mend and reports
+ *       through {@link #exact()}: from the first refusal on, {@code Vehicles}
+ *       seats riders on a stand with gravity and moves it by velocity — the
+ *       lossy arm, kept only so that such a server still moves its riders
+ *       approximately rather than not at all.</li>
  * </ol>
  *
  * <p>Which arm a server got is worth knowing when a rider drifts, so
@@ -116,6 +115,19 @@ final class PassengerTeleport {
         }
         refused = true;
         return false;
+    }
+
+    /**
+     * Whether a ridden mount can be put exactly where it is told.
+     *
+     * <p>True until proven otherwise: the Paper arm never refuses, and the
+     * plain one has to be asked with a rider aboard before it can. The first
+     * refusal latches this false for the rest of the server's life, which is
+     * what tells {@code Vehicles} to spawn stands rather than displays from
+     * then on.
+     */
+    boolean exact() {
+        return withFlags != null || !refused;
     }
 
     /** A line for the startup report, once it is known which arm is in use. */

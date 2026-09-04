@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import org.bukkit.command.CommandSender;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -235,6 +236,36 @@ public interface Emotes {
      *            uses, or {@code null} to follow the wearer's own look
      */
     void face(Player player, Float yaw);
+
+    /**
+     * Where a worn rig STANDS, when its wearer's own position is not the
+     * answer.
+     *
+     * <p>A worn rig follows its wearer's feet, because for somebody walking
+     * around that is where they are. A passenger is the case where it is not
+     * — or rather, where it is only approximately: their position is wherever
+     * vanilla put them over their mount, a tick after the mount moved, by a
+     * rule that has changed between versions. The seat's owner knows exactly
+     * where the seat is, in the same arithmetic it places the vehicle's model
+     * with, and this is how it says so.
+     *
+     * <p><strong>Calling it moves the rig there and then</strong>, in the
+     * caller's tick, rather than noting the position for the emote system's
+     * own pass — that pass may run before or after the vehicle's in a given
+     * server tick, and a rig placed a tick behind the model it sits in is
+     * half a block out of its seat at speed. So the caller that owns the seat
+     * calls this from the same place it moves the model, every tick, and the
+     * two arrive together.
+     *
+     * <p>{@code feet} is the occupant's feet — for a sitting seat, a hip
+     * below its point — and its yaw is ignored: {@link #face} owns the
+     * direction. Ignored, like {@code face}, for a player wearing nothing and
+     * for a rig this caller did not put on.
+     *
+     * @param feet where the wearer's feet are this tick, or {@code null} to
+     *             give the rig back to following its wearer
+     */
+    void anchor(Player player, Location feet);
 
     /**
      * Stops this player's emote, and everybody else's in the same troupe.

@@ -75,25 +75,28 @@ import java.util.logging.Logger;
  * decide where the vehicle is, so a nudge from another plugin, a piston or a
  * player walking into it cannot accumulate into drift.
  *
- * <p><strong>Anything carrying a passenger is moved by velocity, never by
- * teleport.</strong> This is not a preference. CraftBukkit refuses
- * {@code Entity#teleport} on an entity that is being ridden, so the obvious
- * implementation — teleport each seat to where it should be — silently does
- * nothing the moment somebody sits in it, on exactly the versions this engine
- * promises to run on. Paper has a flag for it and Spigot does not, and the
- * engine supports both.
+ * <p><strong>A seat's mount is a display, moved by teleport, and so is the
+ * model — and that sameness is the whole of how a rider stays in their
+ * seat.</strong> Where a rider is drawn is where their client believes their
+ * mount is, and a client believes only what it is sent. An armour stand's
+ * position goes out every third tick and is lerped over three; a display's
+ * goes out every tick and glides over exactly what it is told
+ * ({@link #MODEL_GLIDE_TICKS}). The model is a display too, told the same
+ * number, so whatever the network does the rider and the bodywork lag by the
+ * same amount and never separate. The rider's worn rig is pinned to the seat
+ * by this class as well ({@code Emotes.anchor}), on the same window, in the
+ * same tick as the model — three displays, one clock.
  *
- * <p>Seat mounts are <strong>marker</strong> armour stands, which have no
- * bounding box, so velocity moves them exactly rather than approximately —
- * there is nothing for them to collide with. Collision is decided here, in
- * block reads, before the move is committed.
+ * <p>It used to be a small armour stand moved by velocity, and it did not
+ * move at all: a stand without gravity has no physics and drops its velocity
+ * on the floor, so the mount sat still until it was half a block behind and
+ * then teleported. At speed that was every tick and looked fine; at a crawl
+ * or in a turn it was a rider jumping seat to seat while the model glided.
  *
- * <p>The one thing that can stop this working is a server that has switched
- * armour stands off ticking ({@code armor-stands-tick: false} in Paper's
- * config). A stand that does not tick does not apply velocity, so a vehicle
- * would sit still with no error anywhere — {@link #warnIfFrozen} watches for
- * exactly that and says so once, because the alternative is a support ticket
- * that reads "vehicles do not work" with nothing to go on.
+ * <p>Teleporting a ridden entity is the one thing an old CraftBukkit refuses.
+ * {@link PassengerTeleport} has the arms; on a server where none of them
+ * works the seat falls back to a stand WITH gravity, moved by velocity, which
+ * is approximate but does at least move.
  *
  * <h2>What is derived and therefore never saved</h2>
  *
@@ -108,29 +111,22 @@ public final class Vehicles implements Listener {
     private static final double DT = 1 / 20.0;
 
     /**
-     * How long the client is asked to take gliding the model to each new
-     * position.
+     * How long the client is asked to take gliding a display to each new
+     * position — the model, and the mount each occupant rides.
      *
-     * <p><strong>This matches vanilla's own entity interpolation on purpose,
-     * and that is the whole point of it.</strong> A client lerps an ordinary
-     * entity's position over about three ticks, and a rider is drawn wherever
-     * their mount is — so the rider is three ticks behind. The model is a
-     * Display and lags by whatever this says instead. Set them to different
-     * numbers and the two are behind by different amounts, which is a rider
-     * sliding out of their seat the faster the vehicle goes.
+     * <p><strong>One number for both is the point, and the number itself
+     * barely matters.</strong> Everything being three ticks behind is
+     * invisible — there is nothing on screen to compare it against. Things
+     * being behind by DIFFERENT amounts is what reads as a rider sliding out
+     * of their seat, and with the mount and the model both displays carried
+     * on this window there is no different amount. A worn rig in the seat is
+     * carried on it too ({@code EmoteDirector.carryTicksForRider}), which is
+     * the one place that other class has to agree with this one.
      *
-     * <p>The lag itself is not what looks wrong. Everything being three ticks
-     * behind is invisible — there is nothing on screen to compare it against.
-     * Everything being behind by DIFFERENT amounts is what reads as the
-     * player being left behind, and this is the one number that fixes it.
-     *
-     * <p>Which is why this is NOT {@code DisplayLatency.glideTicks(1)}, the
-     * rule the emote rig uses. That rule minimises lag against the world and
-     * is right there; here the requirement is to match a rider exactly, and
-     * being a tick tighter than them is the bug rather than an improvement.
-     *
-     * <p>If they still separate, {@link DisplayLatency#TRACKED_ENTITY_TICKS}
-     * is the dial.
+     * <p>{@link DisplayLatency#TRACKED_ENTITY_TICKS} rather than the emote
+     * rig's tighter {@code glideTicks(1)} because that is what the rider arm
+     * over there already uses — the two were reasoned out separately once and
+     * matched by hand, and this is the constant that records the agreement.
      */
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
@@ -247,35 +243,32 @@ public final class Vehicles implements Listener {
      */
     private static final int PARKED_POLL_TICKS = 10;
 
-    /**
-     * How far an occupied seat may drift before it is teleported back.
-     *
-     * <p><strong>This number is the whole high-speed fix, so it is worth
-     * knowing what it trades.</strong> Teleporting a mount somebody is riding
-     * sends that player a position packet they must acknowledge before the
-     * server will accept their movement again. At twenty of those a second
-     * the acknowledgements cannot keep up with the round trip, so corrections
-     * queue and the rider falls further behind the faster the vehicle goes —
-     * which is exactly what "the server can't keep up" looks like.
-     *
-     * <p>So an occupied mount is moved by VELOCITY, which costs the rider no
-     * acknowledgement at all, and is teleported only when it has drifted
-     * further than this. Half a block is under one tick of travel at 12
-     * blocks a second, so an accurate mount is never teleported and a stuck
-     * one is corrected immediately.
-     *
-     * <p>It degrades safely, which is the point: if velocity turns out not to
-     * move a mount on some server, the drift exceeds this every tick and
-     * every tick teleports — exactly the behaviour this replaced, no worse.
-     */
-    private static final double SEAT_DRIFT = 0.5;
-
     private final Plugin plugin;
     private final Items items;
     private final Logger log;
     private final VehicleControls controls;
     private final DisplayCarry carry;
-    private final double mountOffset;
+
+    /**
+     * How far above an occupant's feet their mount is spawned, in blocks.
+     *
+     * <p>Two figures because there are two shapes of mount. The display every
+     * server that can teleport a ridden entity gets has no dimensions at all,
+     * so vanilla seats its rider exactly as it would on a marker stand — the
+     * measured figure. The stand the fallback arm uses is a small one with a
+     * real attachment point of its own. See {@link MountOffset}.
+     */
+    private final double displayMountOffset;
+    private final double standMountOffset;
+
+    /**
+     * The player being moved from one mount to another this instant, or null.
+     *
+     * <p>Swapping a mount ejects its rider, and an ejection is a dismount,
+     * and a dismount is how the engine learns somebody got out. This is the
+     * one case where they did not — see {@link Ride#reseat}.
+     */
+    private UUID reseating;
 
     /**
      * How a vehicle wears an ANIMATED model, or null on a build with no rig
@@ -348,13 +341,13 @@ public final class Vehicles implements Listener {
     /**
      * Added to every vehicle seat, from config.yml.
      *
-     * <p>The same escape hatch {@code models.seat-offset} is for furniture, and
-     * here for a better reason: a vehicle seat's height is arithmetic over a
-     * vanilla attachment point that a plugin cannot read
-     * ({@link MountOffset#SMALL_STAND_ATTACHMENT}), so it is derived rather
-     * than measured and can be a little out on a version nobody has checked.
-     * Rather than have an owner wait for a release to fix a rider sitting an
-     * inch high, they nudge every seat on the server and type /rp reload.
+     * <p>The same escape hatch {@code models.seat-offset} is for furniture.
+     * It moves the occupant's FEET, so the worn rig and the mount under the
+     * player go together: the rig is placed by arithmetic and is exact, but
+     * the player themselves sit wherever vanilla's passenger rule puts them
+     * over the mount, which is measured per version ({@link MountOffset})
+     * and can be a little out on one nobody has checked. Rather than have an
+     * owner wait for a release, they nudge every seat and type /rp reload.
      */
     private volatile double seatOffset;
 
@@ -417,11 +410,8 @@ public final class Vehicles implements Listener {
         this.particles = new VehicleParticles(plugin.getLogger());
         this.controls = VehicleControls.forServer(compatibility, plugin.getLogger());
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
-        // forVehicleSeat, not forServer: these mounts are small stands
-        // rather than markers, and a small stand has an attachment point of
-        // its own that the marker figure does not account for. Using the
-        // marker one sat every rider about three quarters of a block high.
-        this.mountOffset = MountOffset.forVehicleSeat(compatibility);
+        this.displayMountOffset = MountOffset.forServer(compatibility);
+        this.standMountOffset = MountOffset.forVehicleSeat(compatibility);
         this.tags = RigTags.forServer(compatibility, plugin);
         this.seatMover = PassengerTeleport.forServer();
         this.idKey = new NamespacedKey(plugin, "vehicle");
@@ -836,6 +826,10 @@ public final class Vehicles implements Listener {
 
     /** Somebody got off, or logged out. */
     private void left(Player player) {
+        if (player.getUniqueId().equals(reseating)) {
+            // Moved from one mount to another, not out. See Ride.reseat.
+            return;
+        }
         UUID chassis = riders.remove(player.getUniqueId());
         controls.forget(player.getUniqueId());
         if (chassis == null) {
@@ -889,7 +883,7 @@ public final class Vehicles implements Listener {
      *
      * <p>Detected rather than read out of a config file, because the setting
      * is Paper's and the engine runs on Spigot too. What it looks like from
-     * here is a stand that was given a velocity and did not move.
+     * here is a chassis that was teleported and is not where it was sent.
      */
     /**
      * Says once that riders are not being put in their rigs, and why.
@@ -930,8 +924,7 @@ public final class Vehicles implements Listener {
         warnedFrozen = true;
         log.warning("A vehicle was told to move and did not. If this server sets "
                 + "armor-stands-tick: false in paper-world-defaults.yml, that is why - "
-                + "a stand that does not tick never applies the velocity it is given, "
-                + "and every vehicle will sit still.");
+                + "the chassis is a stand, and every vehicle will sit still.");
     }
 
     /** Called when the plugin unloads. Takes every derived entity with it. */
@@ -1077,38 +1070,6 @@ public final class Vehicles implements Listener {
         /** How many ticks in a row a move was asked for and nothing happened. */
         private int stuck;
 
-        /**
-         * Where each seat was last tick, so a ridden mount can be aimed where
-         * its seat WILL be rather than where it is.
-         *
-         * <p><strong>This is the whole of the rider trailing, and it used to be
-         * only half of it.</strong> Velocity is not a position: it is applied
-         * by the entity's own tick, which runs after ours, so a mount told to
-         * cover the gap to its seat arrives there at the end of the tick — by
-         * which time the vehicle has moved on again. The rider therefore trails
-         * by exactly one tick of travel, permanently, and the faster the
-         * vehicle the further back they sit.
-         *
-         * <p>It was the CHASSIS's translation, {@code step.dx/dy/dz}, which is
-         * right for a vehicle going in a straight line and blind to the other
-         * way a seat moves: <strong>turning</strong>. A seat is offset from the
-         * centre, so a vehicle spinning on the spot moves every seat through an
-         * arc while translating nothing at all — the lead was zero and the
-         * rider trailed the whole corner, drifting outward. Worse at low speed
-         * than high, because a correction that is a small fraction of a fast
-         * tick's travel is most of a slow one, which is what turns a constant
-         * lag into visible bumps.
-         *
-         * <p>So the lead is measured rather than derived: where this seat is
-         * now, minus where it was, which is translation and rotation together
-         * and needs to know about neither. Per seat, because a bench and a
-         * driver's seat sweep different arcs out of the same turn.
-         *
-         * <p>Null until a seat has been placed once — the first tick after a
-         * chassis is adopted has nothing to subtract, and leading by a
-         * made-up vector is worse than not leading for one tick.
-         */
-        private final List<Vector> seatWas = new ArrayList<>();
 
         Ride(VehicleInfo info, Entity chassis) {
             this.info = info;
@@ -1128,7 +1089,6 @@ public final class Vehicles implements Listener {
                 mounts.add(null);
                 hitboxes.add(null);
                 occupants.add(null);
-                seatWas.add(null);
             }
         }
 
@@ -1150,29 +1110,7 @@ public final class Vehicles implements Listener {
         void spawnParts() {
             for (int i = 0; i < info.seats().size(); i++) {
                 Location seat = seatLocation(i);
-                ArmorStand mount = world.spawn(seat, ArmorStand.class, stand -> {
-                    // NOT a marker, and small. A marker is the right shape for
-                    // a chair — no box, nothing to collide with — but a marker
-                    // is also excluded from a great deal of vanilla's entity
-                    // ticking, and an entity that does not tick never applies
-                    // the velocity it is given. Velocity is what carries a
-                    // rider at speed without a teleport per tick (see
-                    // SEAT_DRIFT), so the mount has to be something that
-                    // moves. Small keeps its box to a quarter block, which is
-                    // the least that can snag on the bodywork around it.
-                    stand.setMarker(false);
-                    stand.setSmall(true);
-                    stand.setVisible(false);
-                    stand.setGravity(false);
-                    // A non-marker stand has a bounding box, which is the price
-                    // of it ticking — and an invisible quarter-block box that
-                    // other players walk into is a bug, not a feature. Nothing
-                    // should ever collide with a seat.
-                    stand.setCollidable(false);
-                    stand.setInvulnerable(true);
-                    stand.setSilent(true);
-                    stand.setPersistent(false);
-                });
+                Entity mount = spawnMount(i);
                 mounts.set(i, mount.getUniqueId());
 
                 Interaction hitbox = world.spawn(seat, Interaction.class, box -> {
@@ -1259,6 +1197,79 @@ public final class Vehicles implements Listener {
             // model is addressed is a version fork — see Items.wearModel.
             ContentId.parse(partItem).ifPresent(model -> items.wearModel(stack, model));
             return stack;
+        }
+
+        /**
+         * The entity seat {@code index}'s occupant rides.
+         *
+         * <p>A display, holding nothing, on every server that can teleport a
+         * ridden entity: it has no box, no physics and no tick of its own,
+         * its position goes to clients every tick, and it glides between
+         * them on the same window as the model — see the class note. The
+         * seat's clickable box is the {@code Interaction} beside it, so a
+         * mount nothing can click is no loss.
+         *
+         * <p>A small armour stand WITH gravity on a server that has refused
+         * (see {@link PassengerTeleport#exact}). Gravity is what gives a
+         * stand physics; without it the velocity the fallback arm sets is
+         * dropped on the floor, which is the bug this whole arrangement
+         * replaced. Nothing else about it is the display's equal — its
+         * position reaches clients every third tick — but a rider carried
+         * approximately beats one left in the road.
+         */
+        private Entity spawnMount(int index) {
+            boolean stand = !seatMover.exact();
+            Location where = mountLocation(index, stand);
+            if (!stand) {
+                ItemDisplay mount = world.spawn(where, ItemDisplay.class, d -> d.setPersistent(false));
+                carry.carry(mount);
+                return mount;
+            }
+            return world.spawn(where, ArmorStand.class, s -> {
+                s.setMarker(false);
+                s.setSmall(true);
+                s.setVisible(false);
+                s.setGravity(true);
+                // A stand has a bounding box, which is the price of physics —
+                // and an invisible quarter-block box that other players walk
+                // into is a bug. Nothing should ever collide with a seat.
+                s.setCollidable(false);
+                s.setInvulnerable(true);
+                s.setSilent(true);
+                s.setPersistent(false);
+            });
+        }
+
+        /**
+         * Swaps seat {@code index}'s display for a stand, keeping its rider.
+         *
+         * <p>Reached once per server, ever: the first time a ridden display
+         * refuses to teleport, which latches {@link PassengerTeleport} onto
+         * the fallback arm so every mount spawned afterwards is a stand
+         * already. Removing the display ejects its rider, and that ejection
+         * must not read as them getting out — {@link #reseating} is the
+         * guard {@code left} checks.
+         */
+        private Entity reseat(int index, UUID occupant) {
+            Entity old = plugin.getServer().getEntity(mounts.get(index));
+            Entity mount = spawnMount(index);
+            mounts.set(index, mount.getUniqueId());
+            Player player = plugin.getServer().getPlayer(occupant);
+            reseating = occupant;
+            try {
+                if (old != null) {
+                    old.remove();
+                }
+                if (player != null && !mount.addPassenger(player)) {
+                    occupants.set(index, null);
+                    riders.remove(occupant);
+                    controls.forget(occupant);
+                    undress(occupant);
+                }
+            } finally {
+                reseating = null;
+            }
+            return mount;
         }
 
         /** Where the model sits: half a block up, so its base is on the chassis. */
@@ -1438,11 +1449,20 @@ public final class Vehicles implements Listener {
         }
 
         /**
-         * Where seat {@code index} is in the world, right now.
+         * Where seat {@code index}'s occupant STANDS, right now: their feet,
+         * facing the seat's way.
          *
          * <p>Side and forward, turned with the vehicle — the same reading
          * {@code place: seat:} uses, so a bench seats people along itself
          * however the vehicle is parked.
+         *
+         * <p>SITTING puts the seat's point under their backside, STANDING
+         * under their feet. The pose is what decides that, which is why it is
+         * not merely cosmetic — {@link #SEATED_POSE} is the hip height between
+         * the two, and it is most of a block rather than a nudge. Studio's
+         * editor hangs its figure by the same rule, so this point is the one
+         * the editor drew, and it is the point the worn rig is pinned to
+         * ({@code Emotes.anchor}) with nothing of vanilla's in between.
          */
         Location seatLocation(int index) {
             VehicleSeat seat = info.seats().get(index);
@@ -1450,24 +1470,18 @@ public final class Vehicles implements Listener {
             // The basis is VehiclePhysics' and is tested there. It was inline
             // here once, with `right` pointing left.
             double[] offset = VehiclePhysics.seatOffset(yaw, seat.x(), seat.z() + seatForward);
-            double x = at.getX() + offset[0];
-            double z = at.getZ() + offset[1];
-
-            // SITTING puts the point under their backside, STANDING under
-            // their feet. The pose is what decides that, which is why it is
-            // not merely cosmetic — SEATED_POSE is the hip height between the
-            // two, and it is most of a block rather than a nudge.
-            double lift = (seat.pose() == VehicleSeat.Pose.SITTING
-                    ? mountOffset - SEATED_POSE
-                    : mountOffset) + seatOffset;
-
-            Location location = new Location(world, x, at.getY() + seat.y() + lift, z);
+            double drop = seat.pose() == VehicleSeat.Pose.SITTING ? SEATED_POSE : 0;
+            Location location = new Location(world,
+                    at.getX() + offset[0],
+                    at.getY() + seat.y() - drop + seatOffset,
+                    at.getZ() + offset[1]);
             location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
             return location;
         }
 
         /**
-         * Where a seat's MOUNT goes, which is the seat without its rotation.
+         * Where a seat's MOUNT goes: above the occupant's feet by however far
+         * vanilla will seat them below it, and without the seat's rotation.
          *
          * <p>A passenger's body is dragged round by its vehicle's yaw, so a
          * mount that turned with the vehicle spun the rider's body every time
@@ -1476,14 +1490,20 @@ public final class Vehicles implements Listener {
          * seat's own yaw is spent once, on the teleport that aims somebody as
          * they sit down. Which is all a seat yaw was ever meant to do; see
          * {@link VehicleSeat#yaw()}.
+         *
+         * @param stand whether the mount is (or will be) the fallback stand
+         *              rather than a display — the two seat a rider at
+         *              different heights, see {@link MountOffset}
          */
-        Location mountLocation(int index) {
+        Location mountLocation(int index, boolean stand) {
             Location seat = seatLocation(index);
+            seat.add(0, stand ? standMountOffset : displayMountOffset, 0);
             seat.setYaw(0);
             seat.setPitch(0);
             return seat;
         }
 
+        // --- moving ---------------------------------------------------
         // --- moving ---------------------------------------------------
 
         void tick() {
@@ -2002,10 +2022,13 @@ public final class Vehicles implements Listener {
         /**
          * Pushes every entity at where it should be.
          *
-         * <p>Velocity for anything with a passenger, teleport for anything
-         * without — see the class note. Both are corrections toward the
-         * authoritative position rather than blind deltas, so an entity that
-         * missed a tick catches up rather than falling permanently behind.
+         * <p>Teleport, for everything, every tick. Each is a correction toward
+         * the authoritative position rather than a blind delta, so an entity
+         * that missed a tick catches up rather than falling permanently
+         * behind. The occupant's worn rig is pinned here too, in the same
+         * pass as the model it has to sit in — a rig moved from the emote
+         * system's own tick was a tick adrift whenever that tick ran first,
+         * which at speed is half a block.
          */
         private void place(Entity chassis) {
             boolean asked = at.toVector().distanceSquared(chassis.getLocation().toVector()) > 1e-8;
@@ -2019,35 +2042,27 @@ public final class Vehicles implements Listener {
                 if (mount == null) {
                     continue;
                 }
-                Location target = mountLocation(i);
-                // How far THIS seat moved, which is the lead — see seatWas.
-                Vector was = seatWas.get(i);
-                Vector lead = was == null ? new Vector() : target.toVector().subtract(was);
-                seatWas.set(i, target.toVector());
-                if (occupants.get(i) == null) {
-                    // Nobody to send a packet to, so exactness is free.
+                UUID occupant = occupants.get(i);
+                Location target = mountLocation(i, mount instanceof ArmorStand);
+                if (occupant == null) {
+                    // Nobody aboard, so nothing refuses a plain teleport.
                     mount.teleport(target);
-                } else {
-                    // Somebody is on it. Velocity first — see SEAT_DRIFT — and
-                    // a teleport only to correct real drift, because every
-                    // teleport costs the rider a round trip they have to
-                    // acknowledge.
-                    //
-                    // Aimed one tick AHEAD of the seat, because velocity is
-                    // applied by the mount's own tick after this one: aiming at
-                    // where the seat is now lands the rider there just as the
-                    // vehicle leaves, which is the constant backwards offset.
-                    // See seatWas — the lead is this seat's own movement, so a
-                    // corner is led as well as a straight line.
-                    Vector wanted = target.toVector().add(lead)
-                            .subtract(mount.getLocation().toVector());
-                    if (wanted.lengthSquared() > SEAT_DRIFT * SEAT_DRIFT
-                            && seatMover.move(mount, target)) {
-                        // Moved by teleport; nothing else to apply.
-                        wanted = null;
+                } else if (!seatMover.move(mount, target)) {
+                    if (mount instanceof ArmorStand) {
+                        // The fallback arm. A stand with gravity has physics,
+                        // and physics applies exactly the velocity it is
+                        // given before it applies friction to what is left —
+                        // so a correction to the target lands there, short of
+                        // a wall. Approximate only in what the client sees.
+                        mount.setVelocity(target.toVector().subtract(mount.getLocation().toVector()));
+                    } else {
+                        reseat(i, occupant);
                     }
-                    if (wanted != null) {
-                        mount.setVelocity(wanted);
+                }
+                if (occupant != null && emotes != null) {
+                    Player player = plugin.getServer().getPlayer(occupant);
+                    if (player != null) {
+                        emotes.anchor(player, seatLocation(i));
                     }
                 }
 
@@ -2060,9 +2075,16 @@ public final class Vehicles implements Listener {
                 // still seats you, in the FIRST free seat, so what it looked
                 // like was "you can never pick which seat you get", not "the
                 // seat hitboxes are somewhere else".
+                //
+                // At the occupant's feet rather than at the mount, which sits
+                // most of a block above them: the box is what somebody clicks
+                // to get in, and it should be where the seat is drawn.
                 Entity hitbox = plugin.getServer().getEntity(hitboxes.get(i));
                 if (hitbox != null) {
-                    hitbox.teleport(target);
+                    Location box = seatLocation(i);
+                    box.setYaw(0);
+                    box.setPitch(0);
+                    hitbox.teleport(box);
                 }
             }
 
@@ -2095,7 +2117,7 @@ public final class Vehicles implements Listener {
             // The stuck check: asked to move, and the chassis did not. Three
             // ticks rather than one, because a single tick can legitimately
             // round to nothing. A teleport that does not arrive is a much
-            // rarer thing than the velocity this used to watch, so this is now
+            // rarer thing than the velocity a mount once watched, so this is now
             // a guard against a world refusing the move rather than against a
             // server that has switched armour stands off ticking.
             if (asked && chassis.getLocation().distanceSquared(at) > 1e-4) {

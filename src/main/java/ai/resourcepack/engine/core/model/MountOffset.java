@@ -4,7 +4,8 @@ import ai.resourcepack.engine.api.Feature;
 import ai.resourcepack.engine.core.version.Compatibility;
 
 /**
- * How far below a marker armour stand its rider actually sits.
+ * How far below a marker armour stand — or a display, which has the same
+ * nothing for dimensions — its rider actually sits.
  *
  * <p><strong>This is the number the old-API audit cannot see.</strong> It is
  * arithmetic rather than an API, so it compiles on every supported version and
@@ -41,11 +42,12 @@ public final class MountOffset {
      *
      * <p>Everything above is about a MARKER stand, whose attachment point is
      * zero — which is what makes the numbers above the whole story for a
-     * chair. A vehicle seat is not a marker: it has to tick, because a mount
-     * that does not tick never applies the velocity that carries its rider at
-     * speed, and a marker is excluded from much of vanilla's entity ticking.
-     * So it is a small stand, and a small stand has a real attachment point
-     * that has to come back off the offset.
+     * chair, and for a vehicle seat on every server that can teleport a
+     * ridden entity, because those seats are displays and a display's
+     * dimensions are zero too. A server that cannot falls back to a small
+     * stand with gravity (it needs physics to be moved by velocity), and a
+     * small stand has a real attachment point that has to come back off the
+     * offset.
      *
      * <p>Derived rather than measured: vanilla's default passenger attachment
      * is three quarters of an entity's height, and a small armour stand is
@@ -54,7 +56,8 @@ public final class MountOffset {
      * that constant assumes.
      *
      * <p><strong>This is the dial if a rider sits too high or too low in a
-     * vehicle</strong>, and only in a vehicle: furniture is unaffected.
+     * vehicle on the fallback arm</strong>, and only there: a display-seated
+     * rider and furniture both use the marker figures above.
      */
     public static final double SMALL_STAND_ATTACHMENT = 0.74;
 
@@ -69,8 +72,8 @@ public final class MountOffset {
     }
 
     /**
-     * The same, for a vehicle seat — which is a small stand rather than a
-     * marker. See {@link #SMALL_STAND_ATTACHMENT}.
+     * The same, for a vehicle seat on the fallback arm — a small stand rather
+     * than a marker or a display. See {@link #SMALL_STAND_ATTACHMENT}.
      *
      * <p>The correction only applies on the modern arm, where a passenger sits
      * at the vehicle's attachment point minus its own. Below 1.20.2 the rule
