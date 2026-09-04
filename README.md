@@ -29,17 +29,22 @@ derived.
 
 ## Editing in a browser
 
-`/rp edit model mypack:chair` hands you a link. It opens the model in the
+`/rp edit mypack:chair` hands you a link. It opens the thing in the right
 editor at [resourcepack.ai](https://resourcepack.ai), you move the cubes
 around, press **Send to server**, and `assets/models/chair.bbmodel` on your own
 machine changes and reloads.
 
 ```
-/rp edit model <id>      the 3D model an item wears
-/rp edit texture <id>    the item's own sprite, in a pixel editor
-/rp edit vehicle <id>    a vehicle's seats, handling and effects
-/rp edit close           end the links you have open
+/rp edit <id>      open it
+/rp edit           the links you have open
+/rp edit close     end them
 ```
+
+**One argument, and it works out which editor.** An id is unique across the
+registry, so the server already knows whether `mypack:chair` is an item or a
+vehicle — asking you to say so again would be asking you to repeat it. A 3D
+item opens in the model editor, a flat sprite in the pixel editor, a vehicle in
+the vehicle editor.
 
 **No account and no sign-in.** The link works once, lasts three hours, and
 carries only the thing you named — one model, one texture, one vehicle's

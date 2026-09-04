@@ -175,11 +175,16 @@ class EditRoundTripTest {
         assertEquals(Boolean.TRUE, target.request.textures.get(0).primary);
     }
 
+    /**
+     * The command never asks for this — an item with no {@code model:} is sent
+     * to the texture editor instead — but the entry point refuses rather than
+     * handing back a null target, which is a much worse way to find out.
+     */
     @Test
-    void anItemWithNoModelSaysSoAndPointsAtTheOtherCommand() {
+    void anItemWithNoModelIsRefusedRatherThanNull() {
         EditException refused = assertThrows(EditException.class,
                 () -> EditTargets.model(content, item("mypack:sign"), "RPEngine/test", "1.21.4"));
-        assertTrue(refused.getMessage().contains("/rp edit texture"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("no model:"), refused.getMessage());
     }
 
     @Test

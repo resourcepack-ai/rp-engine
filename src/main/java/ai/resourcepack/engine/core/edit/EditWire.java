@@ -9,7 +9,7 @@ import java.util.Map;
  * The shapes that cross between this plugin and ResourcePack AI Studio's
  * editors.
  *
- * <p>A server owner runs {@code /rp edit model chair}, clicks a link, edits
+ * <p>A server owner runs {@code /rp edit chair}, clicks a link, edits
  * the thing in a real editor in a browser, presses one button, and the file on
  * this machine changes. This class is the only place the wire is written down
  * on this side; the other end is studio's {@code lib/temp-edit/protocol.ts}.

@@ -533,7 +533,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         this::announceMembers, this::unpush),
                 liquidCommands,
                 new VehicleCommands(vehicles),
-                new EditCommands(edits, items, vehicles, editing));
+                new EditCommands(edits, registry, items, vehicles, editing));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
