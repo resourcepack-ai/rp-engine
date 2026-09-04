@@ -96,8 +96,12 @@ final class EditTargets {
         Path packDir = packDir(contentRoot, item.id());
         EditTarget target = geometry(packDir, item, request);
         if (target == null) {
-            throw new EditException(item.id() + " is a flat sprite, not a 3D model. "
-                    + "Try /rp edit texture " + item.id() + " instead.");
+            // Unreachable from the command, which sends a model-less item to
+            // the texture editor rather than here. Kept as a refusal anyway:
+            // this is a public entry point in its own right, and a null target
+            // further down would be a much worse way to find out.
+            throw new EditException(item.id() + " has no model: line, so there is no 3D "
+                    + "model to open — only its texture.");
         }
         return target;
     }

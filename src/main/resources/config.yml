@@ -50,7 +50,7 @@ sync:
 
 # Editing this server's own content in a browser.
 #
-# /rp edit model <id> hands you a link to the real editors at
+# /rp edit <id> hands you a link to the real editors at
 # resourcepack.ai, opened on the file in your content folder. You edit it,
 # press Send to server, and the file on this machine changes. No account, no
 # sign-in: the link works once and lasts three hours.
