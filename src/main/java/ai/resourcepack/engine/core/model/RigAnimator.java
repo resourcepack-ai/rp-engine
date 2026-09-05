@@ -24,6 +24,7 @@ import org.bukkit.util.Transformation;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -166,6 +167,13 @@ public final class RigAnimator implements Listener {
         int index;
         /** Per program step, or null at rest. */
         float[][] values;
+        /**
+         * Per program step, the rotation a step is HOLDING because the cycle
+         * playing says nothing about a bone the last one spun — or null for a
+         * step that follows its cycle. Null as a whole when nothing is held,
+         * which is nearly always. See {@link #heldAfter}.
+         */
+        float[][] held;
     }
 
     /** Where a part was when its animation changed, and how long it has to arrive. */
@@ -469,13 +477,20 @@ public final class RigAnimator implements Listener {
             was.index = playbackIndex;
             posed.put(id, was);
         } else if (was.index != playbackIndex) {
+            RigStore.Animation outgoing = RigAnimations.animationAt(rig, was.index);
             int ticks;
             if (carried) {
+                // A bone the old cycle was SPINNING that the new one says
+                // nothing about keeps the angle it has — see heldAfter. Held
+                // before the fade is measured, so a wheel that is staying put
+                // does not lengthen it.
+                was.held = heldAfter(was, outgoing, animation, part);
+                target = RigMath.holdRotations(target, was.held, steps);
                 ticks = RigMath.fadeTicks(was.values, target, steps, PERIOD_TICKS, FADE_DEGREES_PER_SEND);
             } else {
                 double seconds = Math.max(
                         RigAnimations.blendOf(animation),
-                        RigAnimations.blendOf(RigAnimations.animationAt(rig, was.index)));
+                        RigAnimations.blendOf(outgoing));
                 ticks = (int) Math.round(seconds * 20);
             }
             fade = ticks > 0 ? new Fade(was.values, tick, ticks) : null;
@@ -485,6 +500,8 @@ public final class RigAnimator implements Listener {
                 fades.remove(id);
             }
             was.index = playbackIndex;
+        } else if (was.held != null) {
+            target = RigMath.holdRotations(target, was.held, steps);
         }
 
         // An overlay plays over a base that may itself be at rest, so
@@ -792,12 +809,81 @@ public final class RigAnimator implements Listener {
                 return now;
             }
             double from = RigAnimations.animationTime(current, Math.max(0, now - started) / 20.0);
-            double to = RigAnimations.nearestPhase(current, from, next);
+            // Joined to what is on SCREEN, not to what the old cycle samples
+            // to: a wheel held through an idle, or caught mid-fade, is at an
+            // angle no cycle would read.
+            double to = RigAnimations.nearestPhase(leavingRotations(displays, rig), current, from, next);
             // A cycle reads its time as elapsed * speed, so the start is set
             // back by the join point at this animation's own speed.
             return now - Math.round(to / RigAnimations.speedOf(next) * 20.0);
         }
         return now;
+    }
+
+    /**
+     * The rotation each animator target is showing right now, read off the
+     * values its parts were last posed with. A target several parts share
+     * reads the same from any of them, so the first wins.
+     */
+    private Map<String, float[]> leavingRotations(List<ItemDisplay> displays, RigStore.Rig rig) {
+        Map<String, float[]> leaving = new HashMap<>();
+        for (ItemDisplay display : displays) {
+            Posed was = posed.get(display.getUniqueId());
+            if (was == null || was.values == null) continue;
+            Integer partIndex = display.getPersistentDataContainer().get(partKey, PersistentDataType.INTEGER);
+            if (partIndex == null || rig == null || rig.parts == null || partIndex < 0 || partIndex >= rig.parts.size()) {
+                continue;
+            }
+            RigStore.Part part = rig.parts.get(partIndex);
+            if (part == null || part.program == null) continue;
+            for (int i = 0; i < part.program.size() && i < was.values.length; i++) {
+                if (was.values[i] != null) leaving.putIfAbsent(part.program.get(i).target, was.values[i]);
+            }
+        }
+        return leaving;
+    }
+
+    /**
+     * Which of a part's steps keep their rotation across a change of
+     * animation, and at what.
+     *
+     * <p><strong>A bone the old cycle was SPINNING that the new one says
+     * nothing about keeps the angle it has.</strong> A wheel has no home
+     * angle: a go-kart coasting to a stop should leave its wheels where they
+     * stopped, and the alternative — every cycle beginning with the wheel at
+     * 0, and the fade turning it there the short way round — was half a turn
+     * backwards or forwards on every wheel on every stop. Only a bone that
+     * SPUN is held (see {@link RigAnimations#spins}), so a steer, a lean or a
+     * rider still returns to rest as it always did; "says nothing" is no
+     * rotation track or one of zeros (see {@link RigAnimations#drivesRotation}).
+     *
+     * <p>The hold lasts until a cycle drives the bone again, carried across
+     * any number of cycles that do not — and that cycle then joins in phase
+     * with the held angle (see {@link #startTickFor}), so a wheel that stopped
+     * at 200 degrees sets off again from 200.
+     *
+     * @return the rotation to hold per step, or null for a step that follows
+     *         its cycle; null as a whole when nothing is held
+     */
+    private static float[][] heldAfter(Posed was, RigStore.Animation outgoing, RigStore.Animation incoming,
+                                       RigStore.Part part) {
+        int steps = part.program.size();
+        float[][] held = null;
+        for (int i = 0; i < steps; i++) {
+            String target = part.program.get(i).target;
+            if (RigAnimations.drivesRotation(incoming, target)) continue;
+            float[] keep = null;
+            if (RigAnimations.spins(outgoing, target)
+                    && was.values != null && i < was.values.length && was.values[i] != null) {
+                keep = new float[] {was.values[i][0], was.values[i][1], was.values[i][2]};
+            } else if (was.held != null && i < was.held.length) {
+                keep = was.held[i];
+            }
+            if (keep == null) continue;
+            if (held == null) held = new float[steps][];
+            held[i] = keep;
+        }
+        return held;
     }
 
     /** Puts those displays back to rest, or to their idle loop. */

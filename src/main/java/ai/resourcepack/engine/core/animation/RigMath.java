@@ -228,6 +228,36 @@ public final class RigMath {
         return sends * period;
     }
 
+    /**
+     * {@code target} with each held step's rotation put back over it.
+     *
+     * <p>For a bone the playing cycle says nothing about that the last one
+     * spun: its rotation is the angle it stopped at rather than the cycle's
+     * (or rest's) zero, and its position and scale are whatever the cycle
+     * says. Returns {@code target} itself when nothing is held.
+     *
+     * @param held per step, the rotation xyz to hold, or null; null as a whole
+     *             for nothing held
+     */
+    public static float[][] holdRotations(float[][] target, float[][] held, int steps) {
+        if (held == null) return target;
+        float[][] out = new float[steps][];
+        for (int i = 0; i < steps; i++) {
+            float[] base = stepOf(target, i);
+            float[] keep = stepOf(held, i);
+            if (keep == null) {
+                out[i] = base;
+                continue;
+            }
+            float[] v = (base == null ? REST_STEP : base).clone();
+            v[0] = keep[0];
+            v[1] = keep[1];
+            v[2] = keep[2];
+            out[i] = v;
+        }
+        return out;
+    }
+
     /** {@code to} plus whole turns, whichever is nearest {@code from}. */
     static float nearestTurn(float from, float to) {
         return to + 360f * Math.round((from - to) / 360f);

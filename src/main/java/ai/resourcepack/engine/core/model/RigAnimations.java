@@ -199,19 +199,34 @@ final class RigAnimations {
      * is as near as any other.
      */
     static double nearestPhase(RigStore.Animation from, double tFrom, RigStore.Animation to) {
+        return nearestPhase(Collections.emptyMap(), from, tFrom, to);
+    }
+
+    /**
+     * As above, with the pose actually being left given as {@code shown}: the
+     * rotation each target is showing, which mid-fade or under a hold is not
+     * what {@code from} samples to. {@code from} at {@code tFrom} stands in
+     * for any target it lacks, and rest for any target neither has.
+     */
+    static double nearestPhase(Map<String, float[]> shown, RigStore.Animation from, double tFrom,
+                               RigStore.Animation to) {
         if (to == null || to.length <= 0 || to.animators == null || to.animators.isEmpty()) {
             return 0;
         }
         List<String> targets = new ArrayList<>();
         List<float[]> leaving = new ArrayList<>();
-        for (Map.Entry<String, Map<String, List<Keyframe>>> entry : to.animators.entrySet()) {
-            List<Keyframe> rotation = entry.getValue() == null ? null : entry.getValue().get("rotation");
-            if (rotation == null || rotation.isEmpty()) {
+        for (String target : to.animators.keySet()) {
+            if (!drivesRotation(to, target)) {
                 continue;
             }
-            targets.add(entry.getKey());
+            targets.add(target);
+            float[] known = shown == null ? null : shown.get(target);
+            if (known != null) {
+                leaving.add(known);
+                continue;
+            }
             Map<String, List<Keyframe>> was = from == null || from.animators == null
-                    ? null : from.animators.get(entry.getKey());
+                    ? null : from.animators.get(target);
             leaving.add(Sampler.sample(was, "rotation", tFrom, NO_TURN));
         }
         if (targets.isEmpty()) {
@@ -240,6 +255,58 @@ final class RigAnimations {
     }
 
     private static final float[] NO_TURN = {0f, 0f, 0f};
+
+    /**
+     * Whether {@code animation} turns {@code target} at all: a rotation track
+     * with a value on it that is not zero.
+     *
+     * <p>A track of zeros is a bone left where it was authored, not one being
+     * driven, and the difference is what a spinning bone does when the next
+     * cycle says nothing about it — see the animator's hold. A track holding
+     * a steer at twenty degrees the whole cycle IS driving it.
+     */
+    static boolean drivesRotation(RigStore.Animation animation, String target) {
+        List<Keyframe> track = rotationTrack(animation, target);
+        if (track == null) return false;
+        for (Keyframe key : track) {
+            if (key == null || key.value == null) continue;
+            for (float v : key.value) {
+                if (v != 0f) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code animation} SPINS {@code target}: a rotation track that
+     * travels a full turn or more on some axis over the cycle. A wheel, a
+     * rotor, a propeller — a bone whose angle has no home.
+     */
+    static boolean spins(RigStore.Animation animation, String target) {
+        List<Keyframe> track = rotationTrack(animation, target);
+        if (track == null || track.size() < 2) return false;
+        for (int axis = 0; axis < 3; axis++) {
+            double travel = 0;
+            for (int i = 1; i < track.size(); i++) {
+                Keyframe a = track.get(i - 1);
+                Keyframe b = track.get(i);
+                if (a == null || b == null || a.value == null || b.value == null
+                        || a.value.length <= axis || b.value.length <= axis) {
+                    continue;
+                }
+                travel += Math.abs(b.value[axis] - a.value[axis]);
+            }
+            if (travel >= 360 - 1e-3) return true;
+        }
+        return false;
+    }
+
+    private static List<Keyframe> rotationTrack(RigStore.Animation animation, String target) {
+        if (animation == null || animation.animators == null || target == null) return null;
+        Map<String, List<Keyframe>> animator = animation.animators.get(target);
+        List<Keyframe> track = animator == null ? null : animator.get("rotation");
+        return track == null || track.isEmpty() ? null : track;
+    }
 
     static boolean hasTrigger(RigStore.Animation animation, String triggerType) {
         if (animation == null || triggerType == null) return false;
