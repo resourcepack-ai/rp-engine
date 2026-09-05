@@ -24,6 +24,7 @@ import ai.resourcepack.engine.core.bedrock.GeyserBridge;
 import ai.resourcepack.engine.core.command.ChatStyle;
 import ai.resourcepack.engine.core.command.CommandWithdrawal;
 import ai.resourcepack.engine.core.command.ContentCommands;
+import ai.resourcepack.engine.core.command.EditCommands;
 import ai.resourcepack.engine.core.command.EmoteCommands;
 import ai.resourcepack.engine.core.command.EngineCommand;
 import ai.resourcepack.engine.core.command.InterfaceCommands;
@@ -37,6 +38,7 @@ import ai.resourcepack.engine.core.command.VehicleCommands;
 import ai.resourcepack.engine.core.command.ModelCommands;
 import ai.resourcepack.engine.core.command.SyncCommands;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
+import ai.resourcepack.engine.core.edit.EditSessions;
 import ai.resourcepack.engine.core.distribution.BedrockSupport;
 import ai.resourcepack.engine.core.distribution.DistributionManager;
 import ai.resourcepack.engine.core.distribution.ProtocolResolver;
@@ -205,6 +207,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Liquids liquids;
     private LiquidBiomes liquidBiomes;
     private LiquidCommands liquidCommands;
+    /**
+     * Editor sessions opened in a browser from {@code /rp edit}.
+     *
+     * <p>Held here rather than inside the command area because it owns a
+     * repeating task and a set of live sessions, and both have to be shut down
+     * with the plugin. A command area is a place for verbs, not for state that
+     * outlives one.
+     */
+    private EditSessions edits;
     private SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -501,6 +512,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private void registerCommands() {
         liquidCommands = new LiquidCommands(liquids, pools, liquidBiomes, getLogger());
+        // Editing in a browser. The sessions object exists whatever the config
+        // says — it holds nothing until a command opens one — and the switch is
+        // handed to the command area, so a server that has turned it off gets
+        // the setting's name back rather than an unknown command.
+        boolean editing = getConfig().getBoolean("edit.enabled", true);
+        edits = new EditSessions(this, getDataFolder().toPath().resolve("content"),
+                getConfig().getString("edit.url", "https://studio.resourcepack.ai"),
+                this::reloadContent);
+        if (editing) {
+            edits.start();
+        }
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
@@ -510,7 +532,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new SyncCommands(getServer(), sync, group, distribution,
                         this::announceMembers, this::unpush),
                 liquidCommands,
-                new VehicleCommands(vehicles));
+                new VehicleCommands(vehicles),
+                new EditCommands(edits, registry, items, vehicles, editing));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -691,6 +714,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (edits != null) {
+            // The watch loop goes with the plugin, and each open session is
+            // told so its storage is released now rather than at its own
+            // expiry. Nothing on disk is touched: an edit that was never sent
+            // was never going to be.
+            edits.stop();
+        }
         if (invites != null) {
             // An invitation nobody can answer is worse than none: the task
             // that would have expired it goes with the plugin.

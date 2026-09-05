@@ -27,6 +27,38 @@ ruby:
 and the `minecraft:item_model` component that ties them together are all
 derived.
 
+## Editing in a browser
+
+`/rp edit mypack:chair` hands you a link. It opens the thing in the right
+editor at [resourcepack.ai](https://resourcepack.ai), you move the cubes
+around, press **Send to server**, and `assets/models/chair.bbmodel` on your own
+machine changes and reloads.
+
+```
+/rp edit <id>      open it
+/rp edit           the links you have open
+/rp edit close     end them
+```
+
+**One argument, and it works out which editor.** An id is unique across the
+registry, so the server already knows whether `mypack:chair` is an item or a
+vehicle — asking you to say so again would be asking you to repeat it. A 3D
+item opens in the model editor, a flat sprite in the pixel editor, a vehicle in
+the vehicle editor.
+
+**No account and no sign-in.** The link works once, lasts three hours, and
+carries only the thing you named — one model, one texture, one vehicle's
+settings. Nothing on your server changes until you press the button: the
+editor saves as you work, and none of that reaches you.
+
+A `.bbmodel` comes back as a `.bbmodel`, with the geometry, the bones, the
+animations and the art all still inside the one file. A vehicle comes back as
+the same entry in the same YAML file, with the rest of the file — its other
+vehicles, your comments — untouched.
+
+Turn it off in `config.yml` under `edit:` if you would rather nothing here
+talked to the outside world. Everything else works exactly the same.
+
 ## Requirements
 
 - **Minecraft 1.19.4 or newer.** The floor is where display entities arrived;
