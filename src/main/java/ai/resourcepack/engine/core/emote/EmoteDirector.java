@@ -1190,12 +1190,16 @@ public final class EmoteDirector implements Listener {
     public void cape(Player player, boolean show) {
         if (player == null) return;
         Session session = active.get(player.getUniqueId());
-        if (session == null || !session.driven || session.capeHidden == !show) return;
-        session.capeHidden = !show;
+        if (session == null || !session.driven) return;
         int index = capeIndex(session);
         if (index < 0) return;
+        if (session.capeHidden == !show) return;
         ItemDisplay display = session.parts.get(index);
         if (display == null || !display.isValid()) return;
+        // Record the decision only once the display it applies to exists. If
+        // that display is temporarily invalid, the vehicle's next tick retries
+        // instead of a memo claiming a packet that was never sent.
+        session.capeHidden = !show;
         // Left alone while the whole rig is away: `setRigHidden` owns every
         // item in that state and will ask this flag again on its way back.
         if (session.rigHidden) return;
