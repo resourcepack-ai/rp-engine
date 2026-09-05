@@ -247,8 +247,28 @@ public final class VehicleRuntime implements Listener {
     /** How far ahead a solid block stops the vehicle, in blocks. */
     private static final double NOSE = 0.6;
 
-    /** A vehicle can climb this in one step, like a player. */
-    private static final double STEP_UP = 1.0;
+    /**
+     * A vehicle can climb this much in one step, like a player.
+     *
+     * <p><strong>A maximum, not the step.</strong> It used to be the step
+     * itself — anything in the way that a block above was clear of raised the
+     * vehicle by a whole block, whatever the thing actually was — so a car
+     * driving onto a slab hopped a block into the air and fell back half of
+     * it, twice per slab. What it climbs now is the measured top of whatever
+     * is in the way (see {@link BlockSurfaces#obstruction}); this is only how
+     * high that may be before it counts as a wall.
+     */
+    private static final double MAX_STEP_UP = 1.0;
+
+    /**
+     * How far below its base a vehicle still counts as standing on something,
+     * in blocks.
+     *
+     * <p>Nothing is ever exactly on a surface: a step lands a vehicle a
+     * hair above or below the thing it settled onto, and a support test with
+     * no slack in it reads that as thin air and starts the vehicle falling.
+     */
+    private static final double SUPPORT_REACH = 0.15;
 
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
@@ -2513,14 +2533,25 @@ public final class VehicleRuntime implements Listener {
         /**
          * What the world is doing under the vehicle.
          *
-         * <p>Three block reads, and no more: this runs for every occupied
-         * vehicle every tick, and a ray trace here would be the most expensive
-         * thing in the plugin.
+         * <p>A handful of block reads, and no more: this runs for every
+         * occupied vehicle every tick, and a ray trace here would be the most
+         * expensive thing in the plugin.
+         *
+         * <p><strong>Supported is a HEIGHT question, not a material one.</strong>
+         * It used to ask whether the block a sixth of a block under the centre
+         * was solid, which is a different question with the same answer on
+         * flat ground and a wrong one everywhere else: a snow layer is not a
+         * solid material, so a vehicle resting on top of one was told every
+         * tick that it was falling — {@code AIRBORNE}, gravity, and a landing
+         * that put it straight back. And the footprint is asked rather than
+         * the centre, because {@link #apply} lands the vehicle on the
+         * footprint: with the two disagreeing, a vehicle with a wheel on a
+         * ledge fell and landed alternately for as long as it sat there.
          */
         private VehiclePhysics.Surroundings surroundings() {
-            Block under = world.getBlockAt(at.clone().add(0, -0.15, 0));
             Block here = world.getBlockAt(at);
-            boolean supported = under.getType().isSolid();
+            boolean supported = !Double.isNaN(surfaceUnder(at.getX(), at.getY(), at.getZ(),
+                    info.hitbox(), at.getY() - SUPPORT_REACH, at.getY()));
             boolean water = here.getType() == Material.WATER;
             if (!water) {
                 return new VehiclePhysics.Surroundings(supported, false, 0);
@@ -2537,9 +2568,20 @@ public final class VehicleRuntime implements Listener {
         private void apply(VehiclePhysics.Step step) {
             VehicleHitbox box = info.hitbox();
             double nextY = at.getY() + step.dy();
-            if (step.dy() < 0 && solidUnder(at.getX(), nextY, at.getZ(), box)) {
-                nextY = Math.floor(nextY - 0.05) + 1;
-                state = state.landed();
+            if (step.dy() < 0) {
+                // <strong>On the surface, at whatever height the surface is.</strong>
+                // This used to land the vehicle at the top of the BLOCK it was
+                // falling into — {@code floor(y) + 1} — which is right for the
+                // full cube it assumed and wrong for every partial block in
+                // the game: a car on a slab road sat half a block in the air,
+                // a boat in a shallow stream rode over the top of it, and a
+                // vehicle on a path or a farmland field hovered a sixteenth
+                // above everything a player was walking on.
+                double top = surfaceUnder(at.getX(), nextY, at.getZ(), box, nextY, at.getY());
+                if (!Double.isNaN(top)) {
+                    nextY = top;
+                    state = state.landed();
+                }
             }
 
             double nextX = at.getX() + step.dx();
@@ -2554,9 +2596,15 @@ public final class VehicleRuntime implements Listener {
                 // which is nearly all of them, nearly all the time — still
                 // costs exactly one `blocked` call.
                 boolean into = blocked(nextX, nextY, nextZ, box, state.yaw());
-                boolean canStep = into
-                        && info.medium() == VehicleMedium.LAND
-                        && !blocked(nextX, nextY + STEP_UP, nextZ, box, state.yaw());
+                // How high the thing in the way actually stands, so a slab
+                // raises the vehicle by half a block and a kerb by a whole
+                // one. NaN when nothing within a step is above the base, which
+                // is a wall rather than a step.
+                double climb = into && info.medium() == VehicleMedium.LAND
+                        ? obstructionAhead(nextX, nextY, nextZ, box, state.yaw())
+                        : Double.NaN;
+                boolean canStep = !Double.isNaN(climb)
+                        && !blocked(nextX, climb, nextZ, box, state.yaw());
                 // Asked only when something is in the way and no kerb explains
                 // it: is the vehicle in fact already inside something? See
                 // VehiclePhysics.resolve — this is what lets a vehicle that
@@ -2565,7 +2613,7 @@ public final class VehicleRuntime implements Listener {
                         && blocked(at.getX(), nextY, at.getZ(), box, state.yaw());
 
                 switch (VehiclePhysics.resolve(into, canStep, stuck)) {
-                    case STEP_UP -> nextY += STEP_UP;
+                    case STEP_UP -> nextY = climb;
                     case STOP -> {
                         // Stopped dead rather than sliding along the wall.
                         // Sliding is what a player expects and is a much
@@ -2642,17 +2690,19 @@ public final class VehicleRuntime implements Listener {
          * <p>The bottom of the box is deliberately not sampled: a vehicle
          * rests ON the ground, so its own floor is always in the block it is
          * standing on.
+         *
+         * <p><strong>Against the block's real collision shape, not its
+         * material.</strong> Asking whether a material is solid says a slab
+         * fills its whole block, which made a vehicle standing on a slab road
+         * permanently inside a wall as far as this was concerned — and a
+         * vehicle already inside something is allowed to keep moving (see
+         * {@link VehiclePhysics#resolve}), so on that road it drove through
+         * buildings.
          */
         private boolean blocked(double x, double y, double z, VehicleHitbox box, double yaw) {
-            double halfWidth = box.width() / 2;
-            double halfLength = box.length() / 2;
             for (double dy = 0.2; dy < box.height(); dy += 1) {
-                for (int corner = 0; corner < 5; corner++) {
-                    double right = corner == 4 ? 0 : (corner < 2 ? -halfWidth : halfWidth);
-                    double forward = corner == 4 ? 0 : (corner % 2 == 0 ? -halfLength : halfLength);
-                    double[] offset = VehiclePhysics.seatOffset(yaw, right, forward);
-                    if (world.getBlockAt(new Location(world, x + offset[0], y + dy, z + offset[1]))
-                            .getType().isSolid()) {
+                for (double[] offset : footprint(box, yaw)) {
+                    if (BlockSurfaces.solidAt(world, x + offset[0], y + dy, z + offset[1])) {
                         return true;
                     }
                 }
@@ -2660,20 +2710,62 @@ public final class VehicleRuntime implements Listener {
             return false;
         }
 
-        /** Whether anything solid is under the footprint at {@code y}. */
-        private boolean solidUnder(double x, double y, double z, VehicleHitbox box) {
+        /**
+         * The height of the surface the footprint would rest on at {@code y},
+         * or NaN for nothing within {@code floor} and {@code ceiling}.
+         *
+         * <p>The highest of the five, so a vehicle with one corner on a kerb
+         * sits on the kerb rather than sinking the rest of itself to the road.
+         */
+        private double surfaceUnder(double x, double y, double z, VehicleHitbox box,
+                                    double floor, double ceiling) {
+            double best = Double.NaN;
+            for (double[] offset : footprint(box, state.yaw())) {
+                double top = BlockSurfaces.resting(world, x + offset[0], y, z + offset[1], floor, ceiling);
+                if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
+                    best = top;
+                }
+            }
+            return best;
+        }
+
+        /**
+         * The height of whatever is in the way at the destination, or NaN when
+         * nothing a vehicle could climb is.
+         *
+         * <p>Only asked when the destination is blocked, so the extra reads
+         * stay off the road ahead of every vehicle that is not driving into
+         * anything.
+         */
+        private double obstructionAhead(double x, double y, double z, VehicleHitbox box, double yaw) {
+            double best = Double.NaN;
+            for (double[] offset : footprint(box, yaw)) {
+                double top = BlockSurfaces.obstruction(world, x + offset[0], z + offset[1], y, MAX_STEP_UP);
+                if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
+                    best = top;
+                }
+            }
+            return best;
+        }
+
+        /**
+         * The five points the world is sampled at, as world x/z offsets from
+         * the vehicle's centre: its four corners and the middle.
+         *
+         * <p>Shared by everything that asks the world a question, because the
+         * three of them disagreeing about where the vehicle is would be a
+         * vehicle held up by ground it is not standing on.
+         */
+        private double[][] footprint(VehicleHitbox box, double yaw) {
             double halfWidth = box.width() / 2;
             double halfLength = box.length() / 2;
+            double[][] points = new double[5][];
             for (int corner = 0; corner < 5; corner++) {
                 double right = corner == 4 ? 0 : (corner < 2 ? -halfWidth : halfWidth);
                 double forward = corner == 4 ? 0 : (corner % 2 == 0 ? -halfLength : halfLength);
-                double[] offset = VehiclePhysics.seatOffset(state.yaw(), right, forward);
-                if (world.getBlockAt(new Location(world, x + offset[0], y - 0.05, z + offset[1]))
-                        .getType().isSolid()) {
-                    return true;
-                }
+                points[corner] = VehiclePhysics.seatOffset(yaw, right, forward);
             }
-            return false;
+            return points;
         }
 
         /**
