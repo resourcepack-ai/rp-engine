@@ -37,7 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Drives placed animation rigs: a repeating task samples each model's
  * animation on a per-placement clock and retimes every tracked part
  * display's transformation, letting vanilla's own display interpolation
- * tween the 2-tick gaps into smooth motion. The math mirrors the editor's
+ * tween the gaps into smooth motion — every other tick for a placed rig,
+ * every tick for a carried one (see {@link #tick}). The math mirrors the editor's
  * viewport applier:
  * pose = T(pivot + position) * Rxyz * S * T(-pivot),
  * composed per program step, with the placement yaw baked in up front
@@ -149,22 +150,40 @@ public final class RigAnimator implements Listener {
      * it sends is one the rig can hold — but the client still tweens between
      * consecutive sends, translation and rotation separately, and a bone
      * turning about a pivot away from the entity's origin bulges outward
-     * mid-tween by {@code r(1 - cos(step/2))}. At 45 degrees that is eight
-     * percent of the pivot distance: about a pixel on a wheel a block from
-     * the middle of the model, and no more than a drive cycle's own step
-     * between sends. Half a turn, the most the short way round can be, is
-     * therefore four sends — eight ticks — and a change of twenty degrees is
-     * one, which is to say an ordinary frame.
+     * mid-tween by {@code r(1 - cos(step/2))}. At 25 degrees that is two and
+     * a half percent of the pivot distance: a third of a pixel on a wheel a
+     * block and a quarter from the middle of the model, which is where a
+     * go-kart's are, and less than its own drive cycle turns them between
+     * sends. Half a turn, the most the short way round can be, is therefore
+     * eight sends — eight ticks, since a carried rig is sent every tick — and
+     * a change of twenty degrees is one, which is to say an ordinary frame.
      *
-     * <p>The knob. Smaller is smoother and slower to arrive; larger is the
-     * bulge coming back.
+     * <p>Only a carried rig fades by this; a placed one fades over the
+     * seconds its author set. The knob. Smaller is smoother and slower to
+     * arrive; larger is the bulge coming back.
      */
-    static final float FADE_DEGREES_PER_SEND = 45f;
+    static final float FADE_DEGREES_PER_SEND = 25f;
+
+    /**
+     * How long the client is given to reach each pose of a CARRIED rig, which
+     * is sent every tick: one tick longer than the send rate, for the reason
+     * {@link DisplayLatency#glideTicks} gives — a pose that arrives a little
+     * late then eases on rather than stalling and jumping. A placed rig, sent
+     * every {@link #PERIOD_TICKS}, is given exactly that; its animations were
+     * tuned against it and it is judged against nothing.
+     */
+    static final int CARRIED_GLIDE_TICKS = DisplayLatency.glideTicks(1);
 
     /** What a display was last posed as. See {@link #posed}. */
     private static final class Posed {
 
         int index;
+        /**
+         * Whether it is carried, so the in-between tick can find the parts
+         * that are posed every tick without reading every tracked display's
+         * persistent data. Learned on the first full pass — see {@link #tick}.
+         */
+        boolean carried;
         /** Per program step, or null at rest. */
         float[][] values;
         /**
@@ -200,6 +219,8 @@ public final class RigAnimator implements Listener {
         }
     }
     private int taskId = -1;
+    /** Ticks since start. The odd ones are the carried-only passes; see tick. */
+    private long clock;
     private int rangeScanCountdown;
     /**
      * How to turn a hitbox into the handle {@link ModelAnimationEvent} carries.
@@ -233,7 +254,7 @@ public final class RigAnimator implements Listener {
     }
 
     public void start() {
-        taskId = Bukkit.getScheduler().runTaskTimer(host.plugin(), this::tick, PERIOD_TICKS, PERIOD_TICKS).getTaskId();
+        taskId = Bukkit.getScheduler().runTaskTimer(host.plugin(), this::tick, 1, 1).getTaskId();
         // Pick up rigs already standing in loaded chunks (plugin reload,
         // server restart). Unloaded ones arrive via EntitiesLoadEvent.
         for (World world : Bukkit.getWorlds()) {
@@ -382,7 +403,25 @@ public final class RigAnimator implements Listener {
         }
     }
 
+    /**
+     * Every tick for a CARRIED rig, every {@link #PERIOD_TICKS} for a placed
+     * one.
+     *
+     * <p>The client tweens each send it is given, translation and rotation
+     * separately, and a part turning about a pivot away from the entity's
+     * origin bulges outward mid-tween by {@code r(1 - cos(step/2))}. A placed
+     * rig's animations are slow enough for that to be nothing at ten sends a
+     * second. A vehicle's wheels are not: a go-kart's wheels sit a block and a
+     * quarter from the middle of the model and its drive cycle turns them
+     * thirty degrees between sends, which is two thirds of a pixel of every
+     * wheel breathing in and out ten times a second — a shimmer its driver
+     * reported as the wheels being "really jittery" going forwards, and not in
+     * reverse, whose cycle happens to turn them half as fast. Sending every
+     * tick halves the step, which quarters the bulge, and a carried rig's
+     * animated parts are few enough that the packets are nothing.
+     */
     private void tick() {
+        boolean everyone = (++clock & 1) == 0;
         Iterator<Map.Entry<UUID, ItemDisplay>> it = tracked.entrySet().iterator();
         while (it.hasNext()) {
             ItemDisplay display = it.next().getValue();
@@ -397,9 +436,16 @@ public final class RigAnimator implements Listener {
                 posed.remove(display.getUniqueId());
                 continue;
             }
+            if (!everyone) {
+                // The in-between tick belongs to carried parts alone. One no
+                // pose has seen yet waits for the full pass, which is where
+                // it learns what it is.
+                Posed was = posed.get(display.getUniqueId());
+                if (was == null || !was.carried) continue;
+            }
             pose(display, false);
         }
-        if (--rangeScanCountdown <= 0) {
+        if (everyone && --rangeScanCountdown <= 0) {
             rangeScanCountdown = RANGE_SCAN_INTERVAL;
             scanRanges();
         }
@@ -489,7 +535,7 @@ public final class RigAnimator implements Listener {
                 // does not lengthen it.
                 was.held = heldAfter(was, outgoing, animation, part);
                 target = RigMath.holdRotations(target, was.held, steps);
-                ticks = RigMath.fadeTicks(was.values, target, steps, PERIOD_TICKS, FADE_DEGREES_PER_SEND);
+                ticks = RigMath.fadeTicks(was.values, target, steps, 1, FADE_DEGREES_PER_SEND);
             } else {
                 double seconds = Math.max(
                         RigAnimations.blendOf(animation),
@@ -506,6 +552,8 @@ public final class RigAnimator implements Listener {
         } else if (was.held != null) {
             target = RigMath.holdRotations(target, was.held, steps);
         }
+
+        was.carried = carried;
 
         // An overlay plays over a base that may itself be at rest, so
         // "nothing is animating" is not a reason to stop sending frames.
@@ -583,7 +631,8 @@ public final class RigAnimator implements Listener {
         // dirties the item so every packet re-arms from the rendered pose.
         display.setInterpolationDelay(1);
         display.setInterpolationDelay(0);
-        // Every pose glides over PERIOD_TICKS, the gap to the next one — a
+        // Every pose glides over the gap to the next one, a little more for a
+        // carried part (see CARRIED_GLIDE_TICKS) — a
         // change of animation included, because the pose sent on that tick is
         // continuous with the last: a fade starts from it. The one cut left is
         // a PLACED rig told to stop, which is recovery rather than playback
@@ -596,7 +645,7 @@ public final class RigAnimator implements Listener {
         // distance from the entity's origin, for a half turn. That was every
         // visible artifact this transition ever had, and FADE_DEGREES_PER_SEND
         // is what bounds it now.
-        display.setInterpolationDuration(animation == null && !carried && forceRestPose ? 0 : PERIOD_TICKS);
+        display.setInterpolationDuration(animation == null && !carried && forceRestPose ? 0 : carried ? CARRIED_GLIDE_TICKS : PERIOD_TICKS);
         display.setTransformation(next);
     }
 
