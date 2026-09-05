@@ -152,6 +152,20 @@ public final class VehicleRuntime implements Listener {
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /**
+     * How long a vehicle state has to hold before it dresses anybody.
+     *
+     * <p>Four ticks, which is a fifth of a second and is chosen against the one
+     * window that has to be covered: braking from forwards into reverse crosses
+     * IDLE in about three ticks on a default car and two on a quick one, and
+     * nobody meant to be posed idle on the way. See {@link Ride#settled}.
+     *
+     * <p>It is latency on every genuine change as well, which is the price and
+     * is worth it: a fifth of a second late into the right pose is invisible
+     * beside a flash of the wrong one.
+     */
+    private static final int SEAT_SETTLE_TICKS = 4;
+
+    /**
      * How far above their own position a seated occupant's backside is drawn:
      * the hip, twelve of the sixteen pixels a player model is tall below the
      * waist.
@@ -1338,6 +1352,13 @@ public final class VehicleRuntime implements Listener {
         private final Map<UUID, String> worn = new java.util.HashMap<>();
 
         /**
+         * What each occupant's seat has STARTED asking for, and when — the
+         * waiting room in front of {@code worn}. See {@link #settled}.
+         */
+        private final Map<UUID, String> settling = new java.util.HashMap<>();
+        private final Map<UUID, Long> settlingSince = new java.util.HashMap<>();
+
+        /**
          * Who is actually wearing something right now, as opposed to who has
          * been asked to.
          *
@@ -2176,8 +2197,17 @@ public final class VehicleRuntime implements Listener {
                 // refusal becoming a lookup per tick — see `dressed`.
                 boolean lost = dressed.contains(id) && !emotes.isEmoting(id);
                 if (Objects.equals(wanted, worn.get(id)) && !lost) {
+                    // Settled back onto what is already on: whatever was being
+                    // waited out never happened, so stop waiting for it.
+                    settling.remove(id);
+                    settlingSince.remove(id);
                     continue;
                 }
+                if (!lost && worn.containsKey(id) && !settled(id, wanted)) {
+                    continue;
+                }
+                settling.remove(id);
+                settlingSince.remove(id);
                 // Recorded before the call rather than after, so a refusal —
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
@@ -2218,6 +2248,40 @@ public final class VehicleRuntime implements Listener {
          * ordinary player. A seat that NAMES an emote is unaffected by it — the
          * pack asked for something specific and gets it.
          */
+        /**
+         * Whether {@code wanted} has been what this seat is asking for for long
+         * enough to act on.
+         *
+         * <p><strong>A state the vehicle passes THROUGH is not a state its
+         * occupant should be posed in.</strong> Going from forwards to reverse
+         * is the case that found this: the back key brakes before it reverses,
+         * and {@code MOVING_THRESHOLD} and {@code REVERSE_THRESHOLD} are both
+         * half a block a second — so the vehicle crosses from +0.5 to -0.5
+         * through IDLE at its acceleration rate, which on an ordinary car is
+         * about three ticks and on something quick is two. Long enough to fire
+         * a swap; nowhere near long enough to be a pose anybody meant. The
+         * driver got a flash of the idle body on their way into the look-back,
+         * and the look-back's own clock was restarted by it.
+         *
+         * <p>It only ever suppresses states that are genuinely brief, which is
+         * the property that makes it safe: a vehicle that really does sit at a
+         * standstill for two seconds between a forward and a reverse is idle,
+         * and gets the idle pose, because the wait is in TICKS and not in
+         * transitions.
+         *
+         * <p>Sitting down is never delayed — the caller only asks once
+         * something is already worn, so the first dressing is immediate.
+         */
+        private boolean settled(UUID id, String wanted) {
+            if (!Objects.equals(wanted, settling.get(id))) {
+                settling.put(id, wanted);
+                settlingSince.put(id, age);
+                return false;
+            }
+            Long since = settlingSince.get(id);
+            return since != null && age - since >= SEAT_SETTLE_TICKS;
+        }
+
         private String fallbackStance(VehicleSeat seat) {
             if (!seatRig) {
                 return null;
@@ -2290,6 +2354,12 @@ public final class VehicleRuntime implements Listener {
         private void undress(UUID id) {
             String had = worn.remove(id);
             dressed.remove(id);
+            // The waiting room goes with it. This is the one method every way
+            // out of a seat goes through, which is the whole reason the hide
+            // below lives here — and a map keyed on occupants that is only ever
+            // added to is the 0.46.1 audit's finding all over again.
+            settling.remove(id);
+            settlingSince.remove(id);
             // A hidden seat's occupant, put back on everybody's screen. Here
             // rather than beside `sit`'s hide because this is the one method
             // every way out of a seat goes through — a dismount, a quit, a
