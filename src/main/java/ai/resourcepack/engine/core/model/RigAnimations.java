@@ -221,6 +221,47 @@ final class RigAnimations {
         return animation == null || animation.blend <= 0 ? 0 : Math.min(5, animation.blend);
     }
 
+    /**
+     * What a CARRIED rig crossfades over when nobody authored a number.
+     *
+     * <p>A quarter of a second, which is the figure {@code FORMAT.md} already
+     * quotes as covering most things and the same window a worn rig swaps over
+     * ({@code EmoteDirector.SWAP_BLEND_TICKS}). One number, justified twice
+     * already.
+     */
+    static final double CARRIED_SWAP_BLEND = 0.25;
+
+    /**
+     * How long to crossfade a change of animation on one part.
+     *
+     * <p>The longer of the two animations' own {@code blend} settings, which is
+     * what makes going back to rest ease out without a separate lerp-out
+     * setting — and, <strong>for a CARRIED rig only, never less than
+     * {@link #CARRIED_SWAP_BLEND}</strong>.
+     *
+     * <p>That exception is the difference between a wheel that eases into
+     * reverse and one that jumps. A carried rig is DRIVEN: a vehicle's runtime
+     * picks its animation off the vehicle's state twenty times a second, so
+     * every swap is the engine's decision and no author is in the loop to set a
+     * number — and Studio, which writes every vehicle anyone has, has no field
+     * for one. So the crossfade this class has always had was dead code for the
+     * one kind of rig that swaps constantly. A number nobody sets is a number
+     * nobody gets wrong; the worn-rig half was made automatic for exactly this
+     * reason.
+     *
+     * <p><strong>A PLACED rig keeps the hard cut</strong>, and that is not an
+     * oversight: it swaps when an author's trigger fires, {@code FORMAT.md}
+     * documents {@code blend} as the knob that turns snapping into moving, and
+     * a default of 0 is the behaviour every pack in the world was written
+     * against. An author who wants the ease can still ask for it, and an author
+     * who wants a vehicle to snap can still out-set this by naming a larger
+     * one — the two compose the same way round as everything else here.
+     */
+    static double swapBlendSeconds(RigStore.Animation next, RigStore.Animation previous, boolean carried) {
+        double authored = Math.max(blendOf(next), blendOf(previous));
+        return carried ? Math.max(authored, CARRIED_SWAP_BLEND) : authored;
+    }
+
     /** Whether it stops on its last frame instead of going back to rest. */
     static boolean holds(RigStore.Animation animation) {
         return animation != null && MODE_HOLD.equals(animation.mode);
