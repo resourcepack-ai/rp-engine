@@ -268,6 +268,30 @@ public interface Emotes {
     void anchor(Player player, Location feet);
 
     /**
+     * Where a worn rig's clock IS, when somebody else's clock is the one that
+     * matters.
+     *
+     * <p>A worn emote runs on its own clock from the moment it was put on. A
+     * vehicle's paddle and the arms holding it are two animations on two
+     * clocks that started on the same tick — and stay together only until
+     * one of them is restarted, or a loop wraps a tick apart, or the vehicle
+     * flickers between two states. Called every tick with the rig animation's
+     * own {@link Placement#playhead}, this makes the rider's clock the
+     * vehicle's: the emote is posed at exactly that time, loop wrap included,
+     * and the two cannot drift.
+     *
+     * <p>Ignored, like {@code face} and {@code anchor}, for a player wearing
+     * nothing and for a rig this caller did not put on. Quantised to the
+     * server tick; a call that would move the clock by less than one does
+     * nothing, so calling it every tick with a steady clock costs nothing.
+     *
+     * @param seconds where in the worn emote the rig should be, in seconds.
+     *                An emote shorter than that wraps if it loops and holds
+     *                its end if it does not
+     */
+    void seek(Player player, double seconds);
+
+    /**
      * Stops this player's emote, and everybody else's in the same troupe.
      *
      * @return whether they were emoting.

@@ -1145,6 +1145,24 @@ public final class EmoteDirector implements Listener {
     }
 
     /**
+     * See {@link ai.resourcepack.engine.api.Emotes#seek}.
+     *
+     * <p>The clock is {@code startTick}, everywhere a session is posed, so
+     * seeking is moving it: the start that would put {@code seconds} of
+     * elapsed time at now. Whole ticks, because that is the resolution every
+     * pass reads it at, and a change of less than one is left alone so a
+     * caller repeating a steady clock every tick does not jitter the rig.
+     * The same {@code driven} test as {@link #face}, for the same reason.
+     */
+    public void seek(Player player, double seconds) {
+        if (player == null || !Double.isFinite(seconds) || seconds < 0) return;
+        Session session = active.get(player.getUniqueId());
+        if (session == null || !session.driven || session.emote == null) return;
+        long want = player.getWorld().getGameTime() - Math.round(seconds * 20);
+        if (session.startTick != want) session.startTick = want;
+    }
+
+    /**
      * See {@link ai.resourcepack.engine.api.Emotes#anchor}.
      *
      * <p>Moves the rig NOW rather than on the next pass, which is the whole

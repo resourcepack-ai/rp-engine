@@ -2740,6 +2740,22 @@ public final class VehicleRuntime implements Listener {
                 }
                 if (rider != null && emotes != null) {
                     emotes.anchor(rider, seatLocation(i));
+                    // ONE CLOCK. The occupant's emote and the bodywork's
+                    // animation were written together — a paddle stroke and
+                    // the arms on the paddle, a wheel and the hands turning
+                    // it — and they only stay together if they are posed at
+                    // the same time. They start on the same tick, but a
+                    // restart, a loop wrapping a tick apart or a flicker
+                    // between two states pulls them apart, and a rower whose
+                    // hands leave the paddle reads as two animations rather
+                    // than one. So the rig's own playhead is handed to the
+                    // rider every tick; see Emotes.seek. A vehicle with no
+                    // rig, or one playing nothing, leaves the rider on their
+                    // own clock.
+                    if (rig != null) {
+                        rig.placement().flatMap(Placement::playhead)
+                                .ifPresent(at -> emotes.seek(rider, at));
+                    }
                 }
                 reportSeat(i, rider, mount);
 

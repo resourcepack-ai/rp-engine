@@ -132,6 +132,15 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public void seek(Player player, double seconds) {
+        Host.requireMainThread();
+        // Not refused for an offline player, for the reason face isn't: this
+        // is told to the engine every tick by whatever owns the seat.
+        if (player == null) return;
+        director.seek(player, seconds);
+    }
+
+    @Override
     public void face(Player player, Float yaw) {
         Host.requireMainThread();
         // Not refused for an offline player, and not reported either: this is
