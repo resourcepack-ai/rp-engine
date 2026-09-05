@@ -23,11 +23,12 @@ import java.util.Objects;
  *
  * <p>Pure, and its own class, for the reason {@link VehiclePhysics} is: the
  * alternative way of checking it is reversing a car on a test server and
- * watching for a single frame of the wrong thing. Both consumers share the
- * same window: a seat waits before changing pose, while the body waits before
- * accepting IDLE from a directional cycle. The body can leave that wait as
- * soon as the opposite direction arrives, because those two cycles can join
- * at a matching mirrored phase.
+ * watching for a single frame of the wrong thing. Its one consumer now is a
+ * seat's pose (see {@code VehicleRuntime.Ride.dress}). The vehicle's own
+ * animation waited here too and no longer does: the rig animator crossfades
+ * it in pose space, and a fade that has set off towards a state the vehicle
+ * is only passing through re-aims from wherever it has got to, which is
+ * nothing anybody can see (see {@code VehicleRuntime.Ride.animate}).
  */
 final class StateSettle {
 

@@ -152,22 +152,6 @@ public final class VehicleRuntime implements Listener {
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /**
-     * How long a vehicle's rig is given to reach its rest pose before the next
-     * animation starts.
-     *
-     * <p>Three ticks: the rig is re-posed every {@code RigAnimator.PERIOD_TICKS}
-     * (two) and eases into rest over that same window, so three is one full
-     * send plus the tick it lands on. Short enough to read as the wheel winding
-     * down rather than as the vehicle pausing.
-     *
-     * <p><strong>The knob if this ever feels wrong again.</strong> Longer makes
-     * the return to standing more deliberate and the controls less responsive;
-     * shorter starts the next animation before the rig has finished arriving,
-     * which is the jump all of this exists to remove.
-     */
-    private static final int REST_TICKS = 3;
-
-    /**
      * How far above their own position a seated occupant's backside is drawn:
      * the hip, twelve of the sixteen pixels a player model is tall below the
      * waist.
@@ -1359,34 +1343,6 @@ public final class VehicleRuntime implements Listener {
          */
         private boolean playable;
 
-        /**
-         * The travel direction of {@link #playing}, when it is specifically
-         * the animation mapped to forwards or reverse.
-         *
-         * <p>Kept separately from the name because an author may give those
-         * animations any names, or even reuse one name for several states.
-         */
-        private VehicleState playingDirection;
-
-        /**
-         * Holds a drive cycle through the few IDLE ticks crossed while braking
-         * into the opposite direction. If IDLE really holds, it still wins.
-         */
-        private final StateSettle rigSettle = new StateSettle();
-
-        /**
-         * The animation waiting for the rig to reach its rest pose, or null.
-         *
-         * <p>A change of animation goes back to rest first and starts the new
-         * one from there — see {@link #animate}. This is what it is on its way
-         * TO; {@link #playing} already names it, because as far as everything
-         * else is concerned the decision has been made.
-         */
-        private String pending;
-
-        /** The tick the rig was told to go back to its rest pose. */
-        private long restingSince;
-
         /** Its own age in ticks, which is what a particle interval counts against. */
         private long age;
 
@@ -1804,9 +1760,6 @@ public final class VehicleRuntime implements Listener {
                 rig = null;
                 playing = null;
                 playable = false;
-                playingDirection = null;
-                pending = null;
-                rigSettle.clear();
             }
         }
 
@@ -2479,149 +2432,79 @@ public final class VehicleRuntime implements Listener {
          * only thing that stops a vehicle animating is a pack that configured
          * nothing at all, which is a vehicle that never started.
          *
-         * <p>A forwards/reverse pair is the useful exception to the ordinary
-         * rest-pose transition. It is the same cycle traversed in opposite
-         * directions, so switching at the mirrored playhead preserves the pose
-         * already on screen. The brief IDLE crossed while braking is held by
-         * {@link StateSettle}; an IDLE that really holds still takes effect.
+         * <p><strong>Straight across, and the smoothing is not here.</strong>
+         * A change is handed to the rig animator the moment it happens, and
+         * the animator crossfades a carried rig from the pose it is showing to
+         * the new cycle — in the space of each bone's own angles, about its
+         * own pivot, so a wheel stays on its axle throughout — and joins the
+         * new cycle at the point nearest that pose, so a wheel keeps its
+         * phase. Six earlier arrangements of this method tried to make the
+         * join smooth from THIS side, with waits, a rest-pose waypoint and
+         * cycles allowed to come round; the design record in AGENTS.md has
+         * all of them and why each was wrong. What they had in common was
+         * leaving the interpolation to something that tweens composed
+         * transforms, which cannot be made smooth from here or anywhere.
+         *
+         * <p>Nor is there a settle wait in front of it any more. Braking from
+         * forwards into reverse crosses IDLE for two or three ticks; a fade
+         * that has set off towards idle simply re-aims at reversing from
+         * wherever it has got to, and three ticks of a fade towards an engine
+         * ticking over is nothing anybody can see. {@link StateSettle} stays
+         * for the SEATS, whose swap is a different mechanism with a real
+         * flash to hide.
          */
         private void animate(Set<VehicleState> states) {
             if (rig == null || info.animations().isEmpty()) {
                 return;
             }
             String wanted = VehicleState.choose(states, info.animations()).orElse(null);
-            VehicleState wantedDirection = animationDirection(states, wanted);
             Optional<Placement> found = rig.placement();
             if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
                 // we thought was playing means the next tick that finds it
-                // again starts cleanly rather than believing a stale answer,
-                // and forgetting what was queued behind a rest it will never
-                // reach means it does not arrive on a rig that came back.
+                // again starts cleanly rather than believing a stale answer.
                 playing = null;
                 playable = false;
-                playingDirection = null;
-                pending = null;
-                rigSettle.clear();
                 return;
             }
             Placement placement = found.get();
 
-            // Resting between two animations. The rig was told to stop on the
-            // tick the state changed and is easing back to its rest pose; the
-            // next CURRENT animation starts once it is there. Re-read wanted
-            // while waiting so a quick change of mind cannot start a stale
-            // animation after the vehicle has already chosen another one.
-            if (pending != null) {
-                if (!Objects.equals(wanted, pending)) {
-                    pending = wanted;
-                    playing = wanted;
-                    playingDirection = wantedDirection;
-                    if (pending == null) {
-                        return;
-                    }
-                }
-                if (age - restingSince < REST_TICKS) {
-                    return;
-                }
-                playing = pending;
-                pending = null;
-                // Restarted rather than resumed: the rig is standing at rest,
-                // which is where every animation of this model begins, so
-                // frame 0 is the frame that belongs here.
-                //
-                // The answer is recorded even when it FAILS — a pack naming an
-                // animation the model no longer has — because this runs twenty
-                // times a second and retrying a name that cannot work is a
-                // lookup per tick for ever.
-                playable = placement.play(playing, true);
-                return;
-            }
-
-            if (Objects.equals(wanted, playing)) {
-                rigSettle.clear();
-                // <strong>Nothing changed, and that is when this matters.</strong>
-                // A vehicle state is a condition that HOLDS, so what it names
-                // has to run for as long as it holds — but an animation
-                // authored as a one-shot runs out after its own length and
-                // hands the rig back to rest. With one animation mapped to
-                // every state that is a rowing cycle which plays once on spawn
-                // and never again, because no state change ever comes along to
-                // restart it.
-                //
-                // So it is re-asked the moment it has fallen idle, which loops
-                // it whatever its own end mode says. `playing()` is what the
-                // placement is actually doing rather than what it was last
-                // told, so a HOLD or a genuine loop never trips this.
-                if (playable && playing != null && placement.playing().isEmpty()) {
-                    placement.play(playing, true);
-                }
-                return;
-            }
-
-            // Forward and reverse wheel cycles have one relationship no other
-            // pair of arbitrary animations has: they are the same turn read in
-            // opposite directions. A quarter-turn into forwards therefore
-            // matches three quarters of the way through reverse. Cutting to
-            // that mirrored playhead changes direction without changing the
-            // pose; restarting reverse at frame zero is the snap this avoids.
-            if (oppositeDirections(playingDirection, wantedDirection)) {
-                rigSettle.clear();
-                pending = null;
+            if (!Objects.equals(wanted, playing)) {
                 playing = wanted;
-                playingDirection = wantedDirection;
-                playable = rig.playMirrored(wanted);
-                return;
-            }
-
-            // Braking into reverse passes through IDLE for only a few ticks.
-            // Keep the outgoing drive cycle on during that crossing so the
-            // opposite-direction arm above can join it directly. A real stop
-            // outlives the gate and then follows the ordinary route to rest.
-            if (playingDirection != null && states.contains(VehicleState.IDLE)
-                    && !rigSettle.settled(wanted, age)) {
-                return;
-            }
-            rigSettle.clear();
-
-            boolean wasPlaying = playing != null;
-            playing = wanted;
-            playingDirection = wantedDirection;
-            placement.stop();
-            playable = false;
-            if (wanted != null) {
-                if (wasPlaying) {
-                    pending = wanted;
-                    restingSince = age;
+                if (wanted == null) {
+                    placement.stop();
+                    playable = false;
                 } else {
-                    // Nothing was on, so there is no pose to come back from.
-                    playing = wanted;
+                    // Restarted rather than resumed — though for a carried rig
+                    // swapping one loop for another the animator picks the
+                    // frame, see RigAnimator.startTickFor. The answer is
+                    // recorded even when it FAILS: a pack naming an animation
+                    // the model no longer has would otherwise be a lookup per
+                    // tick for ever.
                     playable = placement.play(wanted, true);
                 }
+                return;
             }
-            return;
+
+            // <strong>Nothing changed, and that is when this matters.</strong>
+            // A vehicle state is a condition that HOLDS, so what it names
+            // has to run for as long as it holds — but an animation
+            // authored as a one-shot runs out after its own length and
+            // hands the rig back to rest. With one animation mapped to
+            // every state that is a rowing cycle which plays once on spawn
+            // and never again, because no state change ever comes along to
+            // restart it.
+            //
+            // So it is re-asked the moment it has fallen idle, which loops
+            // it whatever its own end mode says. `playing()` is what the
+            // placement is actually doing rather than what it was last
+            // told, so a HOLD or a genuine loop never trips this.
+            if (playable && playing != null && placement.playing().isEmpty()) {
+                placement.play(playing, true);
+            }
         }
 
-        /** The directional state whose own mapped animation was selected. */
-        private VehicleState animationDirection(Set<VehicleState> states, String animation) {
-            if (animation == null) {
-                return null;
-            }
-            if (states.contains(VehicleState.REVERSING)
-                    && Objects.equals(animation, info.animations().get(VehicleState.REVERSING))) {
-                return VehicleState.REVERSING;
-            }
-            if (states.contains(VehicleState.MOVING)
-                    && Objects.equals(animation, info.animations().get(VehicleState.MOVING))) {
-                return VehicleState.MOVING;
-            }
-            return null;
-        }
 
-        private boolean oppositeDirections(VehicleState first, VehicleState second) {
-            return first == VehicleState.MOVING && second == VehicleState.REVERSING
-                    || first == VehicleState.REVERSING && second == VehicleState.MOVING;
-        }
 
         /**
          * Tells the driver once that this hull is out of water.

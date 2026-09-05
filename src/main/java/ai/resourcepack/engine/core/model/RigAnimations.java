@@ -1,9 +1,13 @@
 package ai.resourcepack.engine.core.model;
 
 
+import ai.resourcepack.engine.api.Keyframe;
+import ai.resourcepack.engine.core.animation.Sampler;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * What a rig's animation list says: which one a trigger picks, how fast it
@@ -176,6 +180,67 @@ final class RigAnimations {
         return playbackIndex >= 0 || activeIndex != null || forceRestPose;
     }
 
+    /**
+     * Where in {@code to} its pose is nearest to where {@code from} is at
+     * {@code tFrom}: the time in {@code to}, in its own seconds, to join it
+     * at so that a crossfade from the one to the other has the least turning
+     * to do.
+     *
+     * <p>Nearest by rotation alone, summed as squares over every target
+     * {@code to} rotates, with {@code from} read as rest wherever it has
+     * nothing for that target. Squares so that the bone with the most to turn
+     * decides: four wheels half a turn out outweigh ten rider bones ten
+     * degrees out, which is the right way round, because a wheel re-winding
+     * is what shows and a limb easing ten degrees is what a fade is for.
+     * Position is left out — a bob is a few px and tweens exactly anyway.
+     *
+     * <p>Sampled at every tick of {@code to}, which is the resolution it is
+     * played at. 0 for an animation that rotates nothing, where every phase
+     * is as near as any other.
+     */
+    static double nearestPhase(RigStore.Animation from, double tFrom, RigStore.Animation to) {
+        if (to == null || to.length <= 0 || to.animators == null || to.animators.isEmpty()) {
+            return 0;
+        }
+        List<String> targets = new ArrayList<>();
+        List<float[]> leaving = new ArrayList<>();
+        for (Map.Entry<String, Map<String, List<Keyframe>>> entry : to.animators.entrySet()) {
+            List<Keyframe> rotation = entry.getValue() == null ? null : entry.getValue().get("rotation");
+            if (rotation == null || rotation.isEmpty()) {
+                continue;
+            }
+            targets.add(entry.getKey());
+            Map<String, List<Keyframe>> was = from == null || from.animators == null
+                    ? null : from.animators.get(entry.getKey());
+            leaving.add(Sampler.sample(was, "rotation", tFrom, NO_TURN));
+        }
+        if (targets.isEmpty()) {
+            return 0;
+        }
+        int samples = Math.max(1, (int) Math.ceil(to.length * 20));
+        double best = 0;
+        double bestCost = Double.MAX_VALUE;
+        for (int i = 0; i < samples; i++) {
+            double t = to.length * i / samples;
+            double cost = 0;
+            for (int j = 0; j < targets.size(); j++) {
+                float[] here = Sampler.sample(to.animators.get(targets.get(j)), "rotation", t, NO_TURN);
+                for (int axis = 0; axis < 3; axis++) {
+                    double d = here[axis] - leaving.get(j)[axis];
+                    d -= 360 * Math.round(d / 360);
+                    cost += d * d;
+                }
+            }
+            if (cost < bestCost) {
+                bestCost = cost;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    private static final float[] NO_TURN = {0f, 0f, 0f};
+
     static boolean hasTrigger(RigStore.Animation animation, String triggerType) {
         if (animation == null || triggerType == null) return false;
         // Backward compatibility with manifests created before the trigger
@@ -195,29 +260,7 @@ final class RigAnimations {
         return loops(animation) ? at % animation.length : Math.min(at, animation.length);
     }
 
-    /**
-     * The point in {@code target} that shows the same phase travelling the
-     * other way round its cycle.
-     *
-     * <p>A wheel cycle authored forwards as 0→360 degrees and backwards as
-     * 360→0 agrees at complementary points: a quarter of the way through
-     * the first is three quarters of the way through the second. Lengths may
-     * differ, so the phase is normalised before it is mirrored.
-     *
-     * <p>Zero for anything that cannot describe a cycle. That is the ordinary
-     * animation start and lets the caller fall back without inventing a pose.
-     */
-    static double mirroredTime(RigStore.Animation source, double sourceTime,
-                               RigStore.Animation target) {
-        if (source == null || target == null || source.length <= 0 || target.length <= 0
-                || !Double.isFinite(sourceTime)) {
-            return 0;
-        }
-        double phase = sourceTime / source.length;
-        phase -= Math.floor(phase);
-        double mirrored = (1 - phase) % 1;
-        return mirrored * target.length;
-    }
+
 
     static boolean loops(RigStore.Animation animation) {
         if (MODE_LOOP.equals(animation.mode)) return true;

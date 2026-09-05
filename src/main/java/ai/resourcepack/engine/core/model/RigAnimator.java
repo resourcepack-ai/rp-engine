@@ -122,35 +122,70 @@ public final class RigAnimator implements Listener {
     /**
      * A crossfade in progress, per part display.
      *
-     * <p><strong>In memory on purpose.</strong> A blend is a fraction of a
+     * <p><strong>In memory on purpose.</strong> A fade is a fraction of a
      * second, so a chunk unload or a restart in the middle of one costs
      * nothing worth persisting — the part arrives at the new pose the moment
      * it is tracked again, which is where it was going anyway. Writing it to
-     * persistent data would be ten floats on every part on every tick of every
-     * transition, saved to a world, to smooth something already over.
+     * persistent data would be nine floats per step on every part on every
+     * tick of every transition, saved to a world, to smooth something already
+     * over.
      */
-    private final Map<UUID, Blend> blends = new ConcurrentHashMap<>();
+    private final Map<UUID, Fade> fades = new ConcurrentHashMap<>();
 
-    /** Which animation each display was last posed for, so a change is visible. */
-    private final Map<UUID, Integer> lastPosed = new ConcurrentHashMap<>();
+    /**
+     * What each display was last posed as: which animation, so a change is
+     * visible, and the values it was posed WITH, so a change can fade from
+     * them. The values are the base animation's alone — overlays and the head
+     * look compose on top of a fade the same way they compose on top of
+     * anything else.
+     */
+    private final Map<UUID, Posed> posed = new ConcurrentHashMap<>();
+
+    /**
+     * The most any one send of a crossfade turns a bone, in degrees.
+     *
+     * <p>The fade is composed here, about each bone's own pivot, so every pose
+     * it sends is one the rig can hold — but the client still tweens between
+     * consecutive sends, translation and rotation separately, and a bone
+     * turning about a pivot away from the entity's origin bulges outward
+     * mid-tween by {@code r(1 - cos(step/2))}. At 45 degrees that is eight
+     * percent of the pivot distance: about a pixel on a wheel a block from
+     * the middle of the model, and no more than a drive cycle's own step
+     * between sends. Half a turn, the most the short way round can be, is
+     * therefore four sends — eight ticks — and a change of twenty degrees is
+     * one, which is to say an ordinary frame.
+     *
+     * <p>The knob. Smaller is smoother and slower to arrive; larger is the
+     * bulge coming back.
+     */
+    static final float FADE_DEGREES_PER_SEND = 45f;
+
+    /** What a display was last posed as. See {@link #posed}. */
+    private static final class Posed {
+
+        int index;
+        /** Per program step, or null at rest. */
+        float[][] values;
+    }
 
     /** Where a part was when its animation changed, and how long it has to arrive. */
-    private static final class Blend {
+    private static final class Fade {
 
-        private final Transformation from;
+        /** The pose it left, per program step, or null for rest. */
+        private final float[][] from;
         private final long startedTick;
-        private final double ticks;
+        private final int ticks;
 
-        Blend(Transformation from, long startedTick, double seconds) {
+        Fade(float[][] from, long startedTick, int ticks) {
             this.from = from;
             this.startedTick = startedTick;
-            this.ticks = seconds * 20;
+            this.ticks = ticks;
         }
 
         /** 0 at the moment it started, 1 when it is over. */
         float progress(long now) {
             if (ticks <= 0) return 1f;
-            return (float) Math.min(1, Math.max(0, (now - startedTick) / ticks));
+            return (float) Math.min(1, Math.max(0, (now - startedTick) / (double) ticks));
         }
     }
     private int taskId = -1;
@@ -206,8 +241,8 @@ public final class RigAnimator implements Listener {
         hitboxes.clear();
         rangeOccupants.clear();
         hitboxOfDisplay.clear();
-        blends.clear();
-        lastPosed.clear();
+        fades.clear();
+        posed.clear();
     }
 
     /** Registers an entity if it's one of our moving rig part displays. */
@@ -261,8 +296,8 @@ public final class RigAnimator implements Listener {
 
     void untrack(UUID id) {
         tracked.remove(id);
-        blends.remove(id);
-        lastPosed.remove(id);
+        fades.remove(id);
+        posed.remove(id);
     }
 
     void untrackHitbox(UUID id) {
@@ -347,8 +382,8 @@ public final class RigAnimator implements Listener {
                 // And the bookkeeping that hangs off it. Both are keyed by
                 // entity id and nothing else prunes them, so a server whose
                 // rigs load and unload all day would grow two maps for ever.
-                blends.remove(display.getUniqueId());
-                lastPosed.remove(display.getUniqueId());
+                fades.remove(display.getUniqueId());
+                posed.remove(display.getUniqueId());
                 continue;
             }
             pose(display, false);
@@ -382,8 +417,6 @@ public final class RigAnimator implements Listener {
         Float yaw = yawOf(display, pdc);
         Long animationStart = pdc.get(animationStartKey, PersistentDataType.LONG);
 
-        Matrix4f animationTransform = new Matrix4f();
-
         Integer activeIndex = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
         double elapsed = animationStart == null
             ? 0
@@ -396,59 +429,71 @@ public final class RigAnimator implements Listener {
         int playbackIndex = RigAnimations.playbackAnimationIndex(
             rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING), !carried);
 
-        // Event-only rigs are dormant between triggers. Resending the resting
-        // transform every tick restarts the client's interpolation, which
-        // looks like the animation is stuck leaving its first frame.
-        //
-        // A bound part is exempt: its yaw is its host's, so "nothing has
-        // changed" is false the moment the mob turns its head. The transform
-        // is compared below anyway, so a host standing still still sends
-        // nothing.
-        // A change of what is playing — including to and from nothing — is
-        // where a crossfade starts. Reading it off the last pose rather than
-        // off the animation start means going BACK to rest eases out too,
-        // which is the half a "lerp out" setting usually means.
         long tick = display.getWorld().getGameTime();
-        Integer posedFor = lastPosed.get(display.getUniqueId());
-        /**
-         * Whether this is the tick a CARRIED rig changed animation, in which
-         * case the new pose is sent with no interpolation at all.
-         *
-         * <p><strong>Every artifact this transition has ever had was a TWEEN
-         * artifact, and this is the only thing that removes the class.</strong>
-         * A {@link Transformation} is translation, two rotations and a scale,
-         * and that decomposition is not continuous in the matrix it came from
-         * — two poses a hair apart can decompose to very different triples, so
-         * anything interpolating BETWEEN two of them passes through poses
-         * neither one ever held. That is true of {@code RigMath.mix} and it is
-         * equally true of the client's own interpolation, which tweens the same
-         * four components. Widening the window therefore made it worse rather
-         * than better: the same wrong poses, held longer.
-         *
-         * <p>So the swap is a cut, which costs one frame of a wheel being at a
-         * different angle than it would have been — invisible on something
-         * already spinning — instead of a quarter second of the frame stretched
-         * and a bar flung out sideways. {@code EmoteDirector}'s {@code snap} is
-         * the same call made for the same reason: a rig coming back from being
-         * put away would otherwise tween out of a pose it is not in.
-         */
-        boolean swapped = false;
-        if (posedFor == null || posedFor != playbackIndex) {
-            double seconds = Math.max(
-                    RigAnimations.blendOf(RigAnimations.animationAt(rig, playbackIndex)),
-                    posedFor == null ? 0 : RigAnimations.blendOf(RigAnimations.animationAt(rig, posedFor)));
-            if (seconds > 0 && posedFor != null) {
-                blends.put(display.getUniqueId(), new Blend(display.getTransformation(), tick, seconds));
+        UUID id = display.getUniqueId();
+        RigStore.Animation animation = RigAnimations.animationAt(rig, playbackIndex);
+
+        // The pose the base animation asks for this tick, as the values each
+        // program step composes from — or null, which is rest. Kept as values
+        // rather than composed straight away because a crossfade has to be
+        // done on THESE and on nothing downstream of them; see RigMath.
+        int steps = part.program.size();
+        float[][] target = null;
+        if (animation != null && RigAnimations.moves(animation, part)) {
+            double t = RigAnimations.animationTime(animation, elapsed);
+            float weight = RigAnimations.weightOf(animation);
+            target = new float[steps][];
+            for (int i = 0; i < steps; i++) {
+                RigStore.Step step = part.program.get(i);
+                target[i] = RigMath.sampleStep(
+                        animation.animators == null ? null : animation.animators.get(step.target), t, weight);
             }
-            // A CARRIED rig CUTS to its new animation. See `swapped`.
-            swapped = carried && posedFor != null;
-            lastPosed.put(display.getUniqueId(), playbackIndex);
         }
-        Blend blend = blends.get(display.getUniqueId());
+
+        // A change of what is playing — including to and from nothing — is
+        // where a crossfade starts, FROM the pose that was last sent: what is
+        // on screen, or on its way there. Reading the change off the last pose
+        // rather than off the animation start means going BACK to rest eases
+        // out too, which is the half a "lerp out" setting usually means, and a
+        // change landing in the middle of a fade starts the next one from
+        // wherever that fade had got to.
+        //
+        // A CARRIED rig fades on every change, for as long as it takes to
+        // turn its biggest-moving bone round in steps of FADE_DEGREES_PER_SEND
+        // — see there. A placed rig fades over the `blend` its author set, and
+        // cuts by default, as FORMAT.md documents.
+        Posed was = posed.get(id);
+        Fade fade = fades.get(id);
+        if (was == null) {
+            was = new Posed();
+            was.index = playbackIndex;
+            posed.put(id, was);
+        } else if (was.index != playbackIndex) {
+            int ticks;
+            if (carried) {
+                ticks = RigMath.fadeTicks(was.values, target, steps, PERIOD_TICKS, FADE_DEGREES_PER_SEND);
+            } else {
+                double seconds = Math.max(
+                        RigAnimations.blendOf(animation),
+                        RigAnimations.blendOf(RigAnimations.animationAt(rig, was.index)));
+                ticks = (int) Math.round(seconds * 20);
+            }
+            fade = ticks > 0 ? new Fade(was.values, tick, ticks) : null;
+            if (fade != null) {
+                fades.put(id, fade);
+            } else {
+                fades.remove(id);
+            }
+            was.index = playbackIndex;
+        }
 
         // An overlay plays over a base that may itself be at rest, so
         // "nothing is animating" is not a reason to stop sending frames.
         boolean overlaid = pdc.has(overlayKey, PersistentDataType.STRING);
+        // Event-only rigs are dormant between triggers. Resending the resting
+        // transform every tick restarts the client's interpolation, which
+        // looks like the animation is stuck leaving its first frame.
+        //
         // A bound part is exempt: its yaw is its host's and IS in this matrix,
         // so "nothing has changed" is false the moment the mob turns.
         //
@@ -458,29 +503,41 @@ public final class RigAnimator implements Listener {
         // nothing to re-send. Its rotation arrives with the per-tick teleport
         // that already carries its position.
         boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
-        // A blend has to keep sending frames even where nothing else would:
+        // A fade has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
-        if (!bound && !overlaid && blend == null
-                && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) return;
+        if (!bound && !overlaid && fade == null
+                && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) {
+            was.values = target;
+            return;
+        }
 
         if (activeIndex != null && playbackIndex != activeIndex) {
             pdc.remove(activeAnimationKey);
             if (playbackIndex < 0) pdc.remove(animationStartKey);
         }
 
-        RigStore.Animation animation = RigAnimations.animationAt(rig, playbackIndex);
-        if (animation != null && RigAnimations.moves(animation, part)) {
-            double t = RigAnimations.animationTime(animation, elapsed);
-            float weight = RigAnimations.weightOf(animation);
-            for (RigStore.Step step : part.program) {
-                RigMath.applyStep(animationTransform, animation.animators, step.target, step.pivot, t, weight);
+        float[][] values = target;
+        if (fade != null) {
+            float progress = fade.progress(tick);
+            if (progress >= 1f) {
+                fades.remove(id);
+            } else {
+                values = RigMath.lerpProgram(fade.from, target, steps, progress);
+            }
+        }
+        was.values = values;
+
+        Matrix4f animationTransform = new Matrix4f();
+        if (values != null) {
+            for (int i = 0; i < steps; i++) {
+                RigMath.composeStep(animationTransform, part.program.get(i).pivot, values[i]);
             }
         }
         // Layers above the base, composed on top of it in layer order. A
         // wave over a walk cycle: the arm's rotation from the wave multiplies
         // into whatever the walk had already done to it, rather than
         // replacing it.
-        applyOverlays(animationTransform, rig, part, pdc, display.getWorld().getGameTime());
+        applyOverlays(animationTransform, rig, part, pdc, tick);
 
         // After the animations, not instead of them: a head bone still plays
         // whatever the walk cycle does to it, and looking around is composed
@@ -494,14 +551,6 @@ public final class RigAnimator implements Listener {
         applyRigScale(m, pdc);
 
         Transformation next = RigMath.toTransformation(m);
-        if (blend != null) {
-            float progress = blend.progress(tick);
-            if (progress >= 1f) {
-                blends.remove(display.getUniqueId());
-            } else {
-                next = RigMath.mix(blend.from, next, progress);
-            }
-        }
         // Keyframe holds sample to an identical transform - nothing to send,
         // and skipping keeps the delay toggle below from re-arming idle parts.
         if (next.equals(display.getTransformation())) return;
@@ -514,27 +563,20 @@ public final class RigAnimator implements Listener {
         // dirties the item so every packet re-arms from the rendered pose.
         display.setInterpolationDelay(1);
         display.setInterpolationDelay(0);
-        // A CARRIED rig GLIDES back to its rest pose and CUTS into a new
-        // animation, and the asymmetry is the point.
+        // Every pose glides over PERIOD_TICKS, the gap to the next one — a
+        // change of animation included, because the pose sent on that tick is
+        // continuous with the last: a fade starts from it. The one cut left is
+        // a PLACED rig told to stop, which is recovery rather than playback
+        // and was never interpolated.
         //
-        // Rest is one pose rather than a moving target, and it is the pose
-        // every one of this model's animations begins from — so easing into it
-        // is a short move to somewhere the rig is about to be anyway, which is
-        // safe where interpolating between two arbitrary cycle poses is not
-        // (see RigAnimations' `blend` note). It is also the visible half of a
-        // vehicle changing direction: the wheel winds down to standing rather
-        // than blinking there.
-        //
-        // Starting the next animation is then a cut from that rest pose to its
-        // first frame, which are near enough the same pose that there is
-        // nothing to interpolate.
-        int duration;
-        if (animation == null) {
-            duration = carried || !forceRestPose ? PERIOD_TICKS : 0;
-        } else {
-            duration = swapped ? 0 : PERIOD_TICKS;
-        }
-        display.setInterpolationDuration(duration);
+        // What a carried rig must never be given is a tween between two poses
+        // that are far apart. The client interpolates a Transformation
+        // component by component, and a wheel mid-spin tweened to its rest
+        // angle that way leaves its axle on the way — by the whole of its
+        // distance from the entity's origin, for a half turn. That was every
+        // visible artifact this transition ever had, and FADE_DEGREES_PER_SEND
+        // is what bounds it now.
+        display.setInterpolationDuration(animation == null && !carried && forceRestPose ? 0 : PERIOD_TICKS);
         display.setTransformation(next);
     }
 
@@ -642,16 +684,6 @@ public final class RigAnimator implements Listener {
      */
     private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex, boolean restart,
             ModelAnimationEvent.Cause cause, Player player) {
-        return startAnimation(hitbox, rig, animationIndex, restart, cause, player, 0);
-    }
-
-    /**
-     * Starts at an animation-local time rather than necessarily at frame zero.
-     * The stored clock is still the one every ordinary pose reads; this only
-     * moves its origin into the past.
-     */
-    private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex, boolean restart,
-            ModelAnimationEvent.Cause cause, Player player, double animationTime) {
         RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
         if (animation == null) return false;
         List<ItemDisplay> displays = displaysOf(hitbox);
@@ -675,20 +707,18 @@ public final class RigAnimator implements Listener {
         // Read before the write, so the name is the OUTGOING animation's.
         String replaced = placements == null ? null : playingOn(hitbox);
 
-        double safeTime = Double.isFinite(animationTime) ? Math.max(0, animationTime) : 0;
-        long startedAt = now - Math.max(0L,
-                Math.round(safeTime / RigAnimations.speedOf(animation) * 20.0));
+        long start = startTickFor(displays, rig, animationIndex, now);
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, animationIndex);
-            pdc.set(animationStartKey, PersistentDataType.LONG, startedAt);
+            pdc.set(animationStartKey, PersistentDataType.LONG, start);
             if (pdc.has(partKey, PersistentDataType.INTEGER)) pose(display, false);
         }
 
         if (placements != null && replaced != null && !replaced.equals(animation.name)) {
             end(hitbox, replaced, ModelAnimationEndEvent.Cause.REPLACED);
         }
-        scheduleEnd(hitbox, animation, animationIndex, startedAt, now);
+        scheduleEnd(hitbox, animation, animationIndex, start, now);
         // The library tells Bedrock viewers to play the same keyframes
         // natively here. Nothing in this engine implements that seam yet; when
         // Geyser support lands it goes back exactly here.
@@ -718,14 +748,56 @@ public final class RigAnimator implements Listener {
         long now = displays.get(0).getWorld().getGameTime();
         if (!restart && isMidOneShot(displays, animation, index, now)) return true;
 
+        long start = startTickFor(displays, rig, index, now);
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, index);
-            pdc.set(animationStartKey, PersistentDataType.LONG, now);
+            pdc.set(animationStartKey, PersistentDataType.LONG, start);
             pose(display, false);
         }
         return true;
+    }
+
+    /**
+     * The clock a newly started animation runs on.
+     *
+     * <p>Now, with one exception: a CARRIED rig swapping one loop for another
+     * joins the new cycle at the point of it nearest the pose the old one is
+     * showing — which for a wheel is the angle it is already at. The vehicle
+     * runtime asks for a cycle by state twenty times a second and every one
+     * of its cycles turns the same wheels, so starting each at frame 0 meant
+     * a wheel at 170 degrees being asked for 0 on every change of state: half
+     * a turn to fade through, on a wheel that had nothing wrong with where it
+     * was. Joining in phase leaves the fade nothing to do for the wheel and
+     * only the steering, the lean and the riders to ease. See
+     * {@link RigAnimations#nearestPhase}.
+     *
+     * <p>A placed rig is untouched, and so is asking for the SAME animation
+     * again: a loop asked for again restarts, which is what {@code restart}
+     * has always meant. A one-shot at either end starts at 0 too, since a
+     * one-shot joined in the middle is one that ends early.
+     */
+    private long startTickFor(List<ItemDisplay> displays, RigStore.Rig rig, int index, long now) {
+        RigStore.Animation next = RigAnimations.animationAt(rig, index);
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            if (!pdc.has(yawHostKey, PersistentDataType.STRING)) return now;
+            Integer active = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
+            Long started = pdc.get(animationStartKey, PersistentDataType.LONG);
+            RigStore.Animation current = RigAnimations.animationAt(rig, active);
+            if (current == null || started == null || active == index
+                    || !RigAnimations.loops(current) || !RigAnimations.loops(next)) {
+                return now;
+            }
+            double from = RigAnimations.animationTime(current, Math.max(0, now - started) / 20.0);
+            double to = RigAnimations.nearestPhase(current, from, next);
+            // A cycle reads its time as elapsed * speed, so the start is set
+            // back by the join point at this animation's own speed.
+            return now - Math.round(to / RigAnimations.speedOf(next) * 20.0);
+        }
+        return now;
     }
 
     /** Puts those displays back to rest, or to their idle loop. */
@@ -795,37 +867,7 @@ public final class RigAnimator implements Listener {
         return startAnimation(hitbox, rig, index, restart, ModelAnimationEvent.Cause.API, null);
     }
 
-    /**
-     * Replaces the current base animation with the named one at the matching
-     * point of an oppositely-authored cycle.
-     *
-     * <p>For a vehicle changing between forwards and reverse. Those are the
-     * one pair for which the engine knows the relationship between two clips:
-     * the same wheel turn, traversed in opposite directions. A normal
-     * animation change still starts at frame zero.
-     */
-    boolean playMirrored(Interaction hitbox, String animationName) {
-        if (hitbox == null || !hitbox.isValid()) return false;
-        RigStore.Rig rig = rigOf(hitbox);
-        int targetIndex = RigAnimations.findAnimationIndexByName(rig, animationName);
-        RigStore.Animation target = RigAnimations.animationAt(rig, targetIndex);
-        if (target == null) return false;
-        List<ItemDisplay> displays = displaysOf(hitbox);
-        if (target.layer > 0 || !hasMovingPart(displays)) {
-            return play(hitbox, animationName, true);
-        }
 
-        String sourceName = playingOn(hitbox);
-        RigStore.Animation source = RigAnimations.animationAt(
-                rig, RigAnimations.findAnimationIndexByName(rig, sourceName));
-        Double sourceTime = playheadOn(hitbox);
-        if (source == null || sourceTime == null) {
-            return play(hitbox, animationName, true);
-        }
-        double targetTime = RigAnimations.mirroredTime(source, sourceTime, target);
-        return startAnimation(hitbox, rig, targetIndex, true,
-                ModelAnimationEvent.Cause.API, null, targetTime);
-    }
 
     /**
      * Puts a placement back to rest, or to its idle loop if it has one —
