@@ -136,6 +136,10 @@ public final class VehicleDefinitions {
         // ones that pivot on the spot — a tank, a hovercraft — say so. See
         // `VehicleInfo.turnInPlace`.
         boolean turnInPlace = body.bool("turn-in-place").orElse(false);
+        // A rider's cape is drawn unless the pack says otherwise: it is theirs,
+        // and the surprising direction is taking it off them. See
+        // `VehicleInfo.capes`.
+        boolean capes = body.bool("capes").orElse(true);
         // Absent is 1, "the size it was built at" — which is every vehicle
         // written before this key existed.
         double scale = number(body, "scale", 1, MIN_SCALE, MAX_SCALE, origin, where, diagnostics);
@@ -278,7 +282,9 @@ public final class VehicleDefinitions {
                 emitters(body, origin, where, diagnostics))
                 .withScale(scale)
                 .withJump(jump)
-                .withTurnInPlace(turnInPlace));
+                .withTurnInPlace(turnInPlace)
+                .withSounds(sounds(body, origin, where, diagnostics))
+                .withCapes(capes));
     }
 
     /**
@@ -294,34 +300,80 @@ public final class VehicleDefinitions {
      */
     private static Map<VehicleState, String> animations(DefinitionNode body, String origin, String where,
                                                         List<Diagnostic> diagnostics) {
-        Optional<DefinitionNode> declared = body.node("animations");
-        if (declared.isEmpty()) {
-            if (body.has("animations")) {
+        return stateMap(body, "animations", "animation name",
+                "animations: {idle: idle, moving: drive}", origin, where, diagnostics);
+    }
+
+    /**
+     * The {@code sounds:} map — a state name to a custom sound's id.
+     *
+     * <p>The same shape and the same forgiveness as {@code animations:}, and
+     * deliberately so: they answer one question about one list of states, and
+     * an author who has filled in one can fill in the other without learning
+     * anything new.
+     *
+     * <p><strong>The id is checked for SHAPE and not for existence</strong>,
+     * exactly as a vehicle's {@code model:} is. The sound may belong to a pack
+     * that has not loaded yet, or arrive in a Studio push after this vehicle
+     * did, so the only thing that can honestly be decided here is whether
+     * somebody wrote something that could ever be an id.
+     */
+    private static Map<VehicleState, String> sounds(DefinitionNode body, String origin, String where,
+                                                    List<Diagnostic> diagnostics) {
+        Map<VehicleState, String> declared = stateMap(body, "sounds", "sound id",
+                "sounds: {moving: mypack:engine}", origin, where, diagnostics);
+        Map<VehicleState, String> sounds = new EnumMap<>(VehicleState.class);
+        for (Map.Entry<VehicleState, String> entry : declared.entrySet()) {
+            if (ContentId.parse(entry.getValue()).isEmpty()) {
                 diagnostics.add(Diagnostic.warning(origin, where,
-                        "animations: is not a map of state to animation name. Try "
-                                + "animations: {idle: idle, moving: drive}."));
+                        "sounds: " + entry.getKey().key() + ": " + entry.getValue()
+                                + " is not a namespace:id, so that state is silent."));
+                continue;
+            }
+            sounds.put(entry.getKey(), entry.getValue());
+        }
+        return sounds;
+    }
+
+    /**
+     * A {@code state: something} map, walked once for the two that exist.
+     *
+     * @param what    what the value is, for the diagnostic — the two maps take
+     *                different things and a message naming the wrong one sends
+     *                the author looking in the wrong file
+     * @param example a whole line they could copy, which is the part of a
+     *                diagnostic people actually use
+     */
+    private static Map<VehicleState, String> stateMap(DefinitionNode body, String key, String what,
+                                                      String example, String origin, String where,
+                                                      List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node(key);
+        if (declared.isEmpty()) {
+            if (body.has(key)) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        key + ": is not a map of state to " + what + ". Try " + example + "."));
             }
             return Map.of();
         }
         DefinitionNode node = declared.get();
-        Map<VehicleState, String> animations = new EnumMap<>(VehicleState.class);
-        for (String key : node.keys()) {
-            Optional<VehicleState> state = VehicleState.parse(key);
+        Map<VehicleState, String> values = new EnumMap<>(VehicleState.class);
+        for (String name : node.keys()) {
+            Optional<VehicleState> state = VehicleState.parse(name);
             if (state.isEmpty()) {
                 diagnostics.add(Diagnostic.warning(origin, where,
-                        "animations: " + key + " is not a vehicle state. Known states are "
+                        key + ": " + name + " is not a vehicle state. Known states are "
                                 + stateNames() + "."));
                 continue;
             }
-            String animation = node.string(key).orElse("").trim();
-            if (animation.isEmpty()) {
+            String value = node.string(name).orElse("").trim();
+            if (value.isEmpty()) {
                 diagnostics.add(Diagnostic.warning(origin, where,
-                        "animations: " + key + " names no animation, so that state does nothing."));
+                        key + ": " + name + " names no " + what + ", so that state does nothing."));
                 continue;
             }
-            animations.put(state.get(), animation);
+            values.put(state.get(), value);
         }
-        return animations;
+        return values;
     }
 
     /**

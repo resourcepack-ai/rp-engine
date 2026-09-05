@@ -59,9 +59,16 @@ public final class SoundDefinitions {
         float volume = number(body, "volume", 1f, 0f, 10f, origin, where, diagnostics);
         float pitch = number(body, "pitch", 1f, 0.5f, 2f, origin, where, diagnostics);
 
+        // How long the file runs, which nothing here can measure — the audio
+        // is bytes in the pack folder and this parses definitions. Absent is
+        // zero, meaning "nobody said", and the only thing that reads it treats
+        // that as "play it once". See SoundInfo.length.
+        float length = number(body, "length", 0f, 0f, 3600f, origin, where, diagnostics);
+
         return Optional.of(SoundInfo.of(definition.id(), file, category,
                 body.string("subtitle").orElse(null), volume, pitch,
-                body.bool("stream").orElse(Boolean.FALSE)));
+                body.bool("stream").orElse(Boolean.FALSE))
+                .withLength(length));
     }
 
     private static String sorted() {

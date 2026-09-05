@@ -292,6 +292,30 @@ public interface Emotes {
     void seek(Player player, double seconds);
 
     /**
+     * Whether a worn rig's CAPE is drawn.
+     *
+     * <p>A cape is baked into the rig as an extra bone and hangs off the back
+     * of it, which is right for somebody standing in a field and wrong for
+     * somebody sitting inside something: in a car's cabin or an aeroplane's
+     * fuselage it clips straight out through the bodywork, and there is
+     * nothing the author of either the emote or the model can do about it from
+     * their end. So the thing that put the rider there is what decides.
+     *
+     * <p><strong>The display is kept and its item swapped for air</strong>,
+     * the same trick a movement group's hidden rig uses — so this is one
+     * packet, is free to call every tick, and cannot fall out of step with the
+     * bones it was spawned beside.
+     *
+     * <p>Ignored, like {@link #face}, {@link #anchor} and {@link #seek}, for a
+     * player wearing nothing and for a rig this caller did not put on. Doing
+     * nothing is also the answer for a rider who has no cape, which is most of
+     * them.
+     *
+     * @param show false to put it away for as long as they wear this rig
+     */
+    void cape(Player player, boolean show);
+
+    /**
      * Stops this player's emote, and everybody else's in the same troupe.
      *
      * @return whether they were emoting.

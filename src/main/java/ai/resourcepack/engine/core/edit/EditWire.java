@@ -160,6 +160,12 @@ final class EditWire {
          * moving".
          */
         Boolean turnInPlace;
+        /**
+         * Whether a rider's cape is drawn in it. Boxed, and here it matters:
+         * the default is TRUE, so an absent primitive's false would undress
+         * every rider of a vehicle edited by an older Studio.
+         */
+        Boolean capes;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
@@ -175,6 +181,17 @@ final class EditWire {
         Double stallSink;
         List<Seat> seats;
         Map<String, String> animations;
+        /**
+         * State name to a sound's id, whole — {@code mypack:engine}, exactly
+         * as the file writes it.
+         *
+         * <p><strong>Unlike the push manifest, which sends a bare id.</strong>
+         * There it can, because a pushed sound and the vehicle naming it are
+         * two halves of one pack in one namespace; here the sound is somebody
+         * else's content on somebody else's server and the namespace is the
+         * only thing saying which pack it belongs to.
+         */
+        Map<String, String> sounds;
         List<Emitter> particles;
     }
 

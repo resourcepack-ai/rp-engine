@@ -341,6 +341,16 @@ public final class VehicleRuntime implements Listener {
     private final VehicleParticles particles;
 
     /**
+     * The server's custom sounds, for a vehicle that names one per state.
+     *
+     * <p>The registry rather than a copy, and asked at play time rather than
+     * at load: a vehicle may name a sound that arrives in a later push, and
+     * resolving once at load would leave that vehicle permanently silent with
+     * nothing to say why.
+     */
+    private final ai.resourcepack.engine.api.Sounds sounds;
+
+    /**
      * How an occupant's body is dressed, or null on a build without emotes.
      *
      * <p>A vehicle occupant is the first thing that wants a worn rig for a
@@ -514,8 +524,9 @@ public final class VehicleRuntime implements Listener {
     private volatile boolean debugSeats;
 
     public VehicleRuntime(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
-                    ai.resourcepack.engine.api.Emotes emotes) {
+                    ai.resourcepack.engine.api.Emotes emotes, ai.resourcepack.engine.api.Sounds sounds) {
         this.emotes = emotes;
+        this.sounds = sounds;
         this.plugin = plugin;
         this.items = items;
         this.log = plugin.getLogger();
@@ -1351,6 +1362,15 @@ public final class VehicleRuntime implements Listener {
         private long age;
 
         /**
+         * Where this vehicle has got to in the sound it is playing.
+         *
+         * <p>Per vehicle rather than shared, unlike {@link #particles}: what
+         * this holds is a playhead, and two cars on one server are two engines
+         * at two points in the same file.
+         */
+        private final VehicleSounds noise = new VehicleSounds();
+
+        /**
          * Whether the last full tick found this vehicle empty and going
          * nowhere.
          *
@@ -2077,6 +2097,14 @@ public final class VehicleRuntime implements Listener {
             if (parked && age % PARKED_POLL_TICKS != 0) {
                 animate(parkedStates);
                 particles.emit(world, at, state.yaw(), info, parkedStates, age);
+                // A parked vehicle still hums if its pack said it does, on the
+                // same argument as its animation and its emitters: idle is a
+                // state, and a moored boat that stopped lapping the moment
+                // everybody got out would be a vehicle that only exists while
+                // somebody is watching. It reaches here every PARKED_POLL_TICKS,
+                // so a repeat can be up to half a second late — see
+                // VehicleSounds, which is measured in whole seconds.
+                noise.play(sounds, at, info, parkedStates, age);
                 return;
             }
 
@@ -2129,6 +2157,9 @@ public final class VehicleRuntime implements Listener {
             animate(step.states());
             dressOccupants(step.states());
             particles.emit(world, at, state.yaw(), info, step.states(), age);
+            // After the move for the same reason the particles are: an engine
+            // note belongs where the vehicle ended up, not where it asked to go.
+            noise.play(sounds, at, info, step.states(), age);
             sayIfBeached(driver, around);
 
             // Occupied is never parked, whether or not it is moving: a rider's
@@ -2213,6 +2244,14 @@ public final class VehicleRuntime implements Listener {
                 // MODEL_YAW_OFFSET is declared for the half turn that was here
                 // and why it went.
                 emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seat.yaw()));
+                // And whether their cape is drawn, on the same every-tick
+                // footing as their facing rather than once when they sit down:
+                // a rig can be re-put-on under this class (a state change, a
+                // group taking it away and giving it back), and a cape that
+                // was decided once would come back with it. The call is a
+                // no-op when nothing changed and for the riders — most of
+                // them — who have no cape at all.
+                emotes.cape(player, info.capes());
                 // Resolved per SEAT, because the answer depends on what this
                 // seat mapped: turning outranks travelling now, and a seat that
                 // maps `moving` and not `turning` must not lose its occupant's

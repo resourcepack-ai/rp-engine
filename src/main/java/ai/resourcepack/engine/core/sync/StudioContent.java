@@ -84,6 +84,15 @@ public final class StudioContent {
         /** The sounds.json key, which is NOT the id — see {@link SoundInfo#event()}. */
         String event;
         String category;
+        /**
+         * How long the audio runs, in seconds — see {@link SoundInfo#length()}.
+         *
+         * <p>The bytes are inside a zip this engine never opens, so this is
+         * the only way it can know: Studio measured the file when it encoded
+         * it. Boxed, like every optional number here, and absent on a manifest
+         * from before vehicles could make a noise.
+         */
+        Double durationSeconds;
     }
 
     /**
@@ -137,6 +146,15 @@ public final class StudioContent {
          * than one per type.
          */
         Boolean turnInPlace;
+        /**
+         * Whether a rider's cape is drawn in it — see
+         * {@code VehicleInfo.capes}.
+         *
+         * <p>Boxed, and this one HAS to be: the default is TRUE, so an absent
+         * primitive's false would take the cape off every rider in every
+         * vehicle pushed before this field existed.
+         */
+        Boolean capes;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
@@ -161,6 +179,13 @@ public final class StudioContent {
          * which is a vehicle that animates nothing.
          */
         Map<String, String> animations;
+        /**
+         * State name to SOUND id — the id of a sound in this same manifest,
+         * which becomes {@code studio:<id>} at this end like everything else
+         * on this path. Absent on a manifest older than this, which is a
+         * vehicle that makes no noise.
+         */
+        Map<String, String> sounds;
         List<Emitter> particles;
     }
 
@@ -290,7 +315,8 @@ public final class StudioContent {
                 continue;
             }
             id(sound.id).ifPresent(id ->
-                    readSounds.put(id, SoundInfo.pushed(id, sound.event, sound.category)));
+                    readSounds.put(id, SoundInfo.pushed(id, sound.event, sound.category)
+                            .withLength(sound.durationSeconds == null ? 0 : sound.durationSeconds)));
         }
 
         Map<ContentId, OverlayInfo> readScreens = new LinkedHashMap<>();
@@ -399,7 +425,12 @@ public final class StudioContent {
                 animations(vehicle.animations), emitters(vehicle.particles))
                 .withScale(vehicle.scale == null ? 1 : vehicle.scale)
                 .withJump(Boolean.TRUE.equals(vehicle.jump))
-                .withTurnInPlace(Boolean.TRUE.equals(vehicle.turnInPlace)));
+                .withTurnInPlace(Boolean.TRUE.equals(vehicle.turnInPlace))
+                .withSounds(sounds(vehicle.sounds))
+                // Absent is TRUE here, unlike everything else on this path: a
+                // rider's cape is theirs, and a manifest that predates the
+                // field is not a manifest asking for it to be taken off.
+                .withCapes(!Boolean.FALSE.equals(vehicle.capes)));
     }
 
     /**
@@ -425,6 +456,32 @@ public final class StudioContent {
             VehicleState.parse(entry.getKey()).ifPresent(state -> animations.put(state, animation));
         }
         return animations;
+    }
+
+    /**
+     * A pushed vehicle's state-to-sound map, in this end's id space.
+     *
+     * <p><strong>The manifest names a sound by its own id and this is where
+     * that becomes {@code studio:<id>}.</strong> The vehicle and the sound
+     * arrive in the same push and land in the same namespace, so the manifest
+     * has no reason to repeat it on every row — and a value that arrived
+     * already qualified would be a second spelling of one thing.
+     */
+    private static Map<VehicleState, String> sounds(Map<String, String> declared) {
+        if (declared == null || declared.isEmpty()) {
+            return Map.of();
+        }
+        Map<VehicleState, String> sounds = new EnumMap<>(VehicleState.class);
+        for (Map.Entry<String, String> entry : declared.entrySet()) {
+            String sound = entry.getValue();
+            if (sound == null || sound.isEmpty()) {
+                continue;
+            }
+            id(sound).ifPresent(qualified ->
+                    VehicleState.parse(entry.getKey())
+                            .ifPresent(state -> sounds.put(state, qualified.toString())));
+        }
+        return sounds;
     }
 
     /** A pushed vehicle's particle emitters, skipping any that could never fire. */
@@ -540,6 +597,12 @@ public final class StudioContent {
             sound.id = entry.getKey().path();
             sound.event = entry.getValue().event();
             sound.category = entry.getValue().category();
+            // Kept across a restart, like everything else here: a vehicle that
+            // loops an engine note needs the length, and re-reading it is not
+            // possible from this side — see Sound.durationSeconds.
+            if (entry.getValue().length() > 0) {
+                sound.durationSeconds = entry.getValue().length();
+            }
             manifest.sounds.add(sound);
         }
         manifest.screens = new ArrayList<>();
@@ -582,6 +645,7 @@ public final class StudioContent {
         out.turnSpeed = info.turnSpeed();
         out.jump = info.jumps() ? Boolean.TRUE : null;
         out.turnInPlace = info.turnInPlace();
+        out.capes = info.capes();
         out.hitboxWidth = info.hitbox().width();
         out.hitboxHeight = info.hitbox().height();
         out.hitboxLength = info.hitbox().length();
@@ -622,6 +686,17 @@ public final class StudioContent {
             out.animations = new LinkedHashMap<>();
             for (Map.Entry<VehicleState, String> entry : info.animations().entrySet()) {
                 out.animations.put(entry.getKey().key(), entry.getValue());
+            }
+        }
+        if (!info.sounds().isEmpty()) {
+            out.sounds = new LinkedHashMap<>();
+            for (Map.Entry<VehicleState, String> entry : info.sounds().entrySet()) {
+                // Back to the bare id the manifest carries — `sounds()` above
+                // qualified it on the way in, and writing the qualified form
+                // would leave a re-read looking for `studio:studio:engine`.
+                ContentId sound = ContentId.parse(entry.getValue()).orElse(null);
+                out.sounds.put(entry.getKey().key(),
+                        sound == null ? entry.getValue() : sound.path());
             }
         }
         if (!info.emitters().isEmpty()) {

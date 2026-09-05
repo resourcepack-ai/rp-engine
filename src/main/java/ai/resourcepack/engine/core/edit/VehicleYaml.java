@@ -63,6 +63,11 @@ final class VehicleYaml {
         if (Boolean.TRUE.equals(vehicle.turnInPlace)) {
             out.append(INDENT).append("turn-in-place: true").append('\n');
         }
+        // The other way round from every optional above, because the default
+        // is true: what is worth writing is the vehicle that takes a cape OFF.
+        if (Boolean.FALSE.equals(vehicle.capes)) {
+            out.append(INDENT).append("capes: false").append('\n');
+        }
         out.append(INDENT).append("weight: ").append(number(vehicle.weight)).append('\n');
         if (vehicle.scale != null && vehicle.scale != 1) {
             out.append(INDENT).append("scale: ").append(number(vehicle.scale)).append('\n');
@@ -99,6 +104,14 @@ final class VehicleYaml {
         if (vehicle.animations != null && !vehicle.animations.isEmpty()) {
             out.append(INDENT).append("animations:\n");
             for (Map.Entry<String, String> entry : vehicle.animations.entrySet()) {
+                out.append(INDENT).append(INDENT).append(entry.getKey()).append(": ")
+                        .append(quote(entry.getValue())).append('\n');
+            }
+        }
+
+        if (vehicle.sounds != null && !vehicle.sounds.isEmpty()) {
+            out.append(INDENT).append("sounds:\n");
+            for (Map.Entry<String, String> entry : vehicle.sounds.entrySet()) {
                 out.append(INDENT).append(INDENT).append(entry.getKey()).append(": ")
                         .append(quote(entry.getValue())).append('\n');
             }

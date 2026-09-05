@@ -703,6 +703,17 @@ public final class EmoteDirector implements Listener {
         /** Whether the rig is currently swapped out for air. */
         boolean rigHidden;
         /**
+         * Whether the CAPE alone is swapped out for air. See
+         * {@link ai.resourcepack.engine.api.Emotes#cape}.
+         *
+         * <p>Its own flag rather than a hole in {@link #partItems}, because
+         * the two hidings are decided by different people for different
+         * reasons and either can be undone without the other: a movement group
+         * puts the whole rig away while its wearer jumps, and a vehicle puts
+         * the cape away for as long as somebody is inside it.
+         */
+        boolean capeHidden;
+        /**
          * The rig's hands, or null on a participant whose arms this pack has
          * no bone for. See {@link HeldItem}.
          *
@@ -1160,6 +1171,49 @@ public final class EmoteDirector implements Listener {
         if (session == null || !session.driven || session.emote == null) return;
         long want = player.getWorld().getGameTime() - Math.round(seconds * 20);
         if (session.startTick != want) session.startTick = want;
+    }
+
+    /**
+     * See {@link ai.resourcepack.engine.api.Emotes#cape}.
+     *
+     * <p>One display's item, swapped for air and back — the same mechanism
+     * {@link #setRigHidden} uses on the whole rig and for the same reason: the
+     * caller is a vehicle calling this every tick, and anything that respawned
+     * an entity would be paying for a decision that has not changed since the
+     * rider sat down.
+     *
+     * <p>Does nothing for a rider with no cape, which is most of them: their
+     * rig has no cape bone at all, so there is no index to find. The same
+     * {@code driven} test as {@link #face}, for the same reason — a rig the
+     * caller was refused is not theirs to undress.
+     */
+    public void cape(Player player, boolean show) {
+        if (player == null) return;
+        Session session = active.get(player.getUniqueId());
+        if (session == null || !session.driven || session.capeHidden == !show) return;
+        session.capeHidden = !show;
+        int index = capeIndex(session);
+        if (index < 0) return;
+        ItemDisplay display = session.parts.get(index);
+        if (display == null || !display.isValid()) return;
+        // Left alone while the whole rig is away: `setRigHidden` owns every
+        // item in that state and will ask this flag again on its way back.
+        if (session.rigHidden) return;
+        display.setItemStack(session.capeHidden
+                ? new ItemStack(Material.AIR)
+                : session.partItems.get(index));
+    }
+
+    /** Which of a session's bones is the cape, or -1 if it has none. */
+    private static int capeIndex(Session session) {
+        if (session.bones == null) return -1;
+        for (int i = 0; i < session.bones.size(); i++) {
+            EmoteStore.Bone bone = session.bones.get(i);
+            if (bone != null && EmoteStore.CAPE_BONE.equals(bone.key)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -2115,8 +2169,12 @@ public final class EmoteDirector implements Listener {
         for (int i = 0; i < session.parts.size(); i++) {
             ItemDisplay display = session.parts.get(i);
             if (display == null || !display.isValid()) continue;
-            ItemStack item = hidden || i >= session.partItems.size() ? air : session.partItems.get(i);
-            display.setItemStack(item);
+            // A cape the rider is not wearing stays off on the way back: the
+            // rig coming out of hiding must not hand somebody in a car the
+            // cape a vehicle put away, and this pass owns every item.
+            boolean away = hidden || i >= session.partItems.size()
+                    || (session.capeHidden && i == capeIndex(session));
+            display.setItemStack(away ? air : session.partItems.get(i));
         }
         // The hands go with the rig, and for exactly the reason the name does:
         // while the body is back it is rendering its own held item, so a rig

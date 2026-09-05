@@ -35,9 +35,15 @@ public final class SoundInfo {
     private final float volume;
     private final float pitch;
     private final boolean stream;
+    private final double length;
 
     private SoundInfo(ContentId id, String event, String file, String category, String subtitle,
                       float volume, float pitch, boolean stream) {
+        this(id, event, file, category, subtitle, volume, pitch, stream, 0);
+    }
+
+    private SoundInfo(ContentId id, String event, String file, String category, String subtitle,
+                      float volume, float pitch, boolean stream, double length) {
         this.id = id;
         this.event = event;
         this.file = file;
@@ -46,6 +52,7 @@ public final class SoundInfo {
         this.volume = volume;
         this.pitch = pitch;
         this.stream = stream;
+        this.length = length;
     }
 
     /** Engine internal; built by the sound loader. */
@@ -140,6 +147,47 @@ public final class SoundInfo {
      */
     public boolean stream() {
         return stream;
+    }
+
+    /**
+     * How long the audio runs, in seconds, or <strong>0 for "nobody
+     * said"</strong>.
+     *
+     * <p>Minecraft has no looping sound: a sound event is a one-shot, and
+     * anything that plays continuously in this game is a server re-playing a
+     * short file on a timer. So the only way anything here can loop a sound
+     * seamlessly is to know how long it is — a vehicle's engine note is the
+     * first thing that needed it, and it is why this exists.
+     *
+     * <p><strong>Zero is a real answer and callers must handle it.</strong>
+     * The bytes are the only place the true length lives and neither end
+     * always has them: a pack this engine builds states it in the definition
+     * ({@code length:}, which the author reads off any audio player), and a
+     * pushed Studio pack carries it in the manifest because Studio measured
+     * the file when it encoded it. A sound from neither route says nothing,
+     * and a consumer that guessed would loop somebody's two-second engine
+     * every half second.
+     */
+    public double length() {
+        return length;
+    }
+
+    /**
+     * The same sound, saying how long it is.
+     *
+     * <p>A wither rather than a ninth argument on two constructors that
+     * already differ only in what they leave out. See {@link #length()}.
+     *
+     * <p>A length that is not a positive finite number is ignored rather than
+     * refused: this arrives from a file somebody typed or a manifest from a
+     * newer Studio, and a sound that plays once is a better answer to
+     * {@code length: abc} than no sound at all.
+     */
+    public SoundInfo withLength(double length) {
+        if (!Double.isFinite(length) || length <= 0 || length == this.length) {
+            return this;
+        }
+        return new SoundInfo(id, event, file, category, subtitle, volume, pitch, stream, length);
     }
 
     @Override
