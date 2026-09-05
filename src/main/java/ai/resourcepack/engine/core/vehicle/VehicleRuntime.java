@@ -152,6 +152,18 @@ public final class VehicleRuntime implements Listener {
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /**
+     * How long a vehicle's rig stands at its rest pose between one animation
+     * and the next.
+     *
+     * <p>Two ticks, and that is a floor rather than a taste: the animator
+     * re-poses a rig every {@code RigAnimator.PERIOD_TICKS}, which is two, so
+     * anything shorter is a rest pose that may never be sent at all. Long
+     * enough to actually happen and short enough that the vehicle is still
+     * plainly doing one thing.
+     */
+    private static final int REST_BETWEEN_TICKS = 2;
+
+    /**
      * How far above their own position a seated occupant's backside is drawn:
      * the hip, twelve of the sixteen pixels a player model is tall below the
      * waist.
@@ -1327,6 +1339,19 @@ public final class VehicleRuntime implements Listener {
          */
         private final StateSettle rigSettle = new StateSettle();
 
+        /**
+         * The animation waiting for the rig to be standing at rest, or null.
+         *
+         * <p>A change of animation goes through the rest pose rather than
+         * straight across — see {@link #animate}. This is what it is on its way
+         * TO; {@link #playing} already names it, because as far as everything
+         * else is concerned the decision has been made.
+         */
+        private String pending;
+
+        /** The tick {@link #pending} was put back to rest on. */
+        private long restingSince;
+
         /** Its own age in ticks, which is what a particle interval counts against. */
         private long age;
 
@@ -2403,10 +2428,21 @@ public final class VehicleRuntime implements Listener {
                 playing = null;
                 playable = false;
                 chose = false;
+                pending = null;
                 rigSettle.clear();
                 return;
             }
             Placement placement = found.get();
+
+            // Standing at rest between two animations. See `pending`.
+            if (pending != null) {
+                if (age - restingSince < REST_BETWEEN_TICKS) {
+                    return;
+                }
+                playable = placement.play(pending, true);
+                pending = null;
+                return;
+            }
 
             if (Objects.equals(wanted, playing)) {
                 // Settled back onto what is already running: whatever was being
@@ -2417,14 +2453,31 @@ public final class VehicleRuntime implements Listener {
             } else if (!chose || rigSettle.settled(wanted, age)) {
                 chose = true;
                 rigSettle.clear();
+                boolean wasPlaying = playing != null;
                 playing = wanted;
                 if (wanted == null) {
                     placement.stop();
                     playable = false;
+                } else if (wasPlaying) {
+                    // Back to the rest pose FIRST, and the new animation a
+                    // couple of ticks later. Going straight across meant
+                    // leaving one cycle at whatever phase it happened to be at
+                    // and arriving at another's first frame, which are two
+                    // arbitrary poses with nothing in common — a wheel part way
+                    // round its turn changing direction had no good pose to
+                    // land on. Rest is a pose both animations agree about, so
+                    // the change reads as the wheel stopping and setting off
+                    // the other way, which is what the bike is doing anyway.
+                    //
+                    // Not playable until it starts, which is what keeps the
+                    // re-ask at the end of this method off it in the meantime.
+                    placement.stop();
+                    playable = false;
+                    pending = wanted;
+                    restingSince = age;
                 } else {
-                    // Restarted rather than resumed: a state change is a cut,
-                    // and joining a cycle halfway through because the last
-                    // state happened to have run for two seconds is a limp.
+                    // Nothing was on, so there is no phase to leave and nothing
+                    // to rest between: the first animation starts immediately.
                     //
                     // The answer is recorded even when it FAILS — a pack naming
                     // an animation the model no longer has — because this runs
