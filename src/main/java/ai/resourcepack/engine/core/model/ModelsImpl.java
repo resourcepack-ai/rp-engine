@@ -259,6 +259,12 @@ public final class ModelsImpl implements Models {
         }
 
         @Override
+        public Optional<Double> playhead() {
+            Host.requireMainThread();
+            return Optional.ofNullable(animator.playheadOn(hitbox));
+        }
+
+        @Override
         public Optional<String> playing() {
             Host.requireMainThread();
             return Optional.ofNullable(animator.playingOn(hitbox));

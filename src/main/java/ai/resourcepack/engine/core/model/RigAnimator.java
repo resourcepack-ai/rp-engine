@@ -822,6 +822,35 @@ public final class RigAnimator implements Listener {
      * way {@link #pose} resolves it, so this reports what is on screen
      * rather than only what was last asked for. Null when at rest.
      */
+    /**
+     * How far into its current animation this rig is, in seconds, or null
+     * when it is playing nothing.
+     *
+     * <p>The same resolution {@link #playingOn} makes — which animation
+     * actually plays, resting loop included — and then the same clock the
+     * pose pass reads, so a caller slaving something else to this rig (a
+     * vehicle's occupant, see {@code VehicleRuntime}) is told the time the
+     * parts are being posed at, speed and loop wrap applied.
+     */
+    Double playheadOn(Interaction hitbox) {
+        if (hitbox == null || !hitbox.isValid()) return null;
+        RigStore.Rig rig = rigOf(hitbox);
+        String chosen = hitbox.getPersistentDataContainer().get(animationKey, PersistentDataType.STRING);
+        for (ItemDisplay display : displaysOf(hitbox)) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            Integer active = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
+            Long started = pdc.get(animationStartKey, PersistentDataType.LONG);
+            double elapsed = started == null
+                ? 0
+                : Math.max(0, display.getWorld().getGameTime() - started) / 20.0;
+            RigStore.Animation animation = RigAnimations.animationAt(rig, RigAnimations.playbackAnimationIndex(
+                rig, active, elapsed, chosen, !pdc.has(yawHostKey, PersistentDataType.STRING)));
+            return animation == null ? null : RigAnimations.animationTime(animation, elapsed);
+        }
+        return null;
+    }
+
     String playingOn(Interaction hitbox) {
         if (hitbox == null || !hitbox.isValid()) return null;
         RigStore.Rig rig = rigOf(hitbox);

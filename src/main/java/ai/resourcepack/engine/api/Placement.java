@@ -61,6 +61,17 @@ public interface Placement {
     Optional<String> playing();
 
     /**
+     * How far into {@link #playing} this rig is, in seconds, with the
+     * animation's speed and its loop wrap applied. Empty when it is playing
+     * nothing.
+     *
+     * <p>For keeping something else on this rig's clock. Feed it to
+     * {@link Emotes#seek} every tick and a worn rig moves in step with the
+     * model — which is how a vehicle keeps its paddler's arms on the paddle.
+     */
+    Optional<Double> playhead();
+
+    /**
      * Plays a named animation on every moving part of this rig, on one clock,
      * whatever triggers that animation claims - including none.
      *

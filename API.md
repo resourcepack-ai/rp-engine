@@ -66,7 +66,8 @@ engine.models().at(entity);              // is this entity part of a rig?
 ```
 
 A `Placement` is a handle on a rig that is standing in a world: it can be
-asked what it is, told to play an animation, and removed.
+asked what it is, told to play an animation, and removed. `playhead()` is
+how far into its animation it is, for keeping something else on its clock.
 
 ## Emotes
 
@@ -98,6 +99,12 @@ session. `Emotes.BUILT_IN_SITTING` and `BUILT_IN_STANDING` are two stances
 every pack has without authoring one, so a seat can dress somebody on a pack
 that ships no emotes at all — it still needs a baked rig for that player,
 because a rig is their skin.
+
+`seek(player, seconds)` moves a worn rig's clock. Called every tick with a
+`Placement.playhead()`, it keeps the rig posed at the same moment as that
+model's animation, which is how a vehicle keeps its paddler's arms on the
+paddle: the two are written as one animation and would drift apart on two
+clocks.
 
 `face` exists because a carried body and a carried camera are different
 questions. A worn rig normally turns with its wearer's look, which is right for
