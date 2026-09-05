@@ -1346,6 +1346,21 @@ public final class VehicleRuntime implements Listener {
         private boolean playable;
 
         /**
+         * The travel direction of {@link #playing}, when it is specifically
+         * the animation mapped to forwards or reverse.
+         *
+         * <p>Kept separately from the name because an author may give those
+         * animations any names, or even reuse one name for several states.
+         */
+        private VehicleState playingDirection;
+
+        /**
+         * Holds a drive cycle through the few IDLE ticks crossed while braking
+         * into the opposite direction. If IDLE really holds, it still wins.
+         */
+        private final StateSettle rigSettle = new StateSettle();
+
+        /**
          * The animation waiting for the rig to reach its rest pose, or null.
          *
          * <p>A change of animation goes back to rest first and starts the new
@@ -1770,6 +1785,10 @@ public final class VehicleRuntime implements Listener {
                 rig.despawn();
                 rig = null;
                 playing = null;
+                playable = false;
+                playingDirection = null;
+                pending = null;
+                rigSettle.clear();
             }
         }
 
@@ -2442,21 +2461,18 @@ public final class VehicleRuntime implements Listener {
          * only thing that stops a vehicle animating is a pack that configured
          * nothing at all, which is a vehicle that never started.
          *
-         * <p><strong>And only on a change that HOLDS.</strong> Braking from
-         * forwards into reverse crosses IDLE for two or three ticks, and acting
-         * on that put the idle animation between the drive cycle and the
-         * reverse one — so the rig's crossfade set off towards the idle pose,
-         * got a fraction of the way, and turned round to blend into reversing
-         * from the middle of a detour. There was no interpolation from driving
-         * to reversing because the two were never adjacent. See
-         * {@link StateSettle}, which the seats already wait on for the same
-         * window and the same reason.
+         * <p>A forwards/reverse pair is the useful exception to the ordinary
+         * rest-pose transition. It is the same cycle traversed in opposite
+         * directions, so switching at the mirrored playhead preserves the pose
+         * already on screen. The brief IDLE crossed while braking is held by
+         * {@link StateSettle}; an IDLE that really holds still takes effect.
          */
         private void animate(Set<VehicleState> states) {
             if (rig == null || info.animations().isEmpty()) {
                 return;
             }
             String wanted = VehicleState.choose(states, info.animations()).orElse(null);
+            VehicleState wantedDirection = animationDirection(states, wanted);
             Optional<Placement> found = rig.placement();
             if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
@@ -2466,15 +2482,27 @@ public final class VehicleRuntime implements Listener {
                 // reach means it does not arrive on a rig that came back.
                 playing = null;
                 playable = false;
+                playingDirection = null;
                 pending = null;
+                rigSettle.clear();
                 return;
             }
             Placement placement = found.get();
 
             // Resting between two animations. The rig was told to stop on the
             // tick the state changed and is easing back to its rest pose; the
-            // next animation starts once it is there. See REST_TICKS.
+            // next CURRENT animation starts once it is there. Re-read wanted
+            // while waiting so a quick change of mind cannot start a stale
+            // animation after the vehicle has already chosen another one.
             if (pending != null) {
+                if (!Objects.equals(wanted, pending)) {
+                    pending = wanted;
+                    playing = wanted;
+                    playingDirection = wantedDirection;
+                    if (pending == null) {
+                        return;
+                    }
+                }
                 if (age - restingSince < REST_TICKS) {
                     return;
                 }
@@ -2493,6 +2521,7 @@ public final class VehicleRuntime implements Listener {
             }
 
             if (Objects.equals(wanted, playing)) {
+                rigSettle.clear();
                 // <strong>Nothing changed, and that is when this matters.</strong>
                 // A vehicle state is a condition that HOLDS, so what it names
                 // has to run for as long as it holds — but an animation
@@ -2512,21 +2541,34 @@ public final class VehicleRuntime implements Listener {
                 return;
             }
 
-            // <strong>Immediately, and through the REST POSE.</strong> There is
-            // no wait in front of this any more and that is deliberate: the
-            // vehicle crosses IDLE every time it changes direction, and that
-            // crossing is exactly the moment to put the rig back where it
-            // started. Suppressing it (which this used to do, to keep the idle
-            // animation from flashing) removed the one natural resting point
-            // the transition had, and waiting for the outgoing cycle to come
-            // round instead cost up to three seconds. Both are gone.
-            //
-            // Every animation of a model begins from the rest pose, so rest is
-            // the one pose they all agree about — the rig eases back to it and
-            // sets off again from there, which is the wheel winding down to a
-            // stop and then turning the other way.
+            // Forward and reverse wheel cycles have one relationship no other
+            // pair of arbitrary animations has: they are the same turn read in
+            // opposite directions. A quarter-turn into forwards therefore
+            // matches three quarters of the way through reverse. Cutting to
+            // that mirrored playhead changes direction without changing the
+            // pose; restarting reverse at frame zero is the snap this avoids.
+            if (oppositeDirections(playingDirection, wantedDirection)) {
+                rigSettle.clear();
+                pending = null;
+                playing = wanted;
+                playingDirection = wantedDirection;
+                playable = rig.playMirrored(wanted);
+                return;
+            }
+
+            // Braking into reverse passes through IDLE for only a few ticks.
+            // Keep the outgoing drive cycle on during that crossing so the
+            // opposite-direction arm above can join it directly. A real stop
+            // outlives the gate and then follows the ordinary route to rest.
+            if (playingDirection != null && states.contains(VehicleState.IDLE)
+                    && !rigSettle.settled(wanted, age)) {
+                return;
+            }
+            rigSettle.clear();
+
             boolean wasPlaying = playing != null;
             playing = wanted;
+            playingDirection = wantedDirection;
             placement.stop();
             playable = false;
             if (wanted != null) {
@@ -2540,6 +2582,27 @@ public final class VehicleRuntime implements Listener {
                 }
             }
             return;
+        }
+
+        /** The directional state whose own mapped animation was selected. */
+        private VehicleState animationDirection(Set<VehicleState> states, String animation) {
+            if (animation == null) {
+                return null;
+            }
+            if (states.contains(VehicleState.REVERSING)
+                    && Objects.equals(animation, info.animations().get(VehicleState.REVERSING))) {
+                return VehicleState.REVERSING;
+            }
+            if (states.contains(VehicleState.MOVING)
+                    && Objects.equals(animation, info.animations().get(VehicleState.MOVING))) {
+                return VehicleState.MOVING;
+            }
+            return null;
+        }
+
+        private boolean oppositeDirections(VehicleState first, VehicleState second) {
+            return first == VehicleState.MOVING && second == VehicleState.REVERSING
+                    || first == VehicleState.REVERSING && second == VehicleState.MOVING;
         }
 
         /**

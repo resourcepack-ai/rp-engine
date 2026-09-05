@@ -272,6 +272,17 @@ public final class RigCarrier {
                     : Optional.empty();
         }
 
+        /**
+         * Starts an oppositely-authored cycle at the point matching the pose
+         * currently on screen. Used only for a vehicle changing travel
+         * direction; unrelated animation changes have no such phase promise.
+         */
+        public boolean playMirrored(String animation) {
+            Entity yawHost = Bukkit.getEntity(anchorId);
+            return yawHost instanceof Interaction
+                    && animator.playMirrored((Interaction) yawHost, animation);
+        }
+
         /** Takes every entity of it out of the world. */
         public void despawn() {
             Entity yawHost = Bukkit.getEntity(anchorId);

@@ -867,6 +867,13 @@ not the animation itself is authored as a loop. A state is a condition rather
 than an event, so a rowing cycle written as a one-shot still rows continuously
 while the boat is moving.
 
+When both `moving` and `reversing` are mapped, RP Engine keeps their cycle
+phase across a direction change instead of restarting the other animation at
+frame zero. Author them as the same cycle in opposite directions (for example,
+a wheel turning 0→360 in `moving` and 360→0 in `reversing`); the engine
+mirrors their normalised playheads, so different animation lengths are fine and
+the wheel stays at the angle already on screen.
+
 A vehicle whose model has no animated parts can carry this map and it simply
 never plays anything — the model is drawn as one still piece. That is a
 half-finished vehicle rather than an error.

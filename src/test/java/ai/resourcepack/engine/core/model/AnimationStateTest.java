@@ -67,6 +67,19 @@ class AnimationStateTest {
     }
 
     @Test
+    void anOppositeCycleStartsAtTheMatchingMirroredPhase() {
+        RigStore.Animation forwards = animation("{\"name\":\"forward\",\"length\":2,\"mode\":\"loop\"}");
+        RigStore.Animation backwards = animation("{\"name\":\"backward\",\"length\":4,\"mode\":\"loop\"}");
+
+        assertEquals(3, RigAnimations.mirroredTime(forwards, 0.5, backwards), 0.0001,
+                "a quarter-turn forwards is the three-quarter point backwards");
+        assertEquals(0.5, RigAnimations.mirroredTime(backwards, 3, forwards), 0.0001,
+                "switching back mirrors the phase again even when lengths differ");
+        assertEquals(0, RigAnimations.mirroredTime(forwards, 0, backwards), 0.0001,
+                "the shared cycle boundary remains frame zero");
+    }
+
+    @Test
     void aFastOneShotStopsAtItsEndRatherThanRunningPastIt() {
         RigStore.Animation twice = animation(named("wave", ",\"speed\":2"));
 
