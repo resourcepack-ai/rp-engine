@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import org.bukkit.Location;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
@@ -47,4 +48,24 @@ public interface Sounds {
 
     /** Plays one at a place, overriding volume and pitch. */
     boolean playAt(Location location, ContentId id, float volume, float pitch);
+
+    /**
+     * Plays one from an entity, so the sound follows that entity while it
+     * moves.
+     *
+     * <p>The default keeps implementations written before this method working
+     * by starting the sound at the entity's current location. RP Engine's own
+     * implementation uses Bukkit's entity sound source.
+     *
+     * @return false if there is no such sound
+     */
+    default boolean playFrom(Entity entity, ContentId id) {
+        Optional<SoundInfo> sound = info(id);
+        return sound.isPresent() && playFrom(entity, id, sound.get().volume(), sound.get().pitch());
+    }
+
+    /** Plays one from an entity, overriding volume and pitch. */
+    default boolean playFrom(Entity entity, ContentId id, float volume, float pitch) {
+        return entity != null && playAt(entity.getLocation(), id, volume, pitch);
+    }
 }

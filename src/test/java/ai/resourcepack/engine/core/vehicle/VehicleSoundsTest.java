@@ -10,9 +10,11 @@ import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
 
 import org.bukkit.Location;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
@@ -29,10 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Everything that makes a vehicle's engine note either seamless or a mess
  * is arithmetic on one number — how long the file runs — so it is worth
- * pinning here rather than by driving a car around and listening. The
- * {@link Location} carries a null world, which is harmless: nothing in
- * {@link VehicleSounds} reads it, it is handed straight to {@link Sounds}, and
- * the fake below only counts it.
+ * pinning here rather than by driving a car around and listening. The proxy
+ * entity is only an identity: nothing in {@link VehicleSounds}
+ * reads it, it is handed straight to {@link Sounds}, and the fake below only
+ * counts it.
  */
 class VehicleSoundsTest {
 
@@ -88,9 +90,19 @@ class VehicleSoundsTest {
         public boolean playAt(Location location, ContentId id, float volume, float pitch) {
             return playAt(location, id);
         }
+
+        @Override
+        public boolean playFrom(Entity entity, ContentId id) {
+            if (!lengths.containsKey(id.toString())) {
+                return false;
+            }
+            played.add(id.toString());
+            return true;
+        }
     }
 
-    private static final Location SOMEWHERE = new Location(null, 0, 64, 0);
+    private static final Entity SOURCE = (Entity) Proxy.newProxyInstance(
+            Entity.class.getClassLoader(), new Class<?>[] { Entity.class }, (proxy, method, args) -> null);
 
     private static VehicleInfo car(Map<VehicleState, String> sounds) {
         return VehicleInfo.of(ContentId.parse("mypack:car").orElseThrow(), null, null, VehicleMedium.LAND,
@@ -117,7 +129,7 @@ class VehicleSoundsTest {
         VehicleInfo car = car(map(VehicleState.MOVING, "mypack:engine"));
 
         for (long tick = 0; tick < 100; tick++) {
-            noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), tick);
+            noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), tick);
         }
         assertEquals(3, sounds.played.size(), sounds.played.toString());
     }
@@ -134,7 +146,7 @@ class VehicleSoundsTest {
         VehicleInfo car = car(map(VehicleState.MOVING, "mypack:engine"));
 
         for (long tick = 0; tick < 200; tick++) {
-            noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), tick);
+            noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), tick);
         }
         assertEquals(1, sounds.played.size());
     }
@@ -149,9 +161,9 @@ class VehicleSoundsTest {
         both.put(VehicleState.IDLE, "mypack:idle");
         VehicleInfo car = car(both);
 
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), 0);
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), 1);
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.IDLE), 2);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), 0);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), 1);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.IDLE), 2);
         assertEquals(List.of("mypack:engine", "mypack:idle"), sounds.played);
     }
 
@@ -169,9 +181,9 @@ class VehicleSoundsTest {
         both.put(VehicleState.IDLE, "mypack:idle");
         VehicleInfo car = car(both);
 
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), 0);
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.IDLE), 5);
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), 10);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), 0);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.IDLE), 5);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), 10);
         assertEquals(List.of("mypack:engine", "mypack:idle", "mypack:engine"), sounds.played);
     }
 
@@ -186,7 +198,7 @@ class VehicleSoundsTest {
         VehicleSounds noise = new VehicleSounds();
         VehicleInfo car = car(map(VehicleState.MOVING, "mypack:engine"));
 
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING, VehicleState.TURNING), 0);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING, VehicleState.TURNING), 0);
         assertEquals(List.of("mypack:engine"), sounds.played);
     }
 
@@ -202,7 +214,7 @@ class VehicleSoundsTest {
         VehicleInfo car = car(map(VehicleState.MOVING, "mypack:nothing"));
 
         for (long tick = 0; tick < 100; tick++) {
-            noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), tick);
+            noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), tick);
         }
         assertTrue(sounds.played.isEmpty());
     }
@@ -214,9 +226,9 @@ class VehicleSoundsTest {
         VehicleSounds noise = new VehicleSounds();
         VehicleInfo car = car(map(VehicleState.MOVING, "mypack:engine"));
 
-        noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.MOVING), 0);
+        noise.play(sounds, SOURCE, car, Set.of(VehicleState.MOVING), 0);
         for (long tick = 1; tick < 100; tick++) {
-            noise.play(sounds, SOMEWHERE, car, Set.of(VehicleState.IDLE), tick);
+            noise.play(sounds, SOURCE, car, Set.of(VehicleState.IDLE), tick);
         }
         assertEquals(List.of("mypack:engine"), sounds.played);
     }

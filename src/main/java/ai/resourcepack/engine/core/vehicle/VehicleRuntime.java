@@ -2104,7 +2104,7 @@ public final class VehicleRuntime implements Listener {
                 // somebody is watching. It reaches here every PARKED_POLL_TICKS,
                 // so a repeat can be up to half a second late — see
                 // VehicleSounds, which is measured in whole seconds.
-                noise.play(sounds, at, info, parkedStates, age);
+                noise.play(sounds, chassis, info, parkedStates, age);
                 return;
             }
 
@@ -2157,9 +2157,10 @@ public final class VehicleRuntime implements Listener {
             animate(step.states());
             dressOccupants(step.states());
             particles.emit(world, at, state.yaw(), info, step.states(), age);
-            // After the move for the same reason the particles are: an engine
-            // note belongs where the vehicle ended up, not where it asked to go.
-            noise.play(sounds, at, info, step.states(), age);
+            // The chassis is the source, so the client keeps the note attached
+            // while the vehicle moves and turns instead of leaving each loop
+            // behind at the coordinate where it began.
+            noise.play(sounds, chassis, info, step.states(), age);
             sayIfBeached(driver, around);
 
             // Occupied is never parked, whether or not it is moving: a rider's

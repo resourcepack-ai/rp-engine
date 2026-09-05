@@ -114,6 +114,20 @@ points, **every tick** — a vehicle turns — and `null` to hand the rig back t
 their look. It only moves a rig that arrived through your `wear`, so somebody
 who was already mid-emote when they sat down keeps it.
 
+## Sounds
+
+```java
+engine.sounds().play(player, id);       // only this player hears it
+engine.sounds().playAt(location, id);   // everybody nearby hears it here
+engine.sounds().playFrom(entity, id);   // everybody nearby hears it follow this entity
+```
+
+All three use the sound's declared category, volume and pitch; overloads let
+you replace volume and pitch. `playFrom` is the moving-source form for engines,
+creatures and anything else where a fixed coordinate would leave the sound
+behind. Playing methods are main thread only; `ids()` and `info()` are safe
+from any thread.
+
 ## Vehicles
 
 ```java

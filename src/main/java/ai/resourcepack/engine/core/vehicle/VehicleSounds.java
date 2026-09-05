@@ -6,7 +6,7 @@ import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleState;
 
-import org.bukkit.Location;
+import org.bukkit.entity.Entity;
 
 import java.util.Optional;
 import java.util.Set;
@@ -39,14 +39,12 @@ import java.util.Set;
  * any of its states because two particle effects at once is a busy vehicle;
  * two engine notes at once is a broken one.
  *
- * <h2>What it cannot do</h2>
+ * <h2>The chassis is the source</h2>
  *
- * <p><strong>The sound is played AT a place, so it does not travel.</strong>
- * Each repeat starts wherever the vehicle is at that moment and then stays
- * there while the vehicle drives on, which is fine for the short loops this is
- * for and would be audible on a long one. There is no Bukkit call on this
- * engine's oldest supported version that attaches a sound to a moving entity,
- * so the remedy is a short file rather than a cleverer call here.
+ * <p>Each repeat is played from the vehicle's chassis entity rather than from
+ * the coordinate where the repeat began. The client can therefore keep the
+ * positional sound on the vehicle while it drives and turns instead of fading
+ * or panning toward a point the vehicle already left behind.
  */
 final class VehicleSounds {
 
@@ -64,16 +62,15 @@ final class VehicleSounds {
     /**
      * One tick's worth of noise.
      *
-     * @param at    where the vehicle is right now, which is where the sound
-     *              starts from
+     * @param source the vehicle's chassis, which the sound follows
      * @param age   the vehicle's own tick counter, which is what the repeat is
      *              measured in. A parked vehicle only reaches here every few
      *              ticks, so a repeat can be that late — inaudible against a
      *              loop measured in seconds, and worth knowing before shorter
      *              ones are allowed
      */
-    void play(Sounds sounds, Location at, VehicleInfo info, Set<VehicleState> states, long age) {
-        if (sounds == null || at == null || info.sounds().isEmpty()) {
+    void play(Sounds sounds, Entity source, VehicleInfo info, Set<VehicleState> states, long age) {
+        if (sounds == null || source == null || info.sounds().isEmpty()) {
             // Not just an optimisation: `playing` must not be cleared for a
             // vehicle whose map is empty, or nothing else here would ever run.
             return;
@@ -95,7 +92,7 @@ final class VehicleSounds {
             return;
         }
         Optional<ContentId> id = ContentId.parse(wanted);
-        if (id.isEmpty() || !sounds.playAt(at, id.get())) {
+        if (id.isEmpty() || !sounds.playFrom(source, id.get())) {
             // No such sound, or a name that is not an id at all. Silent and
             // never retried for as long as this state holds: this runs twenty
             // times a second, and a lookup per tick for a sound that does not
