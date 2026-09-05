@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -354,6 +355,56 @@ class AnimationStateTest {
 
         assertEquals(0, RigAnimations.nearestPhase(moving, 0.4, bob), 0.0001);
         assertEquals(0, RigAnimations.nearestPhase(null, 0, moving), 0.0001, "from rest is frame 0");
+    }
+
+    @Test
+    void theJoinIsToWhatIsOnScreenNotToWhatTheOldCycleSamples() {
+        // A wheel HELD at 200 degrees through an idle that never touched it
+        // rejoins moving at 200, not at the 0 idle would have read for it.
+        RigStore.Animation idle = animation("{\"name\":\"idle\",\"length\":1,\"mode\":\"loop\","
+                + "\"animators\":{\"body\":{\"position\":[" + key(0, 0) + "," + key(1, 2) + "]}}}");
+        RigStore.Animation moving = cycle("moving", 2, key(0, 0) + "," + key(2, 360));
+        Map<String, float[]> shown = Map.of("wheel", new float[] {200f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f});
+
+        assertEquals(200.0 / 360 * 2, RigAnimations.nearestPhase(shown, idle, 0.3, moving), 0.03);
+        assertEquals(0, RigAnimations.nearestPhase(Map.of(), idle, 0.3, moving), 0.0001, "nothing shown: as before");
+    }
+
+    // ---- a spinning bone nothing drives keeps its angle --------------------
+
+    @Test
+    void aTrackOfZerosDrivesNothingAndAFullTurnSpins() {
+        RigStore.Animation moving = cycle("moving", 2, key(0, 0) + "," + key(2, 360));
+        RigStore.Animation still = cycle("idle", 1, key(0, 0) + "," + key(1, 0));
+        RigStore.Animation steer = cycle("turning", 1, key(0, 20) + "," + key(1, 20));
+        RigStore.Animation wobble = cycle("bump", 1, key(0, 0) + "," + key(0.5, 90) + "," + key(1, 0));
+
+        assertTrue(RigAnimations.drivesRotation(moving, "wheel"));
+        assertTrue(RigAnimations.spins(moving, "wheel"));
+        assertFalse(RigAnimations.drivesRotation(still, "wheel"), "zeros are a bone left alone");
+        assertTrue(RigAnimations.drivesRotation(steer, "wheel"), "a held angle is still a driven one");
+        assertFalse(RigAnimations.spins(steer, "wheel"));
+        assertFalse(RigAnimations.spins(wobble, "wheel"), "there and back is not a turn");
+        assertFalse(RigAnimations.drivesRotation(moving, "body"), "no track at all");
+        assertFalse(RigAnimations.drivesRotation(null, "wheel"));
+        assertFalse(RigAnimations.spins(null, "wheel"));
+    }
+
+    @Test
+    void aHeldRotationRidesOverWhateverTheNewPoseSays() {
+        float[][] held = {new float[] {200f, 0f, 0f}};
+
+        float[][] out = RigMath.holdRotations(new float[][] {step(0, 4)}, held, 1);
+        assertEquals(200f, out[0][0], 0.0001);
+        assertEquals(4f, out[0][4], 0.0001, "position is the new pose's");
+
+        float[][] rest = RigMath.holdRotations(null, held, 1);
+        assertEquals(200f, rest[0][0], 0.0001, "held through rest too");
+        assertEquals(1f, rest[0][6], 0.0001);
+
+        assertNull(RigMath.holdRotations(null, null, 1), "nothing held, nothing made");
+        assertEquals(0f, RigMath.turnBetween(new float[][] {step(200, 0)}, rest, 1), 0.0001,
+                "a held wheel gives the fade nothing to turn");
     }
 
     // ---- the neck --------------------------------------------------------
