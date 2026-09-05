@@ -44,7 +44,10 @@ import java.util.Set;
  * <p>Each repeat is played from the vehicle's chassis entity rather than from
  * the coordinate where the repeat began. The client can therefore keep the
  * positional sound on the vehicle while it drives and turns instead of fading
- * or panning toward a point the vehicle already left behind.
+ * or panning toward a point the vehicle already left behind. That chassis must
+ * not carry the entity {@code silent} flag: the client applies it to attached
+ * custom sounds as well as to an entity's own noises. VehicleRuntime clears it
+ * on both newly spawned and adopted chassis.
  */
 final class VehicleSounds {
 
