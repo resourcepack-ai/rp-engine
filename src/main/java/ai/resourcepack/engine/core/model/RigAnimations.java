@@ -221,43 +221,6 @@ final class RigAnimations {
         return animation == null || animation.blend <= 0 ? 0 : Math.min(5, animation.blend);
     }
 
-    /**
-     * How long the client is given to reach the transform a CARRIED rig is
-     * sent on the tick its animation changed.
-     *
-     * <p>Five ticks, the same window a worn rig swaps over
-     * ({@code EmoteDirector.SWAP_BLEND_TICKS}) and the quarter second
-     * {@code FORMAT.md} already quotes as covering most things.
-     *
-     * <p><strong>This is not {@code blend}, and the difference is the whole
-     * reason it exists.</strong> {@code blend} runs through
-     * {@code RigMath.mix}, which interpolates a {@link org.bukkit.util.Transformation}
-     * component by component — and that decomposition (translation, two
-     * rotations, a scale) is not continuous in the matrix it came from, so two
-     * poses a hair apart can decompose to wildly different triples and mixing
-     * them tears the model into pieces. Handing the CLIENT a longer window
-     * instead has none of that: it is the same transform the animator was
-     * always going to send, with more time to arrive at it, and the rig is
-     * re-sent every {@code PERIOD_TICKS} so each pass is another step toward a
-     * moving target. The worn-rig half was built this way for the same reason.
-     */
-    static final int CARRIED_SWAP_TICKS = 5;
-
-    /**
-     * Whether a part is still inside the window opened by its last animation
-     * change, as of {@code tick}.
-     *
-     * <p>A deadline rather than a countdown, which is the idiom the emote
-     * director's own swap window uses: a part posed twice in one window must
-     * not get two windows, and one that misses a tick must not be left with an
-     * unspent one.
-     *
-     * @param until the tick the window closes on, or null if none was opened
-     */
-    static boolean swapping(Long until, long tick) {
-        return until != null && tick < until;
-    }
-
     /** Whether it stops on its last frame instead of going back to rest. */
     static boolean holds(RigStore.Animation animation) {
         return animation != null && MODE_HOLD.equals(animation.mode);

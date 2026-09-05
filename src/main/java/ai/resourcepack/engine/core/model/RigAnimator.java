@@ -134,15 +134,6 @@ public final class RigAnimator implements Listener {
     /** Which animation each display was last posed for, so a change is visible. */
     private final Map<UUID, Integer> lastPosed = new ConcurrentHashMap<>();
 
-    /**
-     * When a carried part's swap window closes, per part display.
-     *
-     * <p>In memory for the same reason {@link #blends} is: a quarter of a
-     * second is not worth writing to a world save, and a part that arrives
-     * after one costs nothing — it is already where it was going.
-     */
-    private final Map<UUID, Long> swapUntil = new ConcurrentHashMap<>();
-
     /** Where a part was when its animation changed, and how long it has to arrive. */
     private static final class Blend {
 
@@ -217,7 +208,6 @@ public final class RigAnimator implements Listener {
         hitboxOfDisplay.clear();
         blends.clear();
         lastPosed.clear();
-        swapUntil.clear();
     }
 
     /** Registers an entity if it's one of our moving rig part displays. */
@@ -273,7 +263,6 @@ public final class RigAnimator implements Listener {
         tracked.remove(id);
         blends.remove(id);
         lastPosed.remove(id);
-        swapUntil.remove(id);
     }
 
     void untrackHitbox(UUID id) {
@@ -360,7 +349,6 @@ public final class RigAnimator implements Listener {
                 // rigs load and unload all day would grow two maps for ever.
                 blends.remove(display.getUniqueId());
                 lastPosed.remove(display.getUniqueId());
-                swapUntil.remove(display.getUniqueId());
                 continue;
             }
             pose(display, false);
@@ -422,6 +410,29 @@ public final class RigAnimator implements Listener {
         // which is the half a "lerp out" setting usually means.
         long tick = display.getWorld().getGameTime();
         Integer posedFor = lastPosed.get(display.getUniqueId());
+        /**
+         * Whether this is the tick a CARRIED rig changed animation, in which
+         * case the new pose is sent with no interpolation at all.
+         *
+         * <p><strong>Every artifact this transition has ever had was a TWEEN
+         * artifact, and this is the only thing that removes the class.</strong>
+         * A {@link Transformation} is translation, two rotations and a scale,
+         * and that decomposition is not continuous in the matrix it came from
+         * — two poses a hair apart can decompose to very different triples, so
+         * anything interpolating BETWEEN two of them passes through poses
+         * neither one ever held. That is true of {@code RigMath.mix} and it is
+         * equally true of the client's own interpolation, which tweens the same
+         * four components. Widening the window therefore made it worse rather
+         * than better: the same wrong poses, held longer.
+         *
+         * <p>So the swap is a cut, which costs one frame of a wheel being at a
+         * different angle than it would have been — invisible on something
+         * already spinning — instead of a quarter second of the frame stretched
+         * and a bar flung out sideways. {@code EmoteDirector}'s {@code snap} is
+         * the same call made for the same reason: a rig coming back from being
+         * put away would otherwise tween out of a pose it is not in.
+         */
+        boolean swapped = false;
         if (posedFor == null || posedFor != playbackIndex) {
             double seconds = Math.max(
                     RigAnimations.blendOf(RigAnimations.animationAt(rig, playbackIndex)),
@@ -429,15 +440,8 @@ public final class RigAnimator implements Listener {
             if (seconds > 0 && posedFor != null) {
                 blends.put(display.getUniqueId(), new Blend(display.getTransformation(), tick, seconds));
             }
-            // A CARRIED rig is DRIVEN — a vehicle picks its animation off its
-            // own state twenty times a second, so a swap is the engine's
-            // decision and no author is in the loop to have set `blend`. It
-            // gets the client's own window widened instead of a `mix`, which
-            // is the one that survives contact with a real model: see
-            // RigAnimations.CARRIED_SWAP_TICKS.
-            if (carried && posedFor != null) {
-                swapUntil.put(display.getUniqueId(), tick + RigAnimations.CARRIED_SWAP_TICKS);
-            }
+            // A CARRIED rig CUTS to its new animation. See `swapped`.
+            swapped = carried && posedFor != null;
             lastPosed.put(display.getUniqueId(), playbackIndex);
         }
         Blend blend = blends.get(display.getUniqueId());
@@ -510,14 +514,7 @@ public final class RigAnimator implements Listener {
         // dirties the item so every packet re-arms from the rendered pose.
         display.setInterpolationDelay(1);
         display.setInterpolationDelay(0);
-        // Widened for the few ticks after a carried rig changed animation, so
-        // the client eases into the new cycle instead of cutting to it. The
-        // transform is unchanged — only how long the client is given to reach
-        // it — which is what makes this safe where a `mix` was not.
-        int duration = RigAnimations.swapping(swapUntil.get(display.getUniqueId()), tick)
-                ? RigAnimations.CARRIED_SWAP_TICKS
-                : PERIOD_TICKS;
-        display.setInterpolationDuration(forceRestPose && animation == null ? 0 : duration);
+        display.setInterpolationDuration(swapped || (forceRestPose && animation == null) ? 0 : PERIOD_TICKS);
         display.setTransformation(next);
     }
 
