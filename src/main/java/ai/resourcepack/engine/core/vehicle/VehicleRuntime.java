@@ -650,13 +650,27 @@ public final class VehicleRuntime implements Listener {
             stand.setVisible(false);
             stand.setGravity(false);
             stand.setInvulnerable(true);
-            stand.setSilent(true);
+            enableChassisSounds(stand);
             // The one thing here that IS saved: a parked vehicle has to still
             // be there tomorrow. Everything hanging off it is rebuilt.
             stand.setPersistent(true);
         });
         chassis.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
         return Optional.of(chassis);
+    }
+
+    /**
+     * Makes a chassis usable by Minecraft's entity-bound sound instance.
+     *
+     * <p>The chassis itself has no ambient, hurt or equipment sounds: it is an
+     * invisible, invulnerable marker carrying no equipment. Marking it silent
+     * therefore buys nothing, but the flag reaches the client and suppresses
+     * every custom sound attached to that entity too.
+     */
+    static void enableChassisSounds(Entity chassis) {
+        if (chassis != null) {
+            chassis.setSilent(false);
+        }
     }
 
     /**
@@ -1488,6 +1502,10 @@ public final class VehicleRuntime implements Listener {
         private Set<VehicleState> lastStates = Set.of();
 
         Ride(VehicleInfo info, Entity chassis) {
+            // Chassis saved by builds before entity-tracked vehicle audio are
+            // still marked silent in NBT. Repair them as they are adopted so
+            // existing vehicles become valid sound sources too.
+            enableChassisSounds(chassis);
             this.info = info;
             this.driven = info;
             this.chassisId = chassis.getUniqueId();

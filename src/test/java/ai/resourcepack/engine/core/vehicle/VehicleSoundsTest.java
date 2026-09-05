@@ -22,8 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -103,6 +105,22 @@ class VehicleSoundsTest {
 
     private static final Entity SOURCE = (Entity) Proxy.newProxyInstance(
             Entity.class.getClassLoader(), new Class<?>[] { Entity.class }, (proxy, method, args) -> null);
+
+    @Test
+    void aVehicleChassisAllowsEntityBoundCustomSounds() {
+        AtomicBoolean silent = new AtomicBoolean(true);
+        Entity chassis = (Entity) Proxy.newProxyInstance(
+                Entity.class.getClassLoader(), new Class<?>[] { Entity.class }, (proxy, method, args) -> {
+                    if (method.getName().equals("setSilent")) {
+                        silent.set((boolean) args[0]);
+                    }
+                    return null;
+                });
+
+        VehicleRuntime.enableChassisSounds(chassis);
+
+        assertFalse(silent.get(), "the client suppresses sounds attached to a silent entity");
+    }
 
     private static VehicleInfo car(Map<VehicleState, String> sounds) {
         return VehicleInfo.of(ContentId.parse("mypack:car").orElseThrow(), null, null, VehicleMedium.LAND,
