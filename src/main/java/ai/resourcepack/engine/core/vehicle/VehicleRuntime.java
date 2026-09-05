@@ -152,39 +152,20 @@ public final class VehicleRuntime implements Listener {
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /**
-     * How long a stalled playhead is given before the animation waiting behind
-     * it starts anyway.
+     * How long a vehicle's rig is given to reach its rest pose before the next
+     * animation starts.
      *
-     * <p>A vehicle's next animation waits for the current cycle to come round,
-     * which is a wait with one way of never ending: an animation on
-     * {@code hold}, or one that has run out where it stands, has no wrap
-     * coming. Four ticks of a playhead that has not moved says so — it advances
-     * every tick while anything is running — and is far short of any cycle
-     * worth waiting for.
+     * <p>Three ticks: the rig is re-posed every {@code RigAnimator.PERIOD_TICKS}
+     * (two) and eases into rest over that same window, so three is one full
+     * send plus the tick it lands on. Short enough to read as the wheel winding
+     * down rather than as the vehicle pausing.
+     *
+     * <p><strong>The knob if this ever feels wrong again.</strong> Longer makes
+     * the return to standing more deliberate and the controls less responsive;
+     * shorter starts the next animation before the rig has finished arriving,
+     * which is the jump all of this exists to remove.
      */
-    private static final int PENDING_STALL_TICKS = 4;
-
-    /**
-     * The longest a vehicle will let a cycle finish before changing animation
-     * anyway.
-     *
-     * <p><strong>The knob, if the transition ever feels wrong again.</strong>
-     * Waiting for the cycle to come round is what makes the change seamless —
-     * a cycle ends where it began, so the rig arrives at the next animation's
-     * first pose by animating there. But studio's generator writes cycles of
-     * ONE TO THREE SECONDS, and seeing a three-second one out means three
-     * seconds of the wheels turning forwards while the bike is already
-     * reversing. That reads as the controls being broken, which is worse than
-     * the jump the wait exists to avoid.
-     *
-     * <p>One second is the compromise: long enough to catch the wrap on most
-     * cycles, short enough that nobody thinks the vehicle stopped listening.
-     * Raise it to favour the seamless join, lower it to favour the response.
-     * The real answer is upstream — one cycle played at a negative speed for
-     * reverse needs no transition at all — and until then this is a trade
-     * rather than a fix.
-     */
-    private static final int PENDING_MAX_TICKS = 20;
+    private static final int REST_TICKS = 3;
 
     /**
      * How far above their own position a seated occupant's backside is drawn:
@@ -1339,62 +1320,17 @@ public final class VehicleRuntime implements Listener {
         private boolean playable;
 
         /**
-         * Whether {@link #animate} has ever settled on an answer.
+         * The animation waiting for the rig to reach its rest pose, or null.
          *
-         * <p>The first one is immediate, which is the same exemption a seat
-         * gets for sitting down: a vehicle that has just been placed, or whose
-         * rig has just come back with its chunk, should not stand in its bind
-         * pose for a fifth of a second while {@link #rigSettle} waits out a
-         * transition that is not happening. Only a CHANGE is ever waited on.
-         */
-        private boolean chose;
-
-        /**
-         * The wait in front of {@link #playing}. See {@link StateSettle}.
-         *
-         * <p>Without it a vehicle braking from forwards into reverse spends the
-         * two or three ticks it takes to cross the threshold band playing what
-         * {@code idle} names — so the rig's crossfade sets off towards the idle
-         * pose, gets a fraction of the way, and then has to turn round and
-         * blend to the reverse cycle from wherever the detour left it. There is
-         * no interpolation from driving to reversing because the two are never
-         * adjacent.
-         */
-        private final StateSettle rigSettle = new StateSettle();
-
-        /**
-         * The animation waiting for the outgoing cycle to come round, or null.
-         *
-         * <p>A change of animation lets the one that is running finish first —
-         * see {@link #animate}. This is what it is on its way TO;
-         * {@link #playing} already names it, because as far as everything else
-         * is concerned the decision has been made.
+         * <p>A change of animation goes back to rest first and starts the new
+         * one from there — see {@link #animate}. This is what it is on its way
+         * TO; {@link #playing} already names it, because as far as everything
+         * else is concerned the decision has been made.
          */
         private String pending;
 
-        /**
-         * The playhead last seen while waiting, or -1 for none yet.
-         *
-         * <p>{@link Placement#playhead()} has the loop wrap already applied, so
-         * it going BACKWARDS is the cycle coming round — which is the whole of
-         * how the wait ends. Watched rather than computed because the vehicle
-         * does not know how long the model's animations are; only the rig does.
-         */
-        private double lastPlayhead = -1;
-
-        /** The last tick {@link #lastPlayhead} actually advanced. */
-        private long headMovedAt;
-
-        /**
-         * The tick the current wait started — the CYCLE's clock, not the
-         * target's.
-         *
-         * <p>Re-aiming mid-wait replaces {@link #pending} and deliberately
-         * leaves this alone: what has to finish is the animation that is
-         * running, and it does not care what comes after it. Restarting the
-         * clock on every change of mind is how a wait becomes unbounded.
-         */
-        private long waitingSince;
+        /** The tick the rig was told to go back to its rest pose. */
+        private long restingSince;
 
         /** Its own age in ticks, which is what a particle interval counts against. */
         private long age;
@@ -2466,141 +2402,85 @@ public final class VehicleRuntime implements Listener {
             if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
                 // we thought was playing means the next tick that finds it
-                // again starts cleanly rather than believing a stale answer —
-                // including the wait, so the rig that comes back with its chunk
-                // is dressed on the first tick rather than the fourth.
+                // again starts cleanly rather than believing a stale answer,
+                // and forgetting what was queued behind a rest it will never
+                // reach means it does not arrive on a rig that came back.
                 playing = null;
                 playable = false;
-                chose = false;
                 pending = null;
-                lastPlayhead = -1;
-                rigSettle.clear();
                 return;
             }
             Placement placement = found.get();
 
-            // What the rig is heading for: whatever is queued, or failing
-            // that whatever is actually on. Read BEFORE the wait rather than
-            // after it, which is the bug this replaces — `animate` used to
-            // return early while waiting and never look at `wanted` again, so
-            // a state that changed during a three-second cycle left a stale
-            // target running and queued a SECOND full cycle behind it. That
-            // compounded into the multi-second delays and the changes that
-            // never seemed to arrive at all.
-            String target = pending != null ? pending : playing;
-            if (Objects.equals(wanted, target)) {
-                // Settled back onto what it is already heading for: whatever
-                // was being waited out never happened, so stop waiting for it.
-                // Without this a state flickering in and out would accumulate
-                // towards acting on it rather than being ignored.
-                rigSettle.clear();
-            } else if (!chose || rigSettle.settled(wanted, age)) {
-                chose = true;
-                rigSettle.clear();
-                if (Objects.equals(wanted, playing)) {
-                    // Changed its mind back to what is genuinely running. Drop
-                    // the queue; there is nothing to transition to.
-                    pending = null;
-                    playable = true;
-                } else if (playing == null || wanted == null) {
-                    // Nothing is on to wait for, or the answer is now silence.
-                    // Either way there is no cycle to see out.
-                    pending = null;
-                    playing = wanted;
-                    if (wanted == null) {
-                        placement.stop();
-                        playable = false;
-                    } else {
-                        // The answer is recorded even when it FAILS — a pack
-                        // naming an animation the model no longer has —
-                        // because this runs twenty times a second and retrying
-                        // a name that cannot work is a lookup per tick for ever.
-                        playable = placement.play(wanted, true);
-                    }
+            // Resting between two animations. The rig was told to stop on the
+            // tick the state changed and is easing back to its rest pose; the
+            // next animation starts once it is there. See REST_TICKS.
+            if (pending != null) {
+                if (age - restingSince < REST_TICKS) {
                     return;
-                } else {
-                    // Queued behind the cycle that is running. The clock starts
-                    // once: re-aiming mid-wait replaces the target and keeps
-                    // waiting on the SAME outgoing cycle, because that cycle is
-                    // what has to finish and it does not care what comes after.
-                    if (pending == null) {
-                        lastPlayhead = placement.playhead().orElse(-1.0);
-                        headMovedAt = age;
-                        waitingSince = age;
-                    }
-                    pending = wanted;
-                    // So the one-shot re-ask below does not restart the very
-                    // cycle being waited on.
-                    playable = false;
                 }
+                playing = pending;
+                pending = null;
+                // Restarted rather than resumed: the rig is standing at rest,
+                // which is where every animation of this model begins, so
+                // frame 0 is the frame that belongs here.
+                //
+                // The answer is recorded even when it FAILS — a pack naming an
+                // animation the model no longer has — because this runs twenty
+                // times a second and retrying a name that cannot work is a
+                // lookup per tick for ever.
+                playable = placement.play(playing, true);
+                return;
             }
 
-            // The outgoing cycle FINISHES before the next one starts. Going
-            // straight across meant leaving one cycle at whatever phase it
-            // happened to be at and arriving at another's first frame — two
-            // arbitrary poses with nothing in common, which is why a wheel part
-            // way round its turn had no good pose to land on. A cycle ENDS
-            // where it began, so letting it come round means the rig animates
-            // its own way to the pose the next animation starts from.
-            if (pending != null) {
-                if (cycleCameRound(placement)) {
-                    playing = pending;
-                    // Restarted rather than resumed, which costs nothing here
-                    // and is the point: the wait ended with the rig standing on
-                    // a cycle's first pose, so frame 0 is where it belongs.
-                    playable = placement.play(pending, true);
-                    pending = null;
-                    lastPlayhead = -1;
+            if (Objects.equals(wanted, playing)) {
+                // <strong>Nothing changed, and that is when this matters.</strong>
+                // A vehicle state is a condition that HOLDS, so what it names
+                // has to run for as long as it holds — but an animation
+                // authored as a one-shot runs out after its own length and
+                // hands the rig back to rest. With one animation mapped to
+                // every state that is a rowing cycle which plays once on spawn
+                // and never again, because no state change ever comes along to
+                // restart it.
+                //
+                // So it is re-asked the moment it has fallen idle, which loops
+                // it whatever its own end mode says. `playing()` is what the
+                // placement is actually doing rather than what it was last
+                // told, so a HOLD or a genuine loop never trips this.
+                if (playable && playing != null && placement.playing().isEmpty()) {
+                    placement.play(playing, true);
                 }
                 return;
             }
 
-            if (playable && playing != null && placement.playing().isEmpty()) {
-                placement.play(playing, true);
+            // <strong>Immediately, and through the REST POSE.</strong> There is
+            // no wait in front of this any more and that is deliberate: the
+            // vehicle crosses IDLE every time it changes direction, and that
+            // crossing is exactly the moment to put the rig back where it
+            // started. Suppressing it (which this used to do, to keep the idle
+            // animation from flashing) removed the one natural resting point
+            // the transition had, and waiting for the outgoing cycle to come
+            // round instead cost up to three seconds. Both are gone.
+            //
+            // Every animation of a model begins from the rest pose, so rest is
+            // the one pose they all agree about — the rig eases back to it and
+            // sets off again from there, which is the wheel winding down to a
+            // stop and then turning the other way.
+            boolean wasPlaying = playing != null;
+            playing = wanted;
+            placement.stop();
+            playable = false;
+            if (wanted != null) {
+                if (wasPlaying) {
+                    pending = wanted;
+                    restingSince = age;
+                } else {
+                    // Nothing was on, so there is no pose to come back from.
+                    playing = wanted;
+                    playable = placement.play(wanted, true);
+                }
             }
-        }
-
-        /**
-         * Whether the animation being waited on has reached the end of a cycle
-         * — or whether waiting any longer has stopped being worth it.
-         *
-         * <p>Four ways out, and only the second is the one this is for:
-         *
-         * <ul>
-         *   <li><strong>Nothing is playing.</strong> There is no cycle to come
-         *       round, so there is nothing to wait for.</li>
-         *   <li><strong>The playhead went BACKWARDS.</strong>
-         *       {@link Placement#playhead()} has the loop wrap already applied,
-         *       so that is the cycle coming round — the rig is standing on the
-         *       pose its cycle starts from, which is the pose the next one
-         *       starts from too. Watched rather than computed because the
-         *       vehicle has no idea how long the model's animations are.</li>
-         *   <li><strong>The wait got too long.</strong> The generator writes
-         *       cycles of one to three seconds, so seeing one out can mean
-         *       three seconds of wheels turning forwards while the bike is
-         *       already reversing — which reads as broken, and is worse than
-         *       the jump this exists to avoid. Past {@link #PENDING_MAX_TICKS}
-         *       the change is made anyway.</li>
-         *   <li><strong>The playhead stopped moving.</strong> An animation on
-         *       {@code hold}, or one that ran out where it stands, has no wrap
-         *       coming at all; waiting for one would strand the vehicle on the
-         *       wrong cycle for ever.</li>
-         * </ul>
-         */
-        private boolean cycleCameRound(Placement placement) {
-            Double head = placement.playhead().orElse(null);
-            if (head == null || age - waitingSince >= PENDING_MAX_TICKS) {
-                return true;
-            }
-            if (lastPlayhead >= 0 && head < lastPlayhead) {
-                return true;
-            }
-            if (head > lastPlayhead) {
-                lastPlayhead = head;
-                headMovedAt = age;
-                return false;
-            }
-            return age - headMovedAt >= PENDING_STALL_TICKS;
+            return;
         }
 
         /**
