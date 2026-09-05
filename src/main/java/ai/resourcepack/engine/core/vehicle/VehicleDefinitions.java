@@ -132,6 +132,10 @@ public final class VehicleDefinitions {
         double acceleration =
                 number(body, "acceleration", 6, MIN_ACCELERATION, MAX_ACCELERATION, origin, where, diagnostics);
         double turnSpeed = number(body, "turn-speed", 120, MIN_TURN, MAX_TURN, origin, where, diagnostics);
+        // Absent is false: a vehicle turns when it is going somewhere, and the
+        // ones that pivot on the spot — a tank, a hovercraft — say so. See
+        // `VehicleInfo.turnInPlace`.
+        boolean turnInPlace = body.bool("turn-in-place").orElse(false);
         // Absent is 1, "the size it was built at" — which is every vehicle
         // written before this key existed.
         double scale = number(body, "scale", 1, MIN_SCALE, MAX_SCALE, origin, where, diagnostics);
@@ -273,7 +277,8 @@ public final class VehicleDefinitions {
                 animations(body, origin, where, diagnostics),
                 emitters(body, origin, where, diagnostics))
                 .withScale(scale)
-                .withJump(jump));
+                .withJump(jump)
+                .withTurnInPlace(turnInPlace));
     }
 
     /**

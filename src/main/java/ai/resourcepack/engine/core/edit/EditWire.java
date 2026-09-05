@@ -154,6 +154,12 @@ final class EditWire {
          * absent is false, the handbrake every land vehicle had before.
          */
         Boolean jump;
+        /**
+         * Whether it turns while standing still. Boxed like the rest, though
+         * an absent boolean already reads as the false that means "only while
+         * moving".
+         */
+        Boolean turnInPlace;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;

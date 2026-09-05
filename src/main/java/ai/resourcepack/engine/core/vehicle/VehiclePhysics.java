@@ -217,17 +217,23 @@ public final class VehiclePhysics {
      *           per second rather than per tick
      */
     public static Step step(VehicleInfo info, State state, Demand demand, Surroundings around, double dt) {
+        boolean air = info.medium() == VehicleMedium.AIR;
+
         // Two ways to steer, and which one a server gets is the same fork as
         // the throttle. Keys turn the body directly and leave the driver's
         // head alone; look-steering turns the body toward wherever they are
         // looking, which means steering IS turning your head - and a player's
         // body follows their head, so the driver visibly swings round on every
         // corner. That is the cost the key arm exists to remove.
-        double yaw = demand.steersByKeys()
-                ? wrap360(state.yaw() + demand.steer() * info.turnSpeed() * dt)
-                : turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
+        //
+        // Neither happens at a standstill unless the vehicle asked for it -
+        // see `steers`, which is the whole of the rule.
+        double yaw = !steers(info, state, around)
+                ? state.yaw()
+                : demand.steersByKeys()
+                        ? wrap360(state.yaw() + demand.steer() * info.turnSpeed() * dt)
+                        : turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
 
-        boolean air = info.medium() == VehicleMedium.AIR;
         double throttle = demand.throttle();
         double lift = demand.lift();
 
@@ -383,6 +389,40 @@ public final class VehiclePhysics {
 
         return new Step(new State(yaw, speed, vertical), dx, dy, dz,
                 states(info, state.yaw(), yaw, speed, around, dt));
+    }
+
+    /**
+     * Whether the body comes round at all this tick.
+     *
+     * <p><strong>A vehicle that is not going anywhere does not turn.</strong>
+     * The yaw chases the driver's camera every tick and nothing used to ask
+     * how fast the vehicle was going, so a parked car span on the spot at its
+     * full {@code turn-speed} whenever its driver looked around — which is
+     * both nothing a wheeled vehicle does and the thing that made parking one
+     * anywhere precise almost impossible. It is also what swept a corner of a
+     * vehicle parked flush against a wall into the bricks, since rotation is
+     * never collision-checked.
+     *
+     * <p>Measured on the speed the vehicle came into the tick with rather than
+     * the one it leaves with, so pulling away is a fraction of a second of
+     * going straight before the steering bites, and stopping keeps the wheel
+     * until the vehicle has actually stopped. {@link #MOVING_THRESHOLD} rather
+     * than a threshold of its own: this is the same question the
+     * {@code IDLE}/{@code MOVING} states answer, and a vehicle that is
+     * animating as parked should not be steering.
+     *
+     * <p>Two exemptions. A pack can say {@code turn-in-place} for the vehicles
+     * that genuinely pivot — a tank, a hovercraft, an excavator. And an
+     * aircraft off the ground always steers, because a hovering helicopter is
+     * not standing still: it has nothing to push against and pointing itself
+     * IS its steering, so holding it to the same test would leave one that
+     * came to a hover unable to turn round and go home.
+     */
+    static boolean steers(VehicleInfo info, State state, Surroundings around) {
+        if (info.turnInPlace() || Math.abs(state.speed()) > MOVING_THRESHOLD) {
+            return true;
+        }
+        return info.medium() == VehicleMedium.AIR && !around.supported();
     }
 
     /**

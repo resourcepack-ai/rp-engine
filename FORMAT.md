@@ -572,6 +572,7 @@ hatchback:
   speed: 18                 # top speed, blocks per second
   acceleration: 7.5         # how fast it gets there
   turn-speed: 140           # degrees per second the body swings round
+  turn-in-place: false      # optional - can it turn while standing still?
   weight: 14                # 1-100. Heavier is slower to get going
   scale: 1                  # how many times its built size it is drawn
   jump: false               # land only: space jumps instead of braking
@@ -634,6 +635,15 @@ brake: a driver braking would step off at speed.
 
 `turn-speed` is how fast the body comes round — a low number is a lorry, a
 high one is a go-kart.
+
+**A vehicle only turns while it is moving.** Steering is something you do to a
+vehicle that is going somewhere: a parked one holds its heading however far
+its driver turns their head, which is what lets you park it where you meant
+to. Set `turn-in-place: true` for the things that genuinely pivot on the spot
+— a tank, a hovercraft, an excavator — and they will turn at their full
+`turn-speed` from a standstill. An aircraft that is off the ground always
+steers, whatever this says, because a hovering helicopter has nothing to push
+against and pointing itself is the whole of its steering.
 
 ### Making something bigger than three blocks
 

@@ -126,6 +126,17 @@ public final class StudioContent {
          * vehicle had before.
          */
         Boolean jump;
+        /**
+         * Whether it turns while standing still — see
+         * {@code VehicleInfo.turnInPlace}.
+         *
+         * <p>Boxed like the numbers around it, though for once the unboxed
+         * default would have been right: gson leaves an absent boolean at
+         * false, which is what a manifest pushed before this existed means.
+         * Boxed anyway so this file has one rule about an absent field rather
+         * than one per type.
+         */
+        Boolean turnInPlace;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
@@ -387,7 +398,8 @@ public final class StudioContent {
                 hitbox, flight, List.copyOf(ordered),
                 animations(vehicle.animations), emitters(vehicle.particles))
                 .withScale(vehicle.scale == null ? 1 : vehicle.scale)
-                .withJump(vehicle.jump != null && vehicle.jump));
+                .withJump(Boolean.TRUE.equals(vehicle.jump))
+                .withTurnInPlace(Boolean.TRUE.equals(vehicle.turnInPlace)));
     }
 
     /**
@@ -569,9 +581,25 @@ public final class StudioContent {
         out.acceleration = info.acceleration();
         out.turnSpeed = info.turnSpeed();
         out.jump = info.jumps() ? Boolean.TRUE : null;
+        out.turnInPlace = info.turnInPlace();
         out.hitboxWidth = info.hitbox().width();
         out.hitboxHeight = info.hitbox().height();
         out.hitboxLength = info.hitbox().length();
+        // The size and the flight numbers were both dropped here, which is a
+        // round trip that quietly resizes somebody's airship and grounds their
+        // aeroplane: this file is what a restart reads back, so anything the
+        // reader honours has to be written or the vehicle changes shape the
+        // first time the server is bounced. Written unconditionally rather
+        // than only when they differ from the default, because the reader
+        // treats absent as "a manifest older than the field" and there is no
+        // reason to keep producing one.
+        out.scale = info.scale();
+        if (info.medium() == VehicleMedium.AIR) {
+            out.takeoffSpeed = info.flight().takeoffSpeed();
+            out.climbRate = info.flight().climbRate();
+            out.diveRate = info.flight().diveRate();
+            out.stallSink = info.flight().stallSink();
+        }
         out.seats = new ArrayList<>();
         for (VehicleSeat seat : info.seats()) {
             Seat written = new Seat();

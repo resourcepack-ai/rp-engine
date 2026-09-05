@@ -39,6 +39,15 @@ class VehiclePhysicsTest {
         return new VehiclePhysics.Demand(yaw, 0, 1, 0, false);
     }
 
+    /**
+     * Under way, which is the state every steering test needs to be in: a
+     * vehicle only turns while it is going somewhere. See
+     * {@code VehiclePhysics.steers}.
+     */
+    private static VehiclePhysics.State driving(double yaw) {
+        return new VehiclePhysics.State(yaw, 10, 0);
+    }
+
     private static final VehiclePhysics.Surroundings GROUND =
             new VehiclePhysics.Surroundings(true, false, 0);
 
@@ -107,7 +116,7 @@ class VehiclePhysicsTest {
     @Test
     void keysTurnTheBodyAndIgnoreTheLook() {
         VehicleInfo info = car(VehicleMedium.LAND);
-        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        VehiclePhysics.State state = driving(0);
         // Looking hard left, steering hard right: the keys win and the look is
         // not consulted at all.
         VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(270, 0, 1, 1, 0, false);
@@ -117,10 +126,67 @@ class VehiclePhysicsTest {
     @Test
     void steeringLeftTurnsAnticlockwise() {
         VehicleInfo info = car(VehicleMedium.LAND);
-        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        VehiclePhysics.State state = driving(0);
         VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(0, 0, -1, 1, 0, false);
         // 360 - 9: Minecraft yaw runs clockwise, so left is down through zero.
         assertEquals(351, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    // --- turning on the spot -------------------------------------------
+
+    /**
+     * A parked car does not spin like a turntable when its driver looks
+     * around. The yaw chases the camera and nothing used to ask how fast the
+     * vehicle was going, which is both nothing a wheeled vehicle does and what
+     * made parking one anywhere precise almost impossible.
+     */
+    @Test
+    void aStandstillDoesNotTurn() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        assertEquals(0, VehiclePhysics.step(info, state, ahead(180), GROUND, DT).state().yaw(), 1e-9);
+        // And the key arm is the same rule, not a second one.
+        VehiclePhysics.Demand keys = VehiclePhysics.Demand.steering(0, 0, 1, 1, 0, false);
+        assertEquals(0, VehiclePhysics.step(info, state, keys, GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    /** A tank, a hovercraft, an excavator: the switch is what they are for. */
+    @Test
+    void turnInPlaceTurnsAtAStandstill() {
+        VehicleInfo tank = car(VehicleMedium.LAND).withTurnInPlace(true);
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        assertEquals(9, VehiclePhysics.step(tank, state, ahead(180), GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    /**
+     * A helicopter hovering is not standing still. It has nothing to push
+     * against and pointing itself IS its steering, so an airborne aircraft is
+     * exempt however slowly it is going.
+     */
+    @Test
+    void aHoveringAircraftStillTurns() {
+        VehicleInfo helicopter = VehicleInfo.of(ContentId.parse("mypack:heli").orElseThrow(), null, null,
+                VehicleMedium.AIR, VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 180, VehicleHitbox.DEFAULT,
+                VehicleFlight.of(0, 6, 10, 8),
+                List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)),
+                Map.of(), List.of());
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        assertEquals(9, VehiclePhysics.step(helicopter, state, new VehiclePhysics.Demand(180, 0, 0, 0, false),
+                VehiclePhysics.Surroundings.falling(), DT).state().yaw(), 1e-9);
+        // On the ground it is a vehicle at a standstill like any other.
+        assertEquals(0, VehiclePhysics.step(helicopter, state, new VehiclePhysics.Demand(180, 0, 0, 0, false),
+                GROUND, DT).state().yaw(), 1e-9);
+    }
+
+    /**
+     * Measured on the speed it came in with rather than the one it leaves
+     * with, so the wheel stays until the vehicle has actually stopped.
+     */
+    @Test
+    void brakingKeepsTheWheelUntilItIsStopped() {
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.Demand braking = new VehiclePhysics.Demand(180, 0, 0, 0, true);
+        assertEquals(9, VehiclePhysics.step(info, driving(0), braking, GROUND, DT).state().yaw(), 1e-9);
     }
 
     /** No steer key held is a vehicle that keeps its heading, not one that centres. */
@@ -140,7 +206,7 @@ class VehiclePhysicsTest {
     @Test
     void turningIsLimitedByTurnSpeed() {
         VehicleInfo info = car(VehicleMedium.LAND);
-        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        VehiclePhysics.State state = driving(0);
         // 180 degrees a second, a twentieth of a second: nine degrees.
         VehiclePhysics.Step step = VehiclePhysics.step(info, state, ahead(180), GROUND, DT);
         assertEquals(9, step.state().yaw(), 1e-9);
