@@ -642,6 +642,16 @@ public final class RigAnimator implements Listener {
      */
     private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex, boolean restart,
             ModelAnimationEvent.Cause cause, Player player) {
+        return startAnimation(hitbox, rig, animationIndex, restart, cause, player, 0);
+    }
+
+    /**
+     * Starts at an animation-local time rather than necessarily at frame zero.
+     * The stored clock is still the one every ordinary pose reads; this only
+     * moves its origin into the past.
+     */
+    private boolean startAnimation(Interaction hitbox, RigStore.Rig rig, int animationIndex, boolean restart,
+            ModelAnimationEvent.Cause cause, Player player, double animationTime) {
         RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
         if (animation == null) return false;
         List<ItemDisplay> displays = displaysOf(hitbox);
@@ -665,17 +675,20 @@ public final class RigAnimator implements Listener {
         // Read before the write, so the name is the OUTGOING animation's.
         String replaced = placements == null ? null : playingOn(hitbox);
 
+        double safeTime = Double.isFinite(animationTime) ? Math.max(0, animationTime) : 0;
+        long startedAt = now - Math.max(0L,
+                Math.round(safeTime / RigAnimations.speedOf(animation) * 20.0));
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, animationIndex);
-            pdc.set(animationStartKey, PersistentDataType.LONG, now);
+            pdc.set(animationStartKey, PersistentDataType.LONG, startedAt);
             if (pdc.has(partKey, PersistentDataType.INTEGER)) pose(display, false);
         }
 
         if (placements != null && replaced != null && !replaced.equals(animation.name)) {
             end(hitbox, replaced, ModelAnimationEndEvent.Cause.REPLACED);
         }
-        scheduleEnd(hitbox, animation, animationIndex, now);
+        scheduleEnd(hitbox, animation, animationIndex, startedAt, now);
         // The library tells Bedrock viewers to play the same keyframes
         // natively here. Nothing in this engine implements that seam yet; when
         // Geyser support lands it goes back exactly here.
@@ -783,6 +796,38 @@ public final class RigAnimator implements Listener {
     }
 
     /**
+     * Replaces the current base animation with the named one at the matching
+     * point of an oppositely-authored cycle.
+     *
+     * <p>For a vehicle changing between forwards and reverse. Those are the
+     * one pair for which the engine knows the relationship between two clips:
+     * the same wheel turn, traversed in opposite directions. A normal
+     * animation change still starts at frame zero.
+     */
+    boolean playMirrored(Interaction hitbox, String animationName) {
+        if (hitbox == null || !hitbox.isValid()) return false;
+        RigStore.Rig rig = rigOf(hitbox);
+        int targetIndex = RigAnimations.findAnimationIndexByName(rig, animationName);
+        RigStore.Animation target = RigAnimations.animationAt(rig, targetIndex);
+        if (target == null) return false;
+        List<ItemDisplay> displays = displaysOf(hitbox);
+        if (target.layer > 0 || !hasMovingPart(displays)) {
+            return play(hitbox, animationName, true);
+        }
+
+        String sourceName = playingOn(hitbox);
+        RigStore.Animation source = RigAnimations.animationAt(
+                rig, RigAnimations.findAnimationIndexByName(rig, sourceName));
+        Double sourceTime = playheadOn(hitbox);
+        if (source == null || sourceTime == null) {
+            return play(hitbox, animationName, true);
+        }
+        double targetTime = RigAnimations.mirroredTime(source, sourceTime, target);
+        return startAnimation(hitbox, rig, targetIndex, true,
+                ModelAnimationEvent.Cause.API, null, targetTime);
+    }
+
+    /**
      * Puts a placement back to rest, or to its idle loop if it has one —
      * the same place a one-shot goes when it runs out.
      *
@@ -837,12 +882,14 @@ public final class RigAnimator implements Listener {
      * Nothing is booked across a restart either — the placement resumes from
      * its own clock, but the task that was going to speak for it is gone.
      */
-    private void scheduleEnd(Interaction hitbox, RigStore.Animation animation, int index, long startedAt) {
+    private void scheduleEnd(Interaction hitbox, RigStore.Animation animation, int index,
+                             long startedAt, long now) {
         if (placements == null || RigAnimations.loops(animation) || RigAnimations.holds(animation)) return;
         double speed = RigAnimations.speedOf(animation);
         if (speed <= 0 || animation.length <= 0) return;
 
-        long ticks = Math.max(1L, Math.round(animation.length / speed * 20.0));
+        long totalTicks = Math.max(1L, Math.round(animation.length / speed * 20.0));
+        long ticks = Math.max(1L, totalTicks - Math.max(0L, now - startedAt));
         String name = animation.name;
         Bukkit.getScheduler().runTaskLater(host.plugin(), () -> {
             if (!hitbox.isValid() || !stillRunning(hitbox, index, startedAt)) return;

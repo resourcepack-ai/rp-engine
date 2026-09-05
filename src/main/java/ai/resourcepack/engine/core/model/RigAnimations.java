@@ -195,6 +195,30 @@ final class RigAnimations {
         return loops(animation) ? at % animation.length : Math.min(at, animation.length);
     }
 
+    /**
+     * The point in {@code target} that shows the same phase travelling the
+     * other way round its cycle.
+     *
+     * <p>A wheel cycle authored forwards as 0→360 degrees and backwards as
+     * 360→0 agrees at complementary points: a quarter of the way through
+     * the first is three quarters of the way through the second. Lengths may
+     * differ, so the phase is normalised before it is mirrored.
+     *
+     * <p>Zero for anything that cannot describe a cycle. That is the ordinary
+     * animation start and lets the caller fall back without inventing a pose.
+     */
+    static double mirroredTime(RigStore.Animation source, double sourceTime,
+                               RigStore.Animation target) {
+        if (source == null || target == null || source.length <= 0 || target.length <= 0
+                || !Double.isFinite(sourceTime)) {
+            return 0;
+        }
+        double phase = sourceTime / source.length;
+        phase -= Math.floor(phase);
+        double mirrored = (1 - phase) % 1;
+        return mirrored * target.length;
+    }
+
     static boolean loops(RigStore.Animation animation) {
         if (MODE_LOOP.equals(animation.mode)) return true;
         if (MODE_HOLD.equals(animation.mode) || MODE_ONCE.equals(animation.mode)) return false;

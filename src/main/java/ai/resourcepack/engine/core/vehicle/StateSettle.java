@@ -23,10 +23,11 @@ import java.util.Objects;
  *
  * <p>Pure, and its own class, for the reason {@link VehiclePhysics} is: the
  * alternative way of checking it is reversing a car on a test server and
- * watching for a single frame of the wrong thing. Both consumers share it so
- * there is one wait and one number rather than two that drift — a seat's pose
- * (see {@code VehicleRuntime.Ride.dress}) and the vehicle's own animation
- * (see {@code VehicleRuntime.Ride.animate}) are waiting out the same window.
+ * watching for a single frame of the wrong thing. Both consumers share the
+ * same window: a seat waits before changing pose, while the body waits before
+ * accepting IDLE from a directional cycle. The body can leave that wait as
+ * soon as the opposite direction arrives, because those two cycles can join
+ * at a matching mirrored phase.
  */
 final class StateSettle {
 
@@ -37,9 +38,8 @@ final class StateSettle {
      * window that has to be covered: the brake-through-idle crossing described
      * above is three ticks on a default car and two on a quick one.
      *
-     * <p>It is latency on every genuine change as well, which is the price and
-     * is worth it: a fifth of a second late into the right pose is invisible
-     * beside a frame of the wrong one.
+     * <p>For seats it is latency on every genuine change. For the vehicle body
+     * it is only the time before a drive cycle accepts IDLE as a real stop.
      */
     static final int TICKS = 4;
 
