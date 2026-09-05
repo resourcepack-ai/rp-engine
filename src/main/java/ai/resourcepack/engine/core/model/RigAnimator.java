@@ -181,11 +181,14 @@ public final class RigAnimator implements Listener {
 
         /** The pose it left, per program step, or null for rest. */
         private final float[][] from;
+        /** The whole turns each rotation goes by, decided when it started. See RigMath.turnsBetween. */
+        private final float[][] turns;
         private final long startedTick;
         private final int ticks;
 
-        Fade(float[][] from, long startedTick, int ticks) {
+        Fade(float[][] from, float[][] turns, long startedTick, int ticks) {
             this.from = from;
+            this.turns = turns;
             this.startedTick = startedTick;
             this.ticks = ticks;
         }
@@ -493,7 +496,7 @@ public final class RigAnimator implements Listener {
                         RigAnimations.blendOf(outgoing));
                 ticks = (int) Math.round(seconds * 20);
             }
-            fade = ticks > 0 ? new Fade(was.values, tick, ticks) : null;
+            fade = ticks > 0 ? new Fade(was.values, RigMath.turnsBetween(was.values, target, steps), tick, ticks) : null;
             if (fade != null) {
                 fades.put(id, fade);
             } else {
@@ -539,7 +542,7 @@ public final class RigAnimator implements Listener {
             if (progress >= 1f) {
                 fades.remove(id);
             } else {
-                values = RigMath.lerpProgram(fade.from, target, steps, progress);
+                values = RigMath.lerpProgram(fade.from, target, fade.turns, steps, progress);
             }
         }
         was.values = values;
@@ -779,40 +782,49 @@ public final class RigAnimator implements Listener {
     /**
      * The clock a newly started animation runs on.
      *
-     * <p>Now, with one exception: a CARRIED rig swapping one loop for another
-     * joins the new cycle at the point of it nearest the pose the old one is
-     * showing — which for a wheel is the angle it is already at. The vehicle
-     * runtime asks for a cycle by state twenty times a second and every one
-     * of its cycles turns the same wheels, so starting each at frame 0 meant
-     * a wheel at 170 degrees being asked for 0 on every change of state: half
-     * a turn to fade through, on a wheel that had nothing wrong with where it
-     * was. Joining in phase leaves the fade nothing to do for the wheel and
-     * only the steering, the lean and the riders to ease. See
-     * {@link RigAnimations#nearestPhase}.
+     * <p>Now, with one exception: a CARRIED rig starting a loop joins it at
+     * the point of it nearest the pose the rig is showing — which for a wheel
+     * is the angle it is already at — whether what it is showing is another
+     * loop, the tail of a one-shot, or rest with a wheel held where it
+     * stopped. The vehicle runtime asks for a cycle by state twenty times a
+     * second and every one of its cycles turns the same wheels, so starting
+     * each at frame 0 meant a wheel at 170 degrees being asked for 0 on every
+     * change of state: half a turn to fade through, on a wheel that had
+     * nothing wrong with where it was. Joining in phase leaves the fade
+     * nothing to do for the wheel and only the steering, the lean and the
+     * riders to ease. See {@link RigAnimations#nearestPhase}.
+     *
+     * <p>Coming out of a STOP is the join that matters most, and the one this
+     * first missed: a wheel held where it stopped is showing an angle no
+     * cycle would read, and a cycle started from its top wound the wheel half
+     * a turn to get there — which is what a bike going forwards, stopping and
+     * reversing did to both wheels, every time.
      *
      * <p>A placed rig is untouched, and so is asking for the SAME animation
      * again: a loop asked for again restarts, which is what {@code restart}
-     * has always meant. A one-shot at either end starts at 0 too, since a
-     * one-shot joined in the middle is one that ends early.
+     * has always meant. A one-shot starts at 0 too, since a one-shot joined
+     * in the middle is one that ends early.
      */
     private long startTickFor(List<ItemDisplay> displays, RigStore.Rig rig, int index, long now) {
         RigStore.Animation next = RigAnimations.animationAt(rig, index);
+        if (!RigAnimations.loops(next)) return now;
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
             if (!pdc.has(yawHostKey, PersistentDataType.STRING)) return now;
             Integer active = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
+            if (active != null && active == index) return now;
             Long started = pdc.get(animationStartKey, PersistentDataType.LONG);
             RigStore.Animation current = RigAnimations.animationAt(rig, active);
-            if (current == null || started == null || active == index
-                    || !RigAnimations.loops(current) || !RigAnimations.loops(next)) {
-                return now;
-            }
-            double from = RigAnimations.animationTime(current, Math.max(0, now - started) / 20.0);
             // Joined to what is on SCREEN, not to what the old cycle samples
             // to: a wheel held through an idle, or caught mid-fade, is at an
-            // angle no cycle would read.
-            double to = RigAnimations.nearestPhase(leavingRotations(displays, rig), current, from, next);
+            // angle no cycle would read — and a rig at rest is showing
+            // something too.
+            Map<String, float[]> shown = leavingRotations(displays, rig);
+            if (shown.isEmpty() && (current == null || started == null)) return now;
+            double from = current == null || started == null
+                    ? 0 : RigAnimations.animationTime(current, Math.max(0, now - started) / 20.0);
+            double to = RigAnimations.nearestPhase(shown, current, from, next);
             // A cycle reads its time as elapsed * speed, so the start is set
             // back by the join point at this animation's own speed.
             return now - Math.round(to / RigAnimations.speedOf(next) * 20.0);

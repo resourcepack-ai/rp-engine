@@ -385,7 +385,8 @@ public final class EmoteDirector implements Listener {
             ai.resourcepack.engine.core.model.DisplayLatency.glideTicks(PERIOD_TICKS);
 
     /**
-     * How long a rig takes to ease out of one animation and into the next.
+     * The least a rig takes to ease out of one animation and into the next,
+     * in ticks.
      *
      * <p><strong>A swap used to be a hard cut, and on a big pose it read as the
      * body teleporting.</strong> Every worn rig went through {@code pose(...,
@@ -394,23 +395,34 @@ public final class EmoteDirector implements Listener {
      * through 130 degrees in one frame, and a stance going from a walk to a run
      * changed legs between two ticks.
      *
-     * <p>Placed rigs have had this all along: {@code RigAnimator} keeps a
-     * {@code Fade} per display and eases it in pose space, over a
-     * {@code blend} authored per animation. This is the worn-rig half, and it
-     * is deliberately NOT authored — the request was for it to happen
-     * automatically, and a number nobody sets is a number nobody gets wrong.
+     * <p>Placed and carried rigs have this too: {@code RigAnimator} keeps a
+     * {@code Fade} per display and eases it in POSE SPACE. This is the worn-rig
+     * half, done the same way for the same reason — the values every bone is
+     * composed from are blended and composed about the bone's pivot each tick,
+     * so every pose on the way is one the body can hold. It was first done by
+     * lengthening the client's own interpolation over the window, and that was
+     * the mistake the vehicle side made twice over: the client tweens a
+     * composed transform, and a forearm whose shoulder is turning through 130
+     * degrees tweened that way leaves the elbow on the way. It is deliberately
+     * NOT authored — the request was for it to happen automatically, and a
+     * number nobody sets is a number nobody gets wrong.
      *
-     * <p>Done by lengthening the client's own interpolation for the window
-     * rather than by mixing transforms here. The rig is re-posed every tick
-     * anyway, so a longer duration makes each pass a step toward a moving
-     * target — the rig eases into the new animation and is running it cleanly
-     * by the end of the window, with no per-display state to keep, and props
-     * and held items come along because they read the same number.
-     *
-     * <p>Five ticks. Long enough that a head turning right round reads as a
-     * turn, short enough that a walk-to-run swap is not visibly late.
+     * <p>Five ticks at least, and longer when a bone has further to turn —
+     * see {@link #FADE_DEGREES_PER_TICK}. Long enough that a head turning
+     * right round reads as a turn, short enough that a walk-to-run swap is
+     * not visibly late.
      */
     private static final int SWAP_BLEND_TICKS = 5;
+
+    /**
+     * The most one tick of a swap turns a bone, in degrees, which is what
+     * lengthens a swap past {@link #SWAP_BLEND_TICKS}. The client still tweens
+     * between consecutive ticks, and a bone about a pivot away from the entity
+     * bulges outward mid-tween by {@code r(1 - cos(step/2))}: at thirty
+     * degrees that is three percent of the pivot distance, under a pixel on a
+     * head a block and a half above the feet.
+     */
+    private static final float FADE_DEGREES_PER_TICK = 30f;
 
     private final Host host;
     private final EmoteStore emotes;
@@ -581,13 +593,16 @@ public final class EmoteDirector implements Listener {
         boolean snap;
 
         /**
-         * The tick this session's ease into a new animation finishes at, or 0.
-         *
-         * <p>Set at every swap and simply read afterwards — see
-         * {@link #SWAP_BLEND_TICKS}. It is a deadline rather than a countdown
-         * so nothing has to be decremented on a pass that does no posing.
+         * The pose this session is easing OUT of, or null when it is not
+         * easing: the nine values each bone was composed from, in the table's
+         * order with the root last. See {@link #SWAP_BLEND_TICKS}.
          */
-        long blendUntil;
+        float[][] fadeFrom;
+        /** With it, the whole turns each rotation goes by. See RigMath.turnsBetween. */
+        float[][] fadeTurns;
+        /** The tick the ease began, and how many ticks it takes. */
+        long fadeStart;
+        int fadeTicks;
         /**
          * Where the displays were last put, or null if they need putting.
          *
@@ -1320,6 +1335,11 @@ public final class EmoteDirector implements Listener {
         if (wanted == session.memberEmote && session.memberState == null && session.startTick != 0) {
             return;
         }
+        long now = player.getWorld().getGameTime();
+        // Read off the OLD emote before anything below replaces it: the pose
+        // the rig is showing, mid-fade included, is what the new one is eased
+        // from.
+        float[][] leaving = leavingPose(session, now);
         session.memberEmote = wanted;
         session.memberState = null;
         session.emote = wanted != null ? wanted : session.rest;
@@ -1329,11 +1349,7 @@ public final class EmoteDirector implements Listener {
         session.root = wanted != null ? wanted.root : null;
         // From the top, every time — a cycle joined halfway through because the
         // last state ran for two seconds is a limp.
-        session.startTick = player.getWorld().getGameTime();
-        // Eased into rather than cut to, unless the rig was away — see
-        // SWAP_BLEND_TICKS, and `wasHidden` below for the one case where a
-        // tween is from a pose nobody authored.
-        session.blendUntil = session.startTick + SWAP_BLEND_TICKS;
+        session.startTick = now;
         Location base = player.getLocation().clone()
             .add(session.lead.getX(), RIG_BASE_Y, session.lead.getZ());
         base.setYaw(0);
@@ -1341,10 +1357,18 @@ public final class EmoteDirector implements Listener {
         spawnProps(player, session, session.emote, base, null);
         boolean wasHidden = session.rigHidden;
         setRigHidden(player, session, wanted == null);
-        // Only where a tween would be wrong: easing out of a rig that was put
-        // away is a tween from whatever pose it happened to be holding.
-        if (wasHidden) session.snap = true;
-        pose(player.getUniqueId(), session, wasHidden ? 0 : SWAP_BLEND_TICKS);
+        // Eased into rather than cut to, in pose space — see SWAP_BLEND_TICKS —
+        // unless the rig was away: easing out of a rig that was put away is an
+        // ease from whatever pose it happened to be holding, which is not a
+        // transition anybody authored, so that one snaps.
+        if (wasHidden) {
+            session.snap = true;
+            session.fadeFrom = null;
+            session.fadeTurns = null;
+        } else {
+            startFade(session, leaving, now);
+        }
+        pose(player.getUniqueId(), session, wasHidden ? 0 : INTERPOLATION_TICKS);
     }
 
     /**
@@ -2788,6 +2812,97 @@ public final class EmoteDirector implements Listener {
     }
 
     /**
+     * The whole-body transform from values already sampled — a fade's. Null
+     * values are rest, which composes to the identity, so a fade OUT of an
+     * emote with a root into one without eases the body home.
+     */
+    private Matrix4f rootMatrix(float[] values) {
+        Matrix4f m = new Matrix4f();
+        float[] pivot = emotes.rootPivot();
+        if (values == null || pivot == null) return m;
+        RigMath.composeStep(m, pivot, values);
+        return m;
+    }
+
+    // ---- easing between emotes ------------------------------------------
+    //
+    // A swap is eased in POSE SPACE: the nine values each bone is composed
+    // from are blended from the pose the rig was showing to the new emote's,
+    // and composed about the bone's pivot every tick, so every pose on the
+    // way is one the body can hold. See SWAP_BLEND_TICKS for why not the
+    // client's window, and RigMath for why not a matrix.
+
+    /**
+     * The values every bone is posed from this tick — the emote's at
+     * {@code t}, blended with the pose the rig is easing out of while a swap
+     * is being eased — or null when it is simply playing, which is nearly
+     * always and costs nothing.
+     */
+    private float[][] shownPose(Session session, double t, long now) {
+        float s = fadeProgress(session, now);
+        if (s >= 1f) return null;
+        int steps = boneCount(session) + 1;
+        return RigMath.lerpProgram(session.fadeFrom, samplePose(session, t), session.fadeTurns, steps, s);
+    }
+
+    /** Every bone's values at {@code t} under the emote the session plays, root last. */
+    private float[][] samplePose(Session session, double t) {
+        int last = boneCount(session);
+        float[][] values = new float[last + 1][];
+        for (int i = 0; i < last; i++) {
+            EmoteStore.Bone bone = session.bones.get(i);
+            if (bone == null || bone.key == null) continue;
+            values[i] = RigMath.sampleStep(
+                    session.animators == null ? null : session.animators.get(bone.key), t, 1f);
+        }
+        values[last] = session.root == null || session.root.isEmpty()
+                ? null : RigMath.sampleStep(session.root, t, 1f);
+        return values;
+    }
+
+    /** 0 at the moment an ease started, 1 when it is over or there is none; forgets one that is over. */
+    private static float fadeProgress(Session session, long now) {
+        if (session.fadeFrom == null) return 1f;
+        if (session.fadeTicks <= 0 || now - session.fadeStart >= session.fadeTicks) {
+            session.fadeFrom = null;
+            session.fadeTurns = null;
+            return 1f;
+        }
+        return Math.max(0f, (now - session.fadeStart) / (float) session.fadeTicks);
+    }
+
+    /**
+     * The pose the rig is showing at {@code now}, read off the emote it is
+     * playing BEFORE a swap replaces it — mid-fade included, so a swap landing
+     * in the middle of an ease starts the next one from wherever that had got
+     * to.
+     */
+    private float[][] leavingPose(Session session, long now) {
+        double t = session.emote == null
+                ? 0 : animationTime(session.emote, Math.max(0, now - session.startTick) / 20.0);
+        float[][] target = samplePose(session, t);
+        float s = fadeProgress(session, now);
+        return s < 1f
+                ? RigMath.lerpProgram(session.fadeFrom, target, session.fadeTurns, boneCount(session) + 1, s)
+                : target;
+    }
+
+    /** Starts easing from {@code from} into the emote the session now plays, from its top. */
+    private void startFade(Session session, float[][] from, long now) {
+        int steps = boneCount(session) + 1;
+        float[][] to = samplePose(session, session.emote == null ? 0 : animationTime(session.emote, 0));
+        session.fadeFrom = from;
+        session.fadeTurns = RigMath.turnsBetween(from, to, steps);
+        session.fadeStart = now;
+        session.fadeTicks = Math.max(SWAP_BLEND_TICKS,
+                RigMath.fadeTicks(from, to, steps, PERIOD_TICKS, FADE_DEGREES_PER_TICK));
+    }
+
+    private static int boneCount(Session session) {
+        return session.bones == null ? 0 : session.bones.size();
+    }
+
+    /**
      * Moves the player along the root's path, or stops trying.
      *
      * <p><b>The player ends where the path ends</b> — that is what the Move
@@ -3132,6 +3247,10 @@ public final class EmoteDirector implements Listener {
             // was split has it), and swapping on the state would restart that
             // one emote's clock each time the wearer crossed between them.
             if (member != session.memberEmote || session.memberState == null) {
+                // Read off the OLD emote before anything below replaces it:
+                // the pose the rig is showing, mid-fade included, is what the
+                // new one is eased from.
+                float[][] leaving = leavingPose(session, tick);
                 session.memberState = state;
                 session.memberEmote = member;
                 session.emote = member != null ? member : session.rest;
@@ -3144,22 +3263,25 @@ public final class EmoteDirector implements Listener {
                 // is a limp, and the emotes in a set have no reason to share a
                 // length for their phases to line up.
                 session.startTick = tick;
-                // The same ease a driven swap gets: walking into a run is the
-                // case the comment below about tweening was always describing,
-                // and until now it had only the step-to-step window to do it in.
-                session.blendUntil = tick + SWAP_BLEND_TICKS;
                 // Props belong to the emote, not to the set, so the old one's
                 // models go away and the new one's stand up. Bones are shared
                 // and are never respawned.
                 spawnProps(player, session, session.emote, base, null);
                 boolean wasHidden = session.rigHidden;
                 setRigHidden(player, session, member == null);
-                // Only where a tween would be wrong, not on every swap.
-                // Easing between a walk and a run is two cycles blending, which
-                // is what you want; easing out of a rig that was put away is a
-                // tween from whatever pose it happened to be holding when it
-                // went, which is not a transition anybody authored.
-                if (wasHidden) session.snap = true;
+                // The same ease a driven swap gets, in pose space — see
+                // SWAP_BLEND_TICKS: walking into a run is two cycles blending,
+                // which is what you want. Not where the rig was put away:
+                // easing out of that is an ease from whatever pose it happened
+                // to be holding when it went, which is not a transition
+                // anybody authored, so that one snaps.
+                if (wasHidden) {
+                    session.snap = true;
+                    session.fadeFrom = null;
+                    session.fadeTurns = null;
+                } else {
+                    startFade(session, leaving, tick);
+                }
             } else {
                 session.memberState = state;
             }
@@ -3527,16 +3649,13 @@ public final class EmoteDirector implements Listener {
     /**
      * How long the client should take over this pass's pose.
      *
-     * <p>Three answers and they are one mechanism at three values, which is why
-     * this replaced a boolean: {@code snap} is a hard cut, a swap is easing
-     * into the new animation, and everything else is the ordinary step-to-step
-     * window. See {@link #SWAP_BLEND_TICKS}.
+     * <p>Two answers: {@code snap} is a hard cut, and everything else — a swap
+     * included, now that a swap is eased in pose space and every pass of it
+     * is continuous with the last — is the ordinary step-to-step window. See
+     * {@link #SWAP_BLEND_TICKS}.
      */
     private int poseTicks(Session session, long now) {
-        if (session.snap) {
-            return 0;
-        }
-        return now < session.blendUntil ? SWAP_BLEND_TICKS : INTERPOLATION_TICKS;
+        return session.snap ? 0 : INTERPOLATION_TICKS;
     }
 
     private void pose(UUID playerId, Session session, int ticks) {
@@ -3558,12 +3677,18 @@ public final class EmoteDirector implements Listener {
             : 0;
         String swingBone = session.swingOffHand ? HeldItem.OFF_HAND_ATTACH : HeldItem.MAIN_HAND_ATTACH;
 
+        // The pose the rig is easing out of, if it is: the values every bone is
+        // composed from, blended with this tick's — see fadeProgress. On the
+        // values and never on the matrices, for the reason RigMath gives.
+        float[][] shown = shownPose(session, t, now);
+        int last = session.bones.size();
+
         // The root, once, as the matrix every bone starts from. Composing it
         // first is what makes it a PARENT: each bone's own step is appended to
         // it, so the bone turns about its own joint inside a body that has
         // already been moved and turned. An emote without one starts from the
         // identity and is posed exactly as it always was.
-        Matrix4f root = rootMatrix(session, t);
+        Matrix4f root = shown != null ? rootMatrix(shown[last]) : rootMatrix(session, t);
 
         // Each bone's composed animation matrix (root and every parent already
         // folded in), so a child starts from its parent instead of from the
@@ -3577,7 +3702,11 @@ public final class EmoteDirector implements Listener {
 
             Matrix4f parent = bone.parent != null ? composed.get(bone.parent) : null;
             Matrix4f animation = new Matrix4f(parent != null ? parent : root);
-            RigMath.applyStep(animation, session.animators, bone.key, bone.pivot, t);
+            if (shown != null) {
+                RigMath.composeStep(animation, bone.pivot, shown[i]);
+            } else {
+                RigMath.applyStep(animation, session.animators, bone.key, bone.pivot, t);
+            }
             // The swing, on top of what the emote already asked this bone to
             // do rather than instead of it — so a rig can swing mid-walk and
             // the walk carries on underneath. It goes on the UPPER arm, which
