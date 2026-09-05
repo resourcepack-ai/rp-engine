@@ -13,6 +13,7 @@ RPEnginePlugin engine = (RPEnginePlugin) Bukkit.getPluginManager().getPlugin("RP
 engine.items();     // custom items
 engine.models();    // studio models, and the rigs standing in your worlds
 engine.emotes();    // emotes and stances
+engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
 engine.registry();  // everything this server holds, by id
@@ -106,6 +107,69 @@ points, **every tick** — a vehicle turns — and `null` to hand the rig back t
 their look. It only moves a rig that arrived through your `wear`, so somebody
 who was already mid-emote when they sat down keeps it.
 
+## Vehicles
+
+```java
+engine.vehicles().spawn(location, id);       // park one, ready to get into
+engine.vehicles().of(player);                // the vehicle they are in
+engine.vehicles().at(entity);                // is this thing part of a vehicle?
+engine.vehicles().near(location, 16);        // nearest first
+engine.vehicles().loaded();                  // every one in a loaded chunk
+engine.vehicles().isRiding(uuid);            // safe from any thread
+```
+
+A `Vehicle` is a handle on one standing in a world, occupied or not: what it
+is, where it is going, who is aboard, and the switches a plugin turns.
+
+```java
+Vehicle car = engine.vehicles().of(player).orElseThrow();
+car.speed();                    // blocks per second, negative in reverse
+car.states();                   // MOVING, TURNING, AIRBORNE, IDLE ...
+car.driver();                   // Optional<Player>
+car.occupants();                // driver first, then in seat order
+car.seat(other, 1);             // put somebody in seat 1
+car.eject(other);               // and take them out
+```
+
+**Fuel, breakdowns, ignition keys, pit lanes — anything that stops a vehicle
+going — is `setEnabled`.** A disabled vehicle ignores its driver, coasts to a
+halt where it is and stays there; it still falls if it was in the air and
+still floats if it was on water, and people get in and out of it as normal.
+The flag is written on the chassis, so a car that ran dry is still dry after
+a restart.
+
+```java
+NamespacedKey fuel = car.key(this, "fuel");
+
+@EventHandler
+public void onState(VehicleStateEvent event) {
+    // Burn only while it is actually going somewhere.
+    if (event.entered(VehicleState.MOVING)) burners.add(event.vehicle());
+    if (event.left(VehicleState.MOVING)) burners.remove(event.vehicle());
+}
+
+// once a second
+for (Vehicle vehicle : burners) {
+    int left = vehicle.data().getOrDefault(fuel, PersistentDataType.INTEGER, 0) - 1;
+    vehicle.data().set(fuel, PersistentDataType.INTEGER, Math.max(0, left));
+    vehicle.setEnabled(left > 0);
+}
+```
+
+`data()` is the chassis's persistent data — the tank, the owner, the price
+paid — and it survives everything the vehicle survives. `uniqueId()` is the
+chassis's id and is the one stable key: seats and the model are rebuilt on
+every chunk load with new ids each time.
+
+`setSpeedLimit` is the softer version, for a damaged engine or a road with a
+limit: a lower top speed, with braking and reversing scaled to match, and an
+aircraft limited below its takeoff speed cannot take off. Deliberately not
+remembered — keep it in `data()` yourself if it should be. `stop()` is a
+wall: dead this tick, throttle reset, still answering its driver afterwards.
+
+Every handle is main thread only, like everything that touches an entity.
+`ids`, `info` and `isRiding` are safe anywhere.
+
 ## Icons in your own text
 
 ```java
@@ -129,7 +193,11 @@ All cancellable unless the row says otherwise.
 | `ModelInteractEvent` | A placed model was right-clicked |
 | `ModelAnimationEvent` | A rig is about to play an animation |
 | `ModelAnimationEndEvent` | One ended — finished, replaced or stopped. Not cancellable |
-| `ModelSeatEvent` | Somebody is about to sit on a chair or a seat bone. Cancelling leaves them standing |
+| `ModelSeatEvent` | Somebody is about to sit on a chair, a seat bone, **or a vehicle seat**. Cancelling leaves them standing |
+| `VehicleEnterEvent` | Somebody is about to get into a vehicle — fires after `ModelSeatEvent` for the same seat, with the vehicle and the seat attached. "Is this your car" lives here |
+| `VehicleExitEvent` | Somebody got out, or was taken out. Carries why — dismounted, ejected, quit, reloaded, removed, unloaded, shutdown. Not cancellable: a player who cannot be let out is trapped. `RELOADED` is followed by them being put back a tick later, with no enter event |
+| `VehicleMoveEvent` | A vehicle is about to move — once per tick, only while it is going somewhere. Cancelling stops it dead, like a wall. The event for a region it may not enter; **not** the event for fuel, which is `Vehicle.setEnabled` |
+| `VehicleStateEvent` | What a vehicle is doing changed — set off, stopped, took off, went under. The same set that drives its animation, on the change rather than every tick. Not cancellable |
 | `ModelBindEvent` | A model is going on an entity, or coming off one — a boss, an NPC, anything that is not ours |
 | `EntityDeathEvent` | A custom entity died. Bukkit's own event carries the drops; this one says what it was. Not cancellable |
 | `PlayerLiquidEvent` | Somebody went into one of your liquids, or came out. Fires on the crossing, not every second. Not cancellable |

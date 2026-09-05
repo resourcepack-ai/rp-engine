@@ -786,4 +786,47 @@ class VehiclePhysicsTest {
         assertTrue(states.contains(VehicleState.TURNING));
         assertTrue(states.contains(VehicleState.AIRBORNE));
     }
+
+    // --- what a plugin can do to a running vehicle ----------------------
+
+    /**
+     * A disabled vehicle is given the idle demand whoever is in the seat,
+     * so this is what running out of fuel does: the heading is kept and the
+     * speed goes to nothing on the coast rate, rather than stopping dead.
+     */
+    @Test
+    void theIdleDemandCoastsToAStopAndKeepsTheHeading() {
+        VehiclePhysics.State state = new VehiclePhysics.State(90, 20, 0);
+        for (int tick = 0; tick < 20 * 10; tick++) {
+            state = VehiclePhysics.step(car(VehicleMedium.LAND), state,
+                    VehiclePhysics.Demand.idle(state.yaw()), GROUND, DT).state();
+        }
+        assertEquals(0, state.speed(), 1e-9);
+        assertEquals(90, state.yaw(), 1e-9);
+    }
+
+    /**
+     * A speed limit is applied as a lower top speed, not a smaller throttle,
+     * so the vehicle tops out exactly at it and everything derived from the
+     * top speed scales with it. {@code withSpeed} leaves the rest alone.
+     */
+    @Test
+    void aSpeedLimitIsALowerTopSpeed() {
+        VehicleInfo car = car(VehicleMedium.LAND);
+        VehicleInfo limited = car.withSpeed(5);
+        assertEquals(5, limited.speed());
+        assertEquals(car.acceleration(), limited.acceleration());
+        assertEquals(car.seats(), limited.seats());
+        assertEquals(car.hitbox(), limited.hitbox());
+        assertEquals(car.id(), limited.id());
+        // Ignored rather than refused, like withScale.
+        assertTrue(car.withSpeed(0) == car);
+        assertTrue(car.withSpeed(Double.NaN) == car);
+
+        VehiclePhysics.State state = VehiclePhysics.State.still(0);
+        for (int tick = 0; tick < 20 * 10; tick++) {
+            state = VehiclePhysics.step(limited, state, ahead(0), GROUND, DT).state();
+        }
+        assertEquals(5, state.speed(), 1e-9);
+    }
 }

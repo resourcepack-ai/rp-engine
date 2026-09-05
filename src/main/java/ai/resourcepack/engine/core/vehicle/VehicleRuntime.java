@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.Placement;
+import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
@@ -11,6 +12,10 @@ import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
+import ai.resourcepack.engine.api.event.VehicleEnterEvent;
+import ai.resourcepack.engine.api.event.VehicleExitEvent;
+import ai.resourcepack.engine.api.event.VehicleMoveEvent;
+import ai.resourcepack.engine.api.event.VehicleStateEvent;
 import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.model.DisplayCarry;
@@ -46,6 +51,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Vector;
@@ -57,13 +63,22 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
- * Vehicles: a model people ride.
+ * The vehicle runtime: a model people ride.
+ *
+ * <p>The API's view of this is {@link ai.resourcepack.engine.api.Vehicles}
+ * (through {@link VehiclesImpl}) and the {@link Vehicle} handle, which is
+ * {@link Handle} below. The runtime fires the four vehicle events — see
+ * {@link #sit}, {@link Ride#vacate}, and {@link Ride#tick} — and everything a
+ * plugin can change about a running vehicle comes through the handle into
+ * {@link Ride}.
  *
  * <p><strong>The chassis is a real entity that exists whether or not anybody
  * is in it.</strong> That is the decision the whole class is shaped by. Making
@@ -111,7 +126,7 @@ import java.util.logging.Logger;
  * audit, where saving derived entities meant a chunk load spawned a second set
  * and orphaned the first, invisibly and for ever.
  */
-public final class Vehicles implements Listener {
+public final class VehicleRuntime implements Listener {
 
     /** Seconds per tick, so the physics constants can be quoted per second. */
     private static final double DT = 1 / 20.0;
@@ -327,6 +342,40 @@ public final class Vehicles implements Listener {
     /** Marks a chassis as ours, and says which vehicle it is. */
     private final NamespacedKey idKey;
 
+    /**
+     * Present on a chassis a plugin has switched off — see
+     * {@link Vehicle#setEnabled}.
+     *
+     * <p>On the chassis rather than in {@link Ride}, because a Ride is
+     * rebuilt on every chunk load and the flag has to outlive that: a car
+     * that ran out of fuel is still out of fuel after a restart. Presence is
+     * the flag, so an enabled vehicle carries nothing and every vehicle
+     * parked before this existed is enabled.
+     */
+    private final NamespacedKey disabledKey;
+
+    /**
+     * Every derived entity, to the chassis it belongs to.
+     *
+     * <p>Seat mounts, seat hitboxes, body tiles and the model display. It is
+     * what lets {@link #at} answer for the thing a player actually clicked,
+     * which is never the chassis — that is a marker with nothing to click.
+     * Maintained by {@link Ride#spawnParts} and {@link Ride#despawnParts},
+     * and by the mount swap in {@link Ride#reseat}.
+     */
+    private final Map<UUID, UUID> parts = new ConcurrentHashMap<>();
+
+    /**
+     * Why the person being ejected right now is leaving, or null for a
+     * dismount of their own.
+     *
+     * <p>{@code Entity.eject} fires the dismount event synchronously, and the
+     * dismount listener cannot tell an eviction from somebody pressing sneak.
+     * So whoever evicts says why first, the same way {@link #reseating}
+     * says "this one is not leaving at all".
+     */
+    private VehicleExitEvent.Cause leaving;
+
     private volatile Map<ContentId, VehicleInfo> catalogue = Map.of();
 
     /** Chassis uuid -> what is going on with it. Only occupied vehicles are in here. */
@@ -419,7 +468,7 @@ public final class Vehicles implements Listener {
      */
     private volatile boolean seatRig = true;
 
-    public Vehicles(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
+    public VehicleRuntime(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
                     ai.resourcepack.engine.api.Emotes emotes) {
         this.emotes = emotes;
         this.plugin = plugin;
@@ -435,6 +484,7 @@ public final class Vehicles implements Listener {
         this.seatMover = PassengerTeleport.forServer();
         this.concealed = new HiddenRiders(plugin);
         this.idKey = new NamespacedKey(plugin, "vehicle");
+        this.disabledKey = new NamespacedKey(plugin, "vehicle-disabled");
     }
 
     /** The control arm, so the plugin can register it and report it. */
@@ -486,7 +536,7 @@ public final class Vehicles implements Listener {
                 continue;
             }
             reseat.put(chassisId, ride.seating());
-            ride.evictAll();
+            ride.evictAll(VehicleExitEvent.Cause.RELOADED);
             ride.despawnParts();
         }
         // Not re-adopted here: adoptLoaded() runs straight after every call to
@@ -563,11 +613,80 @@ public final class Vehicles implements Listener {
         }
         Ride ride = live.remove(chassis.getUniqueId());
         if (ride != null) {
-            ride.evictAll();
+            ride.evictAll(VehicleExitEvent.Cause.REMOVED);
             ride.despawnParts();
         }
         chassis.remove();
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // The API's view
+    // ------------------------------------------------------------------
+
+    /**
+     * {@link ai.resourcepack.engine.api.Vehicles#spawn}: parks one and gives
+     * it its parts at once, so the caller's handle is live on the same tick.
+     */
+    public Optional<Vehicle> spawnAndAdopt(Location where, ContentId id) {
+        Optional<Entity> chassis = spawn(where, id);
+        if (chassis.isEmpty()) {
+            return Optional.empty();
+        }
+        adopt(chassis.get());
+        return Optional.of(new Handle(chassis.get().getUniqueId()));
+    }
+
+    /** {@link ai.resourcepack.engine.api.Vehicles#at}: the chassis, or any part of one. */
+    public Optional<Vehicle> at(Entity entity) {
+        if (entity == null) {
+            return Optional.empty();
+        }
+        if (idOf(entity).isPresent()) {
+            return Optional.of(new Handle(entity.getUniqueId()));
+        }
+        UUID owner = parts.get(entity.getUniqueId());
+        return owner == null ? Optional.empty() : Optional.of(new Handle(owner));
+    }
+
+    /** {@link ai.resourcepack.engine.api.Vehicles#of}: the vehicle a player is in. */
+    public Optional<Vehicle> of(Player player) {
+        if (player == null) {
+            return Optional.empty();
+        }
+        UUID chassis = riders.get(player.getUniqueId());
+        return chassis == null ? Optional.empty() : Optional.of(new Handle(chassis));
+    }
+
+    /** {@link ai.resourcepack.engine.api.Vehicles#isRiding}. Any thread. */
+    public boolean isRiding(UUID playerId) {
+        return playerId != null && riders.containsKey(playerId);
+    }
+
+    /** {@link ai.resourcepack.engine.api.Vehicles#near}: handles, nearest first. */
+    public List<Vehicle> handlesNear(Location near, double radius) {
+        List<Entity> found = near(near, radius);
+        found.sort((a, b) -> Double.compare(
+                a.getLocation().distanceSquared(near), b.getLocation().distanceSquared(near)));
+        List<Vehicle> handles = new ArrayList<>(found.size());
+        for (Entity chassis : found) {
+            handles.add(new Handle(chassis.getUniqueId()));
+        }
+        return handles;
+    }
+
+    /** {@link ai.resourcepack.engine.api.Vehicles#loaded}: every adopted chassis. */
+    public List<Vehicle> loaded() {
+        List<Vehicle> handles = new ArrayList<>(live.size());
+        for (UUID chassis : live.keySet()) {
+            handles.add(new Handle(chassis));
+        }
+        return handles;
+    }
+
+    /** The handle for a chassis, for an event about it. */
+    private Vehicle handle(UUID chassisId) {
+        return new Handle(chassisId);
     }
 
     /** Every chassis within {@code radius} blocks of {@code near}. */
@@ -792,8 +911,8 @@ public final class Vehicles implements Listener {
         });
     }
 
-    private void sit(Player player, Ride ride, int index) {
-        sit(player, ride, index, false);
+    private boolean sit(Player player, Ride ride, int index) {
+        return sit(player, ride, index, false);
     }
 
     /**
@@ -801,12 +920,15 @@ public final class Vehicles implements Listener {
      *              true when the engine is putting somebody back where they
      *              already were, which is not news
      */
-    private void sit(Player player, Ride ride, int index, boolean quiet) {
+    private boolean sit(Player player, Ride ride, int index, boolean quiet) {
+        if (index < 0 || index >= ride.info.seats().size()) {
+            return false;
+        }
         if (riders.containsKey(player.getUniqueId()) || player.isInsideVehicle()) {
-            return;
+            return false;
         }
         if (ride.occupant(index) != null) {
-            return;
+            return false;
         }
         Location at = ride.seatLocation(index);
 
@@ -817,7 +939,19 @@ public final class Vehicles implements Listener {
         ModelSeatEvent asked = new ModelSeatEvent(player, at);
         plugin.getServer().getPluginManager().callEvent(asked);
         if (asked.isCancelled()) {
-            return;
+            return false;
+        }
+        // Then the narrow question, with the vehicle attached — but not when
+        // the engine is putting somebody back where they already were after a
+        // rebuild: they never left, as far as a plugin's rule is concerned,
+        // and the exit that preceded this said RELOADED for exactly that
+        // reason.
+        if (!quiet) {
+            VehicleEnterEvent entering = new VehicleEnterEvent(player, handle(ride.chassisId), index);
+            plugin.getServer().getPluginManager().callEvent(entering);
+            if (entering.isCancelled()) {
+                return false;
+            }
         }
 
         // Teleported before mounting, which is what aims them: a seat's yaw
@@ -826,7 +960,7 @@ public final class Vehicles implements Listener {
         // somebody sits down and never fights them afterwards.
         player.teleport(at);
         if (!ride.mount(index, player)) {
-            return;
+            return false;
         }
         riders.put(player.getUniqueId(), ride.chassisId);
         VehicleSeat seat = ride.info.seats().get(index);
@@ -854,6 +988,7 @@ public final class Vehicles implements Listener {
                     : "Riding in " + nameOf(ride.info) + " - "
                             + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
         }
+        return true;
     }
 
     /**
@@ -927,14 +1062,17 @@ public final class Vehicles implements Listener {
                 (listener, event) -> {
                     if (event instanceof EntityEvent
                             && ((EntityEvent) event).getEntity() instanceof Player) {
-                        left((Player) ((EntityEvent) event).getEntity());
+                        // Their own dismount, unless an eviction is under way
+                        // and this is the event it caused — see `leaving`.
+                        left((Player) ((EntityEvent) event).getEntity(),
+                                leaving != null ? leaving : VehicleExitEvent.Cause.DISMOUNTED);
                     }
                 },
                 owner);
     }
 
     /** Somebody got off, or logged out. */
-    private void left(Player player) {
+    private void left(Player player, VehicleExitEvent.Cause cause) {
         if (player.getUniqueId().equals(reseating)) {
             // Moved from one mount to another, not out. See Ride.reseat.
             return;
@@ -946,13 +1084,13 @@ public final class Vehicles implements Listener {
         }
         Ride ride = live.get(chassis);
         if (ride != null) {
-            ride.vacate(player.getUniqueId());
+            ride.vacate(player.getUniqueId(), cause);
         }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        left(event.getPlayer());
+        left(event.getPlayer(), VehicleExitEvent.Cause.QUIT);
     }
 
     /**
@@ -1052,7 +1190,7 @@ public final class Vehicles implements Listener {
     /** Called when the plugin unloads. Takes every derived entity with it. */
     public void clear() {
         for (Ride ride : live.values()) {
-            ride.evictAll();
+            ride.evictAll(VehicleExitEvent.Cause.SHUTDOWN);
             ride.despawnParts();
         }
         live.clear();
@@ -1215,11 +1353,45 @@ public final class Vehicles implements Listener {
         /** How many ticks in a row a move was asked for and nothing happened. */
         private int stuck;
 
+        /**
+         * Whether it answers its driver — {@link Vehicle#setEnabled}.
+         *
+         * <p>Read off the chassis when the Ride is built and written back
+         * on every change, so this field is a cache of {@link #disabledKey}
+         * and never the other way round.
+         */
+        private boolean enabled;
+
+        /**
+         * A plugin's cap on the top speed, or NaN for none —
+         * {@link Vehicle#setSpeedLimit}. Not persisted, on purpose.
+         */
+        private double speedLimit = Double.NaN;
+
+        /**
+         * {@link #info} with the speed limit applied, or {@code info} itself
+         * when there is none.
+         *
+         * <p>What the physics is given. Everything else — seats, hitbox, the
+         * name — reads {@code info}, because a limit changes none of those.
+         * Rebuilt only when the limit changes, so the per-tick cost of having
+         * one is nothing.
+         */
+        private VehicleInfo driven;
+
+        /**
+         * What the last full tick said it was doing, so a change is noticed
+         * — {@link VehicleStateEvent} fires on the change and never on the
+         * tick.
+         */
+        private Set<VehicleState> lastStates = Set.of();
 
         Ride(VehicleInfo info, Entity chassis) {
             this.info = info;
+            this.driven = info;
             this.chassisId = chassis.getUniqueId();
             this.world = chassis.getWorld();
+            this.enabled = !chassis.getPersistentDataContainer().has(disabledKey, PersistentDataType.BYTE);
             // `at` is a POSITION and carries no rotation at all — the heading
             // lives in `state` and the pitch is nobody's. A chassis is spawned
             // at the player's own location, which brings their pitch with it,
@@ -1258,6 +1430,7 @@ public final class Vehicles implements Listener {
                 Location seat = seatLocation(i);
                 Entity mount = spawnMount(i);
                 mounts.set(i, mount.getUniqueId());
+                parts.put(mount.getUniqueId(), chassisId);
 
                 Interaction hitbox = world.spawn(seat, Interaction.class, box -> {
                     box.setInteractionWidth(0.6f);
@@ -1266,6 +1439,7 @@ public final class Vehicles implements Listener {
                     box.setPersistent(false);
                 });
                 hitboxes.set(i, hitbox.getUniqueId());
+                parts.put(hitbox.getUniqueId(), chassisId);
             }
 
             VehicleHitbox box = info.hitbox();
@@ -1277,6 +1451,7 @@ public final class Vehicles implements Listener {
                     b.setPersistent(false);
                 });
                 body.add(part.getUniqueId());
+                parts.put(part.getUniqueId(), chassisId);
             }
 
             // An animated model first: a vehicle whose art moves is several
@@ -1398,9 +1573,14 @@ public final class Vehicles implements Listener {
          * guard {@code left} checks.
          */
         private Entity reseat(int index, UUID occupant) {
-            Entity old = plugin.getServer().getEntity(mounts.get(index));
+            UUID oldId = mounts.get(index);
+            Entity old = oldId == null ? null : plugin.getServer().getEntity(oldId);
             Entity mount = spawnMount(index);
             mounts.set(index, mount.getUniqueId());
+            parts.put(mount.getUniqueId(), chassisId);
+            if (oldId != null) {
+                parts.remove(oldId);
+            }
             Player player = plugin.getServer().getPlayer(occupant);
             reseating = occupant;
             try {
@@ -1408,10 +1588,9 @@ public final class Vehicles implements Listener {
                     old.remove();
                 }
                 if (player != null && !mount.addPassenger(player)) {
-                    occupants.set(index, null);
-                    riders.remove(occupant);
-                    controls.forget(occupant);
-                    undress(occupant);
+                    // Left standing beside it, which from their side is a
+                    // dismount they did not ask for.
+                    vacate(occupant, VehicleExitEvent.Cause.DISMOUNTED);
                 }
             } finally {
                 reseating = null;
@@ -1486,6 +1665,7 @@ public final class Vehicles implements Listener {
             });
             carry.carry(display);
             modelId = display.getUniqueId();
+            parts.put(modelId, chassisId);
         }
 
         void despawnParts() {
@@ -1511,6 +1691,7 @@ public final class Vehicles implements Listener {
             if (id == null) {
                 return;
             }
+            parts.remove(id);
             Entity entity = plugin.getServer().getEntity(id);
             if (entity != null) {
                 entity.remove();
@@ -1578,30 +1759,160 @@ public final class Vehicles implements Listener {
             return true;
         }
 
-        void vacate(UUID player) {
+        /**
+         * Takes somebody's seat back, whichever way they left it.
+         *
+         * <p><strong>The one place every way out goes through</strong> — a
+         * dismount, a quit, an eviction, a plugin's eject — and therefore the
+         * one place {@link VehicleExitEvent} fires. Idempotent: somebody who
+         * is not in a seat here is nothing to do, which is what lets
+         * {@link #evictAll} call it after an {@code eject} whose dismount
+         * event may or may not have already reached {@code left}.
+         */
+        void vacate(UUID player, VehicleExitEvent.Cause cause) {
+            int index = -1;
             for (int i = 0; i < occupants.size(); i++) {
                 if (player.equals(occupants.get(i))) {
                     occupants.set(i, null);
+                    index = i;
                 }
             }
+            riders.remove(player);
+            controls.forget(player);
             undress(player);
+            if (index < 0) {
+                return;
+            }
+            Player who = plugin.getServer().getPlayer(player);
+            if (who != null) {
+                // After the seat is free and they are themselves again: the
+                // event is not cancellable, so it reports what is already so.
+                plugin.getServer().getPluginManager().callEvent(
+                        new VehicleExitEvent(who, handle(chassisId), index, cause));
+            }
         }
 
-        void evictAll() {
-            for (int i = 0; i < occupants.size(); i++) {
-                UUID id = occupants.get(i);
-                if (id == null) {
-                    continue;
+        /**
+         * Everybody out, for {@code cause}.
+         *
+         * <p>{@code eject} fires the dismount event synchronously on a server
+         * that has one, and that reaches {@code left} — which is why
+         * {@link #leaving} is set around it, so that listener says the right
+         * cause rather than DISMOUNTED. The {@code vacate} after it is for the
+         * server that has no such event, or a mount that was already gone;
+         * on the ordinary path it finds the seat free and does nothing.
+         */
+        void evictAll(VehicleExitEvent.Cause cause) {
+            VehicleExitEvent.Cause before = leaving;
+            leaving = cause;
+            try {
+                for (int i = 0; i < occupants.size(); i++) {
+                    UUID id = occupants.get(i);
+                    if (id == null) {
+                        continue;
+                    }
+                    Entity mount = plugin.getServer().getEntity(mounts.get(i));
+                    if (mount != null) {
+                        mount.eject();
+                    }
+                    vacate(id, cause);
                 }
-                Entity mount = plugin.getServer().getEntity(mounts.get(i));
+            } finally {
+                leaving = before;
+            }
+        }
+
+        /** {@link Vehicle#eject}: one person out. */
+        boolean eject(UUID player) {
+            int index = occupants.indexOf(player);
+            if (index < 0) {
+                return false;
+            }
+            VehicleExitEvent.Cause before = leaving;
+            leaving = VehicleExitEvent.Cause.EJECTED;
+            try {
+                Entity mount = plugin.getServer().getEntity(mounts.get(index));
                 if (mount != null) {
                     mount.eject();
                 }
-                occupants.set(i, null);
-                undress(id);
-                riders.remove(id);
-                controls.forget(id);
+                vacate(player, VehicleExitEvent.Cause.EJECTED);
+            } finally {
+                leaving = before;
             }
+            return true;
+        }
+
+        // --- what a plugin can change ---------------------------------
+
+        boolean enabled() {
+            return enabled;
+        }
+
+        /**
+         * {@link Vehicle#setEnabled}. The chassis is written first, so the
+         * flag survives whatever happens to this Ride.
+         */
+        void enable(boolean on) {
+            Entity chassis = chassis();
+            if (chassis != null) {
+                if (on) {
+                    chassis.getPersistentDataContainer().remove(disabledKey);
+                } else {
+                    chassis.getPersistentDataContainer().set(disabledKey, PersistentDataType.BYTE, (byte) 1);
+                }
+            }
+            enabled = on;
+            // A click-arm throttle left where it was would fire the moment
+            // the vehicle came back on; a driver expects to have to press
+            // something. The key arm keeps nothing and `take` costs nothing.
+            resetThrottle();
+            parked = false;
+        }
+
+        OptionalDouble speedLimit() {
+            return Double.isNaN(speedLimit) ? OptionalDouble.empty() : OptionalDouble.of(speedLimit);
+        }
+
+        /** {@link Vehicle#setSpeedLimit}. */
+        void limitSpeed(double blocksPerSecond) {
+            if (!Double.isFinite(blocksPerSecond) || blocksPerSecond <= 0) {
+                speedLimit = Double.NaN;
+                driven = info;
+            } else {
+                speedLimit = blocksPerSecond;
+                driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
+            }
+            parked = false;
+        }
+
+        /** {@link Vehicle#stop}: dead, this tick, throttle and all. */
+        void halt() {
+            state = state.stopped();
+            resetThrottle();
+        }
+
+        private void resetThrottle() {
+            UUID id = occupants.isEmpty() ? null : occupants.get(0);
+            if (id != null) {
+                controls.forget(id);
+                controls.take(id);
+            }
+        }
+
+        /** Where it is, facing its heading — {@link Vehicle#location}. */
+        Location position() {
+            Location where = at.clone();
+            where.setYaw((float) state.yaw());
+            where.setPitch(0);
+            return where;
+        }
+
+        VehiclePhysics.State state() {
+            return state;
+        }
+
+        Set<VehicleState> states() {
+            return lastStates;
         }
 
         /**
@@ -1684,7 +1995,7 @@ public final class Vehicles implements Listener {
                 // keyed to it — the 0.46.1 audit's other finding was two maps
                 // that only ever grew because a chunk unload is not an
                 // untrack.
-                evictAll();
+                evictAll(VehicleExitEvent.Cause.UNLOADED);
                 despawnParts();
                 live.remove(chassisId);
                 return;
@@ -1704,18 +2015,46 @@ public final class Vehicles implements Listener {
             }
 
             Player driver = driver();
-            VehiclePhysics.Demand demand = driver == null
+            // A disabled vehicle is driven by nobody, whoever is in the seat:
+            // idle keeps the heading and coasts to a stop, which is what
+            // running out of fuel looks like. See Vehicle.setEnabled.
+            VehiclePhysics.Demand demand = driver == null || !enabled
                     ? VehiclePhysics.Demand.idle(state.yaw())
                     : controls.read(driver, info);
 
             VehiclePhysics.Surroundings around = surroundings();
-            VehiclePhysics.Step step = VehiclePhysics.step(info, state, demand, around, DT);
+            // `driven` rather than `info`: the same vehicle with a plugin's
+            // speed limit applied, or `info` itself when there is none.
+            VehiclePhysics.Step step = VehiclePhysics.step(driven, state, demand, around, DT);
             state = step.state();
             if (step.moves()) {
-                apply(step);
-                shoveAside(step);
+                // Asked before the world is: a listener sees where the
+                // vehicle is trying to go, and a refusal is a wall it cannot
+                // see — stopped dead, and no longer falling either, so a
+                // vehicle held at a boundary in mid-air does not bank up a
+                // terminal velocity to spend the moment it is let through.
+                Location from = position();
+                Location to = new Location(world, at.getX() + step.dx(), at.getY() + step.dy(),
+                        at.getZ() + step.dz(), (float) state.yaw(), 0);
+                VehicleMoveEvent moving = new VehicleMoveEvent(handle(chassisId), from, to);
+                plugin.getServer().getPluginManager().callEvent(moving);
+                if (moving.isCancelled()) {
+                    state = state.stopped().landed();
+                } else {
+                    apply(step);
+                    shoveAside(step);
+                }
             }
             place(chassis);
+
+            // On the change and never on the tick — a listener that wants
+            // every tick has VehicleMoveEvent.
+            if (!step.states().equals(lastStates)) {
+                Set<VehicleState> previous = lastStates;
+                lastStates = step.states();
+                plugin.getServer().getPluginManager().callEvent(
+                        new VehicleStateEvent(handle(chassisId), lastStates, previous));
+            }
 
             // AFTER the move, so both read the position the vehicle actually
             // ended up at rather than the one it was asked to go to — a
@@ -2322,6 +2661,267 @@ public final class Vehicles implements Listener {
             } else {
                 stuck = 0;
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The handle a plugin holds
+    // ------------------------------------------------------------------
+
+    /**
+     * {@link Vehicle}, over a chassis id.
+     *
+     * <p>Resolves the {@link Ride} on every call rather than holding one,
+     * because a Ride is rebuilt on every chunk load and a handle is
+     * something a plugin keeps in a field. A chassis with no Ride — parked
+     * in a chunk that has just loaded and not yet been adopted, or whose
+     * pack has gone — still answers what it can from the entity: where it
+     * is, its data, and it can be switched off, which is written to the
+     * chassis and picked up when the Ride is built.
+     *
+     * <p>Equal to any other handle on the same chassis, so a plugin can key
+     * a map by it — though {@link #uniqueId} is the better key, being the
+     * thing this is equal by.
+     */
+    private final class Handle implements Vehicle {
+
+        private final UUID chassisId;
+
+        Handle(UUID chassisId) {
+            this.chassisId = chassisId;
+        }
+
+        private Entity chassisOrNull() {
+            Entity entity = plugin.getServer().getEntity(chassisId);
+            return entity != null && entity.isValid() && idOf(entity).isPresent() ? entity : null;
+        }
+
+        private Ride ride() {
+            return live.get(chassisId);
+        }
+
+        @Override
+        public ContentId id() {
+            Ride ride = ride();
+            if (ride != null) {
+                return ride.info.id();
+            }
+            Entity chassis = plugin.getServer().getEntity(chassisId);
+            return idOf(chassis).orElse(null);
+        }
+
+        @Override
+        public VehicleInfo info() {
+            Ride ride = ride();
+            if (ride != null) {
+                return ride.info;
+            }
+            ContentId id = id();
+            return id == null ? null : catalogue.get(id);
+        }
+
+        @Override
+        public UUID uniqueId() {
+            return chassisId;
+        }
+
+        @Override
+        public Entity chassis() {
+            return chassisOrNull();
+        }
+
+        @Override
+        public boolean isValid() {
+            return chassisOrNull() != null;
+        }
+
+        @Override
+        public Location location() {
+            Ride ride = ride();
+            if (ride != null) {
+                return ride.position();
+            }
+            Entity chassis = chassisOrNull();
+            return chassis == null ? null : chassis.getLocation();
+        }
+
+        @Override
+        public double heading() {
+            Ride ride = ride();
+            if (ride != null) {
+                return ride.state().yaw();
+            }
+            Entity chassis = chassisOrNull();
+            return chassis == null ? 0 : VehiclePhysics.wrap360(chassis.getLocation().getYaw());
+        }
+
+        @Override
+        public double speed() {
+            Ride ride = ride();
+            return ride == null ? 0 : ride.state().speed();
+        }
+
+        @Override
+        public double verticalSpeed() {
+            Ride ride = ride();
+            return ride == null ? 0 : ride.state().verticalSpeed();
+        }
+
+        @Override
+        public Set<VehicleState> states() {
+            Ride ride = ride();
+            return ride == null ? Set.of() : ride.states();
+        }
+
+        @Override
+        public Optional<Player> driver() {
+            return occupant(0);
+        }
+
+        @Override
+        public List<Player> occupants() {
+            Ride ride = ride();
+            List<Player> aboard = new ArrayList<>();
+            if (ride == null) {
+                return aboard;
+            }
+            for (UUID id : ride.seating()) {
+                Player player = id == null ? null : plugin.getServer().getPlayer(id);
+                if (player != null) {
+                    aboard.add(player);
+                }
+            }
+            return aboard;
+        }
+
+        @Override
+        public Optional<Player> occupant(int index) {
+            Ride ride = ride();
+            if (ride == null || index < 0 || index >= ride.info.seats().size()) {
+                return Optional.empty();
+            }
+            UUID id = ride.occupant(index);
+            return id == null ? Optional.empty() : Optional.ofNullable(plugin.getServer().getPlayer(id));
+        }
+
+        @Override
+        public OptionalInt seatOf(Player player) {
+            Ride ride = ride();
+            if (ride == null || player == null) {
+                return OptionalInt.empty();
+            }
+            int index = ride.seating().indexOf(player.getUniqueId());
+            return index < 0 ? OptionalInt.empty() : OptionalInt.of(index);
+        }
+
+        @Override
+        public boolean seat(Player player) {
+            Ride ride = ride();
+            if (ride == null || player == null) {
+                return false;
+            }
+            int index = ride.firstFreeSeat();
+            return index >= 0 && sit(player, ride, index);
+        }
+
+        @Override
+        public boolean seat(Player player, int index) {
+            Ride ride = ride();
+            return ride != null && player != null && sit(player, ride, index);
+        }
+
+        @Override
+        public boolean eject(Player player) {
+            Ride ride = ride();
+            return ride != null && player != null && ride.eject(player.getUniqueId());
+        }
+
+        @Override
+        public void ejectAll() {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.evictAll(VehicleExitEvent.Cause.EJECTED);
+            }
+        }
+
+        @Override
+        public boolean isEnabled() {
+            Ride ride = ride();
+            if (ride != null) {
+                return ride.enabled();
+            }
+            Entity chassis = chassisOrNull();
+            return chassis == null
+                    || !chassis.getPersistentDataContainer().has(disabledKey, PersistentDataType.BYTE);
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.enable(enabled);
+                return;
+            }
+            // No Ride to tell: the chassis remembers, and the Ride built from
+            // it later reads the flag in its constructor.
+            Entity chassis = chassisOrNull();
+            if (chassis == null) {
+                return;
+            }
+            if (enabled) {
+                chassis.getPersistentDataContainer().remove(disabledKey);
+            } else {
+                chassis.getPersistentDataContainer().set(disabledKey, PersistentDataType.BYTE, (byte) 1);
+            }
+        }
+
+        @Override
+        public OptionalDouble speedLimit() {
+            Ride ride = ride();
+            return ride == null ? OptionalDouble.empty() : ride.speedLimit();
+        }
+
+        @Override
+        public void setSpeedLimit(double blocksPerSecond) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.limitSpeed(blocksPerSecond);
+            }
+        }
+
+        @Override
+        public void stop() {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.halt();
+            }
+        }
+
+        @Override
+        public boolean remove() {
+            Entity chassis = chassisOrNull();
+            return chassis != null && VehicleRuntime.this.remove(chassis);
+        }
+
+        @Override
+        public PersistentDataContainer data() {
+            Entity chassis = chassisOrNull();
+            return chassis == null ? null : chassis.getPersistentDataContainer();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Handle && ((Handle) other).chassisId.equals(chassisId);
+        }
+
+        @Override
+        public int hashCode() {
+            return chassisId.hashCode();
+        }
+
+        @Override
+        public String toString() {
+            return "Vehicle[" + id() + " " + chassisId + "]";
         }
     }
 

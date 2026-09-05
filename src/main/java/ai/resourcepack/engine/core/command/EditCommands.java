@@ -8,7 +8,7 @@ import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.core.edit.EditSessions;
-import ai.resourcepack.engine.core.vehicle.Vehicles;
+import ai.resourcepack.engine.core.vehicle.VehicleRuntime;
 
 import org.bukkit.command.CommandSender;
 
@@ -46,11 +46,11 @@ public final class EditCommands implements Area {
     private final EditSessions sessions;
     private final ContentRegistry registry;
     private final Items items;
-    private final Vehicles vehicles;
+    private final VehicleRuntime vehicles;
     private final boolean enabled;
 
     public EditCommands(EditSessions sessions, ContentRegistry registry, Items items,
-                        Vehicles vehicles, boolean enabled) {
+                        VehicleRuntime vehicles, boolean enabled) {
         this.sessions = sessions;
         this.registry = registry;
         this.items = items;
