@@ -514,7 +514,27 @@ public final class RigAnimator implements Listener {
         // dirties the item so every packet re-arms from the rendered pose.
         display.setInterpolationDelay(1);
         display.setInterpolationDelay(0);
-        display.setInterpolationDuration(swapped || (forceRestPose && animation == null) ? 0 : PERIOD_TICKS);
+        // A CARRIED rig GLIDES back to its rest pose and CUTS into a new
+        // animation, and the asymmetry is the point.
+        //
+        // Rest is one pose rather than a moving target, and it is the pose
+        // every one of this model's animations begins from — so easing into it
+        // is a short move to somewhere the rig is about to be anyway, which is
+        // safe where interpolating between two arbitrary cycle poses is not
+        // (see RigAnimations' `blend` note). It is also the visible half of a
+        // vehicle changing direction: the wheel winds down to standing rather
+        // than blinking there.
+        //
+        // Starting the next animation is then a cut from that rest pose to its
+        // first frame, which are near enough the same pose that there is
+        // nothing to interpolate.
+        int duration;
+        if (animation == null) {
+            duration = carried || !forceRestPose ? PERIOD_TICKS : 0;
+        } else {
+            duration = swapped ? 0 : PERIOD_TICKS;
+        }
+        display.setInterpolationDuration(duration);
         display.setTransformation(next);
     }
 
