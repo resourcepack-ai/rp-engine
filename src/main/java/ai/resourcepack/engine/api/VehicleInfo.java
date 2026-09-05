@@ -50,12 +50,13 @@ public final class VehicleInfo {
     private final Map<VehicleState, String> animations;
     private final List<VehicleEmitter> emitters;
     private final double scale;
+    private final boolean jumps;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
-                        double scale) {
+                        double scale, boolean jumps) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -71,6 +72,7 @@ public final class VehicleInfo {
         this.animations = animations;
         this.emitters = emitters;
         this.scale = scale;
+        this.jumps = jumps;
     }
 
     /**
@@ -104,7 +106,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1);
+                copyAnimations(animations), copyEmitters(emitters), 1, false);
     }
 
     /**
@@ -139,7 +141,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1);
+                copyAnimations(animations), copyEmitters(emitters), 1, false);
     }
 
     /**
@@ -304,7 +306,7 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
     }
 
     /**
@@ -326,7 +328,33 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
+    }
+
+    /**
+     * Whether the jump key JUMPS it rather than braking it.
+     *
+     * <p>Only a {@link VehicleMedium#LAND} vehicle reads this. Space is the
+     * handbrake on the ground, and a dirt bike or a skateboard would rather
+     * have a jump than a second brake — the back key already brakes before
+     * it reverses, so nothing is lost. Off for every vehicle written before
+     * this existed and for every pack that says nothing.
+     */
+    public boolean jumps() {
+        return jumps;
+    }
+
+    /**
+     * The same vehicle, with the jump key jumping it (or not).
+     *
+     * <p>A wither, on the same argument as {@link #withScale}.
+     */
+    public VehicleInfo withJump(boolean jumps) {
+        if (jumps == this.jumps) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
     }
 
     /**

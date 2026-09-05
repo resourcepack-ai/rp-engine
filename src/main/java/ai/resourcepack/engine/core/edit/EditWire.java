@@ -149,6 +149,11 @@ final class EditWire {
          * zero is a vehicle drawn at no size. Absent means 1.
          */
         Double scale;
+        /**
+         * Whether space jumps it rather than braking it. Boxed like the scale:
+         * absent is false, the handbrake every land vehicle had before.
+         */
+        Boolean jump;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;

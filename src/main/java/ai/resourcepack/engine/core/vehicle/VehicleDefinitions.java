@@ -135,6 +135,10 @@ public final class VehicleDefinitions {
         // Absent is 1, "the size it was built at" — which is every vehicle
         // written before this key existed.
         double scale = number(body, "scale", 1, MIN_SCALE, MAX_SCALE, origin, where, diagnostics);
+        // Off unless asked: space is the handbrake on every land vehicle
+        // written before this key existed, and stays so. Only a land vehicle
+        // reads it — see VehicleInfo.jumps().
+        boolean jump = body.bool("jump").orElse(false);
 
         // The body somebody can click and stand in front of. Absent means a
         // one-block cube rather than nothing: a vehicle with no hitbox has no
@@ -268,7 +272,8 @@ public final class VehicleDefinitions {
                 medium, weight, speed, acceleration, turnSpeed, hitbox, flight, List.copyOf(ordered),
                 animations(body, origin, where, diagnostics),
                 emitters(body, origin, where, diagnostics))
-                .withScale(scale));
+                .withScale(scale)
+                .withJump(jump));
     }
 
     /**

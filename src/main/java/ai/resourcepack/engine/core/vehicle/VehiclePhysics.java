@@ -44,6 +44,17 @@ public final class VehiclePhysics {
     public static final double TERMINAL_FALL = 30;
 
     /**
+     * How fast a land vehicle that {@link VehicleInfo#jumps() jumps} leaves
+     * the ground, blocks per second.
+     *
+     * <p>Against {@link #GRAVITY} that is a hop of about a block and a half —
+     * a kerb, a fence, a one-block gap — which is what a bike or a board
+     * does, and short of what turns every road into a trampoline. Only read
+     * when the vehicle is on the ground: it cannot jump again mid-air.
+     */
+    public static final double JUMP_SPEED = 9;
+
+    /**
      * How much of its top speed a vehicle does in reverse.
      *
      * <p>Named rather than folded into the maths because it is the kind of
@@ -339,7 +350,15 @@ public final class VehiclePhysics {
                 break;
             case LAND:
             default:
-                vertical = around.supported() ? 0 : fall(vertical, dt);
+                // A land vehicle that jumps does so from the ground and only
+                // there: the key is read on the tick it is on something, it
+                // leaves with JUMP_SPEED, and from then on it is falling like
+                // anything else — no double jump, no climbing on a held key.
+                // The control layer has already turned the same key into
+                // `lift` rather than `braking` for such a vehicle.
+                vertical = around.supported()
+                        ? (info.jumps() && lift > 0 ? JUMP_SPEED : 0)
+                        : fall(vertical, dt);
                 break;
         }
 
@@ -657,7 +676,7 @@ public final class VehiclePhysics {
             return throttle;
         }
 
-        /** -1 down to 1 up. Only an air vehicle reads it. */
+        /** -1 down to 1 up. An air vehicle reads it; so does a land one that {@link VehicleInfo#jumps()}. */
         public double lift() {
             return lift;
         }

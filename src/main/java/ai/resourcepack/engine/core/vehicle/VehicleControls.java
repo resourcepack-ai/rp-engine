@@ -99,7 +99,8 @@ public interface VehicleControls extends Listener {
      * Paper 1.21.4 and up: the keys the driver is actually holding.
      *
      * <p>W and S are the throttle, A and D turn the vehicle, space is the
-     * handbrake on the ground and the climb in the air.
+     * handbrake on the ground, the climb in the air, and the jump on a land
+     * vehicle that {@link VehicleInfo#jumps()}.
      *
      * <p><strong>A and D steer here and cannot on the other arm, and that is
      * the whole reason this arm is worth having beyond the throttle.</strong>
@@ -237,8 +238,14 @@ public interface VehicleControls extends Listener {
                     + (pressed(resolved, BACKWARD, input) ? -1 : 0);
             boolean up = pressed(resolved, JUMP, input);
             boolean air = info.medium() == VehicleMedium.AIR;
-            double lift = air && up ? 1 : 0;
-            boolean braking = !air && up;
+            // One key, three meanings, decided by the vehicle: it climbs an
+            // aircraft, it jumps a land vehicle that says so, and otherwise it
+            // is the handbrake. A jumping vehicle has no handbrake at all —
+            // the back key already brakes before it reverses, and a key that
+            // did both would brake a bike at the lip of every jump.
+            boolean jumps = !air && info.jumps();
+            double lift = (air || jumps) && up ? 1 : 0;
+            boolean braking = !air && !jumps && up;
 
             // Steering by key only where both keys were actually found. A
             // server that cannot report them gets look-steering rather than a
@@ -257,8 +264,8 @@ public interface VehicleControls extends Listener {
             Method[] resolved = keys;
             boolean steers = resolved == null || (resolved[LEFT] != null && resolved[RIGHT] != null);
             return steers
-                    ? "W and S to drive, A and D to steer, space to brake or climb"
-                    : "W and S to drive, space to brake or climb, look to steer";
+                    ? "W and S to drive, A and D to steer, space to brake, jump or climb"
+                    : "W and S to drive, space to brake, jump or climb, look to steer";
         }
     }
 

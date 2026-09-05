@@ -105,6 +105,19 @@ class VehicleDefinitionsTest {
      * a vehicle nobody can steer is not a vehicle, so it does not load at all.
      */
     @Test
+    void jumpIsOffUnlessAsked() throws IOException {
+        write("mypack/vehicles/a.yml",
+                "cart:\n"
+                        + "  seats: [{role: driver}]\n"
+                        + "bike:\n"
+                        + "  jump: true\n"
+                        + "  seats: [{role: driver}]\n");
+
+        assertEquals(false, one("mypack:cart").jumps());
+        assertEquals(true, one("mypack:bike").jumps());
+    }
+
+    @Test
     void refusesAVehicleWithNoDriverSeat() throws IOException {
         write("mypack/vehicles/a.yml",
                 "bench:\n"
