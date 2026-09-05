@@ -2296,6 +2296,10 @@ public final class VehicleRuntime implements Listener {
                 } else {
                     dressed.remove(id);
                 }
+                // `cape` above ran before a changed state could put a new rig
+                // on. Ask once more after the wear so a newly spawned cape is
+                // hidden in this same tick rather than flashing for one.
+                emotes.cape(player, info.capes());
                 sayIfRefused(player, named, result);
             }
         }

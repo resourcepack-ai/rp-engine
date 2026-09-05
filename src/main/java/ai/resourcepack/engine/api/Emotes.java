@@ -313,7 +313,12 @@ public interface Emotes {
      *
      * @param show false to put it away for as long as they wear this rig
      */
-    void cape(Player player, boolean show);
+    default void cape(Player player, boolean show) {
+        // A default keeps an implementation compiled against an older RP
+        // Engine API binary-compatible. The engine's implementation overrides
+        // this; an external implementation that knows no cape bone has nothing
+        // honest to do.
+    }
 
     /**
      * Stops this player's emote, and everybody else's in the same troupe.
