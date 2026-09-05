@@ -364,7 +364,11 @@ chair:
 ```
 
 - **`blend`** is the difference between a model that snaps between poses and
-  one that moves. A quarter of a second covers most things.
+  one that moves. A quarter of a second covers most things. **A vehicle's
+  animations already ease into each other by that much without being asked** —
+  the engine changes those off the vehicle's state rather than off a trigger of
+  yours, so there is no moment for you to have made sharp. Set it there only to
+  ask for longer.
 - **`priority`** matters once a model has more than one animation on the same
   trigger. Higher wins; equal falls back to the order they are in the file.
 - The same walk cycle is a stroll on one server and a sprint on another, which

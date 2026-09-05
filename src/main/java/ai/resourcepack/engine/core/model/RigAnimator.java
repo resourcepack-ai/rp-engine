@@ -411,9 +411,13 @@ public final class RigAnimator implements Listener {
         long tick = display.getWorld().getGameTime();
         Integer posedFor = lastPosed.get(display.getUniqueId());
         if (posedFor == null || posedFor != playbackIndex) {
-            double seconds = Math.max(
-                    RigAnimations.blendOf(RigAnimations.animationAt(rig, playbackIndex)),
-                    posedFor == null ? 0 : RigAnimations.blendOf(RigAnimations.animationAt(rig, posedFor)));
+            // Carried, so a vehicle swapping animations off its own state gets
+            // a crossfade nobody had to author. See RigAnimations.swapBlendSeconds
+            // — a placed rig still cuts, which is what FORMAT.md documents.
+            double seconds = RigAnimations.swapBlendSeconds(
+                    RigAnimations.animationAt(rig, playbackIndex),
+                    posedFor == null ? null : RigAnimations.animationAt(rig, posedFor),
+                    carried);
             if (seconds > 0 && posedFor != null) {
                 blends.put(display.getUniqueId(), new Blend(display.getTransformation(), tick, seconds));
             }
