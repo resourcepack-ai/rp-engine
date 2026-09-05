@@ -152,20 +152,6 @@ public final class VehicleRuntime implements Listener {
     private static final int MODEL_GLIDE_TICKS = DisplayLatency.TRACKED_ENTITY_TICKS;
 
     /**
-     * How long a vehicle state has to hold before it dresses anybody.
-     *
-     * <p>Four ticks, which is a fifth of a second and is chosen against the one
-     * window that has to be covered: braking from forwards into reverse crosses
-     * IDLE in about three ticks on a default car and two on a quick one, and
-     * nobody meant to be posed idle on the way. See {@link Ride#settled}.
-     *
-     * <p>It is latency on every genuine change as well, which is the price and
-     * is worth it: a fifth of a second late into the right pose is invisible
-     * beside a flash of the wrong one.
-     */
-    private static final int SEAT_SETTLE_TICKS = 4;
-
-    /**
      * How far above their own position a seated occupant's backside is drawn:
      * the hip, twelve of the sixteen pixels a player model is tall below the
      * waist.
@@ -1317,6 +1303,30 @@ public final class VehicleRuntime implements Listener {
          */
         private boolean playable;
 
+        /**
+         * Whether {@link #animate} has ever settled on an answer.
+         *
+         * <p>The first one is immediate, which is the same exemption a seat
+         * gets for sitting down: a vehicle that has just been placed, or whose
+         * rig has just come back with its chunk, should not stand in its bind
+         * pose for a fifth of a second while {@link #rigSettle} waits out a
+         * transition that is not happening. Only a CHANGE is ever waited on.
+         */
+        private boolean chose;
+
+        /**
+         * The wait in front of {@link #playing}. See {@link StateSettle}.
+         *
+         * <p>Without it a vehicle braking from forwards into reverse spends the
+         * two or three ticks it takes to cross the threshold band playing what
+         * {@code idle} names — so the rig's crossfade sets off towards the idle
+         * pose, gets a fraction of the way, and then has to turn round and
+         * blend to the reverse cycle from wherever the detour left it. There is
+         * no interpolation from driving to reversing because the two are never
+         * adjacent.
+         */
+        private final StateSettle rigSettle = new StateSettle();
+
         /** Its own age in ticks, which is what a particle interval counts against. */
         private long age;
 
@@ -1352,11 +1362,11 @@ public final class VehicleRuntime implements Listener {
         private final Map<UUID, String> worn = new java.util.HashMap<>();
 
         /**
-         * What each occupant's seat has STARTED asking for, and when — the
-         * waiting room in front of {@code worn}. See {@link #settled}.
+         * The waiting room in front of {@code worn}, one per occupant, because
+         * two seats change state independently. See {@link StateSettle} — the
+         * vehicle's own animation waits out the same window with the same gate.
          */
-        private final Map<UUID, String> settling = new java.util.HashMap<>();
-        private final Map<UUID, Long> settlingSince = new java.util.HashMap<>();
+        private final Map<UUID, StateSettle> settling = new java.util.HashMap<>();
 
         /**
          * Who is actually wearing something right now, as opposed to who has
@@ -2200,14 +2210,12 @@ public final class VehicleRuntime implements Listener {
                     // Settled back onto what is already on: whatever was being
                     // waited out never happened, so stop waiting for it.
                     settling.remove(id);
-                    settlingSince.remove(id);
                     continue;
                 }
                 if (!lost && worn.containsKey(id) && !settled(id, wanted)) {
                     continue;
                 }
                 settling.remove(id);
-                settlingSince.remove(id);
                 // Recorded before the call rather than after, so a refusal —
                 // this player is mid-emote of their own, the pack has no rig
                 // for them — is not retried twenty times a second.
@@ -2250,36 +2258,15 @@ public final class VehicleRuntime implements Listener {
          */
         /**
          * Whether {@code wanted} has been what this seat is asking for for long
-         * enough to act on.
-         *
-         * <p><strong>A state the vehicle passes THROUGH is not a state its
-         * occupant should be posed in.</strong> Going from forwards to reverse
-         * is the case that found this: the back key brakes before it reverses,
-         * and {@code MOVING_THRESHOLD} and {@code REVERSE_THRESHOLD} are both
-         * half a block a second — so the vehicle crosses from +0.5 to -0.5
-         * through IDLE at its acceleration rate, which on an ordinary car is
-         * about three ticks and on something quick is two. Long enough to fire
-         * a swap; nowhere near long enough to be a pose anybody meant. The
-         * driver got a flash of the idle body on their way into the look-back,
-         * and the look-back's own clock was restarted by it.
-         *
-         * <p>It only ever suppresses states that are genuinely brief, which is
-         * the property that makes it safe: a vehicle that really does sit at a
-         * standstill for two seconds between a forward and a reverse is idle,
-         * and gets the idle pose, because the wait is in TICKS and not in
-         * transitions.
+         * enough to act on. See {@link StateSettle}, which is the rule and the
+         * reasoning — a state the vehicle only passes through is not a state
+         * its occupant should be posed in.
          *
          * <p>Sitting down is never delayed — the caller only asks once
          * something is already worn, so the first dressing is immediate.
          */
         private boolean settled(UUID id, String wanted) {
-            if (!Objects.equals(wanted, settling.get(id))) {
-                settling.put(id, wanted);
-                settlingSince.put(id, age);
-                return false;
-            }
-            Long since = settlingSince.get(id);
-            return since != null && age - since >= SEAT_SETTLE_TICKS;
+            return settling.computeIfAbsent(id, k -> new StateSettle()).settled(wanted, age);
         }
 
         private String fallbackStance(VehicleSeat seat) {
@@ -2359,7 +2346,6 @@ public final class VehicleRuntime implements Listener {
             // below lives here — and a map keyed on occupants that is only ever
             // added to is the 0.46.1 audit's finding all over again.
             settling.remove(id);
-            settlingSince.remove(id);
             // A hidden seat's occupant, put back on everybody's screen. Here
             // rather than beside `sit`'s hide because this is the one method
             // every way out of a seat goes through — a dismount, a quit, a
@@ -2391,6 +2377,16 @@ public final class VehicleRuntime implements Listener {
          * it did rather than stopping; see {@link VehicleState#choose}. So the
          * only thing that stops a vehicle animating is a pack that configured
          * nothing at all, which is a vehicle that never started.
+         *
+         * <p><strong>And only on a change that HOLDS.</strong> Braking from
+         * forwards into reverse crosses IDLE for two or three ticks, and acting
+         * on that put the idle animation between the drive cycle and the
+         * reverse one — so the rig's crossfade set off towards the idle pose,
+         * got a fraction of the way, and turned round to blend into reversing
+         * from the middle of a detour. There was no interpolation from driving
+         * to reversing because the two were never adjacent. See
+         * {@link StateSettle}, which the seats already wait on for the same
+         * window and the same reason.
          */
         private void animate(Set<VehicleState> states) {
             if (rig == null || info.animations().isEmpty()) {
@@ -2401,14 +2397,26 @@ public final class VehicleRuntime implements Listener {
             if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
                 // we thought was playing means the next tick that finds it
-                // again starts cleanly rather than believing a stale answer.
+                // again starts cleanly rather than believing a stale answer —
+                // including the wait, so the rig that comes back with its chunk
+                // is dressed on the first tick rather than the fourth.
                 playing = null;
                 playable = false;
+                chose = false;
+                rigSettle.clear();
                 return;
             }
             Placement placement = found.get();
 
-            if (!Objects.equals(wanted, playing)) {
+            if (Objects.equals(wanted, playing)) {
+                // Settled back onto what is already running: whatever was being
+                // waited out never happened, so stop waiting for it. Without
+                // this a state flickering in and out would accumulate towards
+                // acting on it rather than being ignored.
+                rigSettle.clear();
+            } else if (!chose || rigSettle.settled(wanted, age)) {
+                chose = true;
+                rigSettle.clear();
                 playing = wanted;
                 if (wanted == null) {
                     placement.stop();
@@ -2439,8 +2447,12 @@ public final class VehicleRuntime implements Listener {
             // whatever its own end mode says. `playing()` is what the placement
             // is actually doing rather than what it was last told, so a HOLD or
             // a genuine loop never trips this.
-            if (playable && wanted != null && placement.playing().isEmpty()) {
-                placement.play(wanted, true);
+            //
+            // `playing` and not `wanted`: mid-wait the two differ, and what has
+            // to keep looping is what is actually on, not what is queued behind
+            // a transition that may never settle.
+            if (playable && playing != null && placement.playing().isEmpty()) {
+                placement.play(playing, true);
             }
         }
 
