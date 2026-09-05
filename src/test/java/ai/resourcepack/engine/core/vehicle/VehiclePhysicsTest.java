@@ -42,6 +42,34 @@ class VehiclePhysicsTest {
     private static final VehiclePhysics.Surroundings GROUND =
             new VehiclePhysics.Surroundings(true, false, 0);
 
+    // --- jumping ------------------------------------------------------
+
+    /**
+     * Space lifts a jumping land vehicle off the ground, once, and does
+     * nothing to one that does not jump — that one's space is the handbrake,
+     * which the control layer turns into {@code braking} rather than
+     * {@code lift} before it gets here.
+     */
+    @Test
+    void aJumpingVehicleLeavesTheGroundOnSpaceAndOnlyFromTheGround() {
+        VehicleInfo bike = car(VehicleMedium.LAND).withJump(true);
+        VehiclePhysics.Demand hop = new VehiclePhysics.Demand(0, 0, 0, 1, false);
+
+        VehiclePhysics.Step off = VehiclePhysics.step(bike, VehiclePhysics.State.still(0), hop, GROUND, DT);
+        assertEquals(VehiclePhysics.JUMP_SPEED, off.state().verticalSpeed(), 1e-9);
+        assertTrue(off.dy() > 0);
+
+        // In the air the held key is nothing: gravity has it now.
+        VehiclePhysics.Surroundings air = new VehiclePhysics.Surroundings(false, false, 0);
+        VehiclePhysics.Step up = VehiclePhysics.step(bike, off.state(), hop, air, DT);
+        assertTrue(up.state().verticalSpeed() < VehiclePhysics.JUMP_SPEED);
+        assertTrue(up.states().contains(VehicleState.AIRBORNE));
+
+        VehiclePhysics.Step stays = VehiclePhysics.step(car(VehicleMedium.LAND), VehiclePhysics.State.still(0), hop, GROUND, DT);
+        assertEquals(0, stays.state().verticalSpeed(), 1e-9);
+        assertEquals(0, stays.dy(), 1e-9);
+    }
+
     // --- steering -----------------------------------------------------
 
     /**

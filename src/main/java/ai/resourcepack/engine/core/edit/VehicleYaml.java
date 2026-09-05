@@ -61,6 +61,11 @@ final class VehicleYaml {
         if (vehicle.scale != null && vehicle.scale != 1) {
             out.append(INDENT).append("scale: ").append(number(vehicle.scale)).append('\n');
         }
+        // Only when on: off is the default and every file written before the
+        // key existed, so writing `jump: false` would be noise in each of them.
+        if (vehicle.jump != null && vehicle.jump && "land".equalsIgnoreCase(vehicle.medium)) {
+            out.append(INDENT).append("jump: true\n");
+        }
 
         out.append(INDENT).append("hitbox:\n");
         out.append(INDENT).append(INDENT).append("width: ").append(number(vehicle.hitboxWidth)).append('\n');

@@ -284,6 +284,7 @@ final class EditTargets {
         out.acceleration = info.acceleration();
         out.turnSpeed = info.turnSpeed();
         out.scale = info.scale();
+        out.jump = info.jumps() ? Boolean.TRUE : null;
         out.hitboxWidth = info.hitbox().width();
         out.hitboxHeight = info.hitbox().height();
         out.hitboxLength = info.hitbox().length();

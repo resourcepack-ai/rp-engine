@@ -119,6 +119,13 @@ public final class StudioContent {
          * before this field existed would become. Absent means 1.
          */
         Double scale;
+        /**
+         * Whether space jumps it rather than braking it — see
+         * {@code VehicleInfo.jumps()}. Boxed so a manifest older than the field
+         * reads as absent, which is false, which is the handbrake every land
+         * vehicle had before.
+         */
+        Boolean jump;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
@@ -379,7 +386,8 @@ public final class StudioContent {
                 vehicle.weight, vehicle.speed, vehicle.acceleration, vehicle.turnSpeed,
                 hitbox, flight, List.copyOf(ordered),
                 animations(vehicle.animations), emitters(vehicle.particles))
-                .withScale(vehicle.scale == null ? 1 : vehicle.scale));
+                .withScale(vehicle.scale == null ? 1 : vehicle.scale)
+                .withJump(vehicle.jump != null && vehicle.jump));
     }
 
     /**
@@ -560,6 +568,7 @@ public final class StudioContent {
         out.speed = info.speed();
         out.acceleration = info.acceleration();
         out.turnSpeed = info.turnSpeed();
+        out.jump = info.jumps() ? Boolean.TRUE : null;
         out.hitboxWidth = info.hitbox().width();
         out.hitboxHeight = info.hitbox().height();
         out.hitboxLength = info.hitbox().length();
