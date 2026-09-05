@@ -407,6 +407,37 @@ class AnimationStateTest {
                 "a held wheel gives the fade nothing to turn");
     }
 
+    @Test
+    void theWayRoundIsDecidedOnceSoAMovingTargetCannotFlipIt() {
+        // A fade from 100 towards a cycle running DOWN through the far side of
+        // it: 281 is nearest going back (179 back beats 181 on), and a tick
+        // later the target is 279, which is nearest going ON. Re-deciding
+        // every tick would send a pose half a turn from the last one. Decided
+        // once, the fade keeps going the way it set off.
+        float[][] from = {step(100, 0)};
+        float[][] turns = RigMath.turnsBetween(from, new float[][] {step(281, 0)}, 1);
+        assertEquals(-360f, turns[0][0], 0.0001);
+
+        float before = RigMath.lerpProgram(from, new float[][] {step(281, 0)}, turns, 1, 0.5f)[0][0];
+        float after = RigMath.lerpProgram(from, new float[][] {step(279, 0)}, turns, 1, 0.5f)[0][0];
+        assertEquals(10.5f, before, 0.0001);
+        assertEquals(9.5f, after, 0.0001, "one degree on, not half a turn");
+
+        float naive = RigMath.lerpProgram(from, new float[][] {step(279, 0)}, 1, 0.5f)[0][0];
+        assertEquals(189.5f, naive, 0.0001, "what re-deciding would have sent");
+    }
+
+    @Test
+    void aCycleIsJoinedFromRestWhereAHeldWheelIs() {
+        // Nothing is playing, but the wheel is somewhere: a bike that went
+        // forwards, stopped and now reverses joins reversing where its wheels
+        // stopped, not at the top of the cycle half a turn away.
+        RigStore.Animation reversing = cycle("reversing", 1, key(0, 360) + "," + key(1, 0));
+        Map<String, float[]> shown = Map.of("wheel", new float[] {200f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f});
+
+        assertEquals((360 - 200) / 360.0, RigAnimations.nearestPhase(shown, null, 0, reversing), 0.03);
+    }
+
     // ---- the neck --------------------------------------------------------
 
     @Test

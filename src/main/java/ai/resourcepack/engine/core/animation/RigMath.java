@@ -175,12 +175,21 @@ public final class RigMath {
      * which composes to the same rotation.
      */
     public static float[] lerpStep(float[] from, float[] to, float amount) {
+        return lerpStep(from, to, null, amount);
+    }
+
+    /**
+     * As above, with the whole turns each rotation goes by given as
+     * {@code turns} rather than decided here — see {@link #turnsBetween}.
+     * Null decides them now, which is right for a target that stands still.
+     */
+    public static float[] lerpStep(float[] from, float[] to, float[] turns, float amount) {
         float[] a = from == null ? REST_STEP : from;
         float[] b = to == null ? REST_STEP : to;
         float s = Math.min(1f, Math.max(0f, amount));
         float[] out = new float[STEP_VALUES];
         for (int i = 0; i < 3; i++) {
-            float target = nearestTurn(a[i], b[i]);
+            float target = turns == null ? nearestTurn(a[i], b[i]) : b[i] + turns[i];
             out[i] = a[i] + (target - a[i]) * s;
         }
         for (int i = 3; i < STEP_VALUES; i++) {
@@ -191,11 +200,45 @@ public final class RigMath {
 
     /** Every step of a program, {@code amount} of the way from one pose to another. */
     public static float[][] lerpProgram(float[][] from, float[][] to, int steps, float amount) {
+        return lerpProgram(from, to, null, steps, amount);
+    }
+
+    /** As above, going by the turns {@link #turnsBetween} decided when the fade began. */
+    public static float[][] lerpProgram(float[][] from, float[][] to, float[][] turns, int steps, float amount) {
         float[][] out = new float[steps][];
         for (int i = 0; i < steps; i++) {
-            out[i] = lerpStep(stepOf(from, i), stepOf(to, i), amount);
+            out[i] = lerpStep(stepOf(from, i), stepOf(to, i), stepOf(turns, i), amount);
         }
         return out;
+    }
+
+    /**
+     * Per step and axis, the whole turns to add to {@code to} so that each
+     * rotation goes the short way round from {@code from} — in degrees, a
+     * multiple of 360.
+     *
+     * <p><strong>Decided once, when a fade starts, and then kept.</strong> The
+     * target of a fade moves: the cycle being faded into plays on underneath
+     * it. Re-deciding the short way every tick against a target drifting
+     * round the far side of the start flips the answer by a whole turn the
+     * moment it crosses — the same bone asked for +179 on one tick and -181
+     * on the next — and the pose sent that tick is half a turn from the last
+     * one, which is the bulge this whole file exists to prevent, arriving
+     * from inside the mechanism meant to prevent it. Taken once and kept,
+     * the target moves continuously and so does the fade.
+     */
+    public static float[][] turnsBetween(float[][] from, float[][] to, int steps) {
+        float[][] turns = new float[steps][];
+        for (int i = 0; i < steps; i++) {
+            float[] a = stepOf(from, i) == null ? REST_STEP : stepOf(from, i);
+            float[] b = stepOf(to, i) == null ? REST_STEP : stepOf(to, i);
+            turns[i] = new float[] {
+                    nearestTurn(a[0], b[0]) - b[0],
+                    nearestTurn(a[1], b[1]) - b[1],
+                    nearestTurn(a[2], b[2]) - b[2],
+            };
+        }
+        return turns;
     }
 
     /**
