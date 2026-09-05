@@ -231,23 +231,18 @@ public final class VehicleRuntime implements Listener {
      */
     private static final float MODEL_YAW_OFFSET = 180;
 
-    /**
-     * How far an OCCUPANT'S RIG is turned from the way their seat points.
-     *
-     * <p>The same half turn as {@link #MODEL_YAW_OFFSET} and, like it, found in
-     * a client rather than derived — a rig faced backwards down the road until
-     * it was put in. Kept as its own constant precisely because it is a
-     * different fact about a different piece of art: that one is the vehicle's
-     * bodywork, this is the baked player rig, and the day one of them is
-     * rebuilt facing the other way the other must not move with it.
-     *
-     * <p>It is needed at all because the value handed over is a real heading —
-     * {@code state.yaw() + seat.yaw()} is the same number the teleport that
-     * aims somebody as they sit down uses, and that one is correct without any
-     * offset. A player and a rig read a yaw differently, and this is the whole
-     * of the difference.
+    /*
+     * There is deliberately NO second offset for an occupant's rig. A rig's
+     * facing is read the way a player's yaw is — an emote on foot is drawn at
+     * the player's own yaw and faces where they face — so the number that
+     * aims the camera as somebody sits down (heading + seat yaw, below) is
+     * the number the rig wants too, untouched. A half turn was added here
+     * once (2026-09-05) because every seat then arriving from studio said
+     * 180 for a forward-facing driver, and the rig faced the stern; the
+     * offset fixed the rig and turned the camera the wrong way instead, the
+     * two disagreeing by exactly that half turn for a day. The seats were
+     * what was wrong. Bodywork is a different fact — see MODEL_YAW_OFFSET.
      */
-    private static final float SEAT_RIG_YAW_OFFSET = 180;
 
     /** How far ahead a solid block stops the vehicle, in blocks. */
     private static final double NOSE = 0.6;
@@ -2193,11 +2188,11 @@ public final class VehicleRuntime implements Listener {
                 // held square to the seat, which is what vanilla does with a
                 // real body in a boat.
                 //
-                // Plus the half turn a rig reads a yaw by — see
-                // SEAT_RIG_YAW_OFFSET. Without it the rider faced backwards
-                // down the road, which is the same symptom the bodywork had.
-                emotes.face(player, (float) VehiclePhysics.wrap360(
-                        this.state.yaw() + seat.yaw() + SEAT_RIG_YAW_OFFSET));
+                // The SAME number as that teleport, with nothing added: a rig
+                // faces the way a player at that yaw would. See the note where
+                // MODEL_YAW_OFFSET is declared for the half turn that was here
+                // and why it went.
+                emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seat.yaw()));
                 // Resolved per SEAT, because the answer depends on what this
                 // seat mapped: turning outranks travelling now, and a seat that
                 // maps `moving` and not `turning` must not lose its occupant's
