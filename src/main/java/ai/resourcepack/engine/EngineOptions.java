@@ -50,7 +50,8 @@ final class EngineOptions {
                     config.getDouble("vehicles.seat-offset", 0.0),
                     config.getDouble("vehicles.seat-forward", 0.0),
                     config.getBoolean("vehicles.push-players", false),
-                    config.getBoolean("vehicles.seat-rig", true));
+                    config.getBoolean("vehicles.seat-rig", true),
+                    config.getBoolean("vehicles.debug-seats", false));
         }
     }
 

@@ -468,6 +468,20 @@ public final class VehicleRuntime implements Listener {
      */
     private volatile boolean seatRig = true;
 
+    /**
+     * Whether to report, per seat, where an occupant actually ended up against
+     * where this class put them — {@code vehicles.debug-seats}.
+     *
+     * <p>Off, and it belongs beside {@code seat-offset} rather than in a
+     * developer's build for the same reason that one does: where a rider ends
+     * up is the chassis, plus the seat, plus a vanilla rule no plugin can read,
+     * and only the first two are ours. That comment tells an owner to compare
+     * a seat with the editor by eye and type the difference in; this measures
+     * the difference for them, per seat, so a bench seat that is fine and a
+     * pillion that is not can be told apart instead of averaged.
+     */
+    private volatile boolean debugSeats;
+
     public VehicleRuntime(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
                     ai.resourcepack.engine.api.Emotes emotes) {
         this.emotes = emotes;
@@ -497,11 +511,12 @@ public final class VehicleRuntime implements Listener {
      * {@code vehicles.seat-rig}. Called on enable and on every reload.
      */
     public void configure(double seatOffset, double seatForward, boolean pushPlayers,
-                          boolean seatRig) {
+                          boolean seatRig, boolean debugSeats) {
         this.seatOffset = seatOffset;
         this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
         this.seatRig = seatRig;
+        this.debugSeats = debugSeats;
     }
 
     /**
@@ -2466,6 +2481,50 @@ public final class VehicleRuntime implements Listener {
         }
 
         /**
+         * Says where seat {@code index}'s occupant actually is, against where
+         * this class just put them. Silent unless {@code vehicles.debug-seats}.
+         *
+         * <p><strong>The gap is the whole point, and it is the one number
+         * nothing else in here can see.</strong> Everything upstream is
+         * derived: {@code seatLocation} is a pure function of the chassis, the
+         * yaw and the seat's own numbers, so it cannot drift — which means a
+         * rider who is visibly out of their seat is a divergence between that
+         * answer and where the world ended up putting them, and no amount of
+         * reading this file will show it.
+         *
+         * <p>Split into ALONG and ACROSS rather than one distance, because the
+         * two have different causes: along is the vanilla passenger rule that
+         * {@code seat-forward} exists to close, and across is not supposed to
+         * happen at all — a seat's lateral offset is rotated by the same yaw as
+         * everything else on the vehicle.
+         *
+         * <p>Once a second per seat. A line per tick per occupant is a full bus
+         * writing 160 lines a second, which is a log nobody reads.
+         */
+        private void reportSeat(int index, Player rider, Entity mount) {
+            if (!debugSeats || rider == null || age % 20 != 0) {
+                return;
+            }
+            Location want = seatLocation(index);
+            Location got = rider.getLocation();
+            double dx = got.getX() - want.getX();
+            double dz = got.getZ() - want.getZ();
+            // Into the vehicle's own frame, so the two numbers mean something
+            // whichever way it is pointing.
+            double heading = Math.toRadians(state.yaw());
+            double along = -(dx * Math.sin(heading)) + dz * Math.cos(heading);
+            double across = dx * Math.cos(heading) + dz * Math.sin(heading);
+            VehicleSeat seat = info.seats().get(index);
+            plugin.getLogger().info(String.format(
+                    "[seat %d %s] across %+.3f along %+.3f up %+.3f | mount %+.3f | yaw %.1f",
+                    index, seat.isDriver() ? "driver" : "passenger",
+                    across, along, got.getY() - want.getY(),
+                    mount == null ? 0 : mount.getLocation().getY() - mountLocation(index,
+                            mount instanceof ArmorStand).getY(),
+                    state.yaw()));
+        }
+
+        /**
          * Whether the vehicle's box would be inside a solid block there.
          *
          * <p>Sampled at the four corners of the footprint and at its centre,
@@ -2612,6 +2671,7 @@ public final class VehicleRuntime implements Listener {
                 if (rider != null && emotes != null) {
                     emotes.anchor(rider, seatLocation(i));
                 }
+                reportSeat(i, rider, mount);
 
                 // <strong>Outside the branch, which is where it was not.</strong>
                 // The empty-seat arm used to `continue`, so a free seat's
