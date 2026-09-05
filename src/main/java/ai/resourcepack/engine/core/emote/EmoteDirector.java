@@ -384,6 +384,34 @@ public final class EmoteDirector implements Listener {
     private static final int INTERPOLATION_TICKS =
             ai.resourcepack.engine.core.model.DisplayLatency.glideTicks(PERIOD_TICKS);
 
+    /**
+     * How long a rig takes to ease out of one animation and into the next.
+     *
+     * <p><strong>A swap used to be a hard cut, and on a big pose it read as the
+     * body teleporting.</strong> Every worn rig went through {@code pose(...,
+     * immediate)} on the swap, which sets the client's interpolation to zero —
+     * so a vehicle occupant coming out of a look-back snapped their head
+     * through 130 degrees in one frame, and a stance going from a walk to a run
+     * changed legs between two ticks.
+     *
+     * <p>Placed rigs have had this all along: {@code RigAnimator} keeps a
+     * {@code Blend} per display and eases with {@code RigMath.mix}, over a
+     * {@code blend} authored per animation. This is the worn-rig half, and it
+     * is deliberately NOT authored — the request was for it to happen
+     * automatically, and a number nobody sets is a number nobody gets wrong.
+     *
+     * <p>Done by lengthening the client's own interpolation for the window
+     * rather than by mixing transforms here. The rig is re-posed every tick
+     * anyway, so a longer duration makes each pass a step toward a moving
+     * target — the rig eases into the new animation and is running it cleanly
+     * by the end of the window, with no per-display state to keep, and props
+     * and held items come along because they read the same number.
+     *
+     * <p>Five ticks. Long enough that a head turning right round reads as a
+     * turn, short enough that a walk-to-run swap is not visibly late.
+     */
+    private static final int SWAP_BLEND_TICKS = 5;
+
     private final Host host;
     private final EmoteStore emotes;
     /**
@@ -551,6 +579,15 @@ public final class EmoteDirector implements Listener {
          * not a transition anybody authored.
          */
         boolean snap;
+
+        /**
+         * The tick this session's ease into a new animation finishes at, or 0.
+         *
+         * <p>Set at every swap and simply read afterwards — see
+         * {@link #SWAP_BLEND_TICKS}. It is a deadline rather than a countdown
+         * so nothing has to be decremented on a pass that does no posing.
+         */
+        long blendUntil;
         /**
          * Where the displays were last put, or null if they need putting.
          *
@@ -1217,6 +1254,10 @@ public final class EmoteDirector implements Listener {
         // From the top, every time — a cycle joined halfway through because the
         // last state ran for two seconds is a limp.
         session.startTick = player.getWorld().getGameTime();
+        // Eased into rather than cut to, unless the rig was away — see
+        // SWAP_BLEND_TICKS, and `wasHidden` below for the one case where a
+        // tween is from a pose nobody authored.
+        session.blendUntil = session.startTick + SWAP_BLEND_TICKS;
         Location base = player.getLocation().clone()
             .add(session.lead.getX(), RIG_BASE_Y, session.lead.getZ());
         base.setYaw(0);
@@ -1227,7 +1268,7 @@ public final class EmoteDirector implements Listener {
         // Only where a tween would be wrong: easing out of a rig that was put
         // away is a tween from whatever pose it happened to be holding.
         if (wasHidden) session.snap = true;
-        pose(player.getUniqueId(), session, true);
+        pose(player.getUniqueId(), session, wasHidden ? 0 : SWAP_BLEND_TICKS);
     }
 
     /**
@@ -1398,7 +1439,7 @@ public final class EmoteDirector implements Listener {
         // emote's identity is a body standing to attention inside the player
         // for one pass — visible, and exactly what a swap is meant to avoid.
         setRigHidden(player, session, true);
-        if (tickStance(player, session)) pose(player.getUniqueId(), session, true);
+        if (tickStance(player, session)) pose(player.getUniqueId(), session, 0);
         return EmoteResult.started(group.name, borrowed);
     }
 
@@ -1544,7 +1585,7 @@ public final class EmoteDirector implements Listener {
         // whole duet rather than one person moving and the other appearing.
         for (UUID id : troupe) {
             Session session = active.get(id);
-            if (session != null) pose(id, session, true);
+            if (session != null) pose(id, session, 0);
         }
 
         // Said once, when it happens, rather than refusing: they are emoting,
@@ -3023,6 +3064,10 @@ public final class EmoteDirector implements Listener {
                 // is a limp, and the emotes in a set have no reason to share a
                 // length for their phases to line up.
                 session.startTick = tick;
+                // The same ease a driven swap gets: walking into a run is the
+                // case the comment below about tweening was always describing,
+                // and until now it had only the step-to-step window to do it in.
+                session.blendUntil = tick + SWAP_BLEND_TICKS;
                 // Props belong to the emote, not to the set, so the old one's
                 // models go away and the new one's stand up. Bones are shared
                 // and are never respawned.
@@ -3246,8 +3291,8 @@ public final class EmoteDirector implements Listener {
      * so this is the earliest moment the server can possibly know.
      *
      * <p>And it poses straight away rather than leaving it for the next pass,
-     * with {@code immediate} set so the client is told to land the frame instead
-     * of easing into it over {@link #INTERPOLATION_TICKS}. The two together are
+     * at zero ticks, so the client is told to land the frame instead of easing
+     * into it over {@link #INTERPOLATION_TICKS}. The two together are
      * what make the round trip the only delay left: the swing goes out on this
      * tick's packet, at the angle the arm should already be at (see
      * {@link ArmSwing#progress}), with no interpolation ramp in front of it.
@@ -3268,7 +3313,7 @@ public final class EmoteDirector implements Listener {
         if (session.rigHidden) return;
         session.swingTick = player.getWorld().getGameTime();
         session.swingOffHand = player.getMainHand() == org.bukkit.inventory.MainHand.LEFT;
-        pose(player.getUniqueId(), session, true);
+        pose(player.getUniqueId(), session, 0);
     }
 
     // There was a PlayerItemHeldEvent listener here, whose whole job was moving
@@ -3354,7 +3399,7 @@ public final class EmoteDirector implements Listener {
                 // writing a transform per bone per tick to entities nobody can
                 // see.
                 if (!session.rigHidden) {
-                    pose(entry.getKey(), session, session.snap);
+                    pose(entry.getKey(), session, poseTicks(session, player.getWorld().getGameTime()));
                     session.snap = false;
                 }
                 continue;
@@ -3395,11 +3440,26 @@ public final class EmoteDirector implements Listener {
                 continue;
             }
             follow(player, session, animationTime(session.emote, elapsed));
-            pose(entry.getKey(), session, false);
+            pose(entry.getKey(), session, INTERPOLATION_TICKS);
         }
     }
 
-    private void pose(UUID playerId, Session session, boolean immediate) {
+    /**
+     * How long the client should take over this pass's pose.
+     *
+     * <p>Three answers and they are one mechanism at three values, which is why
+     * this replaced a boolean: {@code snap} is a hard cut, a swap is easing
+     * into the new animation, and everything else is the ordinary step-to-step
+     * window. See {@link #SWAP_BLEND_TICKS}.
+     */
+    private int poseTicks(Session session, long now) {
+        if (session.snap) {
+            return 0;
+        }
+        return now < session.blendUntil ? SWAP_BLEND_TICKS : INTERPOLATION_TICKS;
+    }
+
+    private void pose(UUID playerId, Session session, int ticks) {
         double elapsed = 0;
         Player player = Bukkit.getPlayer(playerId);
         long now = session.startTick;
@@ -3477,12 +3537,12 @@ public final class EmoteDirector implements Listener {
             // instead of tweening. Same fix RigAnimator.pose documents.
             display.setInterpolationDelay(1);
             display.setInterpolationDelay(0);
-            display.setInterpolationDuration(immediate ? 0 : INTERPOLATION_TICKS);
+            display.setInterpolationDuration(ticks);
             display.setTransformation(next);
         }
 
-        poseProps(session, root, composed, t, immediate);
-        poseHands(session, composed, immediate);
+        poseProps(session, root, composed, t, ticks);
+        poseHands(session, composed, ticks);
     }
 
     /**
@@ -3500,9 +3560,9 @@ public final class EmoteDirector implements Listener {
      * cannot find at all. A sword floating at somebody's feet is worse than a
      * sword that is not drawn.
      */
-    private void poseHands(Session session, Map<String, Matrix4f> composed, boolean immediate) {
-        poseHand(session, session.mainHand, HeldItem.MAIN_HAND_ATTACH, false, composed, immediate);
-        poseHand(session, session.offHand, HeldItem.OFF_HAND_ATTACH, true, composed, immediate);
+    private void poseHands(Session session, Map<String, Matrix4f> composed, int ticks) {
+        poseHand(session, session.mainHand, HeldItem.MAIN_HAND_ATTACH, false, composed, ticks);
+        poseHand(session, session.offHand, HeldItem.OFF_HAND_ATTACH, true, composed, ticks);
     }
 
     private void poseHand(
@@ -3511,7 +3571,7 @@ public final class EmoteDirector implements Listener {
             String attach,
             boolean offHand,
             Map<String, Matrix4f> composed,
-            boolean immediate) {
+            int ticks) {
         if (display == null || !display.isValid()) return;
 
         // The hand is on the forearm where the skeleton has one, else on the
@@ -3557,7 +3617,7 @@ public final class EmoteDirector implements Listener {
         if (next.equals(display.getTransformation())) return;
         display.setInterpolationDelay(1);
         display.setInterpolationDelay(0);
-        display.setInterpolationDuration(immediate ? 0 : INTERPOLATION_TICKS);
+        display.setInterpolationDuration(ticks);
         display.setTransformation(next);
     }
 
@@ -3576,7 +3636,7 @@ public final class EmoteDirector implements Listener {
      * a chair does not follow you when you sit down.
      */
     private void poseProps(
-            Session session, Matrix4f root, Map<String, Matrix4f> composed, double t, boolean immediate) {
+            Session session, Matrix4f root, Map<String, Matrix4f> composed, double t, int ticks) {
         List<EmoteStore.Prop> props = session.emote.props;
         if (props == null) return;
         for (int i = 0; i < props.size() && i < session.propParts.size(); i++) {
@@ -3624,7 +3684,7 @@ public final class EmoteDirector implements Listener {
             if (next.equals(display.getTransformation())) continue;
             display.setInterpolationDelay(1);
             display.setInterpolationDelay(0);
-            display.setInterpolationDuration(immediate ? 0 : INTERPOLATION_TICKS);
+            display.setInterpolationDuration(ticks);
             display.setTransformation(next);
         }
     }
