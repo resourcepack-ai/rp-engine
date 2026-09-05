@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import org.bukkit.util.Transformation;
+import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
@@ -66,18 +67,7 @@ class AnimationStateTest {
         assertEquals(2, RigAnimations.animationTime(twice, 1), 0.0001);
     }
 
-    @Test
-    void anOppositeCycleStartsAtTheMatchingMirroredPhase() {
-        RigStore.Animation forwards = animation("{\"name\":\"forward\",\"length\":2,\"mode\":\"loop\"}");
-        RigStore.Animation backwards = animation("{\"name\":\"backward\",\"length\":4,\"mode\":\"loop\"}");
 
-        assertEquals(3, RigAnimations.mirroredTime(forwards, 0.5, backwards), 0.0001,
-                "a quarter-turn forwards is the three-quarter point backwards");
-        assertEquals(0.5, RigAnimations.mirroredTime(backwards, 3, forwards), 0.0001,
-                "switching back mirrors the phase again even when lengths differ");
-        assertEquals(0, RigAnimations.mirroredTime(forwards, 0, backwards), 0.0001,
-                "the shared cycle boundary remains frame zero");
-    }
 
     @Test
     void aFastOneShotStopsAtItsEndRatherThanRunningPastIt() {
@@ -218,54 +208,152 @@ class AnimationStateTest {
     }
 
     // ---- the crossfade ---------------------------------------------------
+    //
+    // A fade works on a step's VALUES — degrees, px, scale — and composes
+    // them about the pivot, never on a Transformation. The last test in this
+    // group is the reason: a Transformation-space mix, and the client's own
+    // interpolation which tweens the same decomposition, took a wheel off its
+    // axle on every change of state.
 
-    private static Transformation at(float x, float degrees) {
-        return new Transformation(
-                new Vector3f(x, 0, 0),
-                new Quaternionf().rotateY((float) Math.toRadians(degrees)),
-                new Vector3f(1, 1, 1),
-                new Quaternionf());
+    /** A step at {@code degrees} about X, {@code px} along Y. */
+    private static float[] step(float degrees, float px) {
+        return new float[] {degrees, 0f, 0f, 0f, px, 0f, 1f, 1f, 1f};
     }
 
     @Test
-    void aBlendEndsWhereItWasGoing() {
-        Transformation mixed = RigMath.mix(at(0, 0), at(4, 90), 1f);
+    void aFadeEndsWhereItWasGoing() {
+        float[] mixed = RigMath.lerpStep(step(0, 0), step(90, 4), 1f);
 
-        assertEquals(4f, mixed.getTranslation().x, 0.0001);
-        assertEquals(at(4, 90).getLeftRotation().y, mixed.getLeftRotation().y, 0.0001);
+        assertEquals(90f, mixed[0], 0.0001);
+        assertEquals(4f, mixed[4], 0.0001);
     }
 
     @Test
-    void aBlendStartsWhereItWas() {
-        Transformation mixed = RigMath.mix(at(0, 0), at(4, 90), 0f);
+    void aFadeStartsWhereItWas() {
+        float[] mixed = RigMath.lerpStep(step(30, 2), step(90, 4), 0f);
 
-        assertEquals(0f, mixed.getTranslation().x, 0.0001);
+        assertEquals(30f, mixed[0], 0.0001);
+        assertEquals(2f, mixed[4], 0.0001);
     }
 
     @Test
-    void positionMovesLinearlyThroughTheBlend() {
-        assertEquals(2f, RigMath.mix(at(0, 0), at(4, 90), 0.5f).getTranslation().x, 0.0001);
+    void everythingMovesLinearlyThroughTheFade() {
+        float[] mixed = RigMath.lerpStep(step(0, 0), step(90, 4), 0.5f);
+
+        assertEquals(45f, mixed[0], 0.0001);
+        assertEquals(2f, mixed[4], 0.0001);
     }
 
     @Test
-    void rotationIsSlerpedSoALimbDoesNotShrinkHalfwayThrough() {
-        // The reason this is not a component-wise average: averaging two
-        // quaternions gives something SHORTER than a unit quaternion, and a
-        // non-unit rotation scales what it rotates. Halfway through a 180
-        // degree turn the error is at its worst, and a lerp would visibly
-        // collapse the part and spring it back out.
-        Transformation mixed = RigMath.mix(at(0, 0), at(0, 180), 0.5f);
-        Quaternionf rotation = mixed.getLeftRotation();
-        float length = (float) Math.sqrt(rotation.x * rotation.x + rotation.y * rotation.y
-                + rotation.z * rotation.z + rotation.w * rotation.w);
+    void restIsWhatNullMeansAtEitherEnd() {
+        float[] out = RigMath.lerpStep(step(90, 4), null, 0.5f);
+        assertEquals(45f, out[0], 0.0001);
+        assertEquals(2f, out[4], 0.0001);
+        assertEquals(1f, out[6], 0.0001, "scale rests at 1, not 0");
 
-        assertEquals(1f, length, 0.0001, "still a rotation");
+        float[] in = RigMath.lerpStep(null, step(90, 4), 0.25f);
+        assertEquals(22.5f, in[0], 0.0001);
+    }
+
+    @Test
+    void aRotationGoesTheShortWayRound() {
+        // A wheel at 350 asked for 10 turns twenty degrees on, not three
+        // hundred and forty back — on a spinning wheel the difference between
+        // a fade nobody sees and a wheel that reverses.
+        float[] mixed = RigMath.lerpStep(step(350, 0), step(10, 0), 0.5f);
+
+        assertEquals(360f, mixed[0], 0.0001);
+        assertEquals(20f, RigMath.turnBetween(new float[][] {step(350, 0)}, new float[][] {step(10, 0)}, 1), 0.0001);
+    }
+
+    @Test
+    void aFadingWheelStaysOnItsAxle() {
+        // THE property, and the one a Transformation-space mix does not have:
+        // every pose of the fade is composed about the pivot, so the pivot
+        // never moves. Tweened the other way — translation and rotation
+        // separately, which is what the client does between two sends — a
+        // wheel a block out from the entity leaves its axle by up to that
+        // whole block halfway through a half turn.
+        float[] pivot = {24f, 8f, 8f}; // a block out along X
+        for (float amount : new float[] {0f, 0.25f, 0.5f, 0.75f, 1f}) {
+            float[] values = RigMath.lerpStep(new float[] {0f, 170f, 0f, 0f, 0f, 0f, 1f, 1f, 1f}, null, amount);
+            Matrix4f m = new Matrix4f();
+            RigMath.composeStep(m, pivot, values);
+            Vector3f centre = m.transformPosition(new Vector3f(1f, 0f, 0f));
+            assertEquals(1f, centre.x, 0.0001, "at " + amount);
+            assertEquals(0f, centre.y, 0.0001, "at " + amount);
+            assertEquals(0f, centre.z, 0.0001, "at " + amount);
+        }
+    }
+
+    @Test
+    void aFadeIsAsLongAsItsBiggestTurnNeeds() {
+        // No send may turn a bone more than the step, so a half turn is four
+        // sends of 45 and a nudge is one: an ordinary frame.
+        float[][] from = {step(170, 0)};
+        assertEquals(8, RigMath.fadeTicks(from, null, 1, 2, 45f));
+        assertEquals(2, RigMath.fadeTicks(from, new float[][] {step(160, 9)}, 1, 2, 45f));
+        assertEquals(2, RigMath.fadeTicks(null, null, 1, 2, 45f), "rest to rest is still one send");
     }
 
     @Test
     void anAmountOutsideZeroToOneIsClamped() {
-        assertEquals(0f, RigMath.mix(at(0, 0), at(4, 0), -1f).getTranslation().x, 0.0001);
-        assertEquals(4f, RigMath.mix(at(0, 0), at(4, 0), 2f).getTranslation().x, 0.0001);
+        assertEquals(0f, RigMath.lerpStep(step(0, 0), step(90, 4), -1f)[0], 0.0001);
+        assertEquals(90f, RigMath.lerpStep(step(0, 0), step(90, 4), 2f)[0], 0.0001);
+    }
+
+    // ---- joining a cycle in phase ----------------------------------------
+
+    private static RigStore.Animation cycle(String name, double length, String track) {
+        return animation("{\"name\":\"" + name + "\",\"length\":" + length + ",\"mode\":\"loop\","
+                + "\"animators\":{\"wheel\":{\"rotation\":[" + track + "]}}}");
+    }
+
+    private static String key(double time, float x) {
+        return "{\"time\":" + time + ",\"value\":[" + x + ",0,0]}";
+    }
+
+    @Test
+    void aWheelJoinsTheNextCycleAtTheAngleItIsAlreadyAt() {
+        // moving runs 0 to 360 over two seconds; turning, a different length,
+        // runs the same way over one. A wheel a fifth of the way round joins
+        // turning a fifth of the way round, not at 0.
+        RigStore.Animation moving = cycle("moving", 2, key(0, 0) + "," + key(2, 360));
+        RigStore.Animation turning = cycle("turning", 1, key(0, 0) + "," + key(1, 360));
+
+        assertEquals(0.2, RigAnimations.nearestPhase(moving, 0.4, turning), 0.03);
+    }
+
+    @Test
+    void aWheelJoinsAReverseCycleWhereItReadsTheSameAngle() {
+        // reversing runs 360 down to 0, so 72 degrees is four fifths of the
+        // way through it. The wheel keeps its angle and changes direction,
+        // which is what a car does.
+        RigStore.Animation moving = cycle("moving", 2, key(0, 0) + "," + key(2, 360));
+        RigStore.Animation reversing = cycle("reversing", 1, key(0, 360) + "," + key(1, 0));
+
+        assertEquals(0.8, RigAnimations.nearestPhase(moving, 0.4, reversing), 0.03);
+    }
+
+    @Test
+    void anAngleIsMatchedUpToWholeTurns() {
+        // 540 and 180 are the same angle; the cost has to say so, or a cycle
+        // authored as two turns could never be joined from one authored as one.
+        RigStore.Animation fast = cycle("fast", 1, key(0, 0) + "," + key(1, 720));
+        RigStore.Animation slow = cycle("slow", 1, key(0, 0) + "," + key(1, 360));
+
+        // fast at 0.75 s reads 540, which is 180; slow reads 180 at 0.5 s.
+        assertEquals(0.5, RigAnimations.nearestPhase(fast, 0.75, slow), 0.03);
+    }
+
+    @Test
+    void aCycleThatRotatesNothingIsJoinedAtTheTop() {
+        RigStore.Animation moving = cycle("moving", 2, key(0, 0) + "," + key(2, 360));
+        RigStore.Animation bob = animation("{\"name\":\"idle\",\"length\":1,\"mode\":\"loop\","
+                + "\"animators\":{\"body\":{\"position\":[" + key(0, 0) + "," + key(1, 2) + "]}}}");
+
+        assertEquals(0, RigAnimations.nearestPhase(moving, 0.4, bob), 0.0001);
+        assertEquals(0, RigAnimations.nearestPhase(null, 0, moving), 0.0001, "from rest is frame 0");
     }
 
     // ---- the neck --------------------------------------------------------

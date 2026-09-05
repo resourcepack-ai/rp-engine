@@ -395,7 +395,7 @@ public final class EmoteDirector implements Listener {
      * changed legs between two ticks.
      *
      * <p>Placed rigs have had this all along: {@code RigAnimator} keeps a
-     * {@code Blend} per display and eases with {@code RigMath.mix}, over a
+     * {@code Fade} per display and eases it in pose space, over a
      * {@code blend} authored per animation. This is the worn-rig half, and it
      * is deliberately NOT authored — the request was for it to happen
      * automatically, and a number nobody sets is a number nobody gets wrong.

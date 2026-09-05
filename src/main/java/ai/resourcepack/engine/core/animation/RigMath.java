@@ -94,23 +94,147 @@ public final class RigMath {
         if (pivot == null || pivot.length != 3) return;
         if (weight <= 0f) return;
         Map<String, List<Keyframe>> animator = animators == null ? null : animators.get(target);
+        composeStep(m, pivot, sampleStep(animator, t, weight));
+    }
+
+    // ---- a pose as values ------------------------------------------------
+    //
+    // A step's pose kept as the nine numbers it is composed from — rotation
+    // xyz in degrees, position xyz in px, scale xyz — rather than as the
+    // matrix they compose to. That is the representation a crossfade has to
+    // work in, and the reason is the one bug this file exists to remember:
+    // a Transformation (translation, rotation, scale) is not continuous in
+    // the matrix it came from, and neither is anything that tweens it,
+    // including the client. Two poses of a wheel a hair apart decompose to
+    // triples that are far apart, and interpolating THOSE puts the wheel off
+    // its axle. Interpolating the angle and composing about the pivot keeps
+    // it on: every intermediate pose is a pose the rig can actually hold.
+
+    /** Values per step: rotation xyz, position xyz, scale xyz. */
+    public static final int STEP_VALUES = 9;
+
+    /** The rest pose of any step. Shared, never written to. */
+    private static final float[] REST_STEP = {0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f};
+
+    /**
+     * Samples one animator's channels at {@code t}, at {@code weight} of full
+     * strength, into the values {@link #composeStep} composes.
+     *
+     * <p>The arithmetic is {@link #applyStep}'s, moved: the weighting is
+     * applied here to the sampled values and nowhere else, so a step
+     * composed from these is byte for byte what applyStep composed before
+     * this split, weighted or not.
+     *
+     * @param animator the target's channels, or null for a target nothing
+     *                 animates, which samples as rest
+     */
+    public static float[] sampleStep(Map<String, List<Keyframe>> animator, double t, float weight) {
+        float[] rot = Sampler.sample(animator, "rotation", t, ZERO);
+        float[] pos = Sampler.sample(animator, "position", t, ZERO);
+        float[] scl = Sampler.sample(animator, "scale", t, ONE);
+        float w = Math.min(1f, weight);
+        return new float[] {
+                rot[0] * w, rot[1] * w, rot[2] * w,
+                pos[0] * w, pos[1] * w, pos[2] * w,
+                1f + (scl[0] - 1f) * w, 1f + (scl[1] - 1f) * w, 1f + (scl[2] - 1f) * w,
+        };
+    }
+
+    /**
+     * Composes one step's values into {@code m}, about {@code pivot}:
+     * {@code T(pivot + position) * Rxyz * S * T(-pivot)}, the editor's own
+     * order.
+     *
+     * @param values a step's nine values, or null for rest
+     */
+    public static void composeStep(Matrix4f m, float[] pivot, float[] values) {
+        if (pivot == null || pivot.length != 3) return;
+        float[] v = values == null ? REST_STEP : values;
         // Same px -> block-space mapping as the editor viewport: (v-8)/16,
         // with the entity sitting at the block center.
         float px = (pivot[0] - 8f) / 16f;
         float py = (pivot[1] - 8f) / 16f;
         float pz = (pivot[2] - 8f) / 16f;
-        float[] rot = Sampler.sample(animator, "rotation", t, ZERO);
-        float[] pos = Sampler.sample(animator, "position", t, ZERO);
-        float[] scl = Sampler.sample(animator, "scale", t, ONE);
-        float w = Math.min(1f, weight);
-        m.translate(px + pos[0] * w / 16f, py + pos[1] * w / 16f, pz + pos[2] * w / 16f);
-        m.rotateXYZ((float) Math.toRadians(rot[0] * w),
-                (float) Math.toRadians(rot[1] * w),
-                (float) Math.toRadians(rot[2] * w));
-        m.scale(nonSingular(1f + (scl[0] - 1f) * w),
-                nonSingular(1f + (scl[1] - 1f) * w),
-                nonSingular(1f + (scl[2] - 1f) * w));
+        m.translate(px + v[3] / 16f, py + v[4] / 16f, pz + v[5] / 16f);
+        m.rotateXYZ((float) Math.toRadians(v[0]),
+                (float) Math.toRadians(v[1]),
+                (float) Math.toRadians(v[2]));
+        m.scale(nonSingular(v[6]), nonSingular(v[7]), nonSingular(v[8]));
         m.translate(-px, -py, -pz);
+    }
+
+    /**
+     * A step's values {@code amount} of the way from {@code from} to
+     * {@code to}, either of which may be null for rest.
+     *
+     * <p><strong>A rotation goes the short way round.</strong> The target
+     * angle is taken plus or minus whole turns, whichever lands nearest the
+     * start, so a wheel at 350 degrees asked for 10 turns twenty degrees on
+     * rather than three hundred and forty back. What comes out at
+     * {@code amount == 1} is therefore the target's angle up to whole turns,
+     * which composes to the same rotation.
+     */
+    public static float[] lerpStep(float[] from, float[] to, float amount) {
+        float[] a = from == null ? REST_STEP : from;
+        float[] b = to == null ? REST_STEP : to;
+        float s = Math.min(1f, Math.max(0f, amount));
+        float[] out = new float[STEP_VALUES];
+        for (int i = 0; i < 3; i++) {
+            float target = nearestTurn(a[i], b[i]);
+            out[i] = a[i] + (target - a[i]) * s;
+        }
+        for (int i = 3; i < STEP_VALUES; i++) {
+            out[i] = a[i] + (b[i] - a[i]) * s;
+        }
+        return out;
+    }
+
+    /** Every step of a program, {@code amount} of the way from one pose to another. */
+    public static float[][] lerpProgram(float[][] from, float[][] to, int steps, float amount) {
+        float[][] out = new float[steps][];
+        for (int i = 0; i < steps; i++) {
+            out[i] = lerpStep(stepOf(from, i), stepOf(to, i), amount);
+        }
+        return out;
+    }
+
+    /**
+     * How far, in degrees, the biggest single-axis rotation between two
+     * poses of a program is, the short way round.
+     *
+     * <p>The number a crossfade's length is set from. Position does not
+     * count: a translation tweens exactly, and it is the rotation that
+     * swings a part off its pivot mid-tween.
+     */
+    public static float turnBetween(float[][] from, float[][] to, int steps) {
+        float most = 0f;
+        for (int i = 0; i < steps; i++) {
+            float[] a = stepOf(from, i) == null ? REST_STEP : stepOf(from, i);
+            float[] b = stepOf(to, i) == null ? REST_STEP : stepOf(to, i);
+            for (int axis = 0; axis < 3; axis++) {
+                most = Math.max(most, Math.abs(nearestTurn(a[axis], b[axis]) - a[axis]));
+            }
+        }
+        return most;
+    }
+
+    /**
+     * How many ticks a crossfade needs so that no single send turns any bone
+     * of it by more than {@code degreesPerSend}, at one send every
+     * {@code period} ticks. Never less than one send.
+     */
+    public static int fadeTicks(float[][] from, float[][] to, int steps, int period, float degreesPerSend) {
+        int sends = Math.max(1, (int) Math.ceil(turnBetween(from, to, steps) / degreesPerSend));
+        return sends * period;
+    }
+
+    /** {@code to} plus whole turns, whichever is nearest {@code from}. */
+    static float nearestTurn(float from, float to) {
+        return to + 360f * Math.round((from - to) / 360f);
+    }
+
+    private static float[] stepOf(float[][] values, int i) {
+        return values == null || i >= values.length ? null : values[i];
     }
 
     public static Matrix4f toItemDisplaySpace(Matrix4f modelTransform) {
@@ -165,21 +289,4 @@ public final class RigMath {
         return toTransformation(m);
     }
 
-    /**
-     * A pose {@code amount} of the way from {@code from} to {@code to}.
-     *
-     * <p><strong>Rotations are slerped, not lerped.</strong> A component-wise
-     * average of two quaternions is not a rotation: it shortens as the two
-     * diverge, which shows up as a limb shrinking into itself halfway through
-     * a transition and springing back out. Position and scale are ordinary
-     * linear interpolation, where an average IS the answer.
-     */
-    public static Transformation mix(Transformation from, Transformation to, float amount) {
-        float t = Math.min(1f, Math.max(0f, amount));
-        return new Transformation(
-                new Vector3f(from.getTranslation()).lerp(to.getTranslation(), t),
-                new Quaternionf(from.getLeftRotation()).slerp(to.getLeftRotation(), t),
-                new Vector3f(from.getScale()).lerp(to.getScale(), t),
-                new Quaternionf(from.getRightRotation()).slerp(to.getRightRotation(), t));
-    }
 }
