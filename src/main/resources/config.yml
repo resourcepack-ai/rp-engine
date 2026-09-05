@@ -105,6 +105,17 @@ vehicles:
   # one reload rather than waiting for a release.
   seat-forward: 0.0
 
+  # Reports, once a second per occupied seat, where the rider actually ended
+  # up against where the plugin put them - across the vehicle, along it, and
+  # up. Off.
+  #
+  # For the case the two nudges above cannot answer: one seat being out while
+  # another is fine. `across` should be zero on every seat, always; a rider
+  # who is visibly out of their seat with `across` reading zero is a rendering
+  # problem on the client rather than a placement one, and the two want
+  # opposite fixes.
+  debug-seats: false
+
   # Whether a moving vehicle shoves PLAYERS out of its way.
   #
   # Off, so a vehicle passes through people. Shoving is right for a cow
