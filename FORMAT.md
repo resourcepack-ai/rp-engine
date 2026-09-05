@@ -585,9 +585,13 @@ hatchback:
     - {role: passenger, x:  0.4, y: 0.6, z: 0.6}
     - {role: passenger, x: -0.4, y: 0.6, z: -0.5}
     - {role: passenger, x:  0.4, y: 0.6, z: -0.5}
+  capes: true               # optional — is a rider's cape drawn in it?
   animations:               # optional — which animation plays when
     idle: parked
     moving: drive
+  sounds:                   # optional — what it sounds like, and when
+    idle: mypack:tickover
+    moving: mypack:engine
   particles:                # optional — what it throws, and when
     - effect: smoke
       states: [moving, reversing]
@@ -939,6 +943,57 @@ sentence at them over and over. Once per player per reason.
 **A rig taken off by something else comes back.** `/emote stop`, a death, or
 another plugin ending the session leaves the rider as themselves; the seat
 notices on its next tick and puts it on again.
+
+### Sounds
+
+`sounds:` maps a state to one of your own sounds, by id — an engine note, the
+wash of a hull, the rotor of a helicopter.
+
+```yaml
+  sounds:
+    idle: mypack:tickover
+    moving: mypack:engine
+```
+
+**It is read exactly like `animations:`**: one sound at a time, chosen by the
+same order, and a state you leave out falls through to the next one down. So a
+vehicle that names only `moving` keeps its engine running through a corner and
+over a bump, and goes quiet when it stops. That is the opposite of the
+`particles:` rule below, and for the same reason animations have it: an engine
+has one note the way a rig has one clock, and two playing over each other is a
+vehicle that sounds broken rather than busy.
+
+**A sound loops for as long as the state holds, and it needs a `length:` to do
+it.** Minecraft has no looping sound — a sound event is a one-shot — so what
+happens here is that the engine plays your file again the moment it ends, which
+it can only do if the sound definition says how long it runs. Give the sound a
+`length:` (see Sounds, above) and it loops seamlessly; leave it out and the
+sound plays **once**, when the vehicle enters that state. That is deliberate:
+a two-second engine looped on a guessed half-second is four engines.
+
+The sound is played **where the vehicle is** when each repeat starts, so
+everybody nearby hears it and it fades with distance. It does not travel with
+the vehicle during a repeat — nothing in the API can attach a sound to a moving
+entity on every version this engine supports — which is another reason to keep
+a looping file short.
+
+A sound that does not exist on this server is silence, not an error: it may
+belong to a pack that has not loaded, and a vehicle is worth more than a
+refusal.
+
+### Capes
+
+`capes: false` stops a rider's cape being drawn while they are in this vehicle.
+The default is `true`, because a cape is somebody's own and taking it off them
+is the surprising direction.
+
+It is worth setting for anything a rider sits **inside** — a car's cabin, an
+aeroplane's fuselage, a tank. A cape hangs off the back of the rider's rig, and
+in a cabin it hangs through the bodywork, which is not something you can fix
+from the model. An open cart or a horse-drawn trap wants to keep it.
+
+It takes away the CAPE and nothing else: the rider is still there, still posed,
+still visible. `hidden: true` on a seat is the switch that removes the person.
 
 ### Particles
 
@@ -1321,6 +1376,7 @@ chime:
   volume: 1.0
   pitch: 1.0
   stream: false        # true for anything long
+  length: 2.4          # seconds. Only needed by something that loops it
 ```
 
 Play it with `/rp sound mypack:chime`, or from another plugin through the
@@ -1341,6 +1397,15 @@ audio — which is more people than most server owners expect.
 
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
+
+**`length` is how long the file runs, in seconds**, and it exists for one
+reason: Minecraft has no looping sound. A sound event is a one-shot, so
+anything that plays continuously is the server re-playing a short file on a
+timer — a vehicle's engine note, today — and the only way to do that without a
+gap or an overlap is to know how long the file is. Nothing here can measure
+that for you, so leave it out and a vehicle plays the sound once when it enters
+that state; write it (any audio player will tell you) and the sound loops for
+as long as the state lasts. Nothing else reads it.
 
 ## Icons
 

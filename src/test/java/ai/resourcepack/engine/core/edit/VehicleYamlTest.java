@@ -78,6 +78,8 @@ class VehicleYamlTest {
         assertEquals(a.acceleration(), b.acceleration(), 0.001);
         assertEquals(a.turnSpeed(), b.turnSpeed(), 0.001);
         assertEquals(a.turnInPlace(), b.turnInPlace());
+        assertEquals(a.capes(), b.capes());
+        assertEquals(a.sounds(), b.sounds());
         assertEquals(a.scale(), b.scale(), 0.001);
         assertEquals(a.flight().takeoffSpeed(), b.flight().takeoffSpeed(), 0.001);
         assertEquals(a.flight().climbRate(), b.flight().climbRate(), 0.001);
@@ -209,6 +211,8 @@ class VehicleYamlTest {
         assertTrue(!block.contains("scale:"), "a vehicle at its built size says nothing about scale");
         assertTrue(!block.contains("turn-in-place:"),
                 "a vehicle that steers the way every vehicle steers says nothing about it");
+        assertTrue(!block.contains("capes:"), "a vehicle that leaves capes alone says nothing about them");
+        assertTrue(!block.contains("sounds:"), "no sounds, no map");
         assertTrue(!block.contains("flight:"), "a land vehicle has no flight block");
         assertTrue(!block.contains("particles:"), "no emitters, no list");
     }
@@ -276,6 +280,36 @@ class VehicleYamlTest {
 
         String block = VehicleYaml.write("tank", "mypack:tank", EditTargets.wire(original));
         assertTrue(block.contains("turn-in-place: true"), block);
+        assertSame(original, roundTrip(original));
+    }
+
+    /**
+     * A vehicle's noise and its riders' capes, both of which are the quiet
+     * kind of loss: a car that comes home silent, and a tank that comes home
+     * with a cape hanging through its turret.
+     */
+    @Test
+    void soundsAndTheCapeSwitchSurviveTheRoundTrip() throws IOException {
+        write("mypack/vehicles/cars.yml", String.join("\n",
+                "jeep:",
+                "  model: mypack:jeep",
+                "  capes: false",
+                "  sounds:",
+                "    moving: mypack:engine",
+                "    idle: mypack:tickover",
+                "  seats:",
+                "    - {role: driver, y: 0.7}",
+                ""));
+
+        VehicleInfo original = parse("mypack:jeep");
+        assertNotNull(original);
+        assertTrue(!original.capes());
+        assertEquals("mypack:engine", original.sounds().get(VehicleState.MOVING));
+        assertEquals("mypack:tickover", original.sounds().get(VehicleState.IDLE));
+
+        String block = VehicleYaml.write("jeep", "mypack:jeep", EditTargets.wire(original));
+        assertTrue(block.contains("capes: false"), block);
+        assertTrue(block.contains("moving: \"mypack:engine\""), block);
         assertSame(original, roundTrip(original));
     }
 

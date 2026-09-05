@@ -52,12 +52,15 @@ public final class VehicleInfo {
     private final double scale;
     private final boolean jumps;
     private final boolean turnInPlace;
+    private final Map<VehicleState, String> sounds;
+    private final boolean capes;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
-                        double scale, boolean jumps, boolean turnInPlace) {
+                        double scale, boolean jumps, boolean turnInPlace,
+                        Map<VehicleState, String> sounds, boolean capes) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -75,6 +78,8 @@ public final class VehicleInfo {
         this.scale = scale;
         this.jumps = jumps;
         this.turnInPlace = turnInPlace;
+        this.sounds = sounds;
+        this.capes = capes;
     }
 
     /**
@@ -108,7 +113,8 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1, false, false);
+                copyAnimations(animations), copyEmitters(emitters), 1, false, false,
+                Collections.<VehicleState, String>emptyMap(), true);
     }
 
     /**
@@ -143,7 +149,8 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1, false, false);
+                copyAnimations(animations), copyEmitters(emitters), 1, false, false,
+                Collections.<VehicleState, String>emptyMap(), true);
     }
 
     /**
@@ -331,7 +338,8 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes);
     }
 
     /**
@@ -347,7 +355,36 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes);
+    }
+
+    /**
+     * The same vehicle, playing these sounds.
+     *
+     * <p>A wither on the same argument as {@link #withScale}, and copied the
+     * same way {@code animations} is — an {@link EnumMap} keyed in
+     * declaration order, with blank entries dropped so that "no sound for this
+     * state" has one spelling.
+     */
+    public VehicleInfo withSounds(Map<VehicleState, String> sounds) {
+        Map<VehicleState, String> copy = copyAnimations(sounds);
+        if (copy.equals(this.sounds)) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                copy, capes);
+    }
+
+    /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
+    public VehicleInfo withCapes(boolean capes) {
+        if (capes == this.capes) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes);
     }
 
     /**
@@ -369,7 +406,8 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes);
     }
 
     /**
@@ -395,7 +433,8 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes);
     }
 
     /**
@@ -445,6 +484,45 @@ public final class VehicleInfo {
      */
     public Map<VehicleState, String> animations() {
         return animations;
+    }
+
+    /**
+     * Which sound this vehicle plays in which {@link VehicleState}.
+     *
+     * <p>A custom sound's id, as text, resolved against {@code Sounds} when it
+     * is played — so a vehicle may name a sound that arrives in a later push
+     * without the vehicle itself being reloaded.
+     *
+     * <p><strong>Read exactly like {@link #animations()}</strong>: one state
+     * wins, by the enum's declaration order, and a blank state falls through
+     * to the next. That is not the emitter rule (which fires on ANY of its
+     * states) and the difference is the same one: an engine has one note the
+     * way a rig has one clock, and two of them playing over each other is a
+     * vehicle that sounds broken rather than busy.
+     *
+     * <p>Empty for every vehicle written before this existed, which is
+     * silence.
+     */
+    public Map<VehicleState, String> sounds() {
+        return sounds;
+    }
+
+    /**
+     * Whether a rider's cape is drawn while they are in it.
+     *
+     * <p>True unless the pack says otherwise, because a cape is somebody's own
+     * and taking it off them is the surprising direction. What makes it worth
+     * a switch at all is that a cape hangs off the back of a rig and a rig in
+     * a vehicle is usually inside something — the cabin of a car, the fuselage
+     * of an aeroplane, a tank — where it clips straight through the bodywork
+     * and there is nothing an author can do about it from the model.
+     *
+     * <p>It is the CAPE and not the rig: the rider is still dressed, still
+     * posed and still visible. See {@code VehicleSeat.hidden} for the switch
+     * that removes them entirely.
+     */
+    public boolean capes() {
+        return capes;
     }
 
     /**

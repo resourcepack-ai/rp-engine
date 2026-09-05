@@ -286,6 +286,7 @@ final class EditTargets {
         out.scale = info.scale();
         out.jump = info.jumps() ? Boolean.TRUE : null;
         out.turnInPlace = info.turnInPlace();
+        out.capes = info.capes();
         out.hitboxWidth = info.hitbox().width();
         out.hitboxHeight = info.hitbox().height();
         out.hitboxLength = info.hitbox().length();
@@ -316,6 +317,7 @@ final class EditTargets {
         }
         out.seats = seats;
         out.animations = states(info.animations());
+        out.sounds = states(info.sounds());
 
         List<EditWire.Emitter> emitters = new ArrayList<>();
         for (VehicleEmitter emitter : info.emitters()) {

@@ -152,6 +152,15 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public void cape(Player player, boolean show) {
+        Host.requireMainThread();
+        // Not refused for an offline player, for face's reason: this is told
+        // to the engine every tick by whatever owns the seat.
+        if (player == null) return;
+        director.cape(player, show);
+    }
+
+    @Override
     public void anchor(Player player, Location feet) {
         Host.requireMainThread();
         // Not refused for an offline player, for face's reason: this is told

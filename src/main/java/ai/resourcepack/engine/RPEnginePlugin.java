@@ -396,7 +396,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // So handing one to VehicleRuntime is handing it the same director everything
         // else uses rather than a second emote system.
         vehicles = new VehicleRuntime(this, items, compatibility,
-                new RigCarrier(library, rigs, animator, models), emotes());
+                new RigCarrier(library, rigs, animator, models), emotes(), sounds);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         blockStates = new BlockStates(getDataFolder());
