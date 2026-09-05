@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.Sounds;
 import org.bukkit.Location;
 import org.bukkit.SoundCategory;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -78,6 +79,25 @@ public final class SoundsImpl implements Sounds {
             return false;
         }
         location.getWorld().playSound(location, sound.get().event(), categoryOf(sound.get()), volume, pitch);
+        return true;
+    }
+
+    @Override
+    public boolean playFrom(Entity entity, ContentId id) {
+        Optional<SoundInfo> sound = info(id);
+        return sound.isPresent() && playFrom(entity, id, sound.get().volume(), sound.get().pitch());
+    }
+
+    @Override
+    public boolean playFrom(Entity entity, ContentId id, float volume, float pitch) {
+        Optional<SoundInfo> sound = info(id);
+        if (entity == null || sound.isEmpty()) {
+            return false;
+        }
+        // The entity overload sends an entity sound source rather than a
+        // frozen coordinate. A vehicle can therefore turn and drive for the
+        // whole loop without leaving its engine note behind it.
+        entity.getWorld().playSound(entity, sound.get().event(), categoryOf(sound.get()), volume, pitch);
         return true;
     }
 

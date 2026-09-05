@@ -971,11 +971,9 @@ it can only do if the sound definition says how long it runs. Give the sound a
 sound plays **once**, when the vehicle enters that state. That is deliberate:
 a two-second engine looped on a guessed half-second is four engines.
 
-The sound is played **where the vehicle is** when each repeat starts, so
-everybody nearby hears it and it fades with distance. It does not travel with
-the vehicle during a repeat — nothing in the API can attach a sound to a moving
-entity on every version this engine supports — which is another reason to keep
-a looping file short.
+The sound is played **from the vehicle's chassis**, so everybody nearby hears
+it, it fades with distance, and its position follows the vehicle throughout
+each repeat while it drives and turns.
 
 A sound that does not exist on this server is silence, not an error: it may
 belong to a pack that has not loaded, and a vehicle is worth more than a
