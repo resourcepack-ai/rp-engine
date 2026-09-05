@@ -51,12 +51,13 @@ public final class VehicleInfo {
     private final List<VehicleEmitter> emitters;
     private final double scale;
     private final boolean jumps;
+    private final boolean turnInPlace;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
-                        double scale, boolean jumps) {
+                        double scale, boolean jumps, boolean turnInPlace) {
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -73,6 +74,7 @@ public final class VehicleInfo {
         this.emitters = emitters;
         this.scale = scale;
         this.jumps = jumps;
+        this.turnInPlace = turnInPlace;
     }
 
     /**
@@ -106,7 +108,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1, false);
+                copyAnimations(animations), copyEmitters(emitters), 1, false, false);
     }
 
     /**
@@ -141,7 +143,7 @@ public final class VehicleInfo {
                 hitbox == null ? VehicleHitbox.DEFAULT : hitbox,
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
-                copyAnimations(animations), copyEmitters(emitters), 1, false);
+                copyAnimations(animations), copyEmitters(emitters), 1, false, false);
     }
 
     /**
@@ -247,6 +249,29 @@ public final class VehicleInfo {
     }
 
     /**
+     * Whether it can turn while it is standing still.
+     *
+     * <p><strong>False for everything that does not ask for it</strong>, and
+     * that is the interesting half. A vehicle used to swing round on the spot
+     * whenever its driver moved the mouse, because the yaw chases the camera
+     * every tick and nothing ever asked how fast the vehicle was going — so a
+     * parked car span like a turntable, and a driver reversing out of a space
+     * pointed the bodywork wherever they happened to be looking. Nothing with
+     * wheels does that; steering is a thing you do to a vehicle that is
+     * moving.
+     *
+     * <p>What does turn on the spot is a real class of vehicle rather than an
+     * exception — a tank, a hovercraft, an excavator, anything tracked — so
+     * this is a switch and not a rule. An aircraft off the ground is exempt
+     * whatever it says, because a helicopter hovering is not standing still,
+     * and holding a hover to the same test would leave it unable to point
+     * itself anywhere.
+     */
+    public boolean turnInPlace() {
+        return turnInPlace;
+    }
+
+    /**
      * How big it is to click on and to stand in front of.
      *
      * <p>Never null; a pack that says nothing gets {@link VehicleHitbox#DEFAULT}.
@@ -306,7 +331,23 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
+    }
+
+    /**
+     * The same vehicle, able (or not) to turn on the spot.
+     *
+     * <p>A wither for the reason {@link #withScale} is one: the factories
+     * already carry thirteen positional arguments and a fourteenth of a
+     * different type is how a caller gets one of them wrong in silence. See
+     * {@link #turnInPlace()} for what it means.
+     */
+    public VehicleInfo withTurnInPlace(boolean turnInPlace) {
+        if (turnInPlace == this.turnInPlace) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
     }
 
     /**
@@ -328,7 +369,7 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
     }
 
     /**
@@ -354,7 +395,7 @@ public final class VehicleInfo {
             return this;
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
-                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps);
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace);
     }
 
     /**

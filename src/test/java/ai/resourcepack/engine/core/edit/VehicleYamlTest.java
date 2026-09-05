@@ -77,6 +77,7 @@ class VehicleYamlTest {
         assertEquals(a.speed(), b.speed(), 0.001);
         assertEquals(a.acceleration(), b.acceleration(), 0.001);
         assertEquals(a.turnSpeed(), b.turnSpeed(), 0.001);
+        assertEquals(a.turnInPlace(), b.turnInPlace());
         assertEquals(a.scale(), b.scale(), 0.001);
         assertEquals(a.flight().takeoffSpeed(), b.flight().takeoffSpeed(), 0.001);
         assertEquals(a.flight().climbRate(), b.flight().climbRate(), 0.001);
@@ -206,6 +207,8 @@ class VehicleYamlTest {
         assertTrue(!block.contains("pose:"), "a sitting seat says nothing about pose");
         assertTrue(!block.contains("hidden:"), "a drawn occupant says nothing about hidden");
         assertTrue(!block.contains("scale:"), "a vehicle at its built size says nothing about scale");
+        assertTrue(!block.contains("turn-in-place:"),
+                "a vehicle that steers the way every vehicle steers says nothing about it");
         assertTrue(!block.contains("flight:"), "a land vehicle has no flight block");
         assertTrue(!block.contains("particles:"), "no emitters, no list");
     }
@@ -250,6 +253,30 @@ class VehicleYamlTest {
         assertSame(original, back);
         assertTrue(back.seats().get(0).hidden());
         assertTrue(!back.seats().get(1).hidden());
+    }
+
+    /**
+     * A tank comes home a tank. The switch is a single boolean whose absent
+     * value is the common case, which is exactly the shape that gets dropped
+     * from a wire and read back as the default with nothing to say so.
+     */
+    @Test
+    void aVehicleThatPivotsKeepsPivoting() throws IOException {
+        write("mypack/vehicles/cars.yml", String.join("\n",
+                "tank:",
+                "  model: mypack:tank",
+                "  turn-in-place: true",
+                "  seats:",
+                "    - {role: driver, y: 0.9}",
+                ""));
+
+        VehicleInfo original = parse("mypack:tank");
+        assertNotNull(original);
+        assertTrue(original.turnInPlace());
+
+        String block = VehicleYaml.write("tank", "mypack:tank", EditTargets.wire(original));
+        assertTrue(block.contains("turn-in-place: true"), block);
+        assertSame(original, roundTrip(original));
     }
 
     /** A car never gains a flight block, however the wire's aircraft fields read. */

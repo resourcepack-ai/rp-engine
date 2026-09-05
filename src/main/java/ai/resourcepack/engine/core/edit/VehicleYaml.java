@@ -57,6 +57,12 @@ final class VehicleYaml {
         out.append(INDENT).append("speed: ").append(number(vehicle.speed)).append('\n');
         out.append(INDENT).append("acceleration: ").append(number(vehicle.acceleration)).append('\n');
         out.append(INDENT).append("turn-speed: ").append(number(vehicle.turnSpeed)).append('\n');
+        // Written only when it is on, like `scale`: the parser's default is
+        // the same false, so a car's file does not gain a line saying that it
+        // steers the way every vehicle steers.
+        if (Boolean.TRUE.equals(vehicle.turnInPlace)) {
+            out.append(INDENT).append("turn-in-place: true").append('\n');
+        }
         out.append(INDENT).append("weight: ").append(number(vehicle.weight)).append('\n');
         if (vehicle.scale != null && vehicle.scale != 1) {
             out.append(INDENT).append("scale: ").append(number(vehicle.scale)).append('\n');
