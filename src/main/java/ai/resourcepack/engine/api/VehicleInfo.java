@@ -308,6 +308,28 @@ public final class VehicleInfo {
     }
 
     /**
+     * The same vehicle with a different top speed.
+     *
+     * <p>What a plugin's {@link Vehicle#setSpeedLimit} is applied through:
+     * the physics reads {@link #speed()} for the top speed and derives
+     * braking, reversing and coasting from it, so a copy with a lower one is
+     * a vehicle that is slower in every way at once rather than one whose
+     * throttle has been turned down. Nothing else changes — same seats, same
+     * hitbox, same flight numbers, which is why an aircraft limited below its
+     * takeoff speed cannot take off.
+     *
+     * <p>A speed that is not a positive finite number is ignored, on the same
+     * argument as {@link #withScale}.
+     */
+    public VehicleInfo withSpeed(double speed) {
+        if (!Double.isFinite(speed) || speed <= 0 || speed == this.speed) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale);
+    }
+
+    /**
      * How it gets off the ground and how it comes back down.
      *
      * <p>Never null, and read only when {@link #medium()} is

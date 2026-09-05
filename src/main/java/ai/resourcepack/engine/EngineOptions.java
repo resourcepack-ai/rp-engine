@@ -7,7 +7,7 @@ import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.model.Seats;
-import ai.resourcepack.engine.core.vehicle.Vehicles;
+import ai.resourcepack.engine.core.vehicle.VehicleRuntime;
 import ai.resourcepack.engine.core.version.Compatibility;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -35,7 +35,7 @@ final class EngineOptions {
     }
 
     /** Hands {@link Seats} the one number a server may have to look at to set. */
-    static void seatOffset(FileConfiguration config, Seats seats, Vehicles vehicles) {
+    static void seatOffset(FileConfiguration config, Seats seats, VehicleRuntime vehicles) {
         if (seats != null) {
             seats.calibrate(config.getDouble("models.seat-offset", 0.0));
         }

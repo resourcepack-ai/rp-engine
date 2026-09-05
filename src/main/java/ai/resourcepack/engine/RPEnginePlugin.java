@@ -50,7 +50,7 @@ import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.vehicle.VehicleDefinitions;
-import ai.resourcepack.engine.core.vehicle.Vehicles;
+import ai.resourcepack.engine.core.vehicle.VehicleRuntime;
 import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
 import ai.resourcepack.engine.core.hook.CitizensTrait;
@@ -196,7 +196,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelsImpl models;
     private Seats seats;
     private CustomEntities creatures;
-    private Vehicles vehicles;
+    private VehicleRuntime vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
 
@@ -388,14 +388,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         creatures = new CustomEntities(this, items);
         // The rig carrier, so a vehicle whose model animates wears the rig
         // rather than one still display. Built here rather than inside
-        // Vehicles because everything it needs — the store, the animator, the
+        // VehicleRuntime because everything it needs — the store, the animator, the
         // placement handles — was assembled above and a second copy of any of
         // them would be a second animator fighting over the same entities.
         // emotes() is a fresh facade each call and holds no state of its own —
         // it is a view of the director, which is what actually owns a session.
-        // So handing one to Vehicles is handing it the same director everything
+        // So handing one to VehicleRuntime is handing it the same director everything
         // else uses rather than a second emote system.
-        vehicles = new Vehicles(this, items, compatibility,
+        vehicles = new VehicleRuntime(this, items, compatibility,
                 new RigCarrier(library, rigs, animator, models), emotes());
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
@@ -710,6 +710,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** The emotes this server holds. */
     public Emotes emotes() {
         return new EmotesImpl(emotes, emoteStore);
+    }
+
+    /** The vehicles this server holds, and the ones standing in its worlds. */
+    public ai.resourcepack.engine.api.Vehicles vehicles() {
+        return new ai.resourcepack.engine.core.vehicle.VehiclesImpl(vehicles);
     }
 
     @Override

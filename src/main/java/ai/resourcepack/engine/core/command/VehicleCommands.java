@@ -4,7 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
-import ai.resourcepack.engine.core.vehicle.Vehicles;
+import ai.resourcepack.engine.core.vehicle.VehicleRuntime;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Vehicles: {@code vehicles} and {@code vehicle}.
+ * VehicleRuntime: {@code vehicles} and {@code vehicle}.
  *
  * <p>Two subcommands rather than a verb tree, because there are only two
  * things to do from a console: see what this server has, and put one down or
@@ -27,15 +27,15 @@ public final class VehicleCommands implements Area {
     /** How far {@code vehicle remove} will look for one to take away. */
     private static final double REACH = 6;
 
-    private final Vehicles vehicles;
+    private final VehicleRuntime vehicles;
 
-    public VehicleCommands(Vehicles vehicles) {
+    public VehicleCommands(VehicleRuntime vehicles) {
         this.vehicles = vehicles;
     }
 
     @Override
     public String title() {
-        return "Vehicles";
+        return "VehicleRuntime";
     }
 
     @Override
