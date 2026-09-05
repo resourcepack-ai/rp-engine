@@ -35,7 +35,7 @@ public final class VehicleCommands implements Area {
 
     @Override
     public String title() {
-        return "VehicleRuntime";
+        return "Vehicles";
     }
 
     @Override
