@@ -166,13 +166,30 @@ public final class RigAnimator implements Listener {
 
     /**
      * How long the client is given to reach each pose of a CARRIED rig, which
-     * is sent every tick: one tick longer than the send rate, for the reason
-     * {@link DisplayLatency#glideTicks} gives — a pose that arrives a little
-     * late then eases on rather than stalling and jumping. A placed rig, sent
-     * every {@link #PERIOD_TICKS}, is given exactly that; its animations were
-     * tuned against it and it is judged against nothing.
+     * is sent every tick: exactly the send rate, and NOT the tick longer that
+     * {@link DisplayLatency#glideTicks} gives a moved thing.
+     *
+     * <p>That extra tick is right for a position and wrong for a part turning
+     * about a pivot away from the entity's origin, and the go-kart showed why
+     * within the hour: a tween longer than the send rate is re-armed from the
+     * RENDERED pose every tick, and the client renders translation and
+     * rotation as two separately smoothed quantities. Each settles a step
+     * behind its target, but a lagged translation and a lagged rotation do
+     * not describe the same angle — so the wheel's centre came to rest about a
+     * pixel off its axle and circled it at the spin rate, which read as the
+     * wheel orbiting an axis bigger than itself. With the tween finishing as
+     * the next pose lands, each one runs from the last pose sent to the next,
+     * the two components stay in step, and the residual is a sixth of a
+     * pixel on that wheel. A pose that arrives a tick late then holds for a
+     * tick rather than gliding on, which on a spinning wheel is fifteen
+     * degrees late and nothing to see.
+     *
+     * <p>The real answer, recorded here for when someone has a day for it, is
+     * for a part display to sit AT its pivot with its geometry re-centred, so
+     * the transform is a rotation alone and the client has no translation to
+     * tween at all — see AGENTS.md.
      */
-    static final int CARRIED_GLIDE_TICKS = DisplayLatency.glideTicks(1);
+    static final int CARRIED_GLIDE_TICKS = 1;
 
     /** What a display was last posed as. See {@link #posed}. */
     private static final class Posed {
