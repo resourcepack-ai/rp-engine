@@ -110,6 +110,24 @@ public final class ModelPlacementListener implements Listener {
         this.model = loaded == null ? Map.of() : Map.copyOf(loaded);
     }
 
+    /**
+     * Whether a vehicle is stopped by a placement of {@code id}.
+     *
+     * <p>Takes the raw string a placed hitbox carries rather than a
+     * {@link ContentId}, because the caller is holding persistent data and the
+     * ids in it come from two sources — a content folder writes
+     * {@code mypack:chair}, a Studio push writes a bare slug. An id this
+     * catalogue has never heard of is somebody else's and answers yes, which is
+     * what leaves the pushed half free to say no about its own.
+     *
+     * @see ai.resourcepack.engine.api.ModelInfo#vehicleCollision()
+     */
+    public boolean stopsVehicles(String id) {
+        ContentId parsed = id == null ? null : ContentId.parse(id).orElse(null);
+        ModelInfo info = parsed == null ? null : model.get(parsed);
+        return info == null || info.vehicleCollision();
+    }
+
     private Optional<ModelInfo> byItem(ContentId item) {
         for (ModelInfo one : model.values()) {
             if (one.item().equals(item)) {

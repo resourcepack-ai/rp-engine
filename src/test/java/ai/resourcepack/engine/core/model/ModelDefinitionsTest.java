@@ -227,6 +227,44 @@ class ModelDefinitionsTest {
         assertTrue(result.byItem(ContentId.parse("mypack:ruby").orElseThrow()).isEmpty());
     }
 
+    /**
+     * The opposite default from {@code solid} beside it, and the reason is in
+     * {@link ModelInfo#vehicleCollision()}: a car through somebody's fence is
+     * wrong in every pack that has one, so the exception is what gets written
+     * down. Asserted rather than assumed because a flipped default here is
+     * invisible until somebody drives into something.
+     */
+    @Test
+    void aPieceStopsVehiclesUnlessItSaysOtherwise() throws IOException {
+        chair("  place: {}\n");
+
+        assertTrue(one(parse(), "mypack:chair").vehicleCollision());
+    }
+
+    @Test
+    void aPieceCanLetVehiclesThrough() throws IOException {
+        chair("  place:\n    vehicle-collision: false\n");
+
+        assertFalse(one(parse(), "mypack:chair").vehicleCollision());
+    }
+
+    /**
+     * The two `with` copies each rebuild the model through {@code of}, which
+     * resets everything the other one set. They are applied in one chain by the
+     * parser, so a copy that drops the other's value is a seat offset or a
+     * collision flag silently going back to its default.
+     */
+    @Test
+    void aSeatOffsetAndACollisionFlagSurviveEachOther() throws IOException {
+        chair("  place:\n    vehicle-collision: false\n    seat:\n      y: 0.5\n      x: 0.25\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertFalse(info.vehicleCollision());
+        assertEquals(0.25f, info.seatSide());
+        assertEquals(0.5f, info.seat());
+    }
+
     @Test
     void nothingLoadedMeansNothingParsed() {
         assertTrue(ModelDefinitions.parse(null, null).model().isEmpty());

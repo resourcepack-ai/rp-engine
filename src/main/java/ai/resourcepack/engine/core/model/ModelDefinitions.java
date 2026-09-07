@@ -162,10 +162,17 @@ public final class ModelDefinitions {
             }
         }
 
+        // Absent is TRUE, unlike `solid` beside it: a vehicle driving through a
+        // bollard is wrong in every pack that has one, so the exception is the
+        // thing worth writing down. See ModelInfo.vehicleCollision.
+        boolean vehicleCollision = !Boolean.FALSE.equals(
+                body.bool("vehicle-collision").orElse(Boolean.TRUE));
+
         return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
                         scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat,
                         light, surface, drop)
-                .withSeatOffset(seatSide, seatForward));
+                .withSeatOffset(seatSide, seatForward)
+                .withVehicleCollision(vehicleCollision));
     }
 
     /**
