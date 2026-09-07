@@ -120,7 +120,8 @@ class VehiclePhysicsTest {
         // Looking hard left, steering hard right: the keys win and the look is
         // not consulted at all.
         VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(270, 0, 1, 1, 0, false);
-        assertEquals(9, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+        double yaw = VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw();
+        assertTrue(yaw > 0 && yaw < 90, "right should be clockwise, got " + yaw);
     }
 
     @Test
@@ -128,8 +129,9 @@ class VehiclePhysicsTest {
         VehicleInfo info = car(VehicleMedium.LAND);
         VehiclePhysics.State state = driving(0);
         VehiclePhysics.Demand demand = VehiclePhysics.Demand.steering(0, 0, -1, 1, 0, false);
-        // 360 - 9: Minecraft yaw runs clockwise, so left is down through zero.
-        assertEquals(351, VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw(), 1e-9);
+        // Minecraft yaw runs clockwise, so left is down through zero.
+        double yaw = VehiclePhysics.step(info, state, demand, GROUND, DT).state().yaw();
+        assertTrue(yaw > 270 && yaw < 360, "left should be anticlockwise, got " + yaw);
     }
 
     // --- turning on the spot -------------------------------------------
@@ -155,7 +157,14 @@ class VehiclePhysicsTest {
     void turnInPlaceTurnsAtAStandstill() {
         VehicleInfo tank = car(VehicleMedium.LAND).withTurnInPlace(true);
         VehiclePhysics.State state = VehiclePhysics.State.still(0);
-        assertEquals(9, VehiclePhysics.step(tank, state, ahead(180), GROUND, DT).state().yaw(), 1e-9);
+        assertTrue(VehiclePhysics.step(tank, state, ahead(180), GROUND, DT).state().yaw() > 0);
+        // And at its full rate once the body has caught up with the ask — held
+        // on the key, since a look eases off as the heading closes on it.
+        VehiclePhysics.Demand hardRight = VehiclePhysics.Demand.steering(0, 0, 1, 0, 0, false);
+        for (int tick = 0; tick < 20; tick++) {
+            state = VehiclePhysics.step(tank, state, hardRight, GROUND, DT).state();
+        }
+        assertEquals(180, state.yawRate(), 1);
     }
 
     /**
@@ -171,8 +180,8 @@ class VehiclePhysicsTest {
                 List.of(VehicleSeat.of(VehicleSeat.Role.DRIVER, VehicleSeat.Pose.SITTING, 0, 0, 0, 0, null)),
                 Map.of(), List.of());
         VehiclePhysics.State state = VehiclePhysics.State.still(0);
-        assertEquals(9, VehiclePhysics.step(helicopter, state, new VehiclePhysics.Demand(180, 0, 0, 0, false),
-                VehiclePhysics.Surroundings.falling(), DT).state().yaw(), 1e-9);
+        assertTrue(VehiclePhysics.step(helicopter, state, new VehiclePhysics.Demand(180, 0, 0, 0, false),
+                VehiclePhysics.Surroundings.falling(), DT).state().yaw() > 0);
         // On the ground it is a vehicle at a standstill like any other.
         assertEquals(0, VehiclePhysics.step(helicopter, state, new VehiclePhysics.Demand(180, 0, 0, 0, false),
                 GROUND, DT).state().yaw(), 1e-9);
@@ -186,7 +195,7 @@ class VehiclePhysicsTest {
     void brakingKeepsTheWheelUntilItIsStopped() {
         VehicleInfo info = car(VehicleMedium.LAND);
         VehiclePhysics.Demand braking = new VehiclePhysics.Demand(180, 0, 0, 0, true);
-        assertEquals(9, VehiclePhysics.step(info, driving(0), braking, GROUND, DT).state().yaw(), 1e-9);
+        assertTrue(VehiclePhysics.step(info, driving(0), braking, GROUND, DT).state().yaw() > 0);
     }
 
     /** No steer key held is a vehicle that keeps its heading, not one that centres. */
@@ -205,11 +214,21 @@ class VehiclePhysicsTest {
 
     @Test
     void turningIsLimitedByTurnSpeed() {
-        VehicleInfo info = car(VehicleMedium.LAND);
+        // A lorry: sixty degrees a second, however hard the wheel is turned.
+        VehicleInfo lorry = VehicleInfo.of(ContentId.parse("mypack:lorry").orElseThrow(), null, null,
+                VehicleMedium.LAND, VehiclePhysics.NOMINAL_WEIGHT, 20, 10, 60, VehicleHitbox.DEFAULT,
+                car(VehicleMedium.LAND).seats(), Map.of(), List.of());
         VehiclePhysics.State state = driving(0);
-        // 180 degrees a second, a twentieth of a second: nine degrees.
-        VehiclePhysics.Step step = VehiclePhysics.step(info, state, ahead(180), GROUND, DT);
-        assertEquals(9, step.state().yaw(), 1e-9);
+        VehiclePhysics.Demand hardRight = VehiclePhysics.Demand.steering(0, 0, 1, 1, 0, false);
+        double peak = 0;
+        for (int tick = 0; tick < 40; tick++) {
+            state = VehiclePhysics.step(lorry, state, hardRight, GROUND, DT).state();
+            peak = Math.max(peak, state.yawRate());
+        }
+        // The wheels at this speed could swing it far faster (see the bicycle
+        // model in VehiclePhysics.step); turn-speed is the cap on the body.
+        assertTrue(peak <= 60 + 1e-6, "turn-speed is the most the body swings, but it reached " + peak);
+        assertTrue(peak > 55, "and a lorry held at full lock should reach it, peaked at " + peak);
     }
 
     // --- the throttle -------------------------------------------------
@@ -243,7 +262,10 @@ class VehiclePhysicsTest {
         double heavySpeed = VehiclePhysics.step(heavy, VehiclePhysics.State.still(0), ahead(0), GROUND, DT)
                 .state().speed();
 
-        assertEquals(10 * DT, lightSpeed, 1e-9);
+        // Five quarters of the stated rate off the line: the drive is
+        // strongest at a standstill and tails off toward the top. See the
+        // drive curve in VehiclePhysics.step.
+        assertEquals(10 * 1.25 * DT, lightSpeed, 1e-9);
         assertEquals(lightSpeed / 2, heavySpeed, 1e-9);
     }
 
@@ -584,11 +606,12 @@ class VehiclePhysicsTest {
             ticks++;
         }
         assertTrue(VehiclePhysics.airborneEnough(plane, state.speed()), "it has to be able to take off at all");
-        // 8 blocks per second at 10 blocks per second squared is eight tenths
-        // of a second, which is exactly sixteen ticks. Worth pinning: the
+        // 8 blocks per second at a stated 10 blocks per second squared is
+        // eight tenths of a second at a flat rate; the drive pulls harder off
+        // the line, so it is a shade under. Worth pinning either way: the
         // takeoff RUN is this number and the acceleration together, which is
         // why the pack states a speed rather than a time.
-        assertEquals(16, ticks);
+        assertTrue(ticks >= 12 && ticks <= 16, "took " + ticks + " ticks");
     }
 
     /**
@@ -873,9 +896,17 @@ class VehiclePhysicsTest {
      */
     @Test
     void aVehicleIsInSeveralStatesAtOnce() {
+        // Turning takes a few ticks to build now that the body has inertia,
+        // and a vehicle in the air does not steer at all — so the turn is
+        // built on the ground and the vehicle then leaves it with the spin it
+        // had.
+        VehicleInfo info = car(VehicleMedium.LAND);
+        VehiclePhysics.State state = new VehiclePhysics.State(0, 10, 0);
+        for (int tick = 0; tick < 10; tick++) {
+            state = VehiclePhysics.step(info, state, ahead(90), GROUND, DT).state();
+        }
         Set<VehicleState> states =
-                VehiclePhysics.step(car(VehicleMedium.LAND), new VehiclePhysics.State(0, 10, 0),
-                        ahead(90), VehiclePhysics.Surroundings.falling(), DT).states();
+                VehiclePhysics.step(info, state, ahead(90), VehiclePhysics.Surroundings.falling(), DT).states();
         assertTrue(states.contains(VehicleState.MOVING));
         assertTrue(states.contains(VehicleState.TURNING));
         assertTrue(states.contains(VehicleState.AIRBORNE));

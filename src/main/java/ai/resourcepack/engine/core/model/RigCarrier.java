@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -11,6 +12,8 @@ import org.bukkit.entity.Interaction;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.util.Transformation;
+import org.joml.Matrix4f;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -163,8 +166,16 @@ public final class RigCarrier {
                 part -> partItem.apply(part.item));
 
         List<String> ids = new ArrayList<>(parts.size());
+        // The parts nothing animates. The animator never poses them — a
+        // still part's transform is written once at spawn — so when the
+        // carrier tilts the body they have to be turned from here. See
+        // CarriedRig.tilt.
+        List<String> still = new ArrayList<>();
         for (ItemDisplay part : parts) {
             ids.add(part.getUniqueId().toString());
+            if (!animator.animates(part)) {
+                still.add(part.getUniqueId().toString());
+            }
             part.getPersistentDataContainer()
                     .set(yawHostKey, PersistentDataType.STRING, yawHost.getUniqueId().toString());
             // Without this a carried rig STROBES. A placed rig never moves, so
@@ -186,7 +197,7 @@ public final class RigCarrier {
         // will accept — see RigAnimator.track's Interaction arm.
         animator.track(yawHost);
 
-        return Optional.of(new CarriedRig(yawHost.getUniqueId(), ids, parts.size()));
+        return Optional.of(new CarriedRig(yawHost.getUniqueId(), ids, still, scale, parts.size()));
     }
 
     /** One rig riding one moving thing. Obtained from {@link #carry}. */
@@ -194,12 +205,62 @@ public final class RigCarrier {
 
         private final UUID anchorId;
         private final List<String> partIds;
+        private final List<String> stillIds;
+        private final float scale;
         private final int size;
 
-        private CarriedRig(UUID anchorId, List<String> partIds, int size) {
+        /** The attitude last written to the still parts, so an unchanged one is not re-sent. */
+        private Transformation stillPose;
+
+        private CarriedRig(UUID anchorId, List<String> partIds, List<String> stillIds, float scale, int size) {
             this.anchorId = anchorId;
             this.partIds = partIds;
+            this.stillIds = stillIds;
+            this.scale = scale;
             this.size = size;
+        }
+
+        /**
+         * Tilts the whole rig: pitch nose-up and roll right-side-down, in
+         * degrees, about the anchor.
+         *
+         * <p>Two arms, because a rig's parts are posed two ways. The moving
+         * parts are composed by the animator every tick and take the tilt
+         * from it ({@link RigAnimator#tilt}); the still parts were written
+         * once at spawn and are re-written here, only when the attitude has
+         * changed, glided over the same window as a carried animation frame
+         * so a still bonnet and a spinning wheel tilt together.
+         */
+        public void tilt(float pitch, float roll) {
+            animator.tilt(anchorId, pitch, roll);
+            if (stillIds.isEmpty()) {
+                return;
+            }
+            Matrix4f m = Math.abs(pitch) < 0.05f && Math.abs(roll) < 0.05f
+                    ? new Matrix4f()
+                    : RigAnimator.tiltMatrix(pitch, roll);
+            if (scale != 1f) {
+                // The same growth-about-the-floor a still part was spawned
+                // with; see RigSpawn and RigAnimator.applyRigScale.
+                m.scaleLocal(scale);
+                m.translateLocal(0f, 0.5f * (scale - 1f), 0f);
+            }
+            Transformation next = RigMath.toTransformation(m);
+            if (next.equals(stillPose)) {
+                return;
+            }
+            stillPose = next;
+            for (String id : stillIds) {
+                Entity part = entity(id);
+                if (!(part instanceof ItemDisplay)) {
+                    continue;
+                }
+                ItemDisplay display = (ItemDisplay) part;
+                display.setInterpolationDelay(1);
+                display.setInterpolationDelay(0);
+                display.setInterpolationDuration(RigAnimator.CARRIED_GLIDE_TICKS);
+                display.setTransformation(next);
+            }
         }
 
         /** How many part displays it is made of. Zero is a rig that failed to spawn. */
@@ -276,6 +337,7 @@ public final class RigCarrier {
 
         /** Takes every entity of it out of the world. */
         public void despawn() {
+            animator.tilt(anchorId, 0f, 0f);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {
                 yawHost.remove();

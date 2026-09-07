@@ -128,6 +128,12 @@ vehicles:
   # a wall.
   push-players: false
 
+  # Whether a driver sees their speed above the hotbar while moving, in
+  # kilometres an hour (a block is a metre). It goes yellow while the tyres
+  # are sliding. It stays off the action bar for a few seconds after anything
+  # else is written there, so it never paints over which seat you got.
+  speedometer: true
+
   # Whether somebody in a vehicle seat rides in their emote rig even when the
   # pack never said what they should be doing.
   #

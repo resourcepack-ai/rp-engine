@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.vehicle;
 
+import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleState;
@@ -15,13 +16,50 @@ import java.util.Set;
  * reads a block or knows what a world is: it takes where the vehicle is going,
  * what the driver is asking for and what is around it, and returns the next
  * state and the displacement to try. Everything about the WORLD — is there
- * ground under it, is it in water, did it hit a wall — is the runtime's job
- * and arrives as {@link Surroundings}.
+ * ground under it, is it in water, did it hit a wall, how high is the ground
+ * under each wheel — is the runtime's job and arrives as {@link Surroundings}.
  *
  * <p>That split is what makes any of this testable. A vehicle that accelerates
  * wrongly, coasts for ever or sinks through the floor is a defect in a few
  * lines of arithmetic, and the alternative — finding it by driving a car around
  * a test server — is how these systems end up with numbers nobody dares touch.
+ *
+ * <h2>The model</h2>
+ *
+ * <p>This is a <em>handling</em> model, of the kind an arcade driving game
+ * runs, and it replaced a kinematic one (2026-09-07) that moved the vehicle
+ * along its heading at a speed and swung the heading at a fixed rate. That
+ * older model had no sideways velocity, so a vehicle could not slide, no
+ * grip, so it could not lose it, and no attitude, so it took a kerb as a
+ * one-block hop with the body dead level. Everything that made it feel like a
+ * marker being dragged across a table comes from those three absences.
+ *
+ * <p>Three things replace them:
+ *
+ * <ul>
+ *   <li><strong>Velocity is a vector, held in the body's frame</strong> as
+ *   {@link State#speed() speed} along the heading and {@link State#slip() slip}
+ *   across it. Turning rotates the heading; the velocity stays where it was in
+ *   the world, so a slip appears, and the tyres pull it back to zero at a
+ *   finite rate — the {@link #GRIP}. Turn harder than the tyres can answer and
+ *   the slip grows faster than they can kill it, which IS a slide. Nothing
+ *   decides "now it drifts": it falls out of the arithmetic.</li>
+ *   <li><strong>The heading comes from the front wheels, not from the
+ *   driver.</strong> The steer input sets a wheel angle, the wheel angle and
+ *   the speed set a yaw rate by the bicycle model ({@code v tan δ / L}), and
+ *   the body follows that rate with some inertia. A car at walking pace turns
+ *   slowly and a car at speed turns sharply, and the front tyres cap how
+ *   sharply before they too give up — which is understeer, and the reason a
+ *   fast car goes wide rather than spinning.</li>
+ *   <li><strong>The body has an attitude</strong> — {@link State#pitch()},
+ *   {@link State#roll()} and a {@link State#lift() height} — hung on a spring
+ *   under it, aimed at the ground the four wheels are actually on (the
+ *   runtime samples it) and nudged by what the vehicle is doing: the nose
+ *   dips under braking, the body rolls out of a corner, a two-wheeler leans
+ *   into one. The physics position never tilts; this is what the model and
+ *   the seats are drawn at, so a car can be nose-up on a kerb while the
+ *   collision box that decides whether it fits stays a plain box.</li>
+ * </ul>
  *
  * <p>The one thing to hold in mind when changing a constant here: the driver
  * cannot feel any of it directly. Their throttle is a server tick behind
@@ -85,127 +123,312 @@ public final class VehiclePhysics {
      * The least a vehicle sheds with no throttle, in blocks per second per
      * second, whatever its acceleration and weight.
      *
-     * <p><strong>Coasting and braking do not get weaker with weight, and this
-     * floor is what says so.</strong> They did: both were a fraction of the
-     * weight-adjusted acceleration, so a heavy, slow vehicle — a tractor at
-     * weight 79 and acceleration 2.5 — coasted at a tenth of a block a second
-     * per second and took a minute and a half to stop, and pressing the brake
-     * was not much better. Turning the weight UP made it worse, which is the
-     * opposite of what the slider promises. That is ice, not weight. Rolling
-     * resistance and brakes both scale with the mass they act on, so a heavy
-     * vehicle stops in about the same distance as a light one; what weight
-     * legitimately costs is getting going, which it still does.
-     *
-     * <p>Four is a car in gear with its foot off the pedal: three seconds
-     * from a fast road speed to a stop, long enough to feel like coasting and
-     * short enough that letting go of the key is how you slow down.
+     * <p>A slow, heavy vehicle's coast rate is a small fraction of a small
+     * number, and without a floor a tractor rolled the length of a field
+     * after its driver let go. Four is a road vehicle rolling to a halt.
      */
     public static final double COAST_FLOOR = 4;
 
-    /**
-     * The least a vehicle sheds on the brake, in blocks per second per
-     * second. Ten is a firm stop from a fast road speed in just over a second.
-     * See {@link #COAST_FLOOR}.
-     */
+    /** The least braking does, on the same argument as {@link #COAST_FLOOR}. */
     public static final double BRAKE_FLOOR = 10;
 
     /**
-     * The weight a vehicle's stated acceleration is quoted at.
+     * The weight at which a vehicle accelerates at exactly its stated rate.
      *
-     * <p>{@code weight} scales acceleration and braking around this, so a
-     * vehicle at 10 gets exactly the acceleration its pack asked for and the
-     * number means something on its own.
+     * <p>Weight is 1–100 in the format, and it scales the acceleration around
+     * this figure: a 20 accelerates at half its number, a 5 at double.
      */
     public static final double NOMINAL_WEIGHT = 10;
 
-    /** How hard water pushes a submerged hull back up, blocks per second squared. */
+    /** How hard water pushes a submerged hull up, blocks per second squared per block of submersion. */
     public static final double BUOYANCY = 26;
 
-    /**
-     * What fraction of vertical speed survives a tick in water.
-     *
-     * <p>Without damping, buoyancy is a spring: a boat dropped in bobs for
-     * ever and looks like it is glitching rather than floating.
-     */
+    /** How much of its vertical speed a hull keeps each tick — water is thick. */
     public static final double WATER_DAMPING = 0.75;
 
     /**
-     * How fast an air vehicle climbs on the jump key, as a fraction of its top
-     * speed, when its pack said nothing.
-     *
-     * <p>Superseded by {@link ai.resourcepack.engine.api.VehicleFlight#climbRate()},
-     * which is where the number now comes from. This is the fraction that
-     * builds the compatibility default and is kept in one place —
-     * {@code VehicleFlight.LEGACY_CLIMB_FRACTION} — so the two cannot drift.
+     * How fast an air vehicle climbs or dives at full lift, as a fraction of
+     * its top speed. Kept for the flight-block defaults; see
+     * {@link ai.resourcepack.engine.api.VehicleFlight#forSpeed}.
      */
     public static final double AIR_CLIMB_FRACTION =
             ai.resourcepack.engine.api.VehicleFlight.LEGACY_CLIMB_FRACTION;
 
     /**
-     * What an airborne vehicle sheds with no throttle, as a fraction of its
-     * acceleration — and, unlike every other coast here, with no floor.
+     * How an aircraft off the ground sheds speed with no throttle, as a
+     * fraction of its acceleration — and, unlike the ground coast, with no
+     * floor under it.
      *
-     * <p><strong>An aircraft that let go of the throttle used to stop like a
-     * car.</strong> The ground coast is floored at {@link #COAST_FLOOR}, four
-     * blocks per second per second, which is a road vehicle rolling to a halt;
-     * applied in mid-air it took a cruising aeroplane to a dead stop in a few
-     * seconds and left it hovering there, and the same rate is what made
-     * pressing the back key read as a brake rather than a dive. Nothing in the
-     * air is rolling on anything, so there is no floor to justify: what slows
-     * an aircraft down is drag, and drag is small.
-     *
-     * <p>At the default acceleration this is a shade under a block per second
-     * per second — half a minute from cruise to a standstill, which is a glide
-     * rather than a stop. Long before the end of it the aircraft is under its
-     * takeoff speed and sinking, which is what an aeroplane with no throttle
-     * should be doing.
+     * <p>The ground rate is floored at {@link #COAST_FLOOR} because a road
+     * vehicle rolls to a halt. In mid-air that took a cruising plane to a dead
+     * stop in a few seconds and left it hovering there; and since the back key
+     * up there sets the throttle to nothing and becomes the descent, whatever
+     * this rate is IS what diving feels like.
      */
     public static final double AIR_COAST_FRACTION = 0.15;
 
     /**
-     * What fraction of its top speed a water vehicle does out of water.
+     * How much of its top speed a hull does out of the water.
      *
-     * <p><strong>A boat used to drive on grass exactly as fast as it sailed</strong>,
-     * because the medium decided only the VERTICAL rule — buoyancy against
-     * gravity — and nothing ever asked whether a hull had anything to push
-     * against. {@link VehicleMedium#WATER} has said "dead weight on land" since
-     * it was written; this is the line that makes it true.
-     *
-     * <p>Not zero, and that is the whole of the number. A boat that cannot move
-     * at all on land is one that beaches itself on the first shore and is stuck
-     * there for ever — the driver has no way back to the water, and a vehicle
-     * that can be permanently lost by driving it is a trap rather than a rule.
-     * At 0.15 of top speed a hull drags over sand a shade slower than a walking
-     * player: unmistakably wrong, obviously deliberate, and recoverable.
-     *
-     * <p>Steering is deliberately NOT reduced with it. A beached boat that
-     * could crawl but not turn would be pointed away from the water as often
-     * as toward it.
+     * <p>A seventh — a shade slower than walking. Not zero, deliberately: a
+     * boat that cannot move at all on land is stuck on the first shore it
+     * touches, for ever. Slow enough to be unmistakably wrong, fast enough to
+     * get off the sand.
      */
     public static final double BEACHED_FRACTION = 0.15;
 
     /**
-     * Below this speed a vehicle counts as {@link VehicleState#IDLE} rather
-     * than moving, in blocks per second.
+     * Below this speed, in either direction, a vehicle counts as idle.
      *
-     * <p>Its own constant rather than {@link #REVERSE_THRESHOLD}, though they
-     * happen to agree today: one is about when a gearbox changes direction and
-     * the other about when an animation changes, and tying them together would
-     * make tuning either move the other for no reason anybody could see.
+     * <p>Half a block a second: slow enough that a vehicle at that speed is
+     * visibly stopped, and not zero because nothing here lands on zero.
      */
     public static final double MOVING_THRESHOLD = 0.5;
 
     /**
-     * Above this rate of turn a vehicle counts as {@link VehicleState#TURNING},
-     * in degrees per second.
-     *
-     * <p>Measured against how fast the body ACTUALLY came round this tick, not
-     * against what the driver asked for — so a vehicle held against a wall is
-     * not turning, and one at its {@code turn-speed} clamp is. Fifteen degrees
-     * a second is a slow, deliberate corner; the drift a look-steered vehicle
-     * shows while driving straight is well under it.
+     * How fast the heading has to change, degrees per second, before the
+     * vehicle is turning rather than merely straightening up.
      */
     public static final double TURNING_THRESHOLD = 15;
+
+    // --- handling -----------------------------------------------------
+
+    /**
+     * How far the front wheels turn at a crawl, degrees either side.
+     *
+     * <p>A real car's is 30–40. It only applies at a standstill: it fades with
+     * speed (see {@link #STEERING_FADE}), which is what every driving game
+     * does and every real car's driver does for it — at 100 km/h nobody turns
+     * the wheel to the stop.
+     */
+    public static final double STEERING_LOCK = 38;
+
+    /**
+     * How much the lock has faded by top speed: the wheels then turn
+     * {@code lock / (1 + fade)} either side.
+     *
+     * <p>Without it a car at speed answers a tap of the key with a swing its
+     * tyres cannot hold, and everything above a jog becomes a slide.
+     */
+    public static final double STEERING_FADE = 1.8;
+
+    /**
+     * How quickly the wheels go where the key asks, per second — a fraction
+     * of the remaining angle each second, so about a fifth of a second to
+     * most of the way.
+     */
+    public static final double STEER_RATE = 8;
+
+    /** How quickly they come back to centre when the key is let go. Faster than {@link #STEER_RATE}, as a real wheel does. */
+    public static final double STEER_RETURN = 11;
+
+    /**
+     * The sideways acceleration the tyres can hold, blocks per second squared.
+     *
+     * <p>This is the number that decides whether a corner is a corner or a
+     * slide, and 24 is chosen so that an ordinary car's full lock at about
+     * half its top speed is right at the edge — brisk enough to have fun with,
+     * held enough that nobody driving normally ever slides. It is also what
+     * pulls a slide back in once the driver eases off.
+     */
+    public static final double GRIP = 24;
+
+    /**
+     * What is left of {@link #GRIP} once the tyres are already sliding.
+     *
+     * <p>Moving rubber holds less than rubber that has bitten, which is why a
+     * slide, once started, is easier to keep going than it was to start. It
+     * is also what gives a drift its shape: the tyres let go, the car swings,
+     * and it comes back only as the slide slows.
+     */
+    public static final double SLIDING_GRIP = 0.9;
+
+    /**
+     * What the REAR tyres hold, as a fraction of {@link #GRIP}, while the
+     * front are what the steering limit is measured against.
+     *
+     * <p>Very slightly less than the front, and that shade is the whole of
+     * how a car held at the limit of a long corner gradually gets its tail
+     * out: the front asks for exactly what tyres can give, the rear gives a
+     * touch less, and the difference accrues as slip. Equal and no car here
+     * could ever slide without the handbrake; much less and every corner is
+     * a spin.
+     */
+    public static final double REAR_GRIP = 0.92;
+
+    /**
+     * How much further round the front can pull the car with the handbrake
+     * on, as a multiple of the ordinary limit: the rear is no longer holding
+     * it straight, so the same front force turns it harder.
+     */
+    public static final double HANDBRAKE_TURN = 1.3;
+
+    /**
+     * How much of the foot brake's rate the handbrake has. Two locked rear
+     * wheels stop a car less than four braked ones, and a handbrake that
+     * stopped the car dead would be a brake, not a way of turning it.
+     */
+    public static final double HANDBRAKE_BRAKING = 0.5;
+
+    /**
+     * What is left of {@link #GRIP} with the handbrake on.
+     *
+     * <p>The handbrake locks the rear wheels, and a locked wheel has no
+     * sideways grip to speak of. This is the drift button: throw the car into
+     * a corner, pull it, and the back comes round.
+     */
+    public static final double HANDBRAKE_GRIP = 0.22;
+
+    /** Sideways speed, blocks per second, above which the tyres count as sliding. */
+    public static final double SLIDE_THRESHOLD = 1.5;
+
+    /**
+     * How much a sliding rear rotates the car on its own, degrees per second
+     * of extra yaw per block-per-second of slip.
+     *
+     * <p>A car whose rear has let go does not merely fail to turn — the back
+     * steps out and the nose comes round further than the wheels asked. This
+     * is that, and it is what makes a handbrake turn swing rather than skid
+     * straight on. Too high and every slide is a spin; the sign is chosen so
+     * that the slide feeds the rotation that caused it.
+     */
+    public static final double DRIFT_YAW = 10;
+
+    /**
+     * Sideways speed, blocks per second, above which the rear counts as
+     * properly out and {@link #DRIFT_YAW} joins in — unless the handbrake is
+     * on, in which case it joins in at once.
+     *
+     * <p>Higher than {@link #SLIDE_THRESHOLD} on purpose. The extra rotation
+     * feeds on the slip that causes it, so applied from the first inch of
+     * slide it turned every long corner into a spin. Above this the car IS
+     * sliding, the driver knows it, and the swing is what they are steering
+     * against; below it the tail creeps rather than steps.
+     */
+    public static final double DRIFT_THRESHOLD = 6;
+
+    /**
+     * How quickly the body's yaw rate follows what the wheels ask, per second,
+     * while the tyres are gripping.
+     */
+    public static final double YAW_RESPONSE = 14;
+
+    /**
+     * The same while the rear is sliding and the wheels are asking for LESS
+     * rotation than the car has. Much lower: a car that has let go carries
+     * its rotation, which is what a driver is counter-steering against, and a
+     * slide that answered the wheel instantly would not be one. Asking for
+     * more still gets the gripping rate — the front tyres are what start the
+     * swing and they have not let go.
+     */
+    public static final double YAW_RESPONSE_SLIDING = 3.5;
+
+    /** How a vehicle's spin decays in mid-air, per second. Nearly not at all. */
+    public static final double YAW_RESPONSE_AIRBORNE = 0.6;
+
+    /** A hull's sideways grip. Water holds almost nothing, which is why a boat goes wide. */
+    public static final double WATER_GRIP = 5;
+
+    /** A hull's yaw response. It also swings slowly. */
+    public static final double WATER_YAW_RESPONSE = 4;
+
+    /**
+     * How much forward speed a slide costs, per second, per block-per-second
+     * of slip: tyres dragging sideways are tyres not rolling.
+     */
+    public static final double SCRUB = 0.4;
+
+    /**
+     * How much of gravity's along-slope component a land vehicle feels.
+     *
+     * <p>Whole gravity on a 45-degree stair is 20 blocks per second squared,
+     * more than most vehicles' acceleration, and a slope nothing here could
+     * climb is a bug rather than realism. A little over half is enough that a
+     * hill is a hill — slower up, faster down — and a staircase still goes.
+     */
+    public static final double SLOPE_FACTOR = 0.6;
+
+    /**
+     * The fraction of a step's height that comes off the speed, per block.
+     *
+     * <p>A kerb at speed is a jolt; the vehicle should feel it. A one-block
+     * step costs a fifth, a slab a tenth.
+     */
+    public static final double STEP_SCRUB = 0.2;
+
+    /**
+     * How much of the speed survives being deflected along a wall.
+     *
+     * <p>The component into the wall is gone entirely; this is what the
+     * component along it keeps. Scraping a wall is not free.
+     */
+    public static final double WALL_SLIDE_KEEP = 0.85;
+
+    /**
+     * How far the wheel angle reaches when steering by look, degrees of
+     * heading error for full lock. Where the keys cannot be read, the wheels
+     * turn toward the driver's look in proportion to how far off it is.
+     */
+    public static final double LOOK_STEER_RANGE = 40;
+
+    /**
+     * Hitbox width at or below which a vehicle is a two-wheeler.
+     *
+     * <p>A bike leans INTO a corner and a car rolls OUT of one, and the format
+     * has no field to say which a vehicle is. Nothing on four wheels is under
+     * a block wide, and no bike is over one, so the box says.
+     */
+    public static final double NARROW = 0.9;
+
+    // --- the body on its springs ---------------------------------------
+
+    /** How stiff the attitude spring is: the square of its natural frequency, per second squared. */
+    public static final double SUSPENSION_STIFFNESS = 110;
+
+    /**
+     * How the attitude spring is damped, per second. A little under critical
+     * so a kerb is a visible bounce and not a slide into place.
+     */
+    public static final double SUSPENSION_DAMPING = 11.5;
+
+    /** The height spring is stiffer than the attitude one: a body that floated up a kerb over a second would look like a boat. */
+    public static final double RIDE_STIFFNESS = 170;
+
+    /** And damped to match. */
+    public static final double RIDE_DAMPING = 15;
+
+    /** Nose-up degrees per block per second squared of forward acceleration: squat and dive. */
+    public static final double SQUAT = 0.3;
+
+    /** Degrees of body roll per block per second squared of cornering, for a car. Outward. */
+    public static final double BODY_ROLL = 0.42;
+
+    /** Degrees of lean per block per second squared of cornering, for a two-wheeler. Inward, and much more of it. */
+    public static final double LEAN = 1.6;
+
+    /** As far as a two-wheeler leans. */
+    public static final double MAX_LEAN = 48;
+
+    /** As far as the ground can tilt the body. Past this the wheel samples are lying — a ledge, not a slope. */
+    public static final double MAX_TILT = 45;
+
+    /** How far a wheel with nothing under it hangs, blocks. */
+    public static final double WHEEL_DROOP = 1.0;
+
+    /** How much of a landing's speed goes into compressing the springs. */
+    public static final double LANDING_COMPRESSION = 0.35;
+
+    /**
+     * How much of the hitbox's length the wheels span. The box is the
+     * bodywork; the axles sit inside its ends.
+     */
+    public static final double WHEELBASE_FRACTION = 0.7;
+
+    /** And of its width. */
+    public static final double TRACK_FRACTION = 0.8;
+
+    /** No axle is closer together than this, whatever the box says. A tiny box is a trolley, not a car that spins on a point. */
+    public static final double MIN_WHEELBASE = 1.0;
 
     private VehiclePhysics() {
     }
@@ -213,26 +436,19 @@ public final class VehiclePhysics {
     /**
      * One tick.
      *
-     * @param dt seconds this step covers, so the constants above can be quoted
-     *           per second rather than per tick
+     * @param info   the vehicle
+     * @param state  where it is and what it is doing
+     * @param demand what the driver is asking for
+     * @param around what the world is doing to it
+     * @param dt     seconds per tick
      */
     public static Step step(VehicleInfo info, State state, Demand demand, Surroundings around, double dt) {
         boolean air = info.medium() == VehicleMedium.AIR;
-
-        // Two ways to steer, and which one a server gets is the same fork as
-        // the throttle. Keys turn the body directly and leave the driver's
-        // head alone; look-steering turns the body toward wherever they are
-        // looking, which means steering IS turning your head - and a player's
-        // body follows their head, so the driver visibly swings round on every
-        // corner. That is the cost the key arm exists to remove.
-        //
-        // Neither happens at a standstill unless the vehicle asked for it -
-        // see `steers`, which is the whole of the rule.
-        double yaw = !steers(info, state, around)
-                ? state.yaw()
-                : demand.steersByKeys()
-                        ? wrap360(state.yaw() + demand.steer() * info.turnSpeed() * dt)
-                        : turnToward(state.yaw(), demand.yaw(), info.turnSpeed() * dt);
+        boolean water = info.medium() == VehicleMedium.WATER;
+        boolean flying = air && !around.supported();
+        // A land vehicle in the air, or a hull that has left both ground and
+        // water: nothing to steer against and nothing to grip.
+        boolean airborne = !air && !around.supported() && !around.inWater();
 
         double throttle = demand.throttle();
         double lift = demand.lift();
@@ -246,7 +462,7 @@ public final class VehiclePhysics {
         // Space wins if both are held: asking to climb and to descend at once
         // is asking to climb, and the alternative is a cancellation nobody can
         // see the cause of.
-        if (air && !around.supported() && throttle < 0) {
+        if (flying && throttle < 0) {
             if (lift == 0) {
                 lift = throttle;
             }
@@ -255,12 +471,95 @@ public final class VehiclePhysics {
 
         double heaviness = Math.max(0.1, info.weight() / NOMINAL_WEIGHT);
         double accel = info.acceleration() / heaviness;
-
-        // A hull out of water drags rather than sails. Applied to the top speed
-        // rather than to the throttle so that braking, reversing and the coast
-        // rate all scale with it for free — a beached boat that stopped like a
-        // sailing one would slide the length of the beach.
         double top = beached(info, around) ? info.speed() * BEACHED_FRACTION : info.speed();
+
+        // --- steering: the wheels -------------------------------------
+
+        double steerInput = steerInput(state, demand);
+        if (!steers(info, state, around)) {
+            steerInput = 0;
+        }
+        double lock = STEERING_LOCK / (1 + STEERING_FADE * Math.min(1, Math.abs(state.speed()) / Math.max(top, 1e-6)));
+        double wantedSteer = steerInput * lock;
+        boolean returning = Math.abs(wantedSteer) < Math.abs(state.steer());
+        double steer = state.steer()
+                + (wantedSteer - state.steer()) * Math.min(1, (returning ? STEER_RETURN : STEER_RATE) * dt);
+
+        // --- steering: the body ---------------------------------------
+
+        double wheelbase = wheelbase(info.hitbox());
+        boolean handbrake = demand.braking() && !air;
+        boolean rearSliding = !air && (handbrake || Math.abs(state.slip()) > SLIDE_THRESHOLD);
+        double grip = water ? WATER_GRIP : GRIP;
+
+        double wantedYawRate;
+        double response;
+        if (flying) {
+            // An aircraft points itself: no wheels, no grip, the pack's rate.
+            wantedYawRate = steerInput * info.turnSpeed();
+            response = YAW_RESPONSE;
+        } else if (airborne) {
+            // A jump keeps whatever spin it left the ground with.
+            wantedYawRate = 0;
+            response = YAW_RESPONSE_AIRBORNE;
+        } else {
+            // The bicycle model: the front wheels at angle δ drag a body of
+            // length L round at v tan δ / L. In degrees, and capped at the
+            // pack's turn-speed, which is what that number now means: the most
+            // the body will swing however hard it is asked.
+            double kinematic = Math.toDegrees(state.speed() * Math.tan(Math.toRadians(steer)) / wheelbase);
+            kinematic = clampMagnitude(kinematic, info.turnSpeed());
+            // The front tyres can only pull the nose round so hard. Beyond
+            // this they slide and the car goes wide — understeer, which is
+            // what keeps a fast car from spinning every time it turns.
+            double frontLimit = Math.toDegrees(grip * (handbrake ? HANDBRAKE_TURN : 1)
+                    / Math.max(Math.abs(state.speed()), 0.5));
+            kinematic = clampMagnitude(kinematic, frontLimit);
+
+            // Something that pivots on the spot turns at its full rate from
+            // a standstill and blends into the wheel model as it gets going.
+            if (info.turnInPlace()) {
+                double still = 1 - Math.min(1, Math.abs(state.speed()) / 3);
+                double pivot = steerInput * info.turnSpeed() * still;
+                if (Math.abs(pivot) > Math.abs(kinematic)) {
+                    kinematic = pivot;
+                }
+            }
+
+            wantedYawRate = kinematic;
+            if (handbrake || Math.abs(state.slip()) > DRIFT_THRESHOLD) {
+                // The back has let go and steps out, so the nose comes round
+                // further than the wheels asked. Slip is positive when the
+                // velocity lies to the RIGHT of the nose, which is a car that
+                // has turned LEFT harder than it is travelling — so the extra
+                // rotation is to the left, which in this yaw (clockwise
+                // positive) is negative.
+                wantedYawRate -= DRIFT_YAW * state.slip();
+                wantedYawRate = clampMagnitude(wantedYawRate, 1.5 * info.turnSpeed());
+            }
+            boolean easing = Math.abs(wantedYawRate) < Math.abs(state.yawRate())
+                    || Math.signum(wantedYawRate) != Math.signum(state.yawRate());
+            response = water ? WATER_YAW_RESPONSE
+                    : rearSliding && easing ? YAW_RESPONSE_SLIDING
+                    : YAW_RESPONSE;
+            // A heavy vehicle swings more slowly. Around the nominal weight,
+            // and softly: a bus is not a battleship.
+            response /= Math.sqrt(Math.max(0.5, heaviness));
+        }
+        double yawRate = state.yawRate() + (wantedYawRate - state.yawRate()) * Math.min(1, response * dt);
+        double wasYaw = state.yaw();
+        double yaw = wrap360(wasYaw + yawRate * dt);
+
+        // --- the velocity, now the body has turned under it -------------
+
+        // The velocity is a world vector; the body turned and it did not. So
+        // read it back in the new frame, and the difference is slip.
+        double[] velocity = worldVelocity(wasYaw, state.speed(), state.slip());
+        double speed = dot(velocity, forward(yaw));
+        double slip = air ? 0 : dot(velocity, right(yaw));
+
+        // --- along the heading ------------------------------------------
+
         double target = throttle >= 0
                 ? throttle * top
                 : throttle * top * REVERSE_FRACTION;
@@ -272,7 +571,7 @@ public final class VehiclePhysics {
         // than one changing direction. Now it stops the way a brake does and
         // only engages reverse once it is actually stationary, which is also
         // what a real gearbox makes you do.
-        boolean stopping = throttle < 0 && state.speed() > REVERSE_THRESHOLD;
+        boolean stopping = throttle < 0 && speed > REVERSE_THRESHOLD;
         if (stopping) {
             target = 0;
         }
@@ -284,9 +583,16 @@ public final class VehiclePhysics {
         // acceleration-relative rates still apply to a vehicle that is quick
         // enough for them to exceed the floor, so a sports car brakes harder
         // than a cart; a tractor just no longer slides.
-        boolean flying = air && !around.supported();
+        //
+        // The drive itself is strongest off the line and tails off toward top
+        // speed — five quarters of the stated acceleration at a standstill,
+        // half of it at the top — because a constant rate reads as an
+        // escalator, and every engine anybody has driven pulls hardest low
+        // down.
+        double fraction = Math.min(1, Math.abs(speed) / Math.max(top, 1e-6));
+        double drive = accel * (1.25 - 0.75 * fraction);
         double rate = demand.braking() || stopping
-                ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER)
+                ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER) * (handbrake && !stopping ? HANDBRAKE_BRAKING : 1)
                 : throttle == 0
                         // An aircraft off the ground coasts on drag alone — see
                         // AIR_COAST_FRACTION. This is what keeps a plane's
@@ -295,11 +601,42 @@ public final class VehiclePhysics {
                         // throttle to nothing and turns the key into a descent,
                         // so whatever this rate is IS what "let go" feels like.
                         ? flying ? accel * AIR_COAST_FRACTION : Math.max(COAST_FLOOR, accel * COAST_FRACTION)
-                        : accel;
+                        : drive;
         if (demand.braking()) {
             target = 0;
         }
-        double speed = approach(state.speed(), target, rate * dt);
+        if (airborne) {
+            // Nothing to push against. The wheels spin; the car does not care.
+            target = speed;
+            rate = 0;
+        }
+        double wasSpeed = speed;
+        speed = approach(speed, target, rate * dt);
+
+        // A hill. Only once the vehicle is going or the driver is asking it
+        // to: a car left on a slope holds, because a parked car has a
+        // handbrake, and an empty vehicle quietly rolling into the lake is
+        // not the realism anybody wanted.
+        double groundPitch = around.groundPitch(wheelbase);
+        if (!air && around.supported() && groundPitch != 0
+                && (Math.abs(speed) > MOVING_THRESHOLD || throttle != 0)) {
+            speed -= GRAVITY * Math.sin(Math.toRadians(groundPitch)) * SLOPE_FACTOR * dt;
+        }
+
+        // Tyres dragging sideways are tyres not rolling.
+        if (!air && !airborne && slip != 0) {
+            speed = approach(speed, 0, SCRUB * Math.abs(slip) * dt);
+        }
+
+        // --- across the heading -----------------------------------------
+
+        if (!air) {
+            double hold = airborne ? 0
+                    : grip * REAR_GRIP * (handbrake ? HANDBRAKE_GRIP : Math.abs(slip) > SLIDE_THRESHOLD ? SLIDING_GRIP : 1);
+            slip = approach(slip, 0, hold * dt);
+        }
+
+        // --- up and down ------------------------------------------------
 
         double vertical = state.verticalSpeed();
         double climb = 0;
@@ -368,6 +705,50 @@ public final class VehiclePhysics {
                 break;
         }
 
+        // --- the body on its springs -------------------------------------
+
+        double longitudinal = (speed - wasSpeed) / dt;
+        double lateral = speed * Math.toRadians(yawRate);
+        boolean twoWheeler = info.hitbox().width() <= NARROW;
+
+        double pitchTarget;
+        double rollTarget;
+        double liftTarget;
+        if (flying) {
+            // The nose follows the climb, and the wings bank into the turn.
+            pitchTarget = Math.toDegrees(Math.atan2(climb, Math.max(Math.abs(speed), 1))) * 0.6;
+            rollTarget = -clampMagnitude(yawRate * 0.25, 30);
+            liftTarget = 0;
+        } else if (airborne) {
+            // Off the ground: the nose follows the arc, and there is nothing
+            // to lean on.
+            pitchTarget = Math.toDegrees(Math.atan2(vertical, Math.max(Math.abs(speed), 2))) * 0.5;
+            rollTarget = 0;
+            liftTarget = state.lift();
+        } else {
+            pitchTarget = clampMagnitude(groundPitch, MAX_TILT) + clampMagnitude(longitudinal * SQUAT, 12);
+            double cornering = twoWheeler
+                    ? clampMagnitude(lateral * LEAN, MAX_LEAN)
+                    : -clampMagnitude(lateral * BODY_ROLL, 14);
+            rollTarget = clampMagnitude(around.groundRoll(track(info.hitbox())), MAX_TILT) + cornering;
+            liftTarget = around.groundLift();
+        }
+        if (!Double.isFinite(pitchTarget)) {
+            pitchTarget = 0;
+        }
+        if (!Double.isFinite(rollTarget)) {
+            rollTarget = 0;
+        }
+
+        double[] pitchSpring = spring(state.pitch(), state.pitchRate(), pitchTarget,
+                SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, dt);
+        double[] rollSpring = spring(state.roll(), state.rollRate(), rollTarget,
+                SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, dt);
+        double[] liftSpring = spring(state.lift(), state.liftRate(), liftTarget,
+                RIDE_STIFFNESS, RIDE_DAMPING, dt);
+
+        // --- the move ---------------------------------------------------
+
         // The horizontal component shrinks as the nose comes up, so a climbing
         // aircraft covers less ground rather than the same ground plus a
         // vertical bonus — the alternative reads as the vehicle speeding up
@@ -378,45 +759,47 @@ public final class VehiclePhysics {
                 ? speed * Math.cos(Math.toRadians(demand.pitch()))
                 : speed;
 
-        double radians = Math.toRadians(yaw);
-        // Minecraft's yaw: 0 faces +z (south) and increases clockwise, which
-        // puts the forward vector at (-sin, cos). Getting this pair wrong is
-        // a vehicle that drives sideways, and it is the single easiest thing
-        // in the file to get wrong, so it is written out rather than inlined.
-        double dx = -Math.sin(radians) * planar * dt;
-        double dz = Math.cos(radians) * planar * dt;
+        double[] move = worldVelocity(yaw, planar, slip);
+        double dx = move[0] * dt;
+        double dz = move[1] * dt;
         double dy = (air ? climb : vertical) * dt;
 
-        return new Step(new State(yaw, speed, vertical), dx, dy, dz,
-                states(info, state.yaw(), yaw, speed, around, dt));
+        State next = new State(yaw, speed, slip, vertical, steer, yawRate,
+                pitchSpring[0], pitchSpring[1], rollSpring[0], rollSpring[1], liftSpring[0], liftSpring[1]);
+        return new Step(next, dx, dy, dz, states(info, wasYaw, yaw, speed, around, dt));
     }
 
     /**
-     * Whether the body comes round at all this tick.
+     * What the driver's steering amounts to, -1 for full left to 1 for full
+     * right.
      *
-     * <p><strong>A vehicle that is not going anywhere does not turn.</strong>
-     * The yaw chases the driver's camera every tick and nothing used to ask
-     * how fast the vehicle was going, so a parked car span on the spot at its
-     * full {@code turn-speed} whenever its driver looked around — which is
-     * both nothing a wheeled vehicle does and the thing that made parking one
-     * anywhere precise almost impossible. It is also what swept a corner of a
-     * vehicle parked flush against a wall into the bricks, since rotation is
-     * never collision-checked.
+     * <p>Keys are already that. A look is turned into one by how far off the
+     * heading it is: dead ahead is no steer, {@link #LOOK_STEER_RANGE} or
+     * more off is full lock. Steering by look therefore aims the vehicle at
+     * where the driver is looking and straightens as it gets there, which is
+     * what the old model did, at a wheel angle rather than a swing.
+     */
+    static double steerInput(State state, Demand demand) {
+        if (demand.steersByKeys()) {
+            return demand.steer();
+        }
+        double off = wrap180(demand.yaw() - state.yaw());
+        return Math.max(-1, Math.min(1, off / LOOK_STEER_RANGE));
+    }
+
+    /**
+     * Whether the vehicle is steering at all this tick — the whole of the rule
+     * that a vehicle only turns while it is moving.
      *
-     * <p>Measured on the speed the vehicle came into the tick with rather than
-     * the one it leaves with, so pulling away is a fraction of a second of
-     * going straight before the steering bites, and stopping keeps the wheel
-     * until the vehicle has actually stopped. {@link #MOVING_THRESHOLD} rather
-     * than a threshold of its own: this is the same question the
-     * {@code IDLE}/{@code MOVING} states answer, and a vehicle that is
-     * animating as parked should not be steering.
+     * <p>The pack asked for it, or the vehicle is doing more than
+     * {@link #MOVING_THRESHOLD}, or it is an aircraft off the ground. That
+     * last is not a special case being smuggled in: a hovering helicopter is
+     * not standing still, pointing itself IS its steering, and holding it to
+     * the moving test would leave one that came to a hover unable to turn
+     * round and go home.
      *
-     * <p>Two exemptions. A pack can say {@code turn-in-place} for the vehicles
-     * that genuinely pivot — a tank, a hovercraft, an excavator. And an
-     * aircraft off the ground always steers, because a hovering helicopter is
-     * not standing still: it has nothing to push against and pointing itself
-     * IS its steering, so holding it to the same test would leave one that
-     * came to a hover unable to turn round and go home.
+     * <p>Measured on the speed the vehicle came into the tick with, so the
+     * wheel is still there while it brakes to a halt.
      */
     static boolean steers(VehicleInfo info, State state, Surroundings around) {
         if (info.turnInPlace() || Math.abs(state.speed()) > MOVING_THRESHOLD) {
@@ -425,51 +808,30 @@ public final class VehiclePhysics {
         return info.medium() == VehicleMedium.AIR && !around.supported();
     }
 
-    /**
-     * Whether an aircraft is going fast enough to fly.
-     *
-     * <p>Compared on the SPEED's magnitude, so an aeroplane being pushed
-     * backwards down a runway is not somehow airworthy. Always true for a
-     * vehicle whose {@code takeoff-speed} is zero, which is a helicopter and is
-     * what every air vehicle was before the number existed.
-     *
-     * <p>Its own method rather than a comparison inline, because the answer is
-     * read three times in one step — whether the climb key does anything,
-     * whether the aircraft stalls, and (in a test) how long the run took — and
-     * a rule spelled three ways is one that can drift into three rules.
-     */
+    /** Whether an aircraft is going fast enough to fly. Anything that is not an aircraft always is. */
     public static boolean airborneEnough(VehicleInfo info, double speed) {
         return info.medium() != VehicleMedium.AIR
                 || Math.abs(speed) >= info.flight().takeoffSpeed();
     }
 
-    /**
-     * Whether a water vehicle is out of its element.
-     *
-     * <p>Only ever true for {@link VehicleMedium#WATER} — a car is not
-     * "beached" for being on a road, and a submarine that flooded is not a
-     * different kind of vehicle.
-     */
+    /** A hull out of the water. */
     public static boolean beached(VehicleInfo info, Surroundings around) {
         return info.medium() == VehicleMedium.WATER && !around.inWater();
     }
 
+    /** The distance between the axles, from the box. See {@link #WHEELBASE_FRACTION}. */
+    public static double wheelbase(VehicleHitbox box) {
+        return Math.max(MIN_WHEELBASE, box.length() * WHEELBASE_FRACTION);
+    }
+
+    /** The distance between the wheels on one axle, from the box. */
+    public static double track(VehicleHitbox box) {
+        return Math.max(0.3, box.width() * TRACK_FRACTION);
+    }
+
     /**
-     * Every {@link VehicleState} the vehicle is in this tick.
-     *
-     * <p>Pure, and here rather than in the runtime, for the reason the whole
-     * class exists: whether a vehicle counts as moving is arithmetic over its
-     * speed, and a rule that lives in the runtime is one that can only be
-     * checked by driving a car around a test server. The states drive both the
-     * animation a rig plays and which particle emitters fire, so being subtly
-     * wrong about one is visible in two places at once.
-     *
-     * <p>Several are true at once and that is the point — see
-     * {@link VehicleState}.
-     *
-     * @param wasYaw where the body pointed before this step, so TURNING is
-     *               measured against what actually happened rather than
-     *               against what the driver asked for
+     * The states a vehicle is in after a tick — several at once, since a
+     * vehicle can be moving and turning and airborne together.
      */
     static Set<VehicleState> states(VehicleInfo info, double wasYaw, double yaw, double speed,
                                     Surroundings around, double dt) {
@@ -508,24 +870,16 @@ public final class VehiclePhysics {
     }
 
     /**
-     * Where a seat sits relative to the vehicle, in world x and z.
+     * Where a point {@code right} blocks to the vehicle's right and
+     * {@code forward} blocks ahead of it lands in the world, as an x/z offset
+     * from the vehicle, for a vehicle facing {@code yaw}.
      *
-     * <p>Pure, and here rather than inside the runtime, because it is the same
-     * class of thing as the forward vector above: two sines and a sign, and
-     * being wrong puts the driver in the passenger's lap with nothing in a log
-     * to say so. The forward vector was tested from the start and this was not,
-     * and this is the one that was wrong — {@code right} was pointing left.
-     *
-     * <p>The frame, stated once so it can be checked against the tests:
-     * Minecraft yaw 0 faces <strong>south</strong>, {@code +z}. Somebody
-     * facing south has <strong>west</strong> on their right, which is
-     * {@code -x}. So forward is {@code (-sin, cos)} and right is
-     * {@code (-cos, -sin)} — right is NOT forward's components swapped, which
-     * is the shape that looks right and puts everybody on the wrong side.
-     *
-     * @param right   blocks to the vehicle's right; negative is left
-     * @param forward blocks in front of it; negative is behind
-     * @return the world offset as {@code {dx, dz}}
+     * <p>Minecraft's yaw: 0 faces +z (south) and increases clockwise, which
+     * puts forward at (-sin, cos) and the right hand at (-cos, -sin). Getting
+     * this pair wrong is a vehicle that drives sideways, and it is the single
+     * easiest thing in the file to get wrong, so it is written out here once
+     * and everything — seats, emitters, wheels, the velocity — goes through
+     * it.
      */
     public static double[] seatOffset(double yaw, double right, double forward) {
         double radians = Math.toRadians(yaw);
@@ -537,11 +891,84 @@ public final class VehiclePhysics {
         };
     }
 
+    /**
+     * {@link #seatOffset} with the body's attitude in it: where a point
+     * {@code right}, {@code up} and {@code forward} of the vehicle lands once
+     * the body is pitched and rolled about {@code pivotHeight}.
+     *
+     * <p>Pitch is nose-up positive and roll is right-side-down positive, both
+     * in degrees, and the rotation is about the same point the model is drawn
+     * around — so a seat stays on its bodywork when the bodywork tilts.
+     *
+     * @return x, y, z offsets from the vehicle's position
+     */
+    public static double[] bodyOffset(double yaw, double pitch, double roll, double pivotHeight,
+                                      double right, double up, double forward) {
+        // In the body frame first: x right, y up, z forward, about the pivot.
+        double x = right;
+        double y = up - pivotHeight;
+        double z = forward;
+        // Roll about the forward axis. Right-side-down positive lowers +x.
+        double r = Math.toRadians(roll);
+        double x1 = x * Math.cos(r) + y * Math.sin(r);
+        double y1 = -x * Math.sin(r) + y * Math.cos(r);
+        // Pitch about the right axis. Nose-up positive raises +z.
+        double p = Math.toRadians(pitch);
+        double z2 = z * Math.cos(p) - y1 * Math.sin(p);
+        double y2 = z * Math.sin(p) + y1 * Math.cos(p);
+        double[] flat = seatOffset(yaw, x1, z2);
+        return new double[] {flat[0], y2 + pivotHeight, flat[1]};
+    }
+
+    /** The unit forward vector, x then z, for a heading. */
+    static double[] forward(double yaw) {
+        double radians = Math.toRadians(yaw);
+        return new double[] {-Math.sin(radians), Math.cos(radians)};
+    }
+
+    /** The unit right-hand vector, x then z, for a heading. */
+    static double[] right(double yaw) {
+        double radians = Math.toRadians(yaw);
+        return new double[] {-Math.cos(radians), -Math.sin(radians)};
+    }
+
+    /** A body-frame velocity as a world x/z vector. */
+    static double[] worldVelocity(double yaw, double speed, double slip) {
+        double[] f = forward(yaw);
+        double[] r = right(yaw);
+        return new double[] {
+            f[0] * speed + r[0] * slip,
+            f[1] * speed + r[1] * slip,
+        };
+    }
+
+    private static double dot(double[] a, double[] b) {
+        return a[0] * b[0] + a[1] * b[1];
+    }
+
     private static double fall(double vertical, double dt) {
         return Math.max(-TERMINAL_FALL, vertical - GRAVITY * dt);
     }
 
-    /** Moves {@code from} toward {@code to} by at most {@code step}, never past it. */
+    /**
+     * One tick of a damped spring toward {@code target}.
+     *
+     * <p>Semi-implicit: the rate is updated first and the position moves on
+     * the new rate, which is what keeps it stable at a twentieth of a second
+     * with the stiffnesses above.
+     *
+     * @return position, then rate
+     */
+    static double[] spring(double x, double rate, double target, double stiffness, double damping, double dt) {
+        double acceleration = stiffness * (target - x) - damping * rate;
+        rate += acceleration * dt;
+        x += rate * dt;
+        if (!Double.isFinite(x) || !Double.isFinite(rate)) {
+            return new double[] {target, 0};
+        }
+        return new double[] {x, rate};
+    }
+
     static double approach(double from, double to, double step) {
         if (from < to) {
             return Math.min(to, from + Math.abs(step));
@@ -549,14 +976,11 @@ public final class VehiclePhysics {
         return Math.max(to, from - Math.abs(step));
     }
 
-    /**
-     * Turns {@code from} toward {@code to} the short way round, by at most
-     * {@code step} degrees.
-     *
-     * <p>The short way matters: without it, a driver flicking their view from
-     * 350 to 10 sends the vehicle 340 degrees the other way, which at a
-     * realistic turn speed is a car spinning on the spot for two seconds.
-     */
+    static double clampMagnitude(double value, double limit) {
+        limit = Math.abs(limit);
+        return Math.max(-limit, Math.min(limit, value));
+    }
+
     static double turnToward(double from, double to, double step) {
         double delta = wrap180(to - from);
         if (Math.abs(delta) <= step) {
@@ -565,80 +989,179 @@ public final class VehiclePhysics {
         return wrap360(from + Math.signum(delta) * step);
     }
 
-    /**
-     * To (-180, 180].
-     *
-     * <p><strong>Half-open at the negative end on purpose.</strong> The
-     * obvious spelling — {@code ((d + 180) mod 360) - 180} — maps exactly 180
-     * to MINUS 180, so a driver asking for a U-turn gets one anticlockwise
-     * while every other turn to their right goes clockwise. Both directions
-     * are equally short at 180, so either is defensible and neither is
-     * discoverable; what is not defensible is the answer flipping at a
-     * boundary nobody can see. This way a U-turn is always to the right.
-     */
     static double wrap180(double degrees) {
         double wrapped = wrap360(degrees);
         return wrapped > 180 ? wrapped - 360 : wrapped;
     }
 
-    /** To [0, 360). */
     static double wrap360(double degrees) {
         double wrapped = degrees % 360;
         return wrapped < 0 ? wrapped + 360 : wrapped;
     }
 
-    /** Where the vehicle is going, between ticks. */
+    /**
+     * Where a vehicle is going and how its body is sitting, between ticks.
+     *
+     * <p>Immutable, so a step cannot half-apply.
+     */
     public static final class State {
 
         private final double yaw;
         private final double speed;
+        private final double slip;
         private final double verticalSpeed;
+        private final double steer;
+        private final double yawRate;
+        private final double pitch;
+        private final double pitchRate;
+        private final double roll;
+        private final double rollRate;
+        private final double lift;
+        private final double liftRate;
 
+        /** A vehicle with this heading and velocity, sitting level with its wheels straight. */
         public State(double yaw, double speed, double verticalSpeed) {
+            this(wrap360(yaw), speed, 0, verticalSpeed, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        State(double yaw, double speed, double slip, double verticalSpeed, double steer, double yawRate,
+              double pitch, double pitchRate, double roll, double rollRate, double lift, double liftRate) {
             this.yaw = yaw;
             this.speed = speed;
+            this.slip = slip;
             this.verticalSpeed = verticalSpeed;
+            this.steer = steer;
+            this.yawRate = yawRate;
+            this.pitch = pitch;
+            this.pitchRate = pitchRate;
+            this.roll = roll;
+            this.rollRate = rollRate;
+            this.lift = lift;
+            this.liftRate = liftRate;
         }
 
-        /** A vehicle standing still, facing {@code yaw}. */
         public static State still(double yaw) {
-            return new State(wrap360(yaw), 0, 0);
+            return new State(yaw, 0, 0);
         }
 
-        /** Which way the body points, degrees. */
+        /** Heading, degrees, Minecraft's way round. */
         public double yaw() {
             return yaw;
         }
 
-        /** Along its own heading, blocks per second. Negative is reverse. */
+        /** Speed along the heading, blocks per second; negative in reverse. */
         public double speed() {
             return speed;
         }
 
-        /** Blocks per second, positive up. */
+        /** Speed across the heading, blocks per second; positive to the vehicle's right. */
+        public double slip() {
+            return slip;
+        }
+
+        /** Speed over the ground in any direction. What a speedometer shows. */
+        public double groundSpeed() {
+            return Math.hypot(speed, slip);
+        }
+
         public double verticalSpeed() {
             return verticalSpeed;
         }
 
-        /**
-         * The same, stopped dead.
-         *
-         * <p>What the runtime applies when the move it tried was refused by a
-         * wall: the maths cannot know that happened, and a vehicle that kept
-         * its speed against a wall would shoot off the moment the driver
-         * turned away from it.
-         */
-        public State stopped() {
-            return new State(yaw, 0, verticalSpeed);
+        /** The front wheels' angle, degrees, positive to the right. */
+        public double steer() {
+            return steer;
         }
 
-        /** The same, no longer falling — what landing looks like. */
+        /** How fast the heading is changing, degrees per second, clockwise positive. */
+        public double yawRate() {
+            return yawRate;
+        }
+
+        /** The body's pitch, degrees, nose-up positive. Where it is DRAWN; the position never tilts. */
+        public double pitch() {
+            return pitch;
+        }
+
+        double pitchRate() {
+            return pitchRate;
+        }
+
+        /** The body's roll, degrees, right-side-down positive. */
+        public double roll() {
+            return roll;
+        }
+
+        double rollRate() {
+            return rollRate;
+        }
+
+        /** How far above (or, mostly, below) the position the body is drawn, blocks. */
+        public double lift() {
+            return lift;
+        }
+
+        double liftRate() {
+            return liftRate;
+        }
+
+        /** Whether the tyres are sliding: what a tyre-squeal or a skid mark would key off. */
+        public boolean sliding() {
+            return Math.abs(slip) > SLIDE_THRESHOLD;
+        }
+
+        /**
+         * Dead in its tracks — a wall. The spin goes too: a car that has
+         * stopped against a building is not still swinging round.
+         */
+        public State stopped() {
+            return new State(yaw, 0, 0, verticalSpeed, steer, 0,
+                    pitch, pitchRate, roll, rollRate, lift, liftRate);
+        }
+
+        /**
+         * On the ground after a fall. The vertical speed is spent; some of it
+         * goes into the springs, which is the bounce of a landing.
+         */
         public State landed() {
-            return new State(yaw, speed, 0);
+            double compression = Math.min(0, verticalSpeed) * LANDING_COMPRESSION;
+            return new State(yaw, speed, slip, 0, steer, yawRate,
+                    pitch, pitchRate, roll, rollRate, lift, liftRate + compression);
+        }
+
+        /**
+         * Up a step of {@code height} blocks. The position has already jumped;
+         * the body has not, so it is left where it was to spring up after,
+         * and the bump costs some speed.
+         */
+        public State stepped(double height) {
+            if (!(height > 0)) {
+                return this;
+            }
+            double keep = Math.max(0, 1 - STEP_SCRUB * height);
+            return new State(yaw, speed * keep, slip * keep, verticalSpeed, steer, yawRate,
+                    pitch, pitchRate + 30 * height, roll, rollRate, lift - height, liftRate);
+        }
+
+        /**
+         * Deflected along a wall. Whichever world axis is blocked loses its
+         * velocity entirely; the other keeps {@link #WALL_SLIDE_KEEP} of
+         * its. Neither blocked is not a deflection and returns this.
+         */
+        public State deflected(boolean blockedX, boolean blockedZ) {
+            if (!blockedX && !blockedZ) {
+                return this;
+            }
+            double[] v = worldVelocity(yaw, speed, slip);
+            double vx = blockedX ? 0 : v[0] * WALL_SLIDE_KEEP;
+            double vz = blockedZ ? 0 : v[1] * WALL_SLIDE_KEEP;
+            double[] world = {vx, vz};
+            return new State(yaw, dot(world, forward(yaw)), dot(world, right(yaw)), verticalSpeed,
+                    steer, yawRate * 0.5, pitch, pitchRate, roll, rollRate, lift, liftRate);
         }
     }
 
-    /** What the driver is asking for this tick. */
+    /** What the driver is asking for. */
     public static final class Demand {
 
         private final double yaw;
@@ -649,18 +1172,12 @@ public final class VehiclePhysics {
         private final double steer;
         private final boolean steersByKeys;
 
-        /** Steering by look: the body turns toward wherever the driver faces. */
+        /** A demand that steers by look: the body turns toward {@code yaw}. */
         public Demand(double yaw, double pitch, double throttle, double lift, boolean braking) {
             this(yaw, pitch, throttle, lift, braking, 0, false);
         }
 
-        /**
-         * Steering by key: {@code steer} runs -1 (left) to 1 (right) and the
-         * driver's look is left out of it entirely.
-         *
-         * <p>The PITCH is still theirs, because an air vehicle climbs by
-         * looking up and that is a different control from turning.
-         */
+        /** A demand that steers by keys: {@code steer} is -1 for left, 1 for right. */
         public static Demand steering(double yaw, double pitch, double steer,
                                       double throttle, double lift, boolean braking) {
             return new Demand(yaw, pitch, throttle, lift, braking, steer, true);
@@ -679,17 +1196,15 @@ public final class VehiclePhysics {
             this.steersByKeys = steersByKeys;
         }
 
-        /** -1 hard left to 1 hard right. Only read when {@link #steersByKeys}. */
         public double steer() {
             return steer;
         }
 
-        /** Whether the body turns from a key rather than from the driver's look. */
         public boolean steersByKeys() {
             return steersByKeys;
         }
 
-        /** A vehicle nobody is driving: it keeps its heading and coasts to a stop. */
+        /** Nobody at the wheel: no throttle, and a look straight ahead. */
         public static Demand idle(double yaw) {
             return new Demand(yaw, 0, 0, 0, false);
         }
@@ -701,126 +1216,125 @@ public final class VehiclePhysics {
             return Math.max(-1, Math.min(1, value));
         }
 
-        /** Where the driver is looking, which IS the steering. */
         public double yaw() {
             return yaw;
         }
 
-        /** Up or down, degrees. Only an air vehicle reads it. */
         public double pitch() {
             return pitch;
         }
 
-        /** -1 full reverse to 1 full ahead. */
         public double throttle() {
             return throttle;
         }
 
-        /** -1 down to 1 up. An air vehicle reads it; so does a land one that {@link VehicleInfo#jumps()}. */
         public double lift() {
             return lift;
         }
 
-        /** Whether they are asking to stop, which beats the throttle. */
         public boolean braking() {
             return braking;
         }
     }
 
-    /** What the world is doing around the vehicle, read by the runtime. */
+    /**
+     * What the world is doing to the vehicle this tick.
+     *
+     * <p>The three yes/no answers every vehicle needs, and — where the runtime
+     * has sampled them — the height of the ground under each wheel relative
+     * to the vehicle's position, front-left, front-right, rear-left,
+     * rear-right, {@link Double#NaN} for a wheel over nothing. A vehicle
+     * whose wheels were not sampled sits level, which is what every vehicle
+     * did before there were wheels to sample.
+     */
     public static final class Surroundings {
 
         private final boolean supported;
         private final boolean inWater;
         private final double submersion;
+        private final double[] wheels;
 
         public Surroundings(boolean supported, boolean inWater, double submersion) {
+            this(supported, inWater, submersion, null);
+        }
+
+        public Surroundings(boolean supported, boolean inWater, double submersion, double[] wheels) {
             this.supported = supported;
             this.inWater = inWater;
             this.submersion = submersion;
+            this.wheels = wheels == null || wheels.length != 4 ? null : wheels.clone();
         }
 
-        /** Nothing under it and nothing holding it up. */
         public static Surroundings falling() {
             return new Surroundings(false, false, 0);
         }
 
-        /** Whether something solid is holding it up. */
         public boolean supported() {
             return supported;
         }
 
-        /** Whether its base is in water. */
         public boolean inWater() {
             return inWater;
         }
 
-        /**
-         * How far below the surface the base is, in blocks, clamped to a
-         * block either way.
-         *
-         * <p>Signed, so a hull riding slightly proud of the water is pulled
-         * back down by the same term that pushes a submerged one up — which is
-         * what makes the resting position the surface rather than somewhere
-         * above it.
-         */
         public double submersion() {
             return submersion;
         }
+
+        /** Whether the wheels were sampled at all. */
+        public boolean sampled() {
+            return wheels != null;
+        }
+
+        private double wheel(int index) {
+            double height = wheels[index];
+            return Double.isNaN(height) ? -WHEEL_DROOP : height;
+        }
+
+        /** The ground's pitch under the wheels, degrees nose-up positive; zero unsampled. */
+        public double groundPitch(double wheelbase) {
+            if (wheels == null) {
+                return 0;
+            }
+            double front = (wheel(0) + wheel(1)) / 2;
+            double rear = (wheel(2) + wheel(3)) / 2;
+            return Math.toDegrees(Math.atan2(front - rear, wheelbase));
+        }
+
+        /** The ground's roll under the wheels, degrees right-side-down positive; zero unsampled. */
+        public double groundRoll(double track) {
+            if (wheels == null) {
+                return 0;
+            }
+            double left = (wheel(0) + wheel(2)) / 2;
+            double right = (wheel(1) + wheel(3)) / 2;
+            return Math.toDegrees(Math.atan2(left - right, track));
+        }
+
+        /** Where the body sits relative to the position: the mean wheel height. Zero unsampled. */
+        public double groundLift() {
+            if (wheels == null) {
+                return 0;
+            }
+            return (wheel(0) + wheel(1) + wheel(2) + wheel(3)) / 4;
+        }
     }
 
-    /** What the runtime does with a step the world has an opinion about. */
+    /** What to do about a destination that is blocked. */
     public enum Collision {
-        /** Take it. */
+        /** Nothing in the way, or already inside something and refusing would only trap it. */
         MOVE,
-        /** Take it, a step higher — a kerb. */
+        /** Something in the way no taller than a step: climb it. */
         STEP_UP,
-        /** Refuse it and stop dead. */
+        /** A wall. */
         STOP
     }
 
     /**
-     * Whether a step happens, given what is solid where.
+     * The collision rule, in one place so it can be tested without a world.
      *
-     * <p>Pure, and here rather than inline in the runtime, because the one rule
-     * it encodes is the difference between a vehicle that stops at a wall and
-     * one that is trapped in it for ever — and the runtime that used to hold it
-     * needs a live world to run at all, so the rule could not be tested.
-     *
-     * <p><strong>A vehicle that is ALREADY overlapping a solid may move, even
-     * further into it.</strong> That is the whole of the fix and it looks wrong
-     * until you follow it through. The refusal used to be decided on the
-     * destination alone, which is right whenever the vehicle is somewhere legal
-     * — but a vehicle can end up inside a wall several ways that never consult
-     * this at all: its yaw chases the driver's camera every tick and rotation
-     * is never collision-checked, so turning while parked flush sweeps a corner
-     * into the bricks; and a fast one covers up to three blocks in a tick
-     * against a destination-only test, so it can land inside a thick wall.
-     *
-     * <p>Once there, every destination within a tick's travel is also blocked,
-     * so every move was refused — and a refusal calls {@code State.stopped()},
-     * which zeroes the speed. From a standstill one tick of reverse is about
-     * 1.5cm, so the vehicle could never accumulate enough displacement to leave
-     * the block it was standing in. It was pinned, permanently, with the back
-     * key doing nothing.
-     *
-     * <p>Refusing buys nothing in that state: it cannot keep a vehicle out of a
-     * wall it is already in. So the only thing it achieves is the trap, and
-     * letting the move through is what gives the driver a way out. Driving
-     * further in is possible and is the right trade — it is recoverable, and
-     * being stuck is not.
-     *
-     * @param destinationBlocked whether the footprint at the destination is in
-     *                           something solid
-     * @param canStepUp          whether a step higher is clear, and this is a
-     *                           land vehicle — a kerb beats both other answers,
-     *                           because climbing it is the move that gets the
-     *                           vehicle out of the way of the obstruction
-     * @param alreadyBlocked     whether the footprint where it stands NOW is in
-     *                           something solid. Only worth asking when the
-     *                           destination is blocked and no kerb was found,
-     *                           which is what keeps the extra block reads off
-     *                           the common path
+     * <p>A vehicle already inside something is allowed to keep moving, which
+     * is what lets one that ended up in a wall drive back out of it.
      */
     public static Collision resolve(boolean destinationBlocked, boolean canStepUp, boolean alreadyBlocked) {
         if (!destinationBlocked) {
@@ -832,7 +1346,7 @@ public final class VehiclePhysics {
         return alreadyBlocked ? Collision.MOVE : Collision.STOP;
     }
 
-    /** The next state, and the move to try. */
+    /** The result of a tick: the next state, the displacement to try, and what the vehicle is doing. */
     public static final class Step {
 
         private final State state;
@@ -851,40 +1365,26 @@ public final class VehiclePhysics {
                     : Collections.unmodifiableSet(states);
         }
 
-        /** Where the vehicle is going now. */
         public State state() {
             return state;
         }
 
-        /**
-         * What the vehicle is doing, which decides what it plays and what it
-         * throws.
-         *
-         * <p>Several at once — see {@link VehicleState}. Computed here rather
-         * than by the runtime because every input it needs is already in hand,
-         * and because a rule about when a vehicle counts as moving is one that
-         * should be checkable without a server.
-         */
         public Set<VehicleState> states() {
             return states;
         }
 
-        /** East, in blocks, this tick. */
         public double dx() {
             return dx;
         }
 
-        /** Up, in blocks, this tick. */
         public double dy() {
             return dy;
         }
 
-        /** South, in blocks, this tick. */
         public double dz() {
             return dz;
         }
 
-        /** Whether this step asks the vehicle to move at all. */
         public boolean moves() {
             return dx != 0 || dy != 0 || dz != 0;
         }

@@ -637,8 +637,35 @@ the way a brake does, and only engages reverse once it is actually stationary
 Sneak gets out, as it does for a boat. That is also why sneak is not the
 brake: a driver braking would step off at speed.
 
-`turn-speed` is how fast the body comes round — a low number is a lorry, a
-high one is a go-kart.
+`turn-speed` is the most the body will swing round, in degrees a second — a
+low number is a lorry, a high one is a go-kart. How fast it actually turns at
+any moment comes from the front wheels and the speed (see below); this is the
+ceiling on that.
+
+### How it drives
+
+A vehicle has **grip**, and it can lose it. Steering turns the front wheels, the
+wheels and the speed decide how hard the body comes round, and the tyres hold
+the car to that line up to a limit. Corner harder than they can hold and the
+car goes wide; hold it there and the tail gradually steps out. **Space is the
+handbrake, and the handbrake is the drift button**: pull it in a corner and the
+rear lets go, the car swings, and it comes back as you ease off and get back on
+the power. A bike (anything under a block wide) leans into its corners; a car
+rolls out of them.
+
+The body follows the ground. Drive onto a kerb and the nose comes up, then the
+whole car climbs and settles; drive along a slab road with two wheels on the
+slabs and it leans. It dips under braking, squats when you floor it, and
+bounces on landing. None of that moves the collision box — a tilted car still
+fits where a level one does.
+
+Hills are hills: slower going up, faster coming down, and a car left standing
+on one holds where it is. A wall you clip at an angle scrapes you along it
+rather than stopping you dead; a wall you hit square still does.
+
+The driver sees their speed above the hotbar while moving, in km/h, yellow
+while the tyres are sliding. `vehicles.speedometer: false` in `config.yml`
+turns it off.
 
 **A vehicle only turns while it is moving.** Steering is something you do to a
 vehicle that is going somewhere: a parked one holds its heading however far

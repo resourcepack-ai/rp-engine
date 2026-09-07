@@ -144,6 +144,15 @@ public final class RigAnimator implements Listener {
     private final Map<UUID, Posed> posed = new ConcurrentHashMap<>();
 
     /**
+     * The body attitude of each CARRIED rig, keyed by its yaw host: pitch
+     * then roll, degrees. See {@link #tilt}.
+     *
+     * <p>A rig with no entry sits level, which is every placed rig and every
+     * carried one whose carrier has never tilted it.
+     */
+    private final Map<UUID, float[]> tilts = new ConcurrentHashMap<>();
+
+    /**
      * The most any one send of a crossfade turns a bone, in degrees.
      *
      * <p>The fade is composed here, about each bone's own pivot, so every pose
@@ -343,6 +352,67 @@ public final class RigAnimator implements Listener {
         return bones;
     }
 
+    /**
+     * Tilts a carried rig: pitch nose-up and roll right-side-down, degrees,
+     * composed into every moving part's matrix ahead of its animation.
+     *
+     * <p>This is how a vehicle's body follows the ground under it while its
+     * wheels go on turning: the attitude is a rotation of the whole rig about
+     * its shared anchor, so it goes in front of the animation exactly where
+     * the placement yaw would for a placed rig. Level is the absence of an
+     * entry rather than a zero one, so a rig that has never been tilted costs
+     * nothing here — and a carried part with an entry is posed every tick
+     * even when nothing animates it, because its matrix is now changing.
+     *
+     * @param yawHost the rig's yaw host, which is what a carried rig is
+     *                keyed by everywhere else
+     */
+    void tilt(UUID yawHost, float pitch, float roll) {
+        if (yawHost == null) return;
+        if (Math.abs(pitch) < 0.05f && Math.abs(roll) < 0.05f) {
+            tilts.remove(yawHost);
+        } else {
+            tilts.put(yawHost, new float[] {pitch, roll});
+        }
+    }
+
+    /**
+     * The body attitude as a rotation in a display's local frame — the
+     * model's front at -z, its right at +x — nose-up a positive turn about x
+     * and right-side-down a negative turn about z, roll first and pitch on
+     * top. The single-display vehicle model composes the same rotation the
+     * same way; the two have to look identical.
+     */
+    static Matrix4f tiltMatrix(float pitch, float roll) {
+        return new Matrix4f()
+                .rotateX((float) Math.toRadians(pitch))
+                .rotateZ((float) -Math.toRadians(roll));
+    }
+
+    /** Whether this part display has an animation program, which is whether the tick poses it at all. */
+    boolean animates(ItemDisplay display) {
+        PersistentDataContainer pdc = display.getPersistentDataContainer();
+        String modelId = pdc.get(modelKey, PersistentDataType.STRING);
+        Integer partIndex = pdc.get(partKey, PersistentDataType.INTEGER);
+        RigStore.Rig rig = modelId == null ? null : rigs.get(modelId);
+        if (rig == null || rig.parts == null || partIndex == null
+                || partIndex < 0 || partIndex >= rig.parts.size()) {
+            return false;
+        }
+        return RigAnimations.hasAnimationProgram(rig.parts.get(partIndex));
+    }
+
+    /** The tilt of the rig carrying this part, or null for level. */
+    private float[] tiltOf(PersistentDataContainer pdc) {
+        String host = pdc.get(yawHostKey, PersistentDataType.STRING);
+        if (host == null || tilts.isEmpty()) return null;
+        try {
+            return tilts.get(UUID.fromString(host));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     void untrack(UUID id) {
         tracked.remove(id);
         fades.remove(id);
@@ -500,6 +570,7 @@ public final class RigAnimator implements Listener {
         // A carried rig is DRIVEN: whatever carries it decides what plays, so
         // it has no resting loop of its own to fall back to. See the overload.
         boolean carried = pdc.has(yawHostKey, PersistentDataType.STRING);
+        float[] tilt = carried ? tiltOf(pdc) : null;
         int playbackIndex = RigAnimations.playbackAnimationIndex(
             rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING), !carried);
 
@@ -590,7 +661,10 @@ public final class RigAnimator implements Listener {
         boolean bound = pdc.has(boundKey, PersistentDataType.STRING);
         // A fade has to keep sending frames even where nothing else would:
         // the animation is not changing, the pose on the way to it is.
-        if (!bound && !overlaid && fade == null
+        // A tilted carried part is exempt too: the body under it is moving
+        // whether or not its animation is. Dedupe below still drops a frame
+        // whose matrix comes out identical.
+        if (!bound && !overlaid && fade == null && tilt == null
                 && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) {
             was.values = target;
             return;
@@ -632,6 +706,11 @@ public final class RigAnimator implements Listener {
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
+        // The carrier's body attitude, ahead of the animation and about the
+        // shared anchor — where the placement yaw goes for a placed rig. A
+        // wheel keeps spinning about its own axle; the axle tilts with the
+        // car. See tilt.
+        if (tilt != null) m.mul(tiltMatrix(tilt[0], tilt[1]));
         m.mul(RigMath.toItemDisplaySpace(animationTransform));
         applyRigScale(m, pdc);
 
