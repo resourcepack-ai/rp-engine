@@ -279,6 +279,52 @@ public interface Vehicle {
      */
     PersistentDataContainer data();
 
+    // ---- building on top of it -------------------------------------------
+
+    /**
+     * What the driver is asking for, as the engine read it this tick.
+     *
+     * <p>For a plugin that gives a vehicle behaviour the engine does not
+     * have — a skateboard that is pushed rather than throttled, a bike that
+     * wheelies on the sprint key. Reading the same input the physics read is
+     * what keeps the plugin's idea of "the driver pressed forward" and the
+     * engine's on one tick. {@link VehicleInput#NONE} when nobody is driving.
+     */
+    VehicleInput input();
+
+    /**
+     * Adds to the speed along the heading, blocks per second — a push, a kick,
+     * a boost, a knock-back. Negative slows it. Takes effect this tick and is
+     * then subject to everything the physics does: it coasts off, it is
+     * capped by the top speed over the next tick, it scrubs in a slide.
+     */
+    void nudge(double blocksPerSecond);
+
+    /**
+     * Adds to the spin, degrees per second, clockwise positive. In the air
+     * it carries, which is what makes a mid-air flick of a board a trick; on
+     * the ground the tyres take it back within a tick or two.
+     */
+    void spin(double degreesPerSecond);
+
+    /**
+     * Dresses an occupant in {@code emoteId} instead of whatever their seat's
+     * state says, until {@link #undress} or they get out.
+     *
+     * <p>For a state the engine does not have: a skater kicking off, a rider
+     * tucking for speed. Worn over the seat's stance like a state's emote is,
+     * so a seated rider keeps their legs. Somebody not in this vehicle is
+     * ignored; an emote that does not exist is reported in the console once,
+     * the way a seat's own refusal is.
+     */
+    void dress(Player occupant, String emoteId);
+
+    /** Hands an occupant back to their seat's own states. */
+    void undress(Player occupant);
+
+    /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
+    double groundSpeed();
+
     /** A key in your plugin's namespace, for use with {@link #data()}. */
     default NamespacedKey key(Plugin plugin, String name) {
         return new NamespacedKey(plugin, name);

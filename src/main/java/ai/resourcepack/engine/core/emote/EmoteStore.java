@@ -409,6 +409,16 @@ public final class EmoteStore {
     private final Map<String, String> packOfEmote = new ConcurrentHashMap<>();
     private final Map<String, String> packOfGroup = new ConcurrentHashMap<>();
     private final Map<String, PlayerRig> byPlayer = new ConcurrentHashMap<>();
+
+    /**
+     * The rigs this server baked itself, from skins it has seen — see
+     * {@link RigBaker}. A SECOND map rather than entries in {@link #byPlayer},
+     * because that one is replaced whole by every push and a push must not
+     * take the server's own rigs away, nor a rebuild the push's. A player's
+     * own pushed rig beats their own native one (Studio's carries their cape);
+     * either beats the pushed default; and the native default is the floor.
+     */
+    private final Map<String, PlayerRig> nativePlayers = new ConcurrentHashMap<>();
     private volatile List<Bone> bones = Collections.emptyList();
     private volatile List<Bone> jointedBones = Collections.emptyList();
     private volatile float[] rootPivot = null;
@@ -459,12 +469,67 @@ public final class EmoteStore {
      */
     PlayerRig rigFor(java.util.UUID playerId) {
         PlayerRig own = ownRigFor(playerId);
-        return own != null ? own : byPlayer.get(DEFAULT_PLAYER);
+        if (own != null) return own;
+        PlayerRig nativeOwn = playerId == null ? null : nativePlayers.get(key(playerId));
+        if (nativeOwn != null) return nativeOwn;
+        PlayerRig pushedDefault = byPlayer.get(DEFAULT_PLAYER);
+        return pushedDefault != null ? pushedDefault : nativePlayers.get(DEFAULT_PLAYER);
     }
 
-    /** Whether the pack carries any rig at all — see the /emote diagnostics. */
+    /** Whether any rig exists at all — pushed or baked here — see the /emote diagnostics. */
     public boolean hasAnyRig() {
-        return !byPlayer.isEmpty();
+        return !byPlayer.isEmpty() || !nativePlayers.isEmpty();
+    }
+
+    /**
+     * Replaces the server's own baked rigs — every build, from
+     * {@link RigAssets#players}.
+     *
+     * <p>Also fills the bone tables when no push has ever supplied them: the
+     * director poses by these pivots and a server that has never seen Studio
+     * would otherwise have rigs and nowhere to hinge them. They are the same
+     * numbers a push carries, so filling them when a push HAS supplied them
+     * would change nothing, and is skipped only to keep the push the owner of
+     * what it wrote.
+     */
+    public void setNativeRigs(Map<String, PlayerRig> rigs) {
+        nativePlayers.clear();
+        if (rigs != null) {
+            for (Map.Entry<String, PlayerRig> entry : rigs.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null && entry.getValue().item != null) {
+                    nativePlayers.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+                }
+            }
+        }
+        if (nativePlayers.isEmpty()) return;
+        if (bones == null || bones.isEmpty()) bones = RigGeometry.manifestBones();
+        if (jointedBones == null || jointedBones.isEmpty()) jointedBones = RigGeometry.manifestJointedBones();
+        if (rootPivot == null) rootPivot = RigGeometry.rootPivot();
+    }
+
+    /**
+     * Replaces every hand-authored emote with what the content folders hold
+     * now — see {@link AuthoredEmotes}.
+     *
+     * <p>Each namespace is a pack of its own ({@code content:<namespace>}),
+     * retired and re-added whole, so an emote deleted from a folder stops
+     * existing here on the next reload exactly as a pushed one deleted in the
+     * panel does. Nothing else is touched: not the bone tables, not the
+     * players, not a pushed pack's emotes — {@link #updateFromJson} owns those
+     * and this deliberately does not go through it.
+     */
+    public void replaceAuthored(AuthoredEmotes.Result authored) {
+        for (String packId : new java.util.ArrayList<>(packOfEmote.values())) {
+            if (packId.startsWith(AuthoredEmotes.PACK_PREFIX)) retire(packId);
+        }
+        if (authored == null) return;
+        for (Map.Entry<String, Map<String, Emote>> namespace : authored.byNamespace().entrySet()) {
+            String packId = AuthoredEmotes.PACK_PREFIX + namespace.getKey();
+            for (Map.Entry<String, Emote> entry : namespace.getValue().entrySet()) {
+                byId.put(entry.getKey(), entry.getValue());
+                packOfEmote.put(entry.getKey(), packId);
+            }
+        }
     }
 
     /**
@@ -713,10 +778,19 @@ public final class EmoteStore {
             manifest.jointedBones = jointedBones;
             manifest.rootPivot = rootPivot;
             manifest.capeBone = capeBone;
-            manifest.emotes = new HashMap<>(byId);
+            // Authored emotes are NOT persisted: they come back from the
+            // content folder on every load, and a copy here would outlive a
+            // file somebody deleted until the next reload retired it.
+            manifest.emotes = new HashMap<>();
+            manifest.packs = new HashMap<>();
+            for (Map.Entry<String, Emote> entry : byId.entrySet()) {
+                String pack = packOfEmote.get(entry.getKey());
+                if (pack != null && pack.startsWith(AuthoredEmotes.PACK_PREFIX)) continue;
+                manifest.emotes.put(entry.getKey(), entry.getValue());
+                if (pack != null) manifest.packs.put(entry.getKey(), pack);
+            }
             manifest.groups = new HashMap<>(groupsById);
             manifest.players = new HashMap<>(byPlayer);
-            manifest.packs = new HashMap<>(packOfEmote);
             manifest.groupPacks = new HashMap<>(packOfGroup);
             Files.write(file.toPath(), gson.toJson(manifest).getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {

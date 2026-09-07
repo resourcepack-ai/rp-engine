@@ -3975,6 +3975,12 @@ public final class EmoteDirector implements Listener {
     }
 
     private static ItemStack boneItem(String modelData) {
+        // A rig this server baked itself reaches its model by name rather
+        // than through vanilla paper's model file, which a pushed pack may
+        // own. See NativeRigItems.
+        if (NativeRigItems.isNative(modelData)) {
+            return NativeRigItems.item(modelData);
+        }
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {

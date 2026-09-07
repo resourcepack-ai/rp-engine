@@ -1,7 +1,9 @@
 package ai.resourcepack.engine.core.vehicle;
 
+import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
+import ai.resourcepack.engine.api.VehicleInput;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleState;
 
@@ -1144,6 +1146,33 @@ public final class VehiclePhysics {
         }
 
         /**
+         * With {@code blocksPerSecond} added along the heading — a push, a
+         * kick, a boost — for a plugin building a vehicle that gets its
+         * speed some way other than a throttle. {@link Vehicle#nudge}.
+         */
+        public State nudged(double blocksPerSecond) {
+            if (!Double.isFinite(blocksPerSecond) || blocksPerSecond == 0) {
+                return this;
+            }
+            return new State(yaw, speed + blocksPerSecond, slip, verticalSpeed, steer, yawRate,
+                    pitch, pitchRate, roll, rollRate, lift, liftRate);
+        }
+
+        /**
+         * With {@code degreesPerSecond} added to the spin — a flick of the
+         * board in mid-air. On the ground the tyres take it back within a
+         * tick or two, which is what makes it a trick rather than a steer.
+         * {@link Vehicle#spin}.
+         */
+        public State spun(double degreesPerSecond) {
+            if (!Double.isFinite(degreesPerSecond) || degreesPerSecond == 0) {
+                return this;
+            }
+            return new State(yaw, speed, slip, verticalSpeed, steer, yawRate + degreesPerSecond,
+                    pitch, pitchRate, roll, rollRate, lift, liftRate);
+        }
+
+        /**
          * Deflected along a wall. Whichever world axis is blocked loses its
          * velocity entirely; the other keeps {@link #WALL_SLIDE_KEEP} of
          * its. Neither blocked is not a deflection and returns this.
@@ -1171,20 +1200,27 @@ public final class VehiclePhysics {
         private final boolean braking;
         private final double steer;
         private final boolean steersByKeys;
+        private final boolean sprint;
 
         /** A demand that steers by look: the body turns toward {@code yaw}. */
         public Demand(double yaw, double pitch, double throttle, double lift, boolean braking) {
-            this(yaw, pitch, throttle, lift, braking, 0, false);
+            this(yaw, pitch, throttle, lift, braking, 0, false, false);
         }
 
         /** A demand that steers by keys: {@code steer} is -1 for left, 1 for right. */
         public static Demand steering(double yaw, double pitch, double steer,
                                       double throttle, double lift, boolean braking) {
-            return new Demand(yaw, pitch, throttle, lift, braking, steer, true);
+            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, false);
+        }
+
+        /** The same, carrying the sprint key — which the physics ignores and a plugin may not. */
+        public static Demand steering(double yaw, double pitch, double steer,
+                                      double throttle, double lift, boolean braking, boolean sprint) {
+            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, sprint);
         }
 
         private Demand(double yaw, double pitch, double throttle, double lift, boolean braking,
-                       double steer, boolean steersByKeys) {
+                       double steer, boolean steersByKeys, boolean sprint) {
             this.yaw = yaw;
             this.pitch = pitch;
             // Clamped here rather than trusted, because both arms of the
@@ -1194,6 +1230,12 @@ public final class VehiclePhysics {
             this.braking = braking;
             this.steer = clamp(steer);
             this.steersByKeys = steersByKeys;
+            this.sprint = sprint;
+        }
+
+        /** The sprint key, where keys can be read. Nothing here acts on it; see {@link VehicleInput#sprint}. */
+        public boolean sprint() {
+            return sprint;
         }
 
         public double steer() {

@@ -114,6 +114,11 @@ public final class ContentFolderLoader {
         map.put("entities", ContentKind.ENTITY);
         map.put("liquids", ContentKind.LIQUID);
         map.put("vehicles", ContentKind.VEHICLE);
+        // Emote keyframes, as the JSON a Studio push carries - see
+        // AuthoredEmotes. The one category that reads .json as well as YAML,
+        // because that is the form the editor exports and nobody should have
+        // to convert keyframes by hand.
+        map.put("emotes", ContentKind.EMOTE);
         return Map.copyOf(map);
     }
 
@@ -370,7 +375,7 @@ public final class ContentFolderLoader {
     private void loadCategory(Path root, Path folder, ContentKind kind, Namespace namespace,
                               List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
-        for (Path file : sortedYamlFiles(folder, diagnostics, relative(root, folder))) {
+        for (Path file : sortedDefinitionFiles(folder, diagnostics, relative(root, folder), kind == ContentKind.EMOTE)) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
             if (document.isEmpty()) {
@@ -496,13 +501,22 @@ public final class ContentFolderLoader {
     }
 
     private List<Path> sortedYamlFiles(Path folder, List<Diagnostic> diagnostics, String origin) {
-        // Recursive: items/weapons/swords.yml is fine, and the subfolder
-        // contributes nothing to the id.
+        return sortedDefinitionFiles(folder, diagnostics, origin, false);
+    }
+
+    /**
+     * The definition files under a category, recursively: items/weapons/swords.yml
+     * is fine, and the subfolder contributes nothing to the id. With
+     * {@code json} on, {@code .json} files count too — the emotes folder,
+     * where the file is what an editor exported. YAML is a superset of JSON,
+     * so the same reader takes both.
+     */
+    private List<Path> sortedDefinitionFiles(Path folder, List<Diagnostic> diagnostics, String origin, boolean json) {
         List<Path> found = new ArrayList<>();
         for (Path child : list(folder, diagnostics, origin, path -> true)) {
             if (Files.isDirectory(child)) {
-                found.addAll(sortedYamlFiles(child, diagnostics, origin));
-            } else if (isDefinitionFile(child)) {
+                found.addAll(sortedDefinitionFiles(child, diagnostics, origin, json));
+            } else if (isDefinitionFile(child) || (json && child.getFileName().toString().endsWith(".json"))) {
                 found.add(child);
             }
         }

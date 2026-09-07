@@ -105,13 +105,14 @@ class ContentFolderLoaderTest {
         LoadReport report = load();
 
         assertFalse(report.hasErrors());
-        assertEquals(9, report.definitions().size());
+        assertEquals(10, report.definitions().size());
         // A kind has a folder only if something reads it. There is no models/
-        // — a placed model is a property of an item — and no emotes/ yet.
-        // blocks/ became one when custom blocks did.
+        // — a placed model is a property of an item. blocks/ became one when
+        // custom blocks did, and emotes/ when the engine learned to bake its
+        // own rigs (AuthoredEmotes).
         Set<ContentKind> withFolders = Set.of(ContentKind.ITEM, ContentKind.BLOCK,
                 ContentKind.SOUND, ContentKind.FONT, ContentKind.SCREEN, ContentKind.HUD,
-                ContentKind.RECIPE, ContentKind.ENTITY, ContentKind.LIQUID);
+                ContentKind.RECIPE, ContentKind.ENTITY, ContentKind.LIQUID, ContentKind.EMOTE);
         for (ContentKind kind : ContentKind.values()) {
             int expected = withFolders.contains(kind) ? 1 : 0;
             assertEquals(expected, report.definitions(kind).size(),

@@ -135,6 +135,7 @@ public interface VehicleControls extends Listener {
             {"isLeft", "left"},
             {"isRight", "right"},
             {"isJump", "jump"},
+            {"isSprint", "sprint"},
         };
 
         private static final int FORWARD = 0;
@@ -142,6 +143,7 @@ public interface VehicleControls extends Listener {
         private static final int LEFT = 2;
         private static final int RIGHT = 3;
         private static final int JUMP = 4;
+        private static final int SPRINT = 5;
 
         private final Method currentInput;
         private final Logger log;
@@ -256,7 +258,11 @@ public interface VehicleControls extends Listener {
             }
             double steer = (pressed(resolved, RIGHT, input) ? 1 : 0)
                     + (pressed(resolved, LEFT, input) ? -1 : 0);
-            return VehiclePhysics.Demand.steering(yaw, pitch, steer, throttle, lift, braking);
+            // Sprint is read and carried, not acted on: the engine has no
+            // meaning for it, and a plugin building a skateboard or a bike
+            // on top of a vehicle does. See VehicleInput.
+            return VehiclePhysics.Demand.steering(yaw, pitch, steer, throttle, lift, braking,
+                    pressed(resolved, SPRINT, input));
         }
 
         @Override

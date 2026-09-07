@@ -19,3 +19,4 @@ ai/resourcepack/engine/core/item/ComponentEquipping.java
 ai/resourcepack/engine/core/model/DisplayCarry.java
 ai/resourcepack/engine/core/model/StringRigTags.java
 ai/resourcepack/engine/core/serve/StackedPackSending.java
+ai/resourcepack/engine/core/emote/NativeRigItems.java
