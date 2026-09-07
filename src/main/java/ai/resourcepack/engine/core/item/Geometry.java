@@ -9,6 +9,7 @@ import com.google.gson.JsonSyntaxException;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.ModelShape;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -61,10 +62,16 @@ public final class Geometry {
 
         private final float width;
         private final float height;
+        private final ModelShape shape;
 
         Bounds(float width, float height) {
+            this(width, height, ModelShape.NONE);
+        }
+
+        Bounds(float width, float height, ModelShape shape) {
             this.width = width;
             this.height = height;
+            this.shape = shape;
         }
 
         /** The wider of its two horizontal extents, in blocks. */
@@ -77,9 +84,26 @@ public final class Geometry {
             return height;
         }
 
+        /**
+         * Every element's box, in MODEL UNITS: {@code from x,y,z} then
+         * {@code to x,y,z}, 16 to the block.
+         *
+         * <p>Measuring the outside of a model answers "how big is it" and
+         * throws away the only thing that can answer "where IS it" — which is
+         * what a vehicle needs, and what a single box gets wrong for every
+         * model that is not a crate. A block model is already a list of boxes,
+         * so this is not a derived shape, it is the elements.
+         *
+         * <p>{@link ModelShape} owns what the numbers mean once they are
+         * placed; this class only reads them off the file.
+         */
+        public ModelShape shape() {
+            return shape;
+        }
+
         @Override
         public String toString() {
-            return width + "x" + height;
+            return width + "x" + height + " (" + shape.boxes().length + " boxes)";
         }
     }
 
@@ -231,24 +255,23 @@ public final class Geometry {
         }
         float[] lo = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
         float[] hi = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
+        List<float[]> boxes = new ArrayList<>();
         boolean any = false;
         for (JsonElement element : elements.getAsJsonArray()) {
             if (!element.isJsonObject()) {
                 continue;
             }
             JsonObject cube = element.getAsJsonObject();
-            for (String key : new String[]{"from", "to"}) {
-                JsonElement corner = cube.get(key);
-                if (corner == null || !corner.isJsonArray() || corner.getAsJsonArray().size() < 3) {
-                    continue;
-                }
-                for (int axis = 0; axis < 3; axis++) {
-                    float value = corner.getAsJsonArray().get(axis).getAsFloat();
-                    lo[axis] = Math.min(lo[axis], value);
-                    hi[axis] = Math.max(hi[axis], value);
-                    any = true;
-                }
+            float[] box = boxOf(cube);
+            if (box == null) {
+                continue;
             }
+            boxes.add(box);
+            for (int axis = 0; axis < 3; axis++) {
+                lo[axis] = Math.min(lo[axis], box[axis]);
+                hi[axis] = Math.max(hi[axis], box[axis + 3]);
+            }
+            any = true;
         }
         if (!any) {
             return new Bounds(1f, 1f);
@@ -257,7 +280,110 @@ public final class Geometry {
         // square column, so the narrow axis has to give.
         float width = Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 16f;
         float height = (hi[1] - lo[1]) / 16f;
-        return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height));
+        return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height),
+                ModelShape.ofModelUnits(boxes));
+    }
+
+    /**
+     * One element's box in model units, with any rotation folded into it, or
+     * null if the element has no readable corners.
+     *
+     * <p><strong>A rotated element is bigger than its {@code from}/{@code to}
+     * says.</strong> The format stores an unrotated cube plus an angle, so the
+     * raw corners of a 45-degree slab describe a box the art sticks out of on
+     * both sides — and the builder's octagonal wheels are made of exactly that.
+     * Anything reading these to decide where the art IS therefore has to turn
+     * the corners, which is what this does: the four corners in the rotating
+     * plane, about the element's own origin, and the enclosing box of the
+     * result. Over-covering by a hair is invisible; under-covering is art you
+     * can walk through.
+     */
+    private static float[] boxOf(JsonObject cube) {
+        float[] from = corner(cube.get("from"));
+        float[] to = corner(cube.get("to"));
+        if (from == null || to == null) {
+            return null;
+        }
+        float[] box = {
+            Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.min(from[2], to[2]),
+            Math.max(from[0], to[0]), Math.max(from[1], to[1]), Math.max(from[2], to[2])};
+
+        JsonElement rotation = cube.get("rotation");
+        if (rotation == null || !rotation.isJsonObject()) {
+            return box;
+        }
+        JsonObject turn = rotation.getAsJsonObject();
+        float[] origin = corner(turn.get("origin"));
+        JsonElement axisName = turn.get("axis");
+        JsonElement angleValue = turn.get("angle");
+        if (origin == null || axisName == null || angleValue == null) {
+            return box;
+        }
+        double angle;
+        try {
+            angle = Math.toRadians(angleValue.getAsFloat());
+        } catch (RuntimeException e) {
+            return box;
+        }
+        if (angle == 0) {
+            return box;
+        }
+        // The two axes that actually move. x turns y/z, y turns z/x, z turns
+        // x/y — the third is untouched, so only four corners need turning.
+        int first;
+        int second;
+        switch (axisName.getAsString()) {
+            case "x" -> {
+                first = 1;
+                second = 2;
+            }
+            case "z" -> {
+                first = 0;
+                second = 1;
+            }
+            default -> {
+                first = 2;
+                second = 0;
+            }
+        }
+        double cos = Math.cos(angle);
+        double sin = Math.sin(angle);
+        float lowFirst = Float.MAX_VALUE;
+        float lowSecond = Float.MAX_VALUE;
+        float highFirst = -Float.MAX_VALUE;
+        float highSecond = -Float.MAX_VALUE;
+        for (int a = 0; a < 2; a++) {
+            for (int b = 0; b < 2; b++) {
+                double u = box[first + (a == 0 ? 0 : 3)] - origin[first];
+                double v = box[second + (b == 0 ? 0 : 3)] - origin[second];
+                float turnedFirst = (float) (origin[first] + u * cos - v * sin);
+                float turnedSecond = (float) (origin[second] + u * sin + v * cos);
+                lowFirst = Math.min(lowFirst, turnedFirst);
+                highFirst = Math.max(highFirst, turnedFirst);
+                lowSecond = Math.min(lowSecond, turnedSecond);
+                highSecond = Math.max(highSecond, turnedSecond);
+            }
+        }
+        box[first] = lowFirst;
+        box[first + 3] = highFirst;
+        box[second] = lowSecond;
+        box[second + 3] = highSecond;
+        return box;
+    }
+
+    /** Three numbers out of a JSON array, or null if it is not one. */
+    private static float[] corner(JsonElement value) {
+        if (value == null || !value.isJsonArray() || value.getAsJsonArray().size() < 3) {
+            return null;
+        }
+        try {
+            return new float[] {
+                value.getAsJsonArray().get(0).getAsFloat(),
+                value.getAsJsonArray().get(1).getAsFloat(),
+                value.getAsJsonArray().get(2).getAsFloat()};
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** Where a texture id lands inside a built pack. */

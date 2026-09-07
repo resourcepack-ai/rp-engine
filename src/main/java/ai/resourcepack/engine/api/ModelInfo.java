@@ -79,6 +79,7 @@ public final class ModelInfo {
     private float seatSide;
     private float seatForward;
     private boolean vehicleCollision = true;
+    private ModelShape shape = ModelShape.NONE;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -224,6 +225,7 @@ public final class ModelInfo {
         moved.seatSide = side;
         moved.seatForward = forward;
         moved.vehicleCollision = vehicleCollision;
+        moved.shape = shape;
         return moved;
     }
 
@@ -233,12 +235,34 @@ public final class ModelInfo {
      * <p>A copy, for the reason {@link #withSeatOffset} gives.
      */
     public ModelInfo withVehicleCollision(boolean collides) {
-        ModelInfo changed = of(id, item, facing, scale, width, height, solid, seat,
-                light, surface, drop);
-        changed.seatSide = seatSide;
-        changed.seatForward = seatForward;
+        ModelInfo changed = copy();
         changed.vehicleCollision = collides;
         return changed;
+    }
+
+    /** The same model, knowing what it is shaped like. */
+    public ModelInfo withShape(ModelShape shape) {
+        ModelInfo changed = copy();
+        changed.shape = shape == null ? ModelShape.NONE : shape;
+        return changed;
+    }
+
+    /**
+     * Everything {@link #of} cannot carry, moved across.
+     *
+     * <p>The three `with` methods each rebuild through {@code of}, which resets
+     * whatever the others set — so every one of them has to bring the rest
+     * along, and doing that by hand three times is how one of them ends up
+     * quietly dropping a seat offset. This is the one place that list lives.
+     */
+    private ModelInfo copy() {
+        ModelInfo made = of(id, item, facing, scale, width, height, solid, seat,
+                light, surface, drop);
+        made.seatSide = seatSide;
+        made.seatForward = seatForward;
+        made.vehicleCollision = vehicleCollision;
+        made.shape = shape;
+        return made;
     }
 
     /** Whether anybody can sit on it at all. */
@@ -277,6 +301,21 @@ public final class ModelInfo {
      */
     public boolean vehicleCollision() {
         return vehicleCollision;
+    }
+
+    /**
+     * The boxes the model is actually made of, or
+     * {@link ModelShape#NONE} if it could not be measured.
+     *
+     * <p>What {@link #width()} and {@link #height()} throw away. Those answer
+     * "how big is it", which is the right question for a hitbox you punch — one
+     * square column is easy to click and being generous around a statue is a
+     * feature. It is the wrong question for driving into something: a chair is
+     * not a crate, and a vehicle stopped by the empty air beside a chair leg
+     * reads as a bug in a way a generous click target never does.
+     */
+    public ModelShape shape() {
+        return shape;
     }
 
     @Override

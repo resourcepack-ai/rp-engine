@@ -168,11 +168,19 @@ public final class ModelDefinitions {
         boolean vehicleCollision = !Boolean.FALSE.equals(
                 body.bool("vehicle-collision").orElse(Boolean.TRUE));
 
+        // The model's real boxes, so a vehicle hits the ART rather than a
+        // square column around it. Empty when the model could not be measured,
+        // which falls back to the hitbox exactly as before.
+        ai.resourcepack.engine.api.ModelShape shape = measured == null
+                ? ai.resourcepack.engine.api.ModelShape.NONE
+                : measured.shape();
+
         return Optional.of(ModelInfo.of(definition.id(), definition.id(), facing,
                         scale, width, height, body.bool("solid").orElse(Boolean.FALSE), seat,
                         light, surface, drop)
                 .withSeatOffset(seatSide, seatForward)
-                .withVehicleCollision(vehicleCollision));
+                .withVehicleCollision(vehicleCollision)
+                .withShape(shape));
     }
 
     /**

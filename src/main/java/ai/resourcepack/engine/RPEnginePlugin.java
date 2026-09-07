@@ -50,6 +50,7 @@ import ai.resourcepack.engine.core.emote.EmotesImpl;
 import ai.resourcepack.engine.core.entity.CustomEntities;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.vehicle.VehicleDefinitions;
+import ai.resourcepack.engine.core.vehicle.PlacedModels;
 import ai.resourcepack.engine.core.vehicle.VehicleRuntime;
 import ai.resourcepack.engine.core.font.ChatIcons;
 import ai.resourcepack.engine.core.font.FontAssets;
@@ -77,7 +78,9 @@ import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelPlacementListener;
 import ai.resourcepack.engine.core.model.ModelsImpl;
 import ai.resourcepack.engine.core.model.RigAnimator;
+import ai.resourcepack.engine.api.ModelShape;
 import ai.resourcepack.engine.core.model.RigPlacementListener;
+import ai.resourcepack.engine.core.model.StudioModelShapes;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.core.model.BoneListener;
 import ai.resourcepack.engine.core.model.BoundModels;
@@ -176,6 +179,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private SyncClient sync;
     private StudioRelay studio;
     private StudioContent pushed;
+
+    /**
+     * What a PUSHED model is shaped like, read out of the pack on disk.
+     *
+     * <p>Beside {@link #pushed} rather than inside it: that holds a manifest
+     * Studio sends, and this reads the zip Studio sends. Same push, two
+     * different files, and only one of them has geometry in it.
+     */
+    private final StudioModelShapes studioShapes = new StudioModelShapes();
     private EmoteStore emoteStore;
     private EmoteDirector emotes;
     private EmoteInvites invites;
@@ -409,12 +421,37 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquids = new Liquids(this, pools);
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
-        // Which placed models stop a vehicle. Wired once and never re-wired:
-        // both halves read through to live state — the content folder's is
-        // replaced on every reload and the pushed one on every sync — so a
-        // second call after either would be a second copy of an answer that had
-        // already changed itself.
-        vehicles.modelCollision(id -> placements.stopsVehicles(id) && pushed.modelStopsVehicles(id));
+        // What a placed model is to a vehicle: whether it stops one, what it is
+        // shaped like, and how big its own definition draws it.
+        //
+        // Wired once and never re-wired: every answer reads through to live
+        // state — the content folder's is replaced on every reload, the pushed
+        // flags on every sync, and the shapes come out of whichever pack is on
+        // disk — so a second call after any of those would be a second copy of
+        // an answer that had already changed itself.
+        //
+        // An id is one or the other and never both: a content folder writes
+        // `mypack:chair` and a Studio push writes a bare slug, and each side
+        // answers "not mine" for the other's — collidable, no shape, size 1 —
+        // so the two compose without either knowing about the other.
+        vehicles.modelCollision(new PlacedModels() {
+
+            @Override
+            public boolean stops(String id) {
+                return placements.stopsVehicles(id) && pushed.modelStopsVehicles(id);
+            }
+
+            @Override
+            public ModelShape shapeOf(String id) {
+                ModelShape authored = placements.shapeOf(id);
+                return authored.isEmpty() ? studioShapes.shapeOf(id) : authored;
+            }
+
+            @Override
+            public double scaleOf(String id) {
+                return placements.scaleOf(id);
+            }
+        });
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
@@ -453,9 +490,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 (code, payload) -> studio.onGive(code, payload),
                 (code, payload) -> studio.onSkin(code, payload),
                 (code, payload) -> studio.onTell(code, payload));
+        Path pushOutput = getDataFolder().toPath().resolve("output");
+        // The pack a previous run was pushed is still the pack this server is
+        // serving, and the models standing in its world are still that pack's —
+        // so the shapes have to come back on a restart rather than waiting for
+        // somebody to press Sync again.
+        studioShapes.loadExisting(pushOutput.resolve(StudioPush.BUNDLE + ".zip"));
         studio = new StudioRelay(this, sync, group, rigs, emoteStore, pushed, skins,
-                getDataFolder().toPath().resolve("output"),
-                pack -> packHost.register(pack), this::pushTo);
+                pushOutput,
+                pack -> {
+                    // Before the host, so nothing can be served off a pack the
+                    // shapes have not been pointed at.
+                    studioShapes.usePack(pack.file());
+                    packHost.register(pack);
+                }, this::pushTo);
         studio.onContent(this::registerPushedContent);
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
