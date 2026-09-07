@@ -453,13 +453,36 @@ public final class ModelShape {
      * over the table top and nothing at all beside a leg.
      */
     public double topAt(double x, double z) {
-        if (x < minX || x > maxX || z < minZ || z > maxZ) {
+        return topAt(x, z, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
+    }
+
+    /**
+     * The highest art above a point that lies between {@code floor} and
+     * {@code ceiling}, or {@link Double#NaN} if the model has nothing there.
+     *
+     * <p><strong>The band belongs in here, and putting it outside was a real
+     * bug.</strong> A caller that took the single highest top and then rejected
+     * it for being out of range lost every lower surface in the same column —
+     * so on a staircase with a handrail the rail masked the tread beneath it,
+     * the rail was then thrown away as too high to climb, and the tread was
+     * never reported at all. A vehicle met a step it could obviously have gone
+     * up and stopped as though at a wall.
+     *
+     * <p>It also explains the shape of that failure: the SMALLER the rise, the
+     * narrower and lower the band, so the more reliably something above it won.
+     * Bigger steps worked, tiny ones did not.
+     */
+    public double topAt(double x, double z, double floor, double ceiling) {
+        if (x < minX || x > maxX || z < minZ || z > maxZ || floor > ceiling) {
             return Double.NaN;
         }
         double best = Double.NaN;
         for (Box box : boxes) {
             double top = box.topAt(x, z);
-            if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
+            if (Double.isNaN(top) || top < floor || top > ceiling) {
+                continue;
+            }
+            if (Double.isNaN(best) || top > best) {
                 best = top;
             }
         }

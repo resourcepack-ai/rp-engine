@@ -136,8 +136,14 @@ final class ModelObstacles {
     double topAt(double x, double z, double floor, double ceiling) {
         double best = Double.NaN;
         for (Obstacle obstacle : obstacles) {
-            double top = obstacle.topAt(x, z);
-            if (Double.isNaN(top) || top < floor || top > ceiling) {
+            // The band goes DOWN into the model rather than being applied to
+            // the answer coming back. A model is many boxes over one column —
+            // a stair tread with a handrail over it — and filtering afterwards
+            // keeps only the highest and then throws it away for being too
+            // high, losing the climbable surface underneath. See
+            // ModelShape.topAt, which is where that failure is written down.
+            double top = obstacle.topAt(x, z, floor, ceiling);
+            if (Double.isNaN(top)) {
                 continue;
             }
             if (Double.isNaN(best) || top > best) {
@@ -209,15 +215,20 @@ final class ModelObstacles {
                     (-dx * sin + dz * cos) / scale);
         }
 
-        double topAt(double px, double pz) {
+        double topAt(double px, double pz, double floor, double ceiling) {
             if (px < minX || px > maxX || pz < minZ || pz > maxZ) {
                 return Double.NaN;
             }
             double dx = px - x;
             double dz = pz - z;
+            // The band into the model's own frame, the same conversion the
+            // point gets. Asking in world units against local boxes would be a
+            // band scaled wrong on every model not placed at 1x.
             double local = shape.topAt(
                     (dx * cos + dz * sin) / scale,
-                    (-dx * sin + dz * cos) / scale);
+                    (-dx * sin + dz * cos) / scale,
+                    (floor - y) / scale,
+                    (ceiling - y) / scale);
             return Double.isNaN(local) ? Double.NaN : y + local * scale;
         }
     }
