@@ -512,6 +512,11 @@ public final class EmoteStore {
         if (bones == null || bones.isEmpty()) bones = RigGeometry.manifestBones();
         if (jointedBones == null || jointedBones.isEmpty()) jointedBones = RigGeometry.manifestJointedBones();
         if (rootPivot == null) rootPivot = RigGeometry.rootPivot();
+        // The cape bone too, or a native rig's cape has nothing to hang
+        // from. A push that carried its own replaces it with the same
+        // numbers; one from a Studio without capes clears it, and then the
+        // next build puts it back.
+        if (capeBone == null) capeBone = RigGeometry.capeManifestBone();
     }
 
     /**

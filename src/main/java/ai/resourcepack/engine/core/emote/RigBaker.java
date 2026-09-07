@@ -68,11 +68,18 @@ final class RigBaker {
         final String key;
         final byte[] png;
         final String variant;
+        /** Their cape sheet, 64 by 32, or null for a player without one. */
+        final byte[] cape;
 
         Skin(String key, byte[] png, String variant) {
+            this(key, png, variant, null);
+        }
+
+        Skin(String key, byte[] png, String variant, byte[] cape) {
             this.key = key;
             this.png = png;
             this.variant = variant;
+            this.cape = cape;
         }
     }
 
@@ -140,12 +147,29 @@ final class RigBaker {
                 first = false;
             }
 
+            // The cape, when they have one: two models for one piece of
+            // geometry, because the director qualifies a jointed rig's bone
+            // names with __jointed__ and baking both costs a hundred bytes
+            // where teaching it an exception costs a branch. Studio does the
+            // same.
+            boolean cape = skin.cape != null && skin.cape.length > 0;
+            if (cape) {
+                out.files.put("assets/" + NAMESPACE + "/textures/block/" + prefix + "_cape.png", skin.cape);
+                String capeRef = NAMESPACE + ":block/" + prefix + "_cape";
+                for (boolean jointed : new boolean[] {false, true}) {
+                    String modelId = RigGeometry.itemName(prefix, RigGeometry.CAPE_BONE, null, jointed);
+                    out.files.put("assets/" + NAMESPACE + "/models/block/" + modelId + ".json",
+                            GSON.toJson(RigGeometry.capeModel(capeRef)).getBytes(StandardCharsets.UTF_8));
+                    definition(out, modelId);
+                }
+            }
+
             EmoteStore.PlayerRig rig = new EmoteStore.PlayerRig();
             rig.item = prefix;
             rig.variant = variant;
             rig.arms = new ArrayList<>(List.of(RigGeometry.WIDE, RigGeometry.SLIM));
             rig.jointed = true;
-            rig.cape = false;
+            rig.cape = cape;
             out.players.put(key, rig);
         }
         return out;
@@ -154,6 +178,11 @@ final class RigBaker {
     private static void bakeBone(Baked out, String modelId, String textureRef, com.google.gson.JsonArray elements) {
         out.files.put("assets/" + NAMESPACE + "/models/block/" + modelId + ".json",
                 GSON.toJson(RigGeometry.boneModel(textureRef, elements)).getBytes(StandardCharsets.UTF_8));
+        definition(out, modelId);
+    }
+
+    /** The item definition that lets a paper item wear one of these models by name. */
+    private static void definition(Baked out, String modelId) {
         JsonObject definition = new JsonObject();
         JsonObject model = new JsonObject();
         model.addProperty("type", "minecraft:model");
