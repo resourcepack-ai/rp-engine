@@ -299,8 +299,13 @@ is broken.
 different answer. `solid` is about a **walking** player and is bought with a
 barrier block — one cube, at the anchor, whatever shape the piece is — which is
 why it is opt-in: it writes to the world. This is about a **driving** one, it
-covers the piece's whole hitbox rather than one block of it, and it costs the
-world nothing: a vehicle asks the placed models around it where they are.
+covers the whole piece rather than one block of it, and it costs the world
+nothing: a vehicle asks the placed models around it where they are.
+
+**It uses the model's own cubes**, not a box round them, so a vehicle can be
+driven between the legs of a table and through an arch you modelled, and a
+fence stops one along its whole length rather than only at its anchor block.
+Any placement angle works, not only the four cardinals.
 
 So a car stops at your fence whether or not anybody can walk through it, which
 is what you want in every pack that has a fence. Set it to `false` for the

@@ -86,6 +86,9 @@ public final class ModelPlacementListener implements Listener {
     private final NamespacedKey displaysKey;
     private final NamespacedKey partKey;
 
+    /** The placement's heading, on the hitbox — see the write in {@code place}. */
+    private final NamespacedKey placedYawKey;
+
     private volatile Map<ContentId, ModelInfo> model = Map.of();
 
     public ModelPlacementListener(Plugin plugin, Items items, Seats seats,
@@ -103,6 +106,7 @@ public final class ModelPlacementListener implements Listener {
         this.rigModelKey = host.key("model-id");
         this.displaysKey = host.key("display-uuids");
         this.partKey = host.key("part-index");
+        this.placedYawKey = host.key("model-yaw");
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -123,9 +127,30 @@ public final class ModelPlacementListener implements Listener {
      * @see ai.resourcepack.engine.api.ModelInfo#vehicleCollision()
      */
     public boolean stopsVehicles(String id) {
+        return byRawId(id).map(ModelInfo::vehicleCollision).orElse(Boolean.TRUE);
+    }
+
+    /**
+     * What the piece with this id is shaped like, measured off its model.
+     *
+     * <p>Empty for anything this catalogue has never heard of, which is every
+     * Studio push — those are read out of the pushed pack instead, by
+     * {@link StudioModelShapes}.
+     */
+    public ai.resourcepack.engine.api.ModelShape shapeOf(String id) {
+        return byRawId(id)
+                .map(ModelInfo::shape)
+                .orElse(ai.resourcepack.engine.api.ModelShape.NONE);
+    }
+
+    /** The size its own definition asks for, or 1 for anything not ours. */
+    public float scaleOf(String id) {
+        return byRawId(id).map(ModelInfo::scale).orElse(1f);
+    }
+
+    private Optional<ModelInfo> byRawId(String id) {
         ContentId parsed = id == null ? null : ContentId.parse(id).orElse(null);
-        ModelInfo info = parsed == null ? null : model.get(parsed);
-        return info == null || info.vehicleCollision();
+        return parsed == null ? Optional.empty() : Optional.ofNullable(model.get(parsed));
     }
 
     private Optional<ModelInfo> byItem(ContentId item) {
@@ -267,6 +292,10 @@ public final class ModelPlacementListener implements Listener {
             i.setInteractionHeight(info.height() * info.scale());
             i.setResponsive(true);
             i.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, info.id().toString());
+            // On the HITBOX as well as on the parts, for the reason the studio
+            // placement writes it: vehicle collision turns the model's own
+            // boxes by this, and the hitbox is the only entity it looks at.
+            i.getPersistentDataContainer().set(placedYawKey, PersistentDataType.FLOAT, yaw);
             i.getPersistentDataContainer().set(displayKey, PersistentDataType.STRING,
                     partIds != null ? String.join(",", partIds) : display.getUniqueId().toString());
             if (partIds != null) {

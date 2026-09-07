@@ -88,6 +88,9 @@ public final class RigPlacementListener implements Listener {
      */
     private final NamespacedKey authoredKey;
 
+    /** The placement's heading, on the hitbox — see the write in {@link #spawn}. */
+    private final NamespacedKey placedYawKey;
+
     public RigPlacementListener(Host host, RigStore rigs, RigAnimator animator) {
         this.host = host;
         this.modelKey = host.key("model-id");
@@ -101,6 +104,7 @@ public final class RigPlacementListener implements Listener {
         this.animator = animator;
         this.spawns = new RigSpawn(host, animator);
         this.authoredKey = host.key("model");
+        this.placedYawKey = host.key("model-yaw");
     }
 
     /** The model id a panel-given item carries, or null if it's not one of ours. */
@@ -235,6 +239,12 @@ public final class RigPlacementListener implements Listener {
             i.setResponsive(true);
             i.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);
             i.getPersistentDataContainer().set(displaysKey, PersistentDataType.STRING, String.join(",", displayIds));
+            // On the HITBOX as well as on the parts. Vehicle collision reads
+            // the model's own boxes and has to turn them the way the placement
+            // is turned, and the hitbox is the only entity it looks at — see
+            // ModelObstacles.Sensor.yawOf, which recovers this the slow way for
+            // anything placed before it was written here.
+            i.getPersistentDataContainer().set(placedYawKey, PersistentDataType.FLOAT, yaw);
             if (scale != 1f) i.getPersistentDataContainer().set(scaleKey, PersistentDataType.FLOAT, scale);
             // Set here rather than after spawn: the place trigger fires below
             // and resolves the choice off this container.

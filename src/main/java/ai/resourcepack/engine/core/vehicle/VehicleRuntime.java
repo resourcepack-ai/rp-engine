@@ -260,6 +260,38 @@ public final class VehicleRuntime implements Listener {
     private static final double SHOVE = 0.35;
 
     /**
+     * How far past itself a vehicle looks for placed models, in blocks.
+     *
+     * <p><strong>A placed model is found by its anchor and is not bounded by
+     * it.</strong> The entity search matches an {@link Interaction}'s own box,
+     * which is one block for a Studio placement however big the art is — so
+     * without this a wide model is simply not seen until the vehicle is nearly
+     * on top of its anchor, and the overhanging half of it is driven through.
+     *
+     * <p>Four blocks covers an eight-block-wide piece, which is past anything
+     * furniture-shaped and past every scale the give card offers on a
+     * block-sized model. A model wider than that, placed at a large multiplier,
+     * can still have its far corner missed — the honest fix for which would be
+     * a search keyed on the widest model in the pack rather than a bigger
+     * constant, and nothing has needed it.
+     */
+    private static final double MODEL_SEARCH_MARGIN = 4.0;
+
+    /**
+     * How far apart the samples are when testing against placed models, in
+     * blocks.
+     *
+     * <p>A quarter block, against a whole one for blocks. The thinnest thing a
+     * BLOCK world can put in the way is a full cube, so five corner samples
+     * always land in it; a model can be two pixels thick, and a rail sampled
+     * that coarsely is one a car drives through the middle of. Two pixels is
+     * 0.125, so this still misses the very thinnest art — going finer costs
+     * every vehicle near any furniture, and a fence you can drive through the
+     * rail of but not the posts is not the complaint anybody had.
+     */
+    private static final double MODEL_SAMPLE_STEP = 0.25;
+
+    /**
      * How often a vehicle nobody is in and that is going nowhere does a full
      * tick.
      *
@@ -572,21 +604,23 @@ public final class VehicleRuntime implements Listener {
     }
 
     /**
-     * Adopts the answer to "does a placement of this model stop a vehicle".
+     * Adopts the answers about a placed model: whether it stops a vehicle, what
+     * it is shaped like, and how big its definition asks for it to be drawn.
      *
-     * <p>Called on enable, on every reload and after every push, because both
-     * halves of the answer move: a content folder's {@code vehicle-collision:}
-     * is re-read on a reload, and a pushed pack's arrives on a websocket frame
-     * whenever somebody presses Sync.
+     * <p>Wired once. Every answer reads through to live state — a content
+     * folder's {@code vehicle-collision:} is re-read on a reload, a pushed
+     * pack's arrives on a websocket frame whenever somebody presses Sync, and
+     * the shapes are read out of whichever pack is on disk — so there is
+     * nothing to re-wire.
      *
-     * <p><strong>A predicate rather than a catalogue.</strong> The two places
-     * that know are the content-folder loader and the pushed manifest, and
-     * neither belongs in this package — a vehicle wants one boolean about a
-     * string, and copying either map in here would be a third answer to keep
-     * in step with the two that already exist.
+     * <p><strong>A lookup rather than a catalogue.</strong> The places that
+     * know are the content-folder loader, the pushed manifest and the pushed
+     * pack's own geometry, and none of them belongs in this package: a vehicle
+     * wants an answer about a string, and copying those maps in here would be a
+     * fourth answer to keep in step with the three that already exist.
      */
-    public void modelCollision(java.util.function.Predicate<String> stops) {
-        obstacles.stops(stops);
+    public void modelCollision(PlacedModels models) {
+        obstacles.models(models);
     }
 
     /**
@@ -2909,21 +2943,31 @@ public final class VehicleRuntime implements Listener {
          * buildings.
          */
         private boolean blocked(double x, double y, double z, VehicleHitbox box, double yaw) {
-            boolean models = !nearbyModels.isEmpty();
             for (double dy = 0.2; dy < box.height(); dy += 1) {
                 for (double[] offset : footprint(box, yaw)) {
-                    double px = x + offset[0];
-                    double pz = z + offset[1];
-                    if (BlockSurfaces.solidAt(world, px, y + dy, pz)) {
+                    if (BlockSurfaces.solidAt(world, x + offset[0], y + dy, z + offset[1])) {
                         return true;
                     }
-                    // The placed models on the same terms as the blocks, at the
-                    // same points, in the same loop. See ModelObstacles — a
-                    // fence made of furniture is a wall as far as a vehicle is
-                    // concerned, and everything downstream of this (the wall
-                    // slide, the step up, the already-inside case) then works
-                    // on it without knowing there is a second kind of world.
-                    if (models && nearbyModels.solidAt(px, y + dy, pz)) {
+                }
+            }
+            // The placed models on the same terms, so everything downstream —
+            // the wall slide, the step up, the already-inside case — works on
+            // them without knowing there is a second kind of world.
+            //
+            // <strong>Sampled much more finely, because a model is not a
+            // block.</strong> Five points are right for blocks: the thinnest
+            // thing in the way is a whole cube, so some corner always lands in
+            // it. A model fence rail is a couple of pixels thick and would pass
+            // clean between two corners of anything wider than it. The extra
+            // points cost nothing on the vehicles that matter, because this
+            // runs only when something is actually nearby — which, for a
+            // vehicle on an empty road, is never.
+            if (nearbyModels.isEmpty()) {
+                return false;
+            }
+            for (double dy = 0.2; dy < box.height(); dy += MODEL_SAMPLE_STEP) {
+                for (double[] offset : modelFootprint(box, yaw)) {
+                    if (nearbyModels.solidAt(x + offset[0], y + dy, z + offset[1])) {
                         return true;
                     }
                 }
@@ -2932,15 +2976,50 @@ public final class VehicleRuntime implements Listener {
         }
 
         /**
+         * The vehicle's outline, sampled finely enough to catch thin art.
+         *
+         * <p>The PERIMETER rather than the whole area, which is the cheap half
+         * of the argument and also the correct one: anything crossing the
+         * footprint has to cross its edge to get there, so walking the edge
+         * finds every wall, rail and post that a vehicle could be driving
+         * into. The centre is kept as well, for the one case an edge walk
+         * misses — a vehicle standing entirely over a single narrow thing.
+         */
+        private double[][] modelFootprint(VehicleHitbox box, double yaw) {
+            double halfWidth = box.width() / 2;
+            double halfLength = box.length() / 2;
+            int across = (int) Math.ceil(box.width() / MODEL_SAMPLE_STEP);
+            int along = (int) Math.ceil(box.length() / MODEL_SAMPLE_STEP);
+            List<double[]> points = new ArrayList<>((across + along) * 2 + 1);
+            for (int i = 0; i <= across; i++) {
+                double right = -halfWidth + box.width() * i / (double) across;
+                points.add(VehiclePhysics.seatOffset(yaw, right, -halfLength));
+                points.add(VehiclePhysics.seatOffset(yaw, right, halfLength));
+            }
+            // The corners are already in from the pass above, so the sides run
+            // between them rather than repeating them.
+            for (int i = 1; i < along; i++) {
+                double forward = -halfLength + box.length() * i / (double) along;
+                points.add(VehiclePhysics.seatOffset(yaw, -halfWidth, forward));
+                points.add(VehiclePhysics.seatOffset(yaw, halfWidth, forward));
+            }
+            points.add(VehiclePhysics.seatOffset(yaw, 0, 0));
+            return points.toArray(new double[0][]);
+        }
+
+        /**
          * How far out {@link ModelObstacles} looks, in blocks.
          *
-         * <p>The footprint's own half diagonal plus a step's worth of travel:
-         * anything further away cannot be reached by any of this tick's
-         * questions, and the destination checks are the furthest of them.
+         * <p>The footprint's own half diagonal, a step's worth of travel, and
+         * then {@link #MODEL_SEARCH_MARGIN} — because a placed model is found
+         * by its ANCHOR and reaches well past it. A four-block statue is
+         * anchored in one block and hangs over the three around it, so a search
+         * bounded by the vehicle would drive into the half of it that is not
+         * over its own anchor.
          */
         private double modelReach() {
             VehicleHitbox box = info.hitbox();
-            return Math.hypot(box.width(), box.length()) / 2 + 1.5;
+            return Math.hypot(box.width(), box.length()) / 2 + 1.5 + MODEL_SEARCH_MARGIN;
         }
 
         /**
@@ -2948,10 +3027,10 @@ public final class VehicleRuntime implements Listener {
          *
          * <p>Down as far as {@link #wheelHeight} reads and up past the top of
          * the vehicle, since a model taller than the box is still something to
-         * hit.
+         * hit — plus the same margin, for the same reason.
          */
         private double modelHeight() {
-            return info.hitbox().height() + 2;
+            return info.hitbox().height() + 2 + MODEL_SEARCH_MARGIN;
         }
 
         /**
