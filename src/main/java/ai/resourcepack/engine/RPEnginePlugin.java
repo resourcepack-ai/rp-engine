@@ -42,7 +42,10 @@ import ai.resourcepack.engine.core.edit.EditSessions;
 import ai.resourcepack.engine.core.distribution.BedrockSupport;
 import ai.resourcepack.engine.core.distribution.DistributionManager;
 import ai.resourcepack.engine.core.distribution.ProtocolResolver;
+import ai.resourcepack.engine.core.emote.AuthoredEmotes;
 import ai.resourcepack.engine.core.emote.EmoteDirector;
+import ai.resourcepack.engine.core.emote.RigAssets;
+import ai.resourcepack.engine.core.emote.SkinCache;
 import ai.resourcepack.engine.core.emote.EmoteInvites;
 import ai.resourcepack.engine.core.emote.EmoteStore;
 import ai.resourcepack.engine.core.emote.EmoteWording;
@@ -189,6 +192,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private final StudioModelShapes studioShapes = new StudioModelShapes();
     private EmoteStore emoteStore;
+
+    /**
+     * The skins this server has seen, for the rigs it bakes itself. See
+     * {@link SkinCache} for why a new face waits for the next build.
+     */
+    private SkinCache skinCache;
     private EmoteDirector emotes;
     private EmoteInvites invites;
     /**
@@ -385,6 +394,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
+        skinCache = new SkinCache(this);
         // What a pushed pack holds that a command can name. Loaded here rather
         // than built on the first push, because a player is still wearing the
         // last one after a restart.
@@ -749,6 +759,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return true;
     }
 
+    /**
+     * Reloads the content folder and rebuilds every bundle, as {@code /rp
+     * reload} does — for a plugin that has just put content of its own into
+     * the folder. See API.md, "Shipping a content folder in your jar".
+     *
+     * <p>Main thread only, and not cheap: every pack is rebuilt and re-sent
+     * to everybody online. Call it once, after your files are in place, not
+     * per file.
+     */
+    public void reload() {
+        reloadContent(getServer().getConsoleSender());
+    }
+
     /** {@code /rp push}: forget what they are holding and send it again. */
     private void sendPack(Player player) {
         sessions.forget(player.getUniqueId());
@@ -990,6 +1013,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
 
+        // Hand-authored emotes, and the rigs to play them on. The rigs are
+        // baked from every skin the server has kept, on any server new
+        // enough to name an item model; see RigAssets. Both are the engine's
+        // own answer to "emotes without Studio", which the folder format was
+        // always meant to have.
+        AuthoredEmotes.Result parsedEmotes = AuthoredEmotes.parse(loaded);
+        report(to, "emotes", parsedEmotes.diagnostics());
+        emoteStore.replaceAuthored(parsedEmotes);
+        RigAssets rigAssets = RigAssets.bake(skinCache,
+                getConfig().getBoolean("emotes.rigs", true) && !compatibility.itemEra().needsNumbers());
+        emoteStore.setNativeRigs(rigAssets.players());
+
         OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
         OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
         report(to, "screens", parsedScreens.diagnostics());
@@ -1009,6 +1044,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new SoundAssets())
                 .with(new FontAssets())
                 .with(new BlockAssets(blockStates))
+                .with(rigAssets)
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
         // After the build, because the build is the last thing that can ask
@@ -1044,7 +1080,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
                 + plural(loaded.definitions().size(), "definition") + ", "
                 + plural(built.size(), "bundle") + " built, "
-                + plural(recipes.size(), "recipe") + ".");
+                + plural(recipes.size(), "recipe")
+                + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig") : "") + ".");
 
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
@@ -1191,6 +1228,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
         // the real start of that session and this join is not.
         joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        if (skinCache != null) {
+            skinCache.noticed(event.getPlayer());
+        }
         announcePresence(event.getPlayer(), true);
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
     }

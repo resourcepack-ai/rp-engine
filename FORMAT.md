@@ -23,6 +23,7 @@ plugins/RPEngine/content/
     entities/    *.yml
     liquids/     *.yml
     vehicles/    *.yml
+    emotes/      *.json      also *.yml - see Emotes below
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -34,11 +35,8 @@ plugins/RPEngine/content/
 ```
 
 **A category folder exists only if something reads it.** There is no
-`models/` — a placed model is a `place:` block on the item, below. No
-`blocks/`: custom blocks. No `emotes/` yet: emote
-keyframes arrive from a Studio push, and the day they can be hand-written is
-the day the list above gains a line. Any other folder is warned about by name,
-which is what catches `item/` and `Sounds/`.
+`models/` — a placed model is a `place:` block on the item, below. Any other
+folder is warned about by name, which is what catches `item/` and `Sounds/`.
 
 **The folder name is the namespace**, and it has to satisfy
 `ContentId.isValidNamespace`: lowercase `a-z`, digits, and `_ . -`. A folder
@@ -586,7 +584,7 @@ A model people ride, with somewhere for up to eight of them to sit.
 ```yaml
 # vehicles/cars.yml
 hatchback:
-  model: mypack:hatchback   # an item id, whose model it wears
+  model: mypack:hatchback_item  # an item id, whose model it wears - not this id, which is taken
   name: "&bHatchback"
   medium: land              # land | water | air
   speed: 18                 # top speed, blocks per second
@@ -630,6 +628,12 @@ one-block cube, which is clickable but much smaller than most vehicles look.
 `/rp vehicle mypack:hatchback` parks one where you stand,
 `/rp vehicle remove` takes away the nearest, and `/rp vehicles` lists them.
 **Getting in is a right-click on a seat**, not a command.
+
+**The vehicle's item parks it too.** Right-click the ground holding the item
+named by `model:` and the vehicle appears there, facing the way you face, and
+the item is used up (not in creative). That is what makes a vehicle a thing a
+shop can sell and a plugin can hand out: `/rp give mypack:hatchback`, and the
+player parks it themselves.
 
 ### Driving one
 
@@ -1141,6 +1145,57 @@ One server setting stops all of this working: `armor-stands-tick: false` in
 Paper's config. A stand that does not tick never moves, so every vehicle sits
 still. The engine notices and says so in the console rather than leaving you
 to guess.
+
+## Emotes
+
+An emote is a player animation: the body cut into bones — head, body, arms,
+legs, forearms and shins — with keyframes on each. `emotes/` holds them, one
+file holding as many as you like, keyed by name:
+
+```json
+{
+  "wave": {
+    "name": "Wave",
+    "length": 1.2,
+    "loop": false,
+    "animators": {
+      "rightArm": { "rotation": [
+        { "time": 0,   "value": [0, 0, 0] },
+        { "time": 0.3, "value": [-160, 0, -20], "interpolation": "smooth" },
+        { "time": 1.2, "value": [0, 0, 0] }
+      ] }
+    }
+  }
+}
+```
+
+**This is exactly what Studio's emote editor produces**, and the intended way
+to write one is to make it there and paste the entry — the editor's export is
+this JSON, and a Studio push carries the same shape. Hand-written is fine too,
+and YAML works as well as JSON for anybody who prefers it. The bones are
+`head`, `body`, `rightArm`, `leftArm`, `rightLeg`, `leftLeg`, `rightForearm`,
+`leftForearm`, `rightShin`, `leftShin`; `root` moves the whole figure about the
+hip. Channels are `rotation` (degrees), `position` (px) and `scale`. Times are
+seconds; `length` is how long it runs and `loop` whether it repeats.
+
+**Emote names are shared across the whole server**, not per pack. `/emote wave`,
+a vehicle seat's `animations:` and a plugin all name an emote by its bare
+name, so two packs both defining `wave` is an error rather than two emotes —
+prefix yours (`mypack_wave`) if you ship a pack other people will install
+beside theirs.
+
+### The rig it plays on
+
+An emote is drawn on a **rig**: a copy of the player's own skin, cut into
+bones, baked into the resource pack. The engine bakes one for every player
+who has joined this server (their skin is kept under `plugins/RPEngine/skins/`
+the first time they do) and a shared default figure for everybody else, on
+every `/rp reload` and restart. Somebody joining for the first time wears the
+default until the next build bakes theirs; the console says so once.
+
+That needs Minecraft 1.21.4 or newer. On an older server the emotes still
+load and pushed rigs still work, but nothing is baked here and a hand-authored
+emote plays on nobody. `emotes.rigs: false` in `config.yml` turns baking off.
 
 ## Custom blocks
 

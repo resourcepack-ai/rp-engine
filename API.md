@@ -106,6 +106,12 @@ model's animation, which is how a vehicle keeps its paddler's arms on the
 paddle: the two are written as one animation and would drift apart on two
 clocks.
 
+An emote can come from a content folder now, not only from a push
+(`FORMAT.md`, "Emotes"), and the engine bakes the rigs it plays on itself, so a
+plugin that ships emotes in its own content folder gets them played on every
+player's own skin with no Studio in the picture. The rig for somebody who has
+never joined before is the default figure until the next build.
+
 `face` exists because a carried body and a carried camera are different
 questions. A worn rig normally turns with its wearer's look, which is right for
 somebody walking; it is wrong for a passenger, whose body belongs to whatever
@@ -187,6 +193,33 @@ limit: a lower top speed, with braking and reversing scaled to match, and an
 aircraft limited below its takeoff speed cannot take off. Deliberately not
 remembered — keep it in `data()` yourself if it should be. `stop()` is a
 wall: dead this tick, throttle reset, still answering its driver afterwards.
+
+### Building a vehicle the engine does not have
+
+A skateboard is pushed rather than throttled, tucks for speed and flicks round
+in the air. None of that is in the format, and it does not need to be: the
+handle exposes the pieces.
+
+```java
+Vehicle board = engine.vehicles().of(player).orElseThrow();
+VehicleInput keys = board.input();       // what the driver is pressing, this tick
+if (keys.forward() && board.groundSpeed() < 7) {
+    board.nudge(2.2);                    // a kick: +2.2 blocks/s along the heading
+    board.dress(player, "myplugin_push"); // wear this emote over the seat's states
+}
+if (keys.sprint()) board.setSpeedLimit(0); // no limit: tucked
+if (board.is(VehicleState.AIRBORNE) && keys.left()) board.spin(-360);
+board.undress(player);                   // back to the seat's own table
+```
+
+`input()` is the same demand the physics read, so your idea of "the driver
+pressed forward" and the engine's are on one tick; where the keys cannot be
+read (Spigot, or before 1.21.4) `keys()` is false and only `throttle()` means
+anything. `nudge` adds to the speed along the heading and `spin` to the yaw
+rate; both are then subject to everything the physics does. `dress` beats the
+seat's `animations:` table until `undress` or they get out, and is worn over
+the seat's stance the way a state's emote is. The sprint key reaches you and
+nothing in the engine acts on it: it is yours to give a meaning.
 
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
@@ -282,6 +315,30 @@ The handle is what proves ownership: holding `myplugin` cannot define
 `otherpack:thing`, so two sources loading at once cannot corrupt each other's
 half of the ID space. `EMBEDDED` content is not second class — same registry,
 same ID rules, and the pack builder cannot tell it from a hand-written folder.
+
+### Shipping a content folder in your jar
+
+The usual way to ship content WITH a plugin — a skateboard addon, a furniture
+set — is a content folder inside the jar, exactly as a server owner would
+write it (`FORMAT.md`), unpacked into `plugins/RPEngine/content/<namespace>/`
+on enable and reloaded once:
+
+```java
+Path content = engine.getDataFolder().toPath().resolve("content").resolve("myplugin");
+if (!Files.exists(content.resolve(".version")) || !Files.readString(content.resolve(".version")).equals(version)) {
+    unpackResources("content/myplugin", content);   // your own copy loop over the jar
+    Files.writeString(content.resolve(".version"), version);
+    engine.reload();                                 // rebuilds every bundle, re-sends to everybody
+}
+```
+
+`reload()` is `/rp reload`: main thread, every bundle rebuilt and re-sent, so
+call it once after your files are in place and only when they changed. Use a
+namespace nobody else would — your plugin's name — and put your plugin's name
+in `depend` so you enable after the engine. The engine has already built its
+packs by the time you enable; the reload is what folds yours in. Everything in
+the folder is ordinary content: items, a vehicle, its emotes, its model, and
+the server owner can read it, edit it, and see exactly what you installed.
 
 ## Threading
 

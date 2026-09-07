@@ -35,7 +35,9 @@ public final class ContentRegistryImpl implements ContentRegistry, ContentRegist
      * assets, which fails as a missing texture rather than as an error
      * anybody can trace back to here.
      */
-    private static final Set<String> RESERVED = Set.of("minecraft", "realms");
+    // rpengine is where the engine writes its own pack files - the emote rigs
+    // it bakes - and a content pack of that name would collide with them.
+    private static final Set<String> RESERVED = Set.of("minecraft", "realms", "rpengine");
 
     private final ConcurrentMap<String, Handle> namespaces = new ConcurrentHashMap<>();
     private final ConcurrentMap<ContentId, ContentEntry> entries = new ConcurrentHashMap<>();

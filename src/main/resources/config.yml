@@ -184,6 +184,20 @@ emotes:
   held-item-yaw: 0.0
   held-item-roll: 0.0
 
+  # Whether this server bakes emote rigs of its own into its packs.
+  #
+  # An emote is played on a rig: a copy of a player's skin, cut into bones.
+  # Studio bakes them for the players a push is addressed to; with this on,
+  # the engine also bakes one for every player who has ever joined (their
+  # skin is kept under skins/ the first time they do) plus a shared default
+  # mannequin, so hand-authored emotes in emotes/ and vehicle seats work with
+  # no Studio in the picture. A player joining for the first time wears the
+  # default until the next /rp reload or restart bakes theirs.
+  #
+  # Needs Minecraft 1.21.4 or newer; below that nothing is baked and pushed
+  # rigs work as before.
+  rigs: true
+
   # Whether an emoting player's nametag is drawn through whatever is in front
   # of it. Off, and deliberately unlike vanilla.
   #

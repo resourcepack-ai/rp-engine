@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
+import ai.resourcepack.engine.api.VehicleInput;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
@@ -878,21 +879,10 @@ public final class VehicleRuntime implements Listener {
             return;
         }
         ItemStack item = event.getItem();
-        if (item == null || item.getType() != Material.PAPER || !item.hasItemMeta()) {
+        if (item == null || !item.hasItemMeta()) {
             return;
         }
-        List<String> strings = tags.read(item);
-        if (strings.isEmpty() || strings.get(0) == null) {
-            return;
-        }
-        String carrier = strings.get(0);
-        VehicleInfo info = null;
-        for (VehicleInfo candidate : catalogue.values()) {
-            if (candidate.carrier().filter(carrier::equals).isPresent()) {
-                info = candidate;
-                break;
-            }
-        }
+        VehicleInfo info = vehicleOfItem(item);
         if (info == null) {
             return;
         }
@@ -934,6 +924,40 @@ public final class VehicleRuntime implements Listener {
         }
         player.swingMainHand();
         overhead(player, "Parked " + nameOf(info) + " - right-click a seat to get in.");
+    }
+
+    /**
+     * The vehicle an item in somebody's hand parks, or null.
+     *
+     * <p>Two kinds of item park a vehicle. A pushed vehicle's is Studio's
+     * carrier: paper wearing the vehicle's carrier string. An authored
+     * vehicle's is the item whose model it wears — the {@code model:} line in
+     * its definition — which is what a server owner gives out of a shop and
+     * what an addon hands over on a command. The second used to do nothing
+     * on a right-click, so a hand-authored car could only be parked by
+     * {@code /rp vehicle}, which is a command and not a thing you can sell.
+     */
+    private VehicleInfo vehicleOfItem(ItemStack item) {
+        if (item.getType() == Material.PAPER) {
+            List<String> strings = tags.read(item);
+            if (!strings.isEmpty() && strings.get(0) != null) {
+                String carrier = strings.get(0);
+                for (VehicleInfo candidate : catalogue.values()) {
+                    if (candidate.carrier().filter(carrier::equals).isPresent()) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        Optional<ContentId> id = items.idOf(item);
+        if (id.isPresent()) {
+            for (VehicleInfo candidate : catalogue.values()) {
+                if (candidate.model().filter(id.get()::equals).isPresent()) {
+                    return candidate;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1569,6 +1593,20 @@ public final class VehicleRuntime implements Listener {
         private long hushUntil;
 
         /**
+         * What the driver asked for on the last full tick, for
+         * {@link Vehicle#input}: a plugin reads the same demand the physics
+         * did rather than asking the player again a tick apart.
+         */
+        private VehiclePhysics.Demand lastDemand = VehiclePhysics.Demand.idle(0);
+
+        /**
+         * Emotes a plugin has put on occupants over their seat's states —
+         * {@link Vehicle#dress}. Consulted by {@link #dressOccupants} ahead
+         * of the state table, and dropped when they get out.
+         */
+        private final Map<UUID, String> dressOverrides = new java.util.HashMap<>();
+
+        /**
          * Whether the last speedometer write was a moving one, so a vehicle
          * that has just stopped writes its zero once and then leaves the bar
          * alone.
@@ -2001,6 +2039,7 @@ public final class VehicleRuntime implements Listener {
             }
             riders.remove(player);
             controls.forget(player);
+            dressOverrides.remove(player);
             undress(player);
             if (index < 0) {
                 return;
@@ -2103,6 +2142,42 @@ public final class VehicleRuntime implements Listener {
             } else {
                 speedLimit = blocksPerSecond;
                 driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
+            }
+            parked = false;
+        }
+
+        /** {@link Vehicle#input}: the last demand, as the keys a plugin can read. */
+        VehicleInput input() {
+            if (driver() == null) {
+                return VehicleInput.NONE;
+            }
+            VehiclePhysics.Demand d = lastDemand;
+            return new VehicleInput(d.steersByKeys(), d.throttle(), d.steer(),
+                    d.throttle() > 0, d.throttle() < 0, d.steer() < 0, d.steer() > 0,
+                    d.braking() || d.lift() > 0, d.sprint());
+        }
+
+        /** {@link Vehicle#nudge}. */
+        void nudge(double blocksPerSecond) {
+            state = state.nudged(blocksPerSecond);
+            parked = false;
+        }
+
+        /** {@link Vehicle#spin}. */
+        void spin(double degreesPerSecond) {
+            state = state.spun(degreesPerSecond);
+            parked = false;
+        }
+
+        /** {@link Vehicle#dress}: forgotten with the seat, and re-dressed on the next tick. */
+        void dressAs(UUID occupant, String emoteId) {
+            if (!occupants.contains(occupant)) {
+                return;
+            }
+            if (emoteId == null || emoteId.isEmpty()) {
+                dressOverrides.remove(occupant);
+            } else {
+                dressOverrides.put(occupant, emoteId);
             }
             parked = false;
         }
@@ -2261,6 +2336,7 @@ public final class VehicleRuntime implements Listener {
             VehiclePhysics.Demand demand = driver == null || !enabled
                     ? VehiclePhysics.Demand.idle(state.yaw())
                     : controls.read(driver, info);
+            lastDemand = demand;
 
             VehiclePhysics.Surroundings around = surroundings();
             // `driven` rather than `info`: the same vehicle with a plugin's
@@ -2406,6 +2482,13 @@ public final class VehicleRuntime implements Listener {
                 // pose on every corner. See VehicleState.forSeat.
                 VehicleState state = VehicleState.forSeat(states, seat.animations()).orElse(null);
                 String named = state == null ? null : seat.animations().get(state);
+                // A plugin's override beats the seat's own table for as long
+                // as it stands — see Vehicle.dress. Treated as a named emote
+                // so it is worn over the stance and its refusal is reported.
+                String override = dressOverrides.get(id);
+                if (override != null) {
+                    named = override;
+                }
                 String wanted = named != null ? named : fallbackStance(seat);
                 // A rig that was ON and is not any more is re-asked whatever
                 // the memo says: something outside this vehicle took it off,
@@ -3613,6 +3696,47 @@ public final class VehicleRuntime implements Listener {
             if (ride != null) {
                 ride.limitSpeed(blocksPerSecond);
             }
+        }
+
+        @Override
+        public VehicleInput input() {
+            Ride ride = ride();
+            return ride == null ? VehicleInput.NONE : ride.input();
+        }
+
+        @Override
+        public void nudge(double blocksPerSecond) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.nudge(blocksPerSecond);
+            }
+        }
+
+        @Override
+        public void spin(double degreesPerSecond) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.spin(degreesPerSecond);
+            }
+        }
+
+        @Override
+        public void dress(Player occupant, String emoteId) {
+            Ride ride = ride();
+            if (ride != null && occupant != null) {
+                ride.dressAs(occupant.getUniqueId(), emoteId);
+            }
+        }
+
+        @Override
+        public void undress(Player occupant) {
+            dress(occupant, null);
+        }
+
+        @Override
+        public double groundSpeed() {
+            Ride ride = ride();
+            return ride == null ? 0 : ride.state().groundSpeed();
         }
 
         @Override
