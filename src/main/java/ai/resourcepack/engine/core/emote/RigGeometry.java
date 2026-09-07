@@ -383,6 +383,104 @@ final class RigGeometry {
         return name.append("__").append(bone.toLowerCase(Locale.ROOT)).toString();
     }
 
+    // --- the cape ------------------------------------------------------
+
+    /** The cape's bone key. Not one of {@link #ALL_BONES}: it hangs off the body and only exists for a rig that has one. */
+    static final String CAPE_BONE = "cape";
+
+    /** The cape's own texture reference and sheet size. A cape sheet is 64 by 32, NOT 64 by 64. */
+    static final String CAPE_TEXTURE_REF = "cape";
+    static final int CAPE_TEXTURE_W = 64;
+    static final int CAPE_TEXTURE_H = 32;
+
+    /**
+     * The cape as one block-model element, sampling {@code #cape}.
+     *
+     * <p>Mojang's cloak box at texOffs(0,0) is 10 wide, 16 tall, 1 deep, and
+     * hangs as the 1px slab immediately behind the torso (z 2..3), from the
+     * shoulders (y 24) to the back of the knees (y 8). Straight down, where
+     * vanilla's rests a few degrees off the back: a block-model rotation is
+     * one of {0, ±22.5, ±45} and the small angle is not expressible.
+     *
+     * <p><strong>Front and back are swapped against every other box on this
+     * rig.</strong> Mojang's cloak part is built in FRONT of the body and the
+     * cape layer rotates the whole thing half a turn to put it behind, so the
+     * rect the unwrap calls "front" is the face pointing away from the back —
+     * the side everybody sees. Placing the box behind the body directly
+     * reaches the same picture by swapping the two rects. The 1px edges may
+     * be left-right swapped by the same reasoning; they are one pixel of trim.
+     *
+     * <p>A block-model {@code uv} is 0-16 of the texture on each axis
+     * independently, so the cape's v divides by 32 where every skin face
+     * divides by 64. Getting that wrong stretches the design to twice its
+     * height with nothing to say so.
+     */
+    static JsonArray capeElements() {
+        SkinBox box = new SkinBox(0, 0, 10, 16, 1);
+        JsonObject faces = new JsonObject();
+        for (FaceRect rect : faceRects(box)) {
+            double x1 = rect.x * 16.0 / CAPE_TEXTURE_W;
+            double y1 = rect.y * 16.0 / CAPE_TEXTURE_H;
+            double x2 = (rect.x + rect.w) * 16.0 / CAPE_TEXTURE_W;
+            double y2 = (rect.y + rect.h) * 16.0 / CAPE_TEXTURE_H;
+            double[] uv = rect.face.equals("top") ? new double[] {x2, y2, x1, y1}
+                    : rect.face.equals("bottom") ? new double[] {x2, y1, x1, y2}
+                    : new double[] {x1, y1, x2, y2};
+            String side;
+            switch (rect.face) {
+                case "top": side = "up"; break;
+                case "bottom": side = "down"; break;
+                case "right": side = "east"; break;
+                case "front": side = "south"; break;
+                case "left": side = "west"; break;
+                default: side = "north"; break;
+            }
+            JsonObject face = new JsonObject();
+            face.add("uv", array(uv));
+            face.addProperty("texture", "#" + CAPE_TEXTURE_REF);
+            faces.add(side, face);
+        }
+        JsonObject element = new JsonObject();
+        element.addProperty("name", CAPE_BONE);
+        element.add("from", array(toModelPoint(-5, 8, 2)));
+        element.add("to", array(toModelPoint(5, 24, 3)));
+        element.add("faces", faces);
+        JsonArray elements = new JsonArray();
+        elements.add(element);
+        return elements;
+    }
+
+    /**
+     * The cape's model file. It names the cape texture and nothing else: on a
+     * rig with no cape this model does not exist, so it never names a file
+     * the pack does not carry.
+     */
+    static JsonObject capeModel(String textureRef) {
+        JsonObject model = new JsonObject();
+        model.addProperty("parent", "block/block");
+        model.addProperty("ambientocclusion", false);
+        model.addProperty("render_type", "cutout");
+        JsonObject textures = new JsonObject();
+        textures.addProperty(CAPE_TEXTURE_REF, textureRef);
+        model.add("textures", textures);
+        model.add("elements", capeElements());
+        return model;
+    }
+
+    /**
+     * The cape's bone for the manifest: parented to the body rather than the
+     * root, so a bow or a twist of the torso carries it. Its pivot is the top
+     * centre against the body's back — a cape swings from the shoulders.
+     */
+    static EmoteStore.Bone capeManifestBone() {
+        EmoteStore.Bone out = new EmoteStore.Bone();
+        out.key = CAPE_BONE;
+        out.parent = "body";
+        double[] pivot = toModelPoint(0, 24, 2);
+        out.pivot = new float[] {(float) pivot[0], (float) pivot[1], (float) pivot[2]};
+        return out;
+    }
+
     /** The whole-limb bone table for the manifest: key and pivot, variant-independent. */
     static List<EmoteStore.Bone> manifestBones() {
         List<EmoteStore.Bone> out = new ArrayList<>();

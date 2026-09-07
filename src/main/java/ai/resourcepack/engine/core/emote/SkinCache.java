@@ -92,6 +92,7 @@ public final class SkinCache {
             return;
         }
         String url;
+        String capeUrl;
         String variant;
         try {
             PlayerProfile profile = player.getPlayerProfile();
@@ -104,6 +105,8 @@ public final class SkinCache {
                 return;
             }
             url = skin.toString();
+            URL cape = textures.getCape();
+            capeUrl = cape == null ? "" : cape.toString();
             variant = textures.getSkinModel() == PlayerTextures.SkinModel.SLIM
                     ? RigGeometry.SLIM : RigGeometry.WIDE;
         } catch (RuntimeException | LinkageError e) {
@@ -112,8 +115,11 @@ public final class SkinCache {
 
         String key = keyOf(player.getUniqueId());
         Path png = folder.resolve(key + ".png");
+        Path capePng = folder.resolve(key + "_cape.png");
         Path meta = folder.resolve(key + ".txt");
-        String want = variant + "\n" + url + "\n";
+        // The stamp carries the cape URL too, so a player who puts a cape on
+        // or takes one off is fetched again.
+        String want = variant + "\n" + url + "\n" + capeUrl + "\n";
         try {
             if (Files.isRegularFile(png) && Files.isRegularFile(meta)
                     && want.equals(Files.readString(meta, StandardCharsets.UTF_8))) {
@@ -132,11 +138,21 @@ public final class SkinCache {
                         + ". They wear the default rig until it can be fetched.");
                 return;
             }
+            // The cape is optional twice over: no URL means none, and a fetch
+            // that fails costs the cape and nothing else.
+            byte[] capeBytes = capeUrl.isEmpty() ? null : fetch(capeUrl);
             try {
                 Files.createDirectories(folder);
                 Path part = folder.resolve(key + ".png.part");
                 Files.write(part, bytes);
                 Files.move(part, png, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                if (capeBytes != null) {
+                    Path capePart = folder.resolve(key + "_cape.png.part");
+                    Files.write(capePart, capeBytes);
+                    Files.move(capePart, capePng, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } else {
+                    Files.deleteIfExists(capePng);
+                }
                 Files.writeString(meta, want, StandardCharsets.UTF_8);
             } catch (IOException e) {
                 log.warning("Could not keep " + name + "'s skin for their emote rig: " + e.getMessage());
@@ -179,10 +195,13 @@ public final class SkinCache {
         for (File file : files) {
             String key = file.getName().substring(0, file.getName().length() - 4).toLowerCase(Locale.ROOT);
             if (key.length() != 32) {
+                // A cape sheet (<key>_cape.png) is read beside its skin, not on its own.
                 continue;
             }
             try {
                 byte[] png = Files.readAllBytes(file.toPath());
+                Path capeFile = folder.resolve(key + "_cape.png");
+                byte[] cape = Files.isRegularFile(capeFile) ? Files.readAllBytes(capeFile) : null;
                 String variant = RigGeometry.WIDE;
                 Path meta = folder.resolve(key + ".txt");
                 if (Files.isRegularFile(meta)) {
@@ -191,7 +210,7 @@ public final class SkinCache {
                         variant = RigGeometry.SLIM;
                     }
                 }
-                skins.add(new RigBaker.Skin(key, png, variant));
+                skins.add(new RigBaker.Skin(key, png, variant, cape));
             } catch (IOException e) {
                 log.warning("Could not read " + file.getName() + " from " + FOLDER + ": " + e.getMessage());
             }

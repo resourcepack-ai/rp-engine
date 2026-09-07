@@ -118,6 +118,33 @@ class RigBakerTest {
     }
 
     @Test
+    void aCapeIsBakedOnlyForARigThatHasOne() {
+        RigBaker.Baked baked = RigBaker.bake(List.of(
+                new RigBaker.Skin("0123456789abcdef0123456789abcdef", new byte[] {4}, RigGeometry.WIDE, new byte[] {9}),
+                new RigBaker.Skin(RigBaker.DEFAULT_KEY, new byte[] {1}, RigGeometry.WIDE)));
+        EmoteStore.PlayerRig caped = baked.players.get("0123456789abcdef0123456789abcdef");
+        EmoteStore.PlayerRig bare = baked.players.get(RigBaker.DEFAULT_KEY);
+        assertTrue(caped.cape);
+        assertTrue(!bare.cape);
+        String prefix = RigBaker.prefixFor("0123456789abcdef0123456789abcdef");
+        for (boolean jointed : new boolean[] {false, true}) {
+            String id = EmoteStore.boneItemId(caped, RigGeometry.CAPE_BONE, null, jointed);
+            assertTrue(baked.files.containsKey("assets/rpengine/models/block/" + id + ".json"), "no cape model " + id);
+            assertTrue(baked.files.containsKey("assets/rpengine/items/" + id + ".json"), "no cape item " + id);
+        }
+        assertTrue(baked.files.containsKey("assets/rpengine/textures/block/" + prefix + "_cape.png"));
+        assertTrue(!baked.files.containsKey("assets/rpengine/textures/block/" + RigBaker.prefixFor(RigBaker.DEFAULT_KEY) + "_cape.png"));
+        JsonObject cape = JsonParser.parseString(new String(
+                baked.files.get("assets/rpengine/models/block/" + prefix + "__cape.json"), StandardCharsets.UTF_8)).getAsJsonObject();
+        JsonArray uv = cape.getAsJsonArray("elements").get(0).getAsJsonObject()
+                .getAsJsonObject("faces").getAsJsonObject("south").getAsJsonArray("uv");
+        // The front rect is at sheet (1,1)-(11,17) on a 64x32 sheet: v divides by 32.
+        assertEquals(0.5, uv.get(1).getAsDouble(), 1e-9);
+        assertEquals(8.5, uv.get(3).getAsDouble(), 1e-9);
+        assertEquals("body", RigGeometry.capeManifestBone().parent);
+    }
+
+    @Test
     void manifestTablesHaveParentsBeforeChildren() {
         List<EmoteStore.Bone> jointed = RigGeometry.manifestJointedBones();
         assertEquals(10, jointed.size());
