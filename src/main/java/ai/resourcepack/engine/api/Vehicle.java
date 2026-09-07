@@ -335,6 +335,30 @@ public interface Vehicle {
      */
     void turnOccupant(Player occupant, Double yaw);
 
+    /**
+     * Keeps {@code occupant} in their seat when they press sneak, so the key
+     * is free to mean something else — until it is turned off, or they get
+     * out some other way.
+     *
+     * <p><strong>Sneak is Minecraft's dismount, and that is the only reason
+     * this exists.</strong> A plugin can read the key
+     * ({@link VehicleInput#sneak()}) but cannot use it for anything while
+     * pressing it also puts the rider in the road. A skateboard wants shift
+     * to be a trick; a bike might want it to be a bunny hop.
+     *
+     * <p><strong>A held occupant is never trapped.</strong> The hold only
+     * applies while the vehicle is actually moving — under
+     * {@code 0.5} blocks a second the sneak dismount goes through exactly as
+     * it always did. So "stop, then get off" is the whole of what a rider has
+     * to learn, and a plugin that sets this and then crashes, unloads or
+     * forgets cannot strand anybody: stopping is enough. It is also dropped
+     * when they leave, so it never outlives the ride.
+     *
+     * <p>Whatever the vehicle does with the key, say so somewhere the rider
+     * will read it. A key that silently stops working is a bug report.
+     */
+    void holdOccupant(Player occupant, boolean hold);
+
     /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
     double groundSpeed();
 

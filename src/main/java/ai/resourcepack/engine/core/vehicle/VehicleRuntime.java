@@ -40,6 +40,7 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -256,6 +257,18 @@ public final class VehicleRuntime implements Listener {
      * no slack in it reads that as thin air and starts the vehicle falling.
      */
     private static final double SUPPORT_REACH = 0.15;
+
+    /**
+     * How slowly a vehicle has to be going before a held occupant's sneak
+     * gets them out after all, blocks per second.
+     *
+     * <p>{@link Vehicle#holdOccupant} promises that nobody is ever trapped,
+     * and this constant is that promise: it is the engine's own reverse
+     * threshold, small enough that a vehicle a rider considers stopped is
+     * stopped, and large enough that a board drifting to a halt under them
+     * does not throw them off mid-trick.
+     */
+    private static final double HOLD_RELEASE_SPEED = VehiclePhysics.REVERSE_THRESHOLD;
 
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
@@ -1229,6 +1242,32 @@ public final class VehicleRuntime implements Listener {
                     + "noticed when you log out rather than the moment you step off.");
             return;
         }
+        // FIRST: refuse the dismount of a held occupant of a moving vehicle,
+        // so the sneak key is free to mean something else. See
+        // Vehicle#holdOccupant, and `holds` for why a stopped vehicle always
+        // lets go.
+        owner.getServer().getPluginManager().registerEvent(
+                (Class<? extends Event>) found, this, EventPriority.HIGHEST,
+                (listener, event) -> {
+                    if (!(event instanceof Cancellable) || !(event instanceof EntityEvent)) {
+                        return;
+                    }
+                    Entity who = ((EntityEvent) event).getEntity();
+                    if (!(who instanceof Player) || leaving != null) {
+                        // An eviction the engine itself started is not a
+                        // sneak, and must never be refused.
+                        return;
+                    }
+                    UUID chassis = riders.get(who.getUniqueId());
+                    Ride ride = chassis == null ? null : live.get(chassis);
+                    if (ride != null && ride.holds(who.getUniqueId())) {
+                        ((Cancellable) event).setCancelled(true);
+                    }
+                },
+                owner);
+        // THEN: notice the ones that went through. `ignoreCancelled` so a
+        // refused dismount is not also recorded as somebody leaving — which
+        // would drop the ride's state while the rider was still sitting in it.
         owner.getServer().getPluginManager().registerEvent(
                 (Class<? extends Event>) found, this, EventPriority.MONITOR,
                 (listener, event) -> {
@@ -1240,7 +1279,7 @@ public final class VehicleRuntime implements Listener {
                                 leaving != null ? leaving : VehicleExitEvent.Cause.DISMOUNTED);
                     }
                 },
-                owner);
+                owner, true);
     }
 
     /** Somebody got off, or logged out. */
@@ -1612,6 +1651,13 @@ public final class VehicleRuntime implements Listener {
          * dropped when they get out.
          */
         private final Map<UUID, Double> yawOverrides = new java.util.HashMap<>();
+
+        /**
+         * Occupants a plugin has asked to keep in their seats through the
+         * sneak key — {@link Vehicle#holdOccupant}. Consulted by the dismount
+         * listener, and only while this vehicle is moving; see there.
+         */
+        private final java.util.Set<UUID> held = new java.util.HashSet<>();
 
         /** The way seat {@code index}'s occupant faces: their override, or the seat's yaw. */
         private double seatYaw(int index) {
@@ -2162,6 +2208,29 @@ public final class VehicleRuntime implements Listener {
             parked = false;
         }
 
+        /** {@link Vehicle#holdOccupant}. */
+        void holdOccupant(UUID occupant, boolean hold) {
+            if (!occupants.contains(occupant)) {
+                return;
+            }
+            if (hold) {
+                held.add(occupant);
+            } else {
+                held.remove(occupant);
+            }
+        }
+
+        /**
+         * Whether a sneak dismount by {@code occupant} should be refused: they
+         * are held AND this vehicle is moving. The speed test is what keeps
+         * the promise in {@link Vehicle#holdOccupant} that nobody is ever
+         * stuck — a stopped vehicle always lets go, whatever any plugin
+         * thinks.
+         */
+        boolean holds(UUID occupant) {
+            return held.contains(occupant) && state().groundSpeed() >= HOLD_RELEASE_SPEED;
+        }
+
         /** {@link Vehicle#turnOccupant}. */
         void turnOccupant(UUID occupant, Double yaw) {
             if (!occupants.contains(occupant)) {
@@ -2183,7 +2252,7 @@ public final class VehicleRuntime implements Listener {
             VehiclePhysics.Demand d = lastDemand;
             return new VehicleInput(d.steersByKeys(), d.throttle(), d.steer(),
                     d.throttle() > 0, d.throttle() < 0, d.steer() < 0, d.steer() > 0,
-                    d.braking() || d.lift() > 0, d.sprint());
+                    d.braking() || d.lift() > 0, d.sprint(), d.sneak());
         }
 
         /** {@link Vehicle#nudge}. */
@@ -3767,6 +3836,14 @@ public final class VehicleRuntime implements Listener {
             Ride ride = ride();
             if (ride != null && occupant != null) {
                 ride.turnOccupant(occupant.getUniqueId(), yaw);
+            }
+        }
+
+        @Override
+        public void holdOccupant(Player occupant, boolean hold) {
+            Ride ride = ride();
+            if (ride != null && occupant != null) {
+                ride.holdOccupant(occupant.getUniqueId(), hold);
             }
         }
 

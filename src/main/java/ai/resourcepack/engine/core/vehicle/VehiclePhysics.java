@@ -1201,26 +1201,31 @@ public final class VehiclePhysics {
         private final double steer;
         private final boolean steersByKeys;
         private final boolean sprint;
+        private final boolean sneak;
 
         /** A demand that steers by look: the body turns toward {@code yaw}. */
         public Demand(double yaw, double pitch, double throttle, double lift, boolean braking) {
-            this(yaw, pitch, throttle, lift, braking, 0, false, false);
+            this(yaw, pitch, throttle, lift, braking, 0, false, false, false);
         }
 
         /** A demand that steers by keys: {@code steer} is -1 for left, 1 for right. */
         public static Demand steering(double yaw, double pitch, double steer,
                                       double throttle, double lift, boolean braking) {
-            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, false);
+            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, false, false);
         }
 
-        /** The same, carrying the sprint key — which the physics ignores and a plugin may not. */
-        public static Demand steering(double yaw, double pitch, double steer,
-                                      double throttle, double lift, boolean braking, boolean sprint) {
-            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, sprint);
+        /**
+         * The same, carrying the two keys the physics ignores and a plugin may
+         * not: sprint and sneak.
+         */
+        public static Demand steering(double yaw, double pitch, double steer, double throttle,
+                                      double lift, boolean braking, boolean sprint, boolean sneak) {
+            return new Demand(yaw, pitch, throttle, lift, braking, steer, true, sprint, sneak);
         }
 
         private Demand(double yaw, double pitch, double throttle, double lift, boolean braking,
-                       double steer, boolean steersByKeys, boolean sprint) {
+                       double steer, boolean steersByKeys, boolean sprint, boolean sneak) {
+            this.sneak = sneak;
             this.yaw = yaw;
             this.pitch = pitch;
             // Clamped here rather than trusted, because both arms of the
@@ -1236,6 +1241,11 @@ public final class VehiclePhysics {
         /** The sprint key, where keys can be read. Nothing here acts on it; see {@link VehicleInput#sprint}. */
         public boolean sprint() {
             return sprint;
+        }
+
+        /** The sneak key, the same way. See {@link VehicleInput#sneak}. */
+        public boolean sneak() {
+            return sneak;
         }
 
         public double steer() {

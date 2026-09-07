@@ -30,9 +30,17 @@ public final class VehicleInput {
     private final boolean right;
     private final boolean jump;
     private final boolean sprint;
+    private final boolean sneak;
 
     public VehicleInput(boolean keys, double throttle, double steer, boolean forward, boolean backward,
                         boolean left, boolean right, boolean jump, boolean sprint) {
+        this(keys, throttle, steer, forward, backward, left, right, jump, sprint, false);
+    }
+
+    /** As above, carrying the sneak key. See {@link #sneak()}. */
+    public VehicleInput(boolean keys, double throttle, double steer, boolean forward, boolean backward,
+                        boolean left, boolean right, boolean jump, boolean sprint, boolean sneak) {
+        this.sneak = sneak;
         this.keys = keys;
         this.throttle = throttle;
         this.steer = steer;
@@ -78,6 +86,19 @@ public final class VehicleInput {
     /** Space: the handbrake, the jump or the climb, by vehicle. */
     public boolean jump() {
         return jump;
+    }
+
+    /**
+     * The sneak key. The engine does nothing with it either — but unlike
+     * sprint, it already means something to Minecraft: <strong>sneak is how
+     * you get out of a vehicle.</strong> So a plugin reading this key sees it
+     * on the tick the rider is also leaving, unless it has asked to keep them
+     * with {@link Vehicle#holdOccupant}. That is the whole reason both exist:
+     * a skateboard wants shift to be a trick, and a trick that ends with you
+     * standing in the road is not one.
+     */
+    public boolean sneak() {
+        return sneak;
     }
 
     /** The sprint key. The engine does nothing with it; it is here for a plugin to give a meaning. */
