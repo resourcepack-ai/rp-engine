@@ -409,6 +409,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquids = new Liquids(this, pools);
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
+        // Which placed models stop a vehicle. Wired once and never re-wired:
+        // both halves read through to live state — the content folder's is
+        // replaced on every reload and the pushed one on every sync — so a
+        // second call after either would be a second copy of an answer that had
+        // already changed itself.
+        vehicles.modelCollision(id -> placements.stopsVehicles(id) && pushed.modelStopsVehicles(id));
         recipes = new Recipes(this, items);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);

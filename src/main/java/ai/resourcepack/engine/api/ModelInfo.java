@@ -78,6 +78,7 @@ public final class ModelInfo {
     private final float seat;
     private float seatSide;
     private float seatForward;
+    private boolean vehicleCollision = true;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -222,7 +223,22 @@ public final class ModelInfo {
                 light, surface, drop);
         moved.seatSide = side;
         moved.seatForward = forward;
+        moved.vehicleCollision = vehicleCollision;
         return moved;
+    }
+
+    /**
+     * The same model, with vehicles stopped by it or driven through it.
+     *
+     * <p>A copy, for the reason {@link #withSeatOffset} gives.
+     */
+    public ModelInfo withVehicleCollision(boolean collides) {
+        ModelInfo changed = of(id, item, facing, scale, width, height, solid, seat,
+                light, surface, drop);
+        changed.seatSide = seatSide;
+        changed.seatForward = seatForward;
+        changed.vehicleCollision = collides;
+        return changed;
     }
 
     /** Whether anybody can sit on it at all. */
@@ -239,6 +255,28 @@ public final class ModelInfo {
      */
     public boolean solid() {
         return solid;
+    }
+
+    /**
+     * Whether a vehicle is stopped by this piece.
+     *
+     * <p><strong>Not the same question as {@link #solid()}, and deliberately
+     * not the same answer.</strong> Solid is about a WALKING player, and it is
+     * bought with a barrier block at the anchor — one cube, wherever the model
+     * happens to be anchored, which a pack opts into because it changes the
+     * world. This is about a DRIVING one, it covers the piece's whole hitbox
+     * rather than one block of it, and it costs nothing: the vehicle asks the
+     * placed pieces around it where they are, and no block is placed.
+     *
+     * <p><strong>True unless a pack says otherwise</strong>, which is the
+     * opposite default from {@code solid}. A bollard that a car drives through
+     * is a bug in every pack that has one, and the exception — a rug, a
+     * manhole cover, a painted road marking — is the thing worth writing down.
+     * Anything low enough to be a kerb is driven OVER rather than refused, so
+     * the default costs a flat piece nothing either way.
+     */
+    public boolean vehicleCollision() {
+        return vehicleCollision;
     }
 
     @Override

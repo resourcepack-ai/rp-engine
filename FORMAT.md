@@ -262,6 +262,7 @@ chair:
     facing: cardinal     # cardinal | diagonal | free | fixed
     scale: 1.0
     solid: false         # true puts a barrier behind it
+    vehicle-collision: true  # false lets vehicles drive through it
     seat: 0.5            # sit on it, this far above its base. 0 is no seat
     light: 0            # 0-15, what it gives off. A lamp wants 14.
     surface: floor      # floor | wall | ceiling | any
@@ -293,6 +294,20 @@ inside it.
 `solid: false` by default: a display entity has no collision at all, and
 `solid: true` puts an invisible barrier block behind it, removed when the model
 is broken.
+
+`vehicle-collision: true` by default, and it is a different question with a
+different answer. `solid` is about a **walking** player and is bought with a
+barrier block — one cube, at the anchor, whatever shape the piece is — which is
+why it is opt-in: it writes to the world. This is about a **driving** one, it
+covers the piece's whole hitbox rather than one block of it, and it costs the
+world nothing: a vehicle asks the placed models around it where they are.
+
+So a car stops at your fence whether or not anybody can walk through it, which
+is what you want in every pack that has a fence. Set it to `false` for the
+things a vehicle is meant to drive over rather than into — a rug, a manhole
+cover, a painted road marking. Anything low enough to be a kerb is driven onto
+and over anyway, so a flat piece rarely needs it; a piece a vehicle can stand on
+holds it up, so you can lay a bridge out of models and drive across.
 
 `light:` works the same way and for the same reason — a display entity emits
 nothing, so a real light block goes in the anchor and is taken away when the

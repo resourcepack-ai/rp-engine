@@ -389,6 +389,16 @@ public final class VehicleRuntime implements Listener {
      */
     private final PassengerTeleport seatMover;
 
+    /**
+     * How the world's placed models are found, so a vehicle stops at a fence
+     * instead of driving through it.
+     *
+     * <p>See {@link ModelObstacles}. Held here rather than made per tick
+     * because it owns the two persistent-data keys the placement listeners
+     * write.
+     */
+    private final ModelObstacles.Sensor obstacles;
+
     /** Marks a chassis as ours, and says which vehicle it is. */
     private final NamespacedKey idKey;
 
@@ -551,6 +561,7 @@ public final class VehicleRuntime implements Listener {
         this.tags = RigTags.forServer(compatibility, plugin);
         this.seatMover = PassengerTeleport.forServer();
         this.concealed = new HiddenRiders(plugin);
+        this.obstacles = new ModelObstacles.Sensor(plugin);
         this.idKey = new NamespacedKey(plugin, "vehicle");
         this.disabledKey = new NamespacedKey(plugin, "vehicle-disabled");
     }
@@ -558,6 +569,24 @@ public final class VehicleRuntime implements Listener {
     /** The control arm, so the plugin can register it and report it. */
     public VehicleControls controls() {
         return controls;
+    }
+
+    /**
+     * Adopts the answer to "does a placement of this model stop a vehicle".
+     *
+     * <p>Called on enable, on every reload and after every push, because both
+     * halves of the answer move: a content folder's {@code vehicle-collision:}
+     * is re-read on a reload, and a pushed pack's arrives on a websocket frame
+     * whenever somebody presses Sync.
+     *
+     * <p><strong>A predicate rather than a catalogue.</strong> The two places
+     * that know are the content-folder loader and the pushed manifest, and
+     * neither belongs in this package — a vehicle wants one boolean about a
+     * string, and copying either map in here would be a third answer to keep
+     * in step with the two that already exist.
+     */
+    public void modelCollision(java.util.function.Predicate<String> stops) {
+        obstacles.stops(stops);
     }
 
     /**
@@ -1377,6 +1406,17 @@ public final class VehicleRuntime implements Listener {
         private long age;
 
         /**
+         * The placed models close enough to matter, as of this tick.
+         *
+         * <p>Refreshed once at the top of {@link #tick} and then read by every
+         * question the world is asked — see {@link ModelObstacles} for why the
+         * gathering and the asking are separated. Empty for a vehicle with no
+         * furniture near it, which is nearly all of them, and every read below
+         * short-circuits on that.
+         */
+        private ModelObstacles nearbyModels = ModelObstacles.NONE;
+
+        /**
          * Where this vehicle has got to in the sound it is playing.
          *
          * <p>Per vehicle rather than shared, unlike {@link #particles}: what
@@ -2175,6 +2215,11 @@ public final class VehicleRuntime implements Listener {
                 return;
             }
 
+            // Once, ahead of every question the world is asked this tick. See
+            // ModelObstacles: the gathering is a chunk scan and the questions
+            // are arithmetic, so the scan is what must not be repeated.
+            nearbyModels = obstacles.around(world, at, modelReach(), modelHeight());
+
             Player driver = driver();
             // A disabled vehicle is driven by nobody, whoever is in the seat:
             // idle keeps the heading and coasts to a stop, which is what
@@ -2685,15 +2730,21 @@ public final class VehicleRuntime implements Listener {
 
         private double wheelHeight(double x, double z) {
             double y = at.getY();
+            // The models first, and only the ones in the same band the blocks
+            // are read over: a wheel resting on a platform is on the platform,
+            // and reading the floor under it instead would tip the body into a
+            // corner it is nowhere near. Highest wins for the same reason the
+            // block loop counts down from the top.
+            double onModel = nearbyModels.topAt(x, z, y - 1.6, y + 0.6 + BlockSurfaces.EPSILON);
             int highest = (int) Math.floor(y + 0.5);
             int lowest = (int) Math.floor(y - 1.6);
             for (int level = highest; level >= lowest; level--) {
                 double top = BlockSurfaces.top(world.getBlockAt(new Location(world, x, level, z)), x, z);
                 if (!Double.isNaN(top) && top <= y + 0.6 + BlockSurfaces.EPSILON) {
-                    return top - y;
+                    return (Double.isNaN(onModel) || top > onModel ? top : onModel) - y;
                 }
             }
-            return Double.NaN;
+            return Double.isNaN(onModel) ? Double.NaN : onModel - y;
         }
 
         /** Commits a step, refusing whatever the world will not allow. */
@@ -2858,14 +2909,49 @@ public final class VehicleRuntime implements Listener {
          * buildings.
          */
         private boolean blocked(double x, double y, double z, VehicleHitbox box, double yaw) {
+            boolean models = !nearbyModels.isEmpty();
             for (double dy = 0.2; dy < box.height(); dy += 1) {
                 for (double[] offset : footprint(box, yaw)) {
-                    if (BlockSurfaces.solidAt(world, x + offset[0], y + dy, z + offset[1])) {
+                    double px = x + offset[0];
+                    double pz = z + offset[1];
+                    if (BlockSurfaces.solidAt(world, px, y + dy, pz)) {
+                        return true;
+                    }
+                    // The placed models on the same terms as the blocks, at the
+                    // same points, in the same loop. See ModelObstacles — a
+                    // fence made of furniture is a wall as far as a vehicle is
+                    // concerned, and everything downstream of this (the wall
+                    // slide, the step up, the already-inside case) then works
+                    // on it without knowing there is a second kind of world.
+                    if (models && nearbyModels.solidAt(px, y + dy, pz)) {
                         return true;
                     }
                 }
             }
             return false;
+        }
+
+        /**
+         * How far out {@link ModelObstacles} looks, in blocks.
+         *
+         * <p>The footprint's own half diagonal plus a step's worth of travel:
+         * anything further away cannot be reached by any of this tick's
+         * questions, and the destination checks are the furthest of them.
+         */
+        private double modelReach() {
+            VehicleHitbox box = info.hitbox();
+            return Math.hypot(box.width(), box.length()) / 2 + 1.5;
+        }
+
+        /**
+         * How far up and down it looks.
+         *
+         * <p>Down as far as {@link #wheelHeight} reads and up past the top of
+         * the vehicle, since a model taller than the box is still something to
+         * hit.
+         */
+        private double modelHeight() {
+            return info.hitbox().height() + 2;
         }
 
         /**
@@ -2879,9 +2965,23 @@ public final class VehicleRuntime implements Listener {
                                     double floor, double ceiling) {
             double best = Double.NaN;
             for (double[] offset : footprint(box, state.yaw())) {
-                double top = BlockSurfaces.resting(world, x + offset[0], y, z + offset[1], floor, ceiling);
+                double px = x + offset[0];
+                double pz = z + offset[1];
+                double top = BlockSurfaces.resting(world, px, y, pz, floor, ceiling);
                 if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
                     best = top;
+                }
+                // <strong>A model a vehicle can be stopped by is one it can also
+                // stand on, and that pairing is not optional.</strong> Without
+                // it a car that stepped up onto a low platform found nothing
+                // holding it there, fell back through, was stepped up again on
+                // the next tick, and bounced for as long as it sat on the
+                // thing — the same failure a snow layer used to cause, for the
+                // same reason.
+                double onModel = nearbyModels.topAt(px, pz,
+                        floor - BlockSurfaces.EPSILON, ceiling + BlockSurfaces.EPSILON);
+                if (!Double.isNaN(onModel) && (Double.isNaN(best) || onModel > best)) {
+                    best = onModel;
                 }
             }
             return best;
@@ -2898,9 +2998,20 @@ public final class VehicleRuntime implements Listener {
         private double obstructionAhead(double x, double y, double z, VehicleHitbox box, double yaw) {
             double best = Double.NaN;
             for (double[] offset : footprint(box, yaw)) {
-                double top = BlockSurfaces.obstruction(world, x + offset[0], z + offset[1], y, MAX_STEP_UP);
+                double px = x + offset[0];
+                double pz = z + offset[1];
+                double top = BlockSurfaces.obstruction(world, px, pz, y, MAX_STEP_UP);
                 if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
                     best = top;
+                }
+                // A low model is a kerb, not a wall — which is what makes the
+                // collidable default cost a rug or a manhole cover nothing: a
+                // vehicle drives onto it and over it rather than stopping dead
+                // at something an ankle high.
+                double onModel = nearbyModels.topAt(px, pz,
+                        y + BlockSurfaces.EPSILON, y + MAX_STEP_UP + BlockSurfaces.EPSILON);
+                if (!Double.isNaN(onModel) && (Double.isNaN(best) || onModel > best)) {
+                    best = onModel;
                 }
             }
             return best;

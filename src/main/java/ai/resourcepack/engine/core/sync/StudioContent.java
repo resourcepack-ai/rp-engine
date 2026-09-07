@@ -77,6 +77,29 @@ public final class StudioContent {
         List<Overlay> screens;
         List<Overlay> huds;
         List<Vehicle> vehicles;
+        List<Model> models;
+    }
+
+    /**
+     * A pushed model, and the one thing about it a zip cannot say.
+     *
+     * <p>Everything else on this list is here because the art carries no way to
+     * NAME it. A model is different: it is in the zip, it is placeable, and it
+     * works with nothing sent beside it. What the zip has no field for is
+     * whether the piece is something a vehicle can drive through — see
+     * {@link ai.resourcepack.engine.api.ModelInfo#vehicleCollision()} — so that
+     * one fact travels, and only for the models where the answer is no.
+     *
+     * <p>A model absent from this list therefore stops vehicles, which is what
+     * every model pushed before this field existed did once the engine learned
+     * to ask. Sending only the exceptions is the same argument the give
+     * command's scale marker makes: an absent value has always meant the
+     * default and has to keep meaning it.
+     */
+    static final class Model {
+        String id;
+        /** Boxed for the reason every optional field here is. Absent is TRUE. */
+        Boolean vehicleCollision;
     }
 
     static final class Sound {
@@ -254,6 +277,14 @@ public final class StudioContent {
     private volatile Map<ContentId, OverlayInfo> screens = Map.of();
     private volatile Map<ContentId, OverlayInfo> huds = Map.of();
     private volatile Map<ContentId, VehicleInfo> vehicles = Map.of();
+    /**
+     * The pushed models a vehicle may drive straight through, by bare id.
+     *
+     * <p>A set of exceptions rather than a map of answers, because the answer
+     * for everything else is yes and a map would have to hold every model in
+     * the pack to say so. See {@link #modelStopsVehicles}.
+     */
+    private volatile Set<String> vehiclePassable = Set.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -283,9 +314,24 @@ public final class StudioContent {
         return vehicles;
     }
 
+    /**
+     * Whether a vehicle is stopped by a placement of the pushed model
+     * {@code id}.
+     *
+     * <p>Yes for anything this has never heard of, which covers a model in a
+     * pack pushed before the field existed, a model in no pack at all, and a
+     * placement standing in the world from a pack that has since been
+     * replaced. A vehicle that drives through the furniture is the visible
+     * failure; one that stops at something it might not have needed to is not.
+     */
+    public boolean modelStopsVehicles(String id) {
+        return id != null && !vehiclePassable.contains(id);
+    }
+
     /** Whether there is anything at all. */
     public boolean isEmpty() {
-        return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty();
+        return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
+                && vehiclePassable.isEmpty();
     }
 
     /**
@@ -344,10 +390,21 @@ public final class StudioContent {
                     .ifPresent(info -> readVehicles.put(info.id(), info));
         }
 
+        Set<String> readPassable = new java.util.LinkedHashSet<>();
+        for (Model model : manifest.models == null ? List.<Model>of() : manifest.models) {
+            if (model == null || model.id == null || model.id.isEmpty()) {
+                continue;
+            }
+            if (Boolean.FALSE.equals(model.vehicleCollision)) {
+                readPassable.add(model.id);
+            }
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         huds = Map.copyOf(readHuds);
         vehicles = Map.copyOf(readVehicles);
+        vehiclePassable = Set.copyOf(readPassable);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size());
@@ -616,6 +673,18 @@ public final class StudioContent {
         manifest.vehicles = new ArrayList<>();
         for (Map.Entry<ContentId, VehicleInfo> entry : vehicles.entrySet()) {
             manifest.vehicles.add(vehicleOf(entry.getKey(), entry.getValue()));
+        }
+        // Only the exceptions, which is the shape they arrived in. Round
+        // tripping matters here for the same reason it does for a vehicle's
+        // seats: this file is what a restart reads back, and dropping it would
+        // put a wall in front of every car at a rug somebody had already said
+        // to drive over.
+        manifest.models = new ArrayList<>();
+        for (String id : vehiclePassable) {
+            Model model = new Model();
+            model.id = id;
+            model.vehicleCollision = Boolean.FALSE;
+            manifest.models.add(model);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());
