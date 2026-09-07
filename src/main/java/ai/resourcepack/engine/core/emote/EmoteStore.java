@@ -415,8 +415,9 @@ public final class EmoteStore {
      * {@link RigBaker}. A SECOND map rather than entries in {@link #byPlayer},
      * because that one is replaced whole by every push and a push must not
      * take the server's own rigs away, nor a rebuild the push's. A player's
-     * own pushed rig beats their own native one (Studio's carries their cape);
-     * either beats the pushed default; and the native default is the floor.
+     * own native rig beats their own pushed one, because the native one is in
+     * the bundle everybody wears; then the pushed own, the native default,
+     * and the pushed default as the floor. See rigFor.
      */
     private final Map<String, PlayerRig> nativePlayers = new ConcurrentHashMap<>();
     private volatile List<Bone> bones = Collections.emptyList();
@@ -468,12 +469,18 @@ public final class EmoteStore {
      * standing in game who wants to wave.
      */
     PlayerRig rigFor(java.util.UUID playerId) {
-        PlayerRig own = ownRigFor(playerId);
-        if (own != null) return own;
+        // NATIVE first. A rig the engine baked is in the bundle every player
+        // on the server wears; a pushed one only renders for somebody still
+        // wearing that push, and after a restart that is not everybody who
+        // has one - the first test of this showed a rider as a bundle of
+        // paper for exactly that reason. The cost is a pushed rig's cape,
+        // which a native rig does not bake yet.
         PlayerRig nativeOwn = playerId == null ? null : nativePlayers.get(key(playerId));
         if (nativeOwn != null) return nativeOwn;
-        PlayerRig pushedDefault = byPlayer.get(DEFAULT_PLAYER);
-        return pushedDefault != null ? pushedDefault : nativePlayers.get(DEFAULT_PLAYER);
+        PlayerRig own = ownRigFor(playerId);
+        if (own != null) return own;
+        PlayerRig nativeDefault = nativePlayers.get(DEFAULT_PLAYER);
+        return nativeDefault != null ? nativeDefault : byPlayer.get(DEFAULT_PLAYER);
     }
 
     /** Whether any rig exists at all — pushed or baked here — see the /emote diagnostics. */
