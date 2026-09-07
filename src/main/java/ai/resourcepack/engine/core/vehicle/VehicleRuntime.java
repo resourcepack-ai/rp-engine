@@ -54,7 +54,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.Matrix4f;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -283,6 +285,29 @@ public final class VehicleRuntime implements Listener {
      */
     private static final int PARKED_POLL_TICKS = 10;
 
+    /**
+     * How often the driver's speed is written above their hotbar, in ticks.
+     *
+     * <p>Five times a second reads as live without the number flickering
+     * through every intermediate value; the action bar is a metadata packet
+     * and this is one every four ticks per driver, which is nothing.
+     */
+    private static final int SPEEDOMETER_TICKS = 4;
+
+    /**
+     * How long the speedometer stays quiet after something else has used the
+     * action bar, in ticks. Three seconds: long enough to read which seat you
+     * got and what the controls are, which is what it would otherwise paint
+     * over on the very next tick.
+     */
+    private static final int HUSH_TICKS = 60;
+
+    /**
+     * Blocks per second to kilometres per hour. A block is a metre, and a
+     * speedometer in blocks per second means nothing to anybody.
+     */
+    private static final double KMH = 3.6;
+
     private final Plugin plugin;
     private final Items items;
     private final Logger log;
@@ -507,6 +532,9 @@ public final class VehicleRuntime implements Listener {
      */
     private volatile boolean debugSeats;
 
+    /** Whether the driver sees their speed above the hotbar. {@code vehicles.speedometer}. */
+    private volatile boolean speedometer = true;
+
     public VehicleRuntime(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
                     ai.resourcepack.engine.api.Emotes emotes, ai.resourcepack.engine.api.Sounds sounds) {
         this.emotes = emotes;
@@ -537,12 +565,13 @@ public final class VehicleRuntime implements Listener {
      * {@code vehicles.seat-rig}. Called on enable and on every reload.
      */
     public void configure(double seatOffset, double seatForward, boolean pushPlayers,
-                          boolean seatRig, boolean debugSeats) {
+                          boolean seatRig, boolean debugSeats, boolean speedometer) {
         this.seatOffset = seatOffset;
         this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
         this.seatRig = seatRig;
         this.debugSeats = debugSeats;
+        this.speedometer = speedometer;
     }
 
     /**
@@ -1038,6 +1067,7 @@ public final class VehicleRuntime implements Listener {
         // anything. The action bar is exactly the right shape for it: read once
         // as you sit down, gone by the time you are driving.
         if (!quiet) {
+            ride.hush();
             overhead(player, seat.isDriver()
                     ? "Driving " + nameOf(ride.info) + " - " + controls.describe()
                     : "Riding in " + nameOf(ride.info) + " - "
@@ -1457,6 +1487,20 @@ public final class VehicleRuntime implements Listener {
          */
         private Set<VehicleState> lastStates = Set.of();
 
+        /**
+         * The tick until which the speedometer keeps off the action bar,
+         * because something worth reading was just written there. See
+         * {@link #hush}.
+         */
+        private long hushUntil;
+
+        /**
+         * Whether the last speedometer write was a moving one, so a vehicle
+         * that has just stopped writes its zero once and then leaves the bar
+         * alone.
+         */
+        private boolean showedSpeed;
+
         Ride(VehicleInfo info, Entity chassis) {
             // Chassis saved by builds before entity-tracked vehicle audio are
             // still marked silent in NBT. Repair them as they are adopted so
@@ -1675,7 +1719,35 @@ public final class VehicleRuntime implements Listener {
 
         /** Where the model sits: half a block up, so its base is on the chassis. */
         private Location modelAnchor() {
-            return at.clone().add(0, MODEL_LIFT, 0);
+            // Plus the ride height: the body sits at the mean of its wheels,
+            // sprung, while the position stays on the highest of them. See
+            // VehiclePhysics.State.lift.
+            return at.clone().add(0, MODEL_LIFT + state.lift(), 0);
+        }
+
+        /**
+         * The body's attitude as the rotation an item display applies before
+         * its own yaw.
+         *
+         * <p>In the model's frame, where the front is -z, the right-hand side
+         * is +x and up is +y: nose-up is a positive turn about x, and
+         * right-side-down is a negative turn about z. Roll is applied first
+         * and pitch on top of it, which is the order
+         * {@code VehiclePhysics.bodyOffset} uses for the seats — the two have
+         * to agree or a rider slides off their seat as the body tilts.
+         */
+        private Matrix4f attitude() {
+            return new Matrix4f()
+                    .rotateX((float) Math.toRadians(state.pitch()))
+                    .rotateZ((float) -Math.toRadians(state.roll()));
+        }
+
+        /**
+         * Whether the body is tilted enough to be worth telling the client.
+         * A tenth of a degree is under what a display can show.
+         */
+        private boolean tilted() {
+            return Math.abs(state.pitch()) > 0.1 || Math.abs(state.roll()) > 0.1;
         }
 
         /**
@@ -2024,13 +2096,18 @@ public final class VehicleRuntime implements Listener {
             // a server's own calibration nudge and belongs to the server rather
             // than to the model.
             double scale = info.scale();
-            double[] offset =
-                    VehiclePhysics.seatOffset(yaw, seat.x() * scale, seat.z() * scale + seatForward);
             double drop = seat.pose() == VehicleSeat.Pose.SITTING ? SEATED_POSE : 0;
+            // On the BODY, not on the position: the body is pitched and rolled
+            // about the same point the model is drawn around and sits at the
+            // model's ride height, and a seat that stayed level while the
+            // bodywork under it went nose-up on a kerb would leave its rider
+            // hanging in the air in front of the windscreen.
+            double[] offset = VehiclePhysics.bodyOffset(yaw, state.pitch(), state.roll(), MODEL_LIFT,
+                    seat.x() * scale, seat.y() * scale - drop + seatOffset, seat.z() * scale + seatForward);
             Location location = new Location(world,
                     at.getX() + offset[0],
-                    at.getY() + seat.y() * scale - drop + seatOffset,
-                    at.getZ() + offset[1]);
+                    at.getY() + state.lift() + offset[1],
+                    at.getZ() + offset[2]);
             location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
             return location;
         }
@@ -2152,6 +2229,7 @@ public final class VehicleRuntime implements Listener {
             // behind at the coordinate where it began.
             noise.play(sounds, chassis, info, step.states(), age);
             sayIfBeached(driver, around);
+            showSpeed(driver);
 
             // Occupied is never parked, whether or not it is moving: a rider's
             // rig is aimed every tick, and half a second of a driver's body
@@ -2525,6 +2603,7 @@ public final class VehicleRuntime implements Listener {
                 return;
             }
             toldBeached = true;
+            hush();
             // Overhead, like the seat line, and for the same reason: this is a
             // condition somebody is in for a few seconds, not a fact worth a
             // permanent line in their chat log. Beaching a hull and refloating
@@ -2561,15 +2640,60 @@ public final class VehicleRuntime implements Listener {
             boolean supported = !Double.isNaN(surfaceUnder(at.getX(), at.getY(), at.getZ(),
                     info.hitbox(), at.getY() - SUPPORT_REACH, at.getY()));
             boolean water = here.getType() == Material.WATER;
+            // The wheels only matter on land: a hull sits on the water however
+            // the bed under it is shaped, and an aircraft's wheels are up.
+            double[] wheels = info.medium() == VehicleMedium.LAND && supported ? wheelHeights() : null;
             if (!water) {
-                return new VehiclePhysics.Surroundings(supported, false, 0);
+                return new VehiclePhysics.Surroundings(supported, false, 0, wheels);
             }
             // Fully under is a full block of push; otherwise the hull settles
             // with its base a little below the top of the block it is in,
             // which is what floating at the surface looks like.
             boolean deep = here.getRelative(0, 1, 0).getType() == Material.WATER;
             double submersion = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + 0.85) - at.getY()));
-            return new VehiclePhysics.Surroundings(supported, true, submersion);
+            return new VehiclePhysics.Surroundings(supported, true, submersion, wheels);
+        }
+
+        /**
+         * The height of the ground under each wheel, relative to the position:
+         * front-left, front-right, rear-left, rear-right, NaN over nothing.
+         *
+         * <p>This is what the body's pitch and roll are aimed at, and it is
+         * the whole of how a car goes nose-up onto a kerb and leans on a
+         * slab road instead of hopping up a block dead level. Four points a
+         * wheel's width in from the box's corners, three block reads each at
+         * most — the one the position is in, and two below it, since the
+         * position sits on the HIGHEST wheel and the others may be a block or
+         * two lower. A surface above the position within a shade counts too,
+         * for a wheel that has just come onto something the corner samples
+         * missed.
+         */
+        private double[] wheelHeights() {
+            VehicleHitbox box = info.hitbox();
+            double half = VehiclePhysics.wheelbase(box) / 2;
+            double side = VehiclePhysics.track(box) / 2;
+            double[] heights = new double[4];
+            int wheel = 0;
+            for (double forward : new double[] {half, -half}) {
+                for (double right : new double[] {-side, side}) {
+                    double[] offset = VehiclePhysics.seatOffset(state.yaw(), right, forward);
+                    heights[wheel++] = wheelHeight(at.getX() + offset[0], at.getZ() + offset[1]);
+                }
+            }
+            return heights;
+        }
+
+        private double wheelHeight(double x, double z) {
+            double y = at.getY();
+            int highest = (int) Math.floor(y + 0.5);
+            int lowest = (int) Math.floor(y - 1.6);
+            for (int level = highest; level >= lowest; level--) {
+                double top = BlockSurfaces.top(world.getBlockAt(new Location(world, x, level, z)), x, z);
+                if (!Double.isNaN(top) && top <= y + 0.6 + BlockSurfaces.EPSILON) {
+                    return top - y;
+                }
+            }
+            return Double.NaN;
         }
 
         /** Commits a step, refusing whatever the world will not allow. */
@@ -2621,15 +2745,41 @@ public final class VehicleRuntime implements Listener {
                         && blocked(at.getX(), nextY, at.getZ(), box, state.yaw());
 
                 switch (VehiclePhysics.resolve(into, canStep, stuck)) {
-                    case STEP_UP -> nextY = climb;
+                    case STEP_UP -> {
+                        // The position takes the step at once; the body does
+                        // not, and springs up after it — and the bump costs
+                        // some speed. See VehiclePhysics.State.stepped.
+                        state = state.stepped(climb - nextY);
+                        nextY = climb;
+                    }
                     case STOP -> {
-                        // Stopped dead rather than sliding along the wall.
-                        // Sliding is what a player expects and is a much
-                        // bigger piece of work; stopping is honest and is what
-                        // a vehicle hitting a building should do.
-                        nextX = at.getX();
-                        nextZ = at.getZ();
-                        state = state.stopped();
+                        // <strong>Along the wall, if either axis is clear.</strong>
+                        // Stopping dead was honest and read as hitting an
+                        // invisible wall every time a wing brushed a building.
+                        // Each world axis is tried on its own — two more box
+                        // checks, only on a tick that has already hit something
+                        // — and whichever is free keeps most of its velocity
+                        // (VehiclePhysics.WALL_SLIDE_KEEP); the one that is not
+                        // loses all of it. Both blocked, or a corner where both
+                        // are free but together are not, is a head-on stop.
+                        boolean alongX = step.dx() != 0 && !blocked(nextX, nextY, at.getZ(), box, state.yaw());
+                        boolean alongZ = step.dz() != 0 && !blocked(at.getX(), nextY, nextZ, box, state.yaw());
+                        if (alongX && alongZ) {
+                            // A corner clipped: keep the bigger component.
+                            alongZ = Math.abs(step.dz()) > Math.abs(step.dx());
+                            alongX = !alongZ;
+                        }
+                        if (alongX) {
+                            nextZ = at.getZ();
+                            state = state.deflected(false, true);
+                        } else if (alongZ) {
+                            nextX = at.getX();
+                            state = state.deflected(true, false);
+                        } else {
+                            nextX = at.getX();
+                            nextZ = at.getZ();
+                            state = state.stopped();
+                        }
                     }
                     // Either nothing was in the way, or the vehicle is already
                     // in something and refusing would only trap it.
@@ -2832,6 +2982,65 @@ public final class VehicleRuntime implements Listener {
          * system's own tick was a tick adrift whenever that tick ran first,
          * which at speed is half a block.
          */
+        /**
+         * Writes the body's attitude into a single-display model.
+         *
+         * <p>The rotation is composed ahead of the scale so it happens about
+         * the display's own origin — the anchor, half a block up — rather
+         * than about wherever the scale has moved the model's base to; the
+         * same order the animator uses for a rig, since the two have to look
+         * the same. Re-sent only when it has changed, and glided over the
+         * same window as the teleport that carries the position, so the
+         * body tilts as smoothly as it moves.
+         */
+        private void tiltModel(ItemDisplay display) {
+            Matrix4f m = tilted() ? attitude() : new Matrix4f();
+            if (info.scale() != 1) {
+                m.scaleLocal((float) info.scale());
+                m.translateLocal(0f, 0.5f * ((float) info.scale() - 1f), 0f);
+            }
+            Transformation next = RigMath.toTransformation(m);
+            if (next.equals(display.getTransformation())) {
+                return;
+            }
+            // The toggle re-arms the client's interpolation from the pose it
+            // is showing; see RigAnimator for why a plain zero does not.
+            display.setInterpolationDelay(1);
+            display.setInterpolationDelay(0);
+            display.setInterpolationDuration(MODEL_GLIDE_TICKS);
+            display.setTransformation(next);
+        }
+
+        /**
+         * Keeps the speedometer off the action bar for a moment, because
+         * something a driver should read has just been written there.
+         */
+        void hush() {
+            hushUntil = age + HUSH_TICKS;
+        }
+
+        /**
+         * The driver's speed, above their hotbar.
+         *
+         * <p>Ground speed rather than speed along the heading, in kilometres
+         * an hour, because a block is a metre and a drift is still moving.
+         * Only while moving: a parked car's dial reading zero is the action
+         * bar being occupied for nothing, and it would paint over whatever
+         * anything else wanted to say there.
+         */
+        private void showSpeed(Player driver) {
+            if (!speedometer || driver == null || age < hushUntil || age % SPEEDOMETER_TICKS != 0) {
+                return;
+            }
+            double ground = state.groundSpeed();
+            if (ground < VehiclePhysics.MOVING_THRESHOLD && !showedSpeed) {
+                return;
+            }
+            showedSpeed = ground >= VehiclePhysics.MOVING_THRESHOLD;
+            String colour = state.sliding() ? "&e" : "&7";
+            overhead(driver, colour + Math.round(ground * KMH) + " &8km/h");
+        }
+
         private void place(Entity chassis) {
             boolean asked = at.toVector().distanceSquared(chassis.getLocation().toVector()) > 1e-8;
             // The chassis never carries a passenger — the model, the mounts
@@ -2926,19 +3135,27 @@ public final class VehicleRuntime implements Listener {
                 // Every part to the SAME point, which is the rig invariant —
                 // a part's offset from the anchor lives in its transformation
                 // matrix, not in its position. The yaw goes to the rig's yaw
-                // host and turns the whole thing; see RigCarrier.
+                // host and turns the whole thing; see RigCarrier. The pitch
+                // and roll go into every part's matrix, ahead of its
+                // animation, so a spinning wheel spins on a tilted car.
                 rig.moveTo(modelAnchor(), modelYaw());
+                rig.tilt((float) state.pitch(), (float) state.roll());
             }
 
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
             if (model != null) {
                 Location where = modelAnchor();
                 where.setYaw(modelYaw());
-                // Stated rather than inherited. `at` carries no pitch now, but
-                // a display that ever acquires one is a vehicle lying on its
-                // side, and this is the line that makes that impossible.
+                // The ENTITY never pitches. The body's attitude is in the
+                // display's transformation instead, where it can roll as well
+                // as pitch and where the client interpolates it; an entity
+                // pitch would be a vehicle lying on its side with no way to
+                // lean it. This is the line that keeps the two apart.
                 where.setPitch(0);
                 model.teleport(where);
+                if (model instanceof ItemDisplay display) {
+                    tiltModel(display);
+                }
             }
 
             // The stuck check: asked to move, and the chassis did not. Three
