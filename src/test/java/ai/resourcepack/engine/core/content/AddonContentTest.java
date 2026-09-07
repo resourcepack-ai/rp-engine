@@ -55,9 +55,13 @@ class AddonContentTest {
         }
         assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).isEmpty(), "content errors: " + report.diagnostics());
         assertEquals(1, report.packs().size());
-        assertEquals(1, report.definitions(ContentKind.ITEM).size());
+        // The deck, plus a skatepark's worth of placeable pieces. Counted as
+        // "more than the board" rather than exactly, because the park is
+        // generated and grows; the board is what this test is about.
+        assertTrue(report.definitions(ContentKind.ITEM).size() >= 1,
+                "the deck should be there: " + report.definitions(ContentKind.ITEM).size());
         assertEquals(1, report.definitions(ContentKind.VEHICLE).size());
-        assertEquals(14, report.definitions(ContentKind.EMOTE).size());
+        assertEquals(18, report.definitions(ContentKind.EMOTE).size());
 
         VehicleDefinitions.Result vehicles = VehicleDefinitions.parse(report);
         for (Diagnostic diagnostic : vehicles.diagnostics()) {
@@ -71,9 +75,11 @@ class AddonContentTest {
             System.out.println("skateboards emote: " + diagnostic);
         }
         assertTrue(emotes.diagnostics().isEmpty(), "emote problems: " + emotes.diagnostics());
-        assertEquals(14, emotes.count());
+        assertEquals(18, emotes.count());
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_push"));
+        assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_pushback"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_tuck"));
+        assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_coffin"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_moving_goofy"));
     }
 

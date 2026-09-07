@@ -224,6 +224,33 @@ seat's `animations:` table until `undress` or they get out, and is worn over
 the seat's stance the way a state's emote is. The sprint key reaches you and
 nothing in the engine acts on it: it is yours to give a meaning.
 
+#### The sneak key, and keeping a rider on
+
+`keys.sneak()` reaches you too, but it is not free the way sprint is: **sneak
+is Minecraft's dismount.** Read it on its own and you see it on the tick the
+rider is also stepping off, which makes it useless for a trick. So ask to keep
+them:
+
+```java
+board.holdOccupant(player, true);   // when they get on
+...
+if (keys.sneak() && board.groundSpeed() > 2) board.dress(player, "myplugin_coffin");
+```
+
+**Ask once, when they mount.** The dismount happens on the tick the key goes
+down — earlier than your next tick task — so a hold applied after you first
+read `sneak()` is applied to somebody already standing in the road.
+
+**A held rider is never trapped.** The hold only bites while the vehicle is
+moving; below half a block a second the sneak dismount goes through exactly as
+it always did. "Stop, then step off" is the whole of what a rider has to
+learn, and a plugin that sets the hold and then crashes, unloads or forgets
+cannot strand anybody. It is dropped when they leave, so it never outlives the
+ride.
+
+Tell the rider what the key does now, somewhere they will read it. A vehicle
+whose shift key silently stopped working is a bug report.
+
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
 

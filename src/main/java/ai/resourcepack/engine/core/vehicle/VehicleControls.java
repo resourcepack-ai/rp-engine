@@ -136,6 +136,7 @@ public interface VehicleControls extends Listener {
             {"isRight", "right"},
             {"isJump", "jump"},
             {"isSprint", "sprint"},
+            {"isSneak", "sneak"},
         };
 
         private static final int FORWARD = 0;
@@ -144,6 +145,7 @@ public interface VehicleControls extends Listener {
         private static final int RIGHT = 3;
         private static final int JUMP = 4;
         private static final int SPRINT = 5;
+        private static final int SNEAK = 6;
 
         private final Method currentInput;
         private final Logger log;
@@ -262,7 +264,7 @@ public interface VehicleControls extends Listener {
             // meaning for it, and a plugin building a skateboard or a bike
             // on top of a vehicle does. See VehicleInput.
             return VehiclePhysics.Demand.steering(yaw, pitch, steer, throttle, lift, braking,
-                    pressed(resolved, SPRINT, input));
+                    pressed(resolved, SPRINT, input), pressed(resolved, SNEAK, input));
         }
 
         @Override
