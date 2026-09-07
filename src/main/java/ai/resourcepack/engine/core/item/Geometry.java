@@ -103,7 +103,7 @@ public final class Geometry {
 
         @Override
         public String toString() {
-            return width + "x" + height + " (" + shape.boxes().length + " boxes)";
+            return width + "x" + height + " (" + shape.size() + " boxes)";
         }
     }
 
@@ -255,21 +255,27 @@ public final class Geometry {
         }
         float[] lo = {Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE};
         float[] hi = {-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
-        List<float[]> boxes = new ArrayList<>();
+        List<ModelShape.Element> elementList = new ArrayList<>();
         boolean any = false;
         for (JsonElement element : elements.getAsJsonArray()) {
             if (!element.isJsonObject()) {
                 continue;
             }
             JsonObject cube = element.getAsJsonObject();
-            float[] box = boxOf(cube);
-            if (box == null) {
+            ModelShape.Element one = elementOf(cube);
+            if (one == null) {
                 continue;
             }
-            boxes.add(box);
-            for (int axis = 0; axis < 3; axis++) {
-                lo[axis] = Math.min(lo[axis], box[axis]);
-                hi[axis] = Math.max(hi[axis], box[axis + 3]);
+            elementList.add(one);
+            for (String key : new String[] {"from", "to"}) {
+                float[] point = corner(cube.get(key));
+                if (point == null) {
+                    continue;
+                }
+                for (int axis = 0; axis < 3; axis++) {
+                    lo[axis] = Math.min(lo[axis], point[axis]);
+                    hi[axis] = Math.max(hi[axis], point[axis]);
+                }
             }
             any = true;
         }
@@ -281,94 +287,44 @@ public final class Geometry {
         float width = Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 16f;
         float height = (hi[1] - lo[1]) / 16f;
         return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height),
-                ModelShape.ofModelUnits(boxes));
+                ModelShape.ofElements(elementList));
     }
 
     /**
-     * One element's box in model units, with any rotation folded into it, or
-     * null if the element has no readable corners.
+     * One element, transcribed rather than converted, or null if it has no
+     * readable corners.
      *
-     * <p><strong>A rotated element is bigger than its {@code from}/{@code to}
-     * says.</strong> The format stores an unrotated cube plus an angle, so the
-     * raw corners of a 45-degree slab describe a box the art sticks out of on
-     * both sides — and the builder's octagonal wheels are made of exactly that.
-     * Anything reading these to decide where the art IS therefore has to turn
-     * the corners, which is what this does: the four corners in the rotating
-     * plane, about the element's own origin, and the enclosing box of the
-     * result. Over-covering by a hair is invisible; under-covering is art you
-     * can walk through.
+     * <p><strong>The turn is passed on, not folded in.</strong> The format
+     * stores an unrotated cube plus an angle, and an earlier version of this
+     * enclosed the two in a box — which is several times the volume of a long
+     * thin element on the diagonal, so a handrail became an invisible wall a
+     * foot away from itself. {@link ModelShape} keeps the angle and turns the
+     * query instead.
      */
-    private static float[] boxOf(JsonObject cube) {
+    private static ModelShape.Element elementOf(JsonObject cube) {
         float[] from = corner(cube.get("from"));
         float[] to = corner(cube.get("to"));
         if (from == null || to == null) {
             return null;
         }
-        float[] box = {
-            Math.min(from[0], to[0]), Math.min(from[1], to[1]), Math.min(from[2], to[2]),
-            Math.max(from[0], to[0]), Math.max(from[1], to[1]), Math.max(from[2], to[2])};
+        float[] box = {from[0], from[1], from[2], to[0], to[1], to[2]};
 
         JsonElement rotation = cube.get("rotation");
         if (rotation == null || !rotation.isJsonObject()) {
-            return box;
+            return ModelShape.Element.of(box);
         }
         JsonObject turn = rotation.getAsJsonObject();
         float[] origin = corner(turn.get("origin"));
-        JsonElement axisName = turn.get("axis");
-        JsonElement angleValue = turn.get("angle");
-        if (origin == null || axisName == null || angleValue == null) {
-            return box;
+        JsonElement axis = turn.get("axis");
+        JsonElement angle = turn.get("angle");
+        if (origin == null || axis == null || angle == null) {
+            return ModelShape.Element.of(box);
         }
-        double angle;
         try {
-            angle = Math.toRadians(angleValue.getAsFloat());
+            return ModelShape.Element.turned(box, axis.getAsString(), angle.getAsFloat(), origin);
         } catch (RuntimeException e) {
-            return box;
+            return ModelShape.Element.of(box);
         }
-        if (angle == 0) {
-            return box;
-        }
-        // The two axes that actually move. x turns y/z, y turns z/x, z turns
-        // x/y — the third is untouched, so only four corners need turning.
-        int first;
-        int second;
-        switch (axisName.getAsString()) {
-            case "x" -> {
-                first = 1;
-                second = 2;
-            }
-            case "z" -> {
-                first = 0;
-                second = 1;
-            }
-            default -> {
-                first = 2;
-                second = 0;
-            }
-        }
-        double cos = Math.cos(angle);
-        double sin = Math.sin(angle);
-        float lowFirst = Float.MAX_VALUE;
-        float lowSecond = Float.MAX_VALUE;
-        float highFirst = -Float.MAX_VALUE;
-        float highSecond = -Float.MAX_VALUE;
-        for (int a = 0; a < 2; a++) {
-            for (int b = 0; b < 2; b++) {
-                double u = box[first + (a == 0 ? 0 : 3)] - origin[first];
-                double v = box[second + (b == 0 ? 0 : 3)] - origin[second];
-                float turnedFirst = (float) (origin[first] + u * cos - v * sin);
-                float turnedSecond = (float) (origin[second] + u * sin + v * cos);
-                lowFirst = Math.min(lowFirst, turnedFirst);
-                highFirst = Math.max(highFirst, turnedFirst);
-                lowSecond = Math.min(lowSecond, turnedSecond);
-                highSecond = Math.max(highSecond, turnedSecond);
-            }
-        }
-        box[first] = lowFirst;
-        box[first + 3] = highFirst;
-        box[second] = lowSecond;
-        box[second + 3] = highSecond;
-        return box;
     }
 
     /** Three numbers out of a JSON array, or null if it is not one. */

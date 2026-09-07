@@ -3044,23 +3044,50 @@ public final class VehicleRuntime implements Listener {
                                     double floor, double ceiling) {
             double best = Double.NaN;
             for (double[] offset : footprint(box, state.yaw())) {
-                double px = x + offset[0];
-                double pz = z + offset[1];
-                double top = BlockSurfaces.resting(world, px, y, pz, floor, ceiling);
+                double top = BlockSurfaces.resting(world, x + offset[0], y, z + offset[1],
+                        floor, ceiling);
                 if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
                     best = top;
                 }
-                // <strong>A model a vehicle can be stopped by is one it can also
-                // stand on, and that pairing is not optional.</strong> Without
-                // it a car that stepped up onto a low platform found nothing
-                // holding it there, fell back through, was stepped up again on
-                // the next tick, and bounced for as long as it sat on the
-                // thing — the same failure a snow layer used to cause, for the
-                // same reason.
-                double onModel = nearbyModels.topAt(px, pz,
-                        floor - BlockSurfaces.EPSILON, ceiling + BlockSurfaces.EPSILON);
-                if (!Double.isNaN(onModel) && (Double.isNaN(best) || onModel > best)) {
-                    best = onModel;
+            }
+            // <strong>A model a vehicle can be stopped by is one it can also
+            // stand on, and that pairing is not optional.</strong> Without it a
+            // car that stepped up onto a low platform found nothing holding it
+            // there, fell back through, was stepped up again on the next tick,
+            // and bounced for as long as it sat on the thing — the same failure
+            // a snow layer used to cause, for the same reason.
+            double onModel = modelTop(x, z, box, state.yaw(),
+                    floor - BlockSurfaces.EPSILON, ceiling + BlockSurfaces.EPSILON);
+            return Double.isNaN(onModel) || (!Double.isNaN(best) && best > onModel) ? best : onModel;
+        }
+
+        /**
+         * The highest placed-model surface anywhere under the vehicle, within a
+         * band.
+         *
+         * <p><strong>Over the SAME points {@link #blocked} tests, and that is
+         * the whole reason this is its own method.</strong> The two used
+         * different sample sets — five corners here, the dense perimeter there
+         * — and a staircase is exactly where that shows: the coarse pass
+         * measured a step at one height, the step-up moved the vehicle there,
+         * and the dense pass immediately found a step edge between two corners
+         * that was higher still. So every stair was "something in the way that
+         * is not a step", and vehicles stopped dead at the bottom of models
+         * they could obviously have driven up.
+         *
+         * <p>An answer about what a vehicle can climb has to be measured the
+         * same way as the answer about whether it fits once it has.
+         */
+        private double modelTop(double x, double z, VehicleHitbox box, double yaw,
+                                double floor, double ceiling) {
+            if (nearbyModels.isEmpty()) {
+                return Double.NaN;
+            }
+            double best = Double.NaN;
+            for (double[] offset : modelFootprint(box, yaw)) {
+                double top = nearbyModels.topAt(x + offset[0], z + offset[1], floor, ceiling);
+                if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
+                    best = top;
                 }
             }
             return best;
@@ -3077,23 +3104,20 @@ public final class VehicleRuntime implements Listener {
         private double obstructionAhead(double x, double y, double z, VehicleHitbox box, double yaw) {
             double best = Double.NaN;
             for (double[] offset : footprint(box, yaw)) {
-                double px = x + offset[0];
-                double pz = z + offset[1];
-                double top = BlockSurfaces.obstruction(world, px, pz, y, MAX_STEP_UP);
+                double top = BlockSurfaces.obstruction(world, x + offset[0], z + offset[1],
+                        y, MAX_STEP_UP);
                 if (!Double.isNaN(top) && (Double.isNaN(best) || top > best)) {
                     best = top;
                 }
-                // A low model is a kerb, not a wall — which is what makes the
-                // collidable default cost a rug or a manhole cover nothing: a
-                // vehicle drives onto it and over it rather than stopping dead
-                // at something an ankle high.
-                double onModel = nearbyModels.topAt(px, pz,
-                        y + BlockSurfaces.EPSILON, y + MAX_STEP_UP + BlockSurfaces.EPSILON);
-                if (!Double.isNaN(onModel) && (Double.isNaN(best) || onModel > best)) {
-                    best = onModel;
-                }
             }
-            return best;
+            // A low model is a kerb, not a wall — which is what makes the
+            // collidable default cost a rug or a manhole cover nothing: a
+            // vehicle drives onto it and over it rather than stopping dead at
+            // something an ankle high. Measured over the dense sample set, so
+            // this and `blocked` cannot disagree about a stair — see modelTop.
+            double onModel = modelTop(x, z, box, yaw,
+                    y + BlockSurfaces.EPSILON, y + MAX_STEP_UP + BlockSurfaces.EPSILON);
+            return Double.isNaN(onModel) || (!Double.isNaN(best) && best > onModel) ? best : onModel;
         }
 
         /**
