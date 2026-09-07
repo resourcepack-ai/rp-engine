@@ -212,7 +212,10 @@ if (board.is(VehicleState.AIRBORNE) && keys.left()) board.spin(-360);
 board.undress(player);                   // back to the seat's own table
 ```
 
-`input()` is the same demand the physics read, so your idea of "the driver
+`turnOccupant(player, 270.0)` turns one rider to face a different way from
+their seat — a goofy skater on a seat drawn for a regular one — with the rig,
+the camera and the seat's hitbox following; `null` hands them back to the
+seat. `input()` is the same demand the physics read, so your idea of "the driver
 pressed forward" and the engine's are on one tick; where the keys cannot be
 read (Spigot, or before 1.21.4) `keys()` is false and only `throttle()` means
 anything. `nudge` adds to the speed along the heading and `spin` to the yaw

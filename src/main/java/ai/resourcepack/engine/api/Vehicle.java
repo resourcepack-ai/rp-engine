@@ -322,6 +322,19 @@ public interface Vehicle {
     /** Hands an occupant back to their seat's own states. */
     void undress(Player occupant);
 
+    /**
+     * Turns an occupant to face {@code yaw} degrees clockwise from the
+     * vehicle's heading instead of the way their seat points, until cleared
+     * with {@code null} or they get out.
+     *
+     * <p>A seat's {@code yaw} is the pack's answer for everybody; this is one
+     * rider's. A skater's stance is the case it was made for: the same seat
+     * faces 90 for a regular rider and 270 for a goofy one, and which is a
+     * fact about the person, not the board. The rig, the camera and the
+     * clickable seat all follow.
+     */
+    void turnOccupant(Player occupant, Double yaw);
+
     /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
     double groundSpeed();
 

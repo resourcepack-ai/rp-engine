@@ -1607,6 +1607,21 @@ public final class VehicleRuntime implements Listener {
         private final Map<UUID, String> dressOverrides = new java.util.HashMap<>();
 
         /**
+         * Facings a plugin has given occupants instead of their seat's yaw —
+         * {@link Vehicle#turnOccupant}. Read wherever a seat's yaw is, and
+         * dropped when they get out.
+         */
+        private final Map<UUID, Double> yawOverrides = new java.util.HashMap<>();
+
+        /** The way seat {@code index}'s occupant faces: their override, or the seat's yaw. */
+        private double seatYaw(int index) {
+            VehicleSeat seat = info.seats().get(index);
+            UUID occupant = index < occupants.size() ? occupants.get(index) : null;
+            Double turned = occupant == null ? null : yawOverrides.get(occupant);
+            return turned != null ? turned : seat.yaw();
+        }
+
+        /**
          * Whether the last speedometer write was a moving one, so a vehicle
          * that has just stopped writes its zero once and then leaves the bar
          * alone.
@@ -2040,6 +2055,7 @@ public final class VehicleRuntime implements Listener {
             riders.remove(player);
             controls.forget(player);
             dressOverrides.remove(player);
+            yawOverrides.remove(player);
             undress(player);
             if (index < 0) {
                 return;
@@ -2142,6 +2158,19 @@ public final class VehicleRuntime implements Listener {
             } else {
                 speedLimit = blocksPerSecond;
                 driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
+            }
+            parked = false;
+        }
+
+        /** {@link Vehicle#turnOccupant}. */
+        void turnOccupant(UUID occupant, Double yaw) {
+            if (!occupants.contains(occupant)) {
+                return;
+            }
+            if (yaw == null || !Double.isFinite(yaw)) {
+                yawOverrides.remove(occupant);
+            } else {
+                yawOverrides.put(occupant, VehiclePhysics.wrap360(yaw));
             }
             parked = false;
         }
@@ -2257,7 +2286,7 @@ public final class VehicleRuntime implements Listener {
                     at.getX() + offset[0],
                     at.getY() + state.lift() + offset[1],
                     at.getZ() + offset[2]);
-            location.setYaw((float) VehiclePhysics.wrap360(yaw + seat.yaw()));
+            location.setYaw((float) VehiclePhysics.wrap360(yaw + seatYaw(index)));
             return location;
         }
 
@@ -2467,7 +2496,7 @@ public final class VehicleRuntime implements Listener {
                 // faces the way a player at that yaw would. See the note where
                 // MODEL_YAW_OFFSET is declared for the half turn that was here
                 // and why it went.
-                emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seat.yaw()));
+                emotes.face(player, (float) VehiclePhysics.wrap360(this.state.yaw() + seatYaw(i)));
                 // And whether their cape is drawn, on the same every-tick
                 // footing as their facing rather than once when they sit down:
                 // a rig can be re-put-on under this class (a state change, a
@@ -3731,6 +3760,14 @@ public final class VehicleRuntime implements Listener {
         @Override
         public void undress(Player occupant) {
             dress(occupant, null);
+        }
+
+        @Override
+        public void turnOccupant(Player occupant, Double yaw) {
+            Ride ride = ride();
+            if (ride != null && occupant != null) {
+                ride.turnOccupant(occupant.getUniqueId(), yaw);
+            }
         }
 
         @Override
