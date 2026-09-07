@@ -4,7 +4,11 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.BuildReport;
+import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.core.emote.AuthoredEmotes;
+import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.vehicle.VehicleDefinitions;
 import org.junit.jupiter.api.Assumptions;
@@ -13,6 +17,14 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,5 +74,57 @@ class AddonContentTest {
         assertEquals(7, emotes.count());
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_push"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_tuck"));
+    }
+
+    /**
+     * Builds the bundle the way the server does and checks the item can be
+     * DRAWN: its definition, its model, and every texture the model names.
+     *
+     * <p>A missing one of those is the black-and-purple item, and nothing in
+     * the loader says so - a texture reference is a string until a client
+     * tries to load it.
+     */
+    @Test
+    void theSkateboardIsDrawableFromTheBuiltPack() throws Exception {
+        Path content = ADDONS.resolve("skateboards/src/main/resources/content");
+        Assumptions.assumeTrue(Files.isDirectory(content), "no rpe-addons checkout beside the engine");
+        Path out = Files.createTempDirectory("skateboards-pack");
+
+        ContentRegistryImpl registry = new ContentRegistryImpl();
+        LoadReport report = new ContentFolderLoader(registry).load(content, ContentSource.AUTHORED);
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        for (Diagnostic diagnostic : built.diagnostics()) {
+            System.out.println("skateboards build: " + diagnostic);
+        }
+        assertTrue(built.diagnostics(Diagnostic.Severity.ERROR).isEmpty(), "build errors: " + built.diagnostics());
+        BuiltPack main = built.pack("main").orElseThrow();
+
+        Set<String> names = new HashSet<>();
+        JsonObject model = null;
+        try (ZipFile zip = new ZipFile(main.file().toFile())) {
+            java.util.Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                names.add(entry.getName());
+                if (entry.getName().equals("assets/skateboards/models/item/deck.json")) {
+                    model = JsonParser.parseReader(new InputStreamReader(zip.getInputStream(entry), StandardCharsets.UTF_8))
+                            .getAsJsonObject();
+                }
+            }
+        }
+        for (String name : names) {
+            if (name.startsWith("assets/skateboards/")) {
+                System.out.println("skateboards zip: " + name);
+            }
+        }
+        assertTrue(names.contains("assets/skateboards/items/deck.json"), "no item definition for the deck");
+        assertTrue(model != null, "no item model for the deck");
+        for (var texture : model.getAsJsonObject("textures").entrySet()) {
+            String ref = texture.getValue().getAsString();
+            String namespace = ref.contains(":") ? ref.substring(0, ref.indexOf(':')) : "minecraft";
+            String path = ref.contains(":") ? ref.substring(ref.indexOf(':') + 1) : ref;
+            String file = "assets/" + namespace + "/textures/" + path + ".png";
+            assertTrue(names.contains(file), "the deck's model names " + ref + " but the pack has no " + file);
+        }
     }
 }
