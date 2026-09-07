@@ -52,6 +52,46 @@ class ModelObstaclesTest {
                 new float[] {13, 0, 13, 15, 12, 15}));
     }
 
+    /** A step with a handrail standing over it, in one model. */
+    private static ModelShape stepWithRail() {
+        return ModelShape.ofModelUnits(List.of(
+                new float[] {0, 0, 0, 16, 4, 16},
+                new float[] {0, 20, 0, 16, 24, 16}));
+    }
+
+    /**
+     * <strong>The band picks among a column's surfaces rather than filtering
+     * the highest one afterwards.</strong> Filtering afterwards is how a
+     * handrail hid the tread beneath it: the rail was the highest top, the
+     * band rejected it as too high to climb, and the step-up was told there was
+     * nothing there — so the vehicle stopped at a stair as though at a wall.
+     *
+     * <p>It also inverted with height, which is what made it odd to report:
+     * the smaller the rise the narrower and lower the band, so the more
+     * reliably something above it won.
+     */
+    @Test
+    void aStepUnderARailIsStillSomethingToClimb() {
+        ModelObstacles placed = ModelObstacles.of(stepWithRail(), 10.5, 64, 20.5, 0, 1);
+
+        // A step-up's worth above the vehicle's base: the tread.
+        assertEquals(64.25, placed.topAt(10.5, 20.5, 64 + 1e-6, 65 + 1e-6), 1e-9);
+        // Reaching high enough for both, the rail wins — which is the same
+        // rule the blocks follow, and not what was broken.
+        assertEquals(65.5, placed.topAt(10.5, 20.5, 64 + 1e-6, 66), 1e-9);
+    }
+
+    /** The band is converted into the model's frame, so scale cannot skew it. */
+    @Test
+    void theBandFollowsTheModelsOwnScale() {
+        ModelObstacles big = ModelObstacles.of(stepWithRail(), 10.5, 64, 20.5, 0, 2);
+
+        // The tread is drawn twice as high, so a one-block band no longer
+        // reaches it and a two-block one does.
+        assertTrue(Double.isNaN(big.topAt(10.5, 20.5, 64 + 1e-6, 64.4)));
+        assertEquals(64.5, big.topAt(10.5, 20.5, 64 + 1e-6, 65), 1e-9);
+    }
+
     @Test
     void nothingIsInsideAnEmptySet() {
         assertTrue(ModelObstacles.NONE.isEmpty());

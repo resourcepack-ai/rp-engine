@@ -158,6 +158,30 @@ class GeometryShapeTest {
     }
 
     /**
+     * <strong>A column holds more than one surface, and the band has to pick
+     * among them rather than after them.</strong> This is the staircase with a
+     * handrail: the rail stands over the tread, so a reader that takes the
+     * single highest top gets the rail — and a caller that then rejects the
+     * rail for being too high to climb is left with nothing, and stops the
+     * vehicle at a step it could have driven up.
+     */
+    @Test
+    void aColumnReportsTheHighestSurfaceInsideTheBand() {
+        ModelShape stepWithRail = shapeOf("""
+                {"textures":{},"elements":[
+                  {"from":[0,0,0],"to":[16,4,16]},
+                  {"from":[0,20,0],"to":[16,24,16]}]}
+                """);
+
+        // Everything: the rail wins, as it should.
+        assertEquals(24f / 16f, stepWithRail.topAt(0, 0), 1e-6);
+        // A step's worth above the floor: the TREAD, not nothing.
+        assertEquals(4f / 16f, stepWithRail.topAt(0, 0, 1e-6, 1.0), 1e-6);
+        // And nothing at all where the model genuinely has none.
+        assertTrue(Double.isNaN(stepWithRail.topAt(0, 0, 1.6, 2.0)));
+    }
+
+    /**
      * A staircase, which is the shape this was reopened for. Each tread is a
      * surface at its own height, and none of them is a wall.
      */
