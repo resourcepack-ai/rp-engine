@@ -591,7 +591,7 @@ hatchback:
   acceleration: 7.5         # how fast it gets there
   turn-speed: 140           # degrees per second the body swings round
   turn-in-place: false      # optional - can it turn while standing still?
-  weight: 14                # 1-100. Heavier is slower to get going
+  weight: 14                # 1-100. Slower to get going, and harder to shove
   scale: 1                  # how many times its built size it is drawn
   jump: false               # land only: space jumps instead of braking
   hitbox:                   # what players click to get in, in blocks
@@ -1133,16 +1133,24 @@ Two honest limits:
 - **It stops at a wall rather than sliding along it.** Driving into a building
   brings you to a halt. Land vehicles step up one block, like a player.
 - **The hitbox is a shape, not a bounding box.** It decides what you click to
-  get in and which blocks stop the vehicle. What it is NOT is a box other
-  things collide with of their own accord — a plugin cannot give an entity a
-  bounding box of its own size, so a vehicle does not physically block an
-  arrow, a minecart, or somebody walking into it.
+  get in, which blocks stop the vehicle, and — see below — where another
+  vehicle hits this one. What it is NOT is a box the GAME knows about: a plugin
+  cannot give an entity a bounding box of its own size, so a vehicle does not
+  physically block an arrow, a minecart, or somebody walking into it.
 - **A vehicle passes through players and shoves mobs.** Set
   `vehicles.push-players` in `config.yml` if you want it to shove people too;
   it is off because cars nudging each other's drivers about in a car park, and
   a passenger being flung as they get out, are both worse than driving through
   somebody. Nothing invisible ever blocks anybody — the seats have no collision
   at all.
+- **Two vehicles DO collide with each other**, and that one is not a limit —
+  it is worked out from the hitboxes above and `weight:`. What each comes away
+  with depends on how fast they were closing, which way round they met, how far
+  off centre the hit landed and what the two of them weigh, so a lorry shunts a
+  hatchback out of the way and hardly slows, a clip on the corner spins you and
+  a square rear-ending does not, and at a crawl it becomes pushing rather than
+  bumping. `vehicles.collide: false` in `config.yml` turns it off for a server
+  that would rather they passed through each other.
 - **Speed above about 20 blocks a second stops looking right for passengers.**
   Their position is broadcast twenty times a second and their own client fills
   in the gaps, so past a point they lag the vehicle however fast the server

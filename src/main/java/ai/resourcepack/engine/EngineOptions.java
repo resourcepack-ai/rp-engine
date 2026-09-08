@@ -52,7 +52,8 @@ final class EngineOptions {
                     config.getBoolean("vehicles.push-players", false),
                     config.getBoolean("vehicles.seat-rig", true),
                     config.getBoolean("vehicles.debug-seats", false),
-                    config.getBoolean("vehicles.speedometer", true));
+                    config.getBoolean("vehicles.speedometer", true),
+                    config.getBoolean("vehicles.collide", true));
         }
     }
 
