@@ -57,6 +57,8 @@ public final class VehicleInfo {
     private final boolean animationFollowsSpeed;
     private final boolean wallRide;
     private final boolean speedometer;
+    private final double coast;
+    private final VehicleBail bail;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
@@ -64,7 +66,10 @@ public final class VehicleInfo {
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
                         double scale, boolean jumps, boolean turnInPlace,
                         Map<VehicleState, String> sounds, boolean capes,
-                        boolean animationFollowsSpeed, boolean wallRide, boolean speedometer) {
+                        boolean animationFollowsSpeed, boolean wallRide, boolean speedometer,
+                        double coast, VehicleBail bail) {
+        this.coast = Double.isFinite(coast) && coast >= 0 ? coast : 0;
+        this.bail = bail;
         this.animationFollowsSpeed = animationFollowsSpeed;
         this.wallRide = wallRide;
         this.speedometer = speedometer;
@@ -122,7 +127,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true);
+                false, false, true, 0, null);
     }
 
     /**
@@ -159,7 +164,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true);
+                false, false, true, 0, null);
     }
 
     /**
@@ -348,7 +353,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**
@@ -365,7 +370,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**
@@ -383,7 +388,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed, wallRide, speedometer);
+                copy, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**
@@ -439,6 +444,58 @@ public final class VehicleInfo {
         return speedometer;
     }
 
+    /**
+     * How quickly this vehicle slows when nobody is driving it, blocks a
+     * second squared, or 0 for the engine's own answer.
+     *
+     * <p><strong>A skateboard coasts and a tractor does not.</strong> The
+     * engine's floor is a car's: a vehicle with nobody on the throttle rolls
+     * to a stop in a few seconds, which is right for everything with an engine
+     * in it and wrong for everything without one. Before this, the only way to
+     * build something that rolls was a plugin handing the speed back twenty
+     * times a second - a lot of machinery for a number.
+     *
+     * <p>Small numbers roll far: 0.15 is a skateboard on smooth concrete, 0.6
+     * a bicycle, 2 a shopping trolley with a bad wheel. It replaces the
+     * engine's floor rather than the whole of the drag, so a vehicle whose own
+     * acceleration implies more than this still gets that.
+     */
+    public double coast() {
+        return coast;
+    }
+
+    /** The same vehicle, coasting like that. See {@link #coast()}. */
+    public VehicleInfo withCoast(double coast) {
+        if (coast == this.coast) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+    }
+
+    /**
+     * What happens to a rider who lands this badly, or null for nothing.
+     *
+     * <p>Off unless a pack asks for it. A vehicle that throws its rider is a
+     * game rule rather than a physical fact, and a server owner who never
+     * asked for one should not find it under somebody at speed. See
+     * {@link VehicleBail}.
+     */
+    public VehicleBail bail() {
+        return bail;
+    }
+
+    /** The same vehicle, bailing (or not) on a bad landing. See {@link #bail()}. */
+    public VehicleInfo withBail(VehicleBail bail) {
+        if (bail == this.bail) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+    }
+
     /** The same vehicle, showing (or not) its driver's speed. See {@link #speedometer()}. */
     public VehicleInfo withSpeedometer(boolean speedometer) {
         if (speedometer == this.speedometer) {
@@ -446,7 +503,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
@@ -456,7 +513,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
@@ -466,7 +523,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -476,7 +533,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**
@@ -499,7 +556,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**
@@ -526,7 +583,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
     }
 
     /**

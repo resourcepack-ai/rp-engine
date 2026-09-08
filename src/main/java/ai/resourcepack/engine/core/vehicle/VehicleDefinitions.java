@@ -9,6 +9,7 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleFlight;
 import ai.resourcepack.engine.api.VehicleHitbox;
+import ai.resourcepack.engine.api.VehicleBail;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -143,6 +144,10 @@ public final class VehicleDefinitions {
         // See VehicleInfo.wallRide: a decision about what the vehicle is,
         // rather than a cost, which is why it is opt-in.
         boolean wallRide = body.bool("wall-ride").orElse(false);
+        // 0 means "the engine's own answer", which is what every vehicle
+        // written before this had.
+        double coast = body.decimal("coast").orElse(0.0);
+        VehicleBail bail = bail(body, definition.id(), origin, diagnostics);
         // A driver is shown their speed unless the pack says otherwise, which
         // is what every vehicle written before this key existed did. Opt-OUT
         // rather than opt-in for that reason, and because a dashboard is the
@@ -298,6 +303,8 @@ public final class VehicleDefinitions {
                 .withTurnInPlace(turnInPlace)
                 .withAnimationFollowsSpeed(animationFollowsSpeed)
                 .withWallRide(wallRide)
+                .withCoast(coast)
+                .withBail(bail)
                 .withSpeedometer(speedometer)
                 .withSounds(sounds(body, origin, where, diagnostics))
                 .withCapes(capes));
@@ -360,6 +367,36 @@ public final class VehicleDefinitions {
      * @param example a whole line they could copy, which is the part of a
      *                diagnostic people actually use
      */
+    /**
+     * {@code bail:}, which throws a rider who lands a long way round from the
+     * way they were going.
+     *
+     * <p>Absent is null and null is nothing at all: this is opt-in, because a
+     * vehicle that throws its rider is a rule a pack chooses rather than a
+     * fact about the world. {@code bail: true} takes the defaults, which are
+     * a skateboard's.
+     */
+    private static VehicleBail bail(DefinitionNode body, ContentId id, String origin,
+                                    List<Diagnostic> diagnostics) {
+        Optional<Boolean> simple = body.bool("bail");
+        Optional<DefinitionNode> declared = body.node("bail");
+        if (declared.isEmpty()) {
+            return simple.orElse(Boolean.FALSE)
+                    ? new VehicleBail(50, 130, 3.0, 1.0)
+                    : null;
+        }
+        DefinitionNode node = declared.get();
+        double from = node.decimal("from").orElse(50.0);
+        double to = node.decimal("to").orElse(130.0);
+        if (to < from) {
+            diagnostics.add(Diagnostic.warning(origin, id.path(),
+                    "bail.to (" + to + ") is below bail.from (" + from + "); nothing will bail."));
+        }
+        return new VehicleBail(from, to,
+                node.decimal("min-speed").orElse(3.0),
+                node.decimal("damage").orElse(1.0));
+    }
+
     private static Map<VehicleState, String> stateMap(DefinitionNode body, String key, String what,
                                                       String example, String origin, String where,
                                                       List<Diagnostic> diagnostics) {
