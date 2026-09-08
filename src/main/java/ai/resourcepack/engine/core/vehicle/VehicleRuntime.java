@@ -1692,6 +1692,9 @@ public final class VehicleRuntime implements Listener {
         /** When the last "why not" was sent to the driver. See {@link #tell}. */
         private long wallWhyAt;
 
+        /** When the wall probe last wrote a line to the console. See {@link #trace}. */
+        private long wallTraceAt;
+
         /**
          * Emotes a plugin has put on occupants over their seat's states —
          * {@link Vehicle#dress}. Consulted by {@link #dressOccupants} ahead
@@ -3031,8 +3034,10 @@ public final class VehicleRuntime implements Listener {
             Double left = wallAt(-1);
             Double right = wallAt(1);
             if (left == null && right == null) {
+                trace(speed, null, null);
                 return null;
             }
+            trace(speed, left, right);
             if (speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
                 tell(String.format(java.util.Locale.ROOT, "Too slow to hold the wall: %.1f, needs %.1f",
                         speed, VehiclePhysics.WALL_RIDE_MIN_SPEED));
@@ -3063,6 +3068,29 @@ public final class VehicleRuntime implements Listener {
         }
 
         /**
+         * What the wall probe saw this tick, on the console, while somebody is
+         * riding a wall-riding vehicle through the air.
+         *
+         * <p>Temporary in spirit and cheap in fact - it only runs for a
+         * vehicle that says {@code wall-ride}, only while it is off the
+         * ground, and only twice a second. It is here because the first three
+         * attempts at this mechanic were debugged by guessing, which cost an
+         * evening.
+         */
+        private void trace(double speed, Double left, Double right) {
+            long now = world.getGameTime();
+            if (driver() == null || now - wallTraceAt < 10) {
+                return;
+            }
+            wallTraceAt = now;
+            log.info(String.format(java.util.Locale.ROOT,
+                    "[wallride] airborne at %.1f,%.1f,%.1f speed %.1f yaw %.0f left %s right %s",
+                    at.getX(), at.getY(), at.getZ(), speed, state.yaw(),
+                    left == null ? "-" : String.format(java.util.Locale.ROOT, "%.0f", left),
+                    right == null ? "-" : String.format(java.util.Locale.ROOT, "%.0f", right)));
+        }
+
+        /**
          * Tells the driver why the wall they are alongside did not take them.
          *
          * <p>Only when there IS a wall - an ordinary jump in an empty field
@@ -3075,11 +3103,17 @@ public final class VehicleRuntime implements Listener {
         private void tell(String why) {
             Player driver = driver();
             long now = world.getGameTime();
-            if (driver == null || now - wallWhyAt < 10) {
+            if (driver == null || now - wallWhyAt < 20) {
                 return;
             }
             wallWhyAt = now;
-            overhead(driver, why);
+            // CHAT, not the action bar. The action bar is where the
+            // speedometer lives and it is written every tick, so anything else
+            // sent there is overwritten before a human eye can read it - which
+            // is exactly what happened to the first version of this: it looked
+            // like the mechanic was silent when it had been talking all along.
+            driver.sendMessage(ChatColor.GRAY + why);
+            log.info("[wallride] " + info.id() + " " + why);
         }
 
         /**
