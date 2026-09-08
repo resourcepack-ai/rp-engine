@@ -406,23 +406,28 @@ public final class VehiclePhysics {
      * How fast a vehicle has to be going, blocks a second, to hold itself on a
      * wall.
      *
-     * <p>A wall ride is momentum against gravity and nothing else, so the
-     * number is what makes it feel earned rather than sticky: below this the
-     * wall lets go and the vehicle drops off it. Roughly half a skateboard's
-     * cruising speed.
+     * <p>Deliberately LOW. It was four and a half, on the theory that a wall
+     * ride should feel earned, and the result was a trick nobody could start:
+     * a rider cannot tell by eye whether they are doing four or five blocks a
+     * second, so every attempt failed for a reason they could not see. Speed
+     * still matters - it is what a ride runs OUT of, and a slow one ends
+     * almost at once - but running out of it is far better feedback than
+     * being refused.
      */
-    public static final double WALL_RIDE_MIN_SPEED = 4.5;
+    public static final double WALL_RIDE_MIN_SPEED = 2.0;
 
     /**
      * How far off parallel a vehicle may hit a wall and still ride it,
      * degrees.
      *
-     * <p>Hitting a wall square on is a crash; sliding along it at a few
-     * degrees is a wall ride. Forty-five is the line between the two, and it
-     * is generous on purpose: the yaw is snapped onto the wall once the ride
-     * starts, so an approach that was nearly right becomes right.
+     * <p>Only a square-on hit is refused now. Forty-five was the first answer
+     * and it was wrong for the same reason the speed was: a rider cannot see
+     * the angle they are carrying, so a near miss is indistinguishable from
+     * the mechanic being broken. The heading is snapped onto the wall the
+     * moment a ride starts, so a steep approach simply becomes a ride that
+     * begins with a hard turn - which is what a wall ride looks like anyway.
      */
-    public static final double WALL_RIDE_MAX_ANGLE = 45;
+    public static final double WALL_RIDE_MAX_ANGLE = 80;
 
     /** How far the body rolls over onto the wall, degrees. Nearly flat against it. */
     public static final double WALL_RIDE_ROLL = 80;
