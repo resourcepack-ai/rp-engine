@@ -278,17 +278,25 @@ public final class VehicleRuntime implements Listener {
      * enough that the hair of clearance the collision resolver leaves does not
      * read as open air.
      */
-    private static final double WALL_REACH = 1.1;
+    /** How many degrees of the bodywork's lean a rider absorbs. See Ride.ridden. */
+    private static final double RIDER_LEAN_SLACK = 8.0;
+
+    private static final double WALL_REACH = 1.2;
 
     /**
-     * How far up the wall has to be there, in blocks above the vehicle's base.
+     * Where beside the vehicle the wall has to be solid, in blocks relative to
+     * its own base.
      *
-     * <p>Two samples, low and high: a wall ride wants a wall, and a kerb, a
-     * fence post or a single slab is not one. Riding along the top edge of a
-     * one-block ledge would look like the board floating beside a step.
+     * <p>Both samples are AT the vehicle or BELOW it, and having them above is
+     * why this could not be started at first. Asking for solid a block ABOVE
+     * the vehicle asks for wall above wherever the jump got to - so a rider
+     * who clears a two-block wall and comes down its face finds nothing up
+     * there and is refused the ride they are obviously having. Below still
+     * tells a wall from a kerb: level with a kerb's top there is nothing
+     * beside you at all.
      */
-    private static final double WALL_LOW = 0.2;
-    private static final double WALL_HIGH = 1.2;
+    private static final double WALL_LOW = -0.5;
+    private static final double WALL_HIGH = 0.1;
 
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
@@ -1681,6 +1689,9 @@ public final class VehicleRuntime implements Listener {
          */
         private VehiclePhysics.Wall wall;
 
+        /** When the last "why not" was sent to the driver. See {@link #tell}. */
+        private long wallWhyAt;
+
         /**
          * Emotes a plugin has put on occupants over their seat's states —
          * {@link Vehicle#dress}. Consulted by {@link #dressOccupants} ahead
@@ -2249,6 +2260,24 @@ public final class VehicleRuntime implements Listener {
                 driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
             }
             parked = false;
+        }
+
+        /**
+         * How much of the bodywork's angle the RIDER takes, degrees.
+         *
+         * <p>Not all of it. Somebody on a thing that leans stays more upright
+         * than the thing does - they counter-balance, which is most of what
+         * riding something is - so the first {@link #RIDER_LEAN_SLACK} degrees
+         * are theirs to absorb and everything past that they go over with. A
+         * car cornering at fourteen degrees leaves its driver at six, which
+         * reads as somebody sitting in a car; a board rolled eighty onto a
+         * wall leaves its rider at seventy-two, which reads as a wall ride.
+         * Handing over the whole angle made every ordinary corner look like a
+         * crash.
+         */
+        private static double ridden(double degrees) {
+            double past = Math.abs(degrees) - RIDER_LEAN_SLACK;
+            return past <= 0 ? 0 : Math.copySign(past, degrees);
         }
 
         /** {@link Vehicle#wallRiding}. */
@@ -2981,9 +3010,8 @@ public final class VehicleRuntime implements Listener {
                 // thrown up and away from the wall, which is the whole reason
                 // State.kicked exists. Deliberately BEFORE the "is it still
                 // there" test, so a kick works even at the end of a wall.
-                int side = wall.side();
                 state = state.kicked(VehiclePhysics.JUMP_SPEED,
-                        -side * VehiclePhysics.WALL_RIDE_KICK);
+                        -wall.side() * VehiclePhysics.WALL_RIDE_KICK);
                 return null;
             }
             if (wall != null) {
@@ -2993,25 +3021,65 @@ public final class VehicleRuntime implements Listener {
                         ? new VehiclePhysics.Wall(wall.side(), wall.yaw())
                         : null;
             }
-            if (supported || speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
+            if (supported) {
                 return null;
             }
+
+            // Which walls are there, before asking anything about them: a
+            // vehicle in mid-air with nothing beside it is the ordinary case
+            // and says nothing to anybody.
+            Double left = wallAt(-1);
+            Double right = wallAt(1);
+            if (left == null && right == null) {
+                return null;
+            }
+            if (speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
+                tell(String.format(java.util.Locale.ROOT, "Too slow to hold the wall: %.1f, needs %.1f",
+                        speed, VehiclePhysics.WALL_RIDE_MIN_SPEED));
+                return null;
+            }
+            double heading = state.yaw();
+            Double closest = null;
             for (int side : new int[] {-1, 1}) {
-                Double along = wallAt(side);
+                Double along = side < 0 ? left : right;
                 if (along == null) {
                     continue;
                 }
                 // The wall's line runs both ways; the one being ridden is
                 // whichever is nearer the way the vehicle is already going.
-                double heading = state.yaw();
                 double one = Math.abs(VehiclePhysics.wrap180(along - heading));
                 double other = Math.abs(VehiclePhysics.wrap180(along + 180 - heading));
-                if (Math.min(one, other) > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
+                double off = Math.min(one, other);
+                if (off > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
+                    closest = closest == null ? off : Math.min(closest, off);
                     continue;
                 }
                 return new VehiclePhysics.Wall(side, one <= other ? along : along + 180);
             }
+            tell(String.format(java.util.Locale.ROOT,
+                    "Too square onto the wall: %.0f degrees off it, needs %.0f",
+                    closest == null ? 90.0 : closest, VehiclePhysics.WALL_RIDE_MAX_ANGLE));
             return null;
+        }
+
+        /**
+         * Tells the driver why the wall they are alongside did not take them.
+         *
+         * <p>Only when there IS a wall - an ordinary jump in an empty field
+         * says nothing - and only for the two failures a rider can do
+         * something about: too slow, or too square onto it. A mechanic with
+         * silent ways to fail is one nobody can learn, and "you were sixty
+         * degrees off" is the difference between practising it and giving up
+         * on it. Twice a second at most, so it reads rather than flickers.
+         */
+        private void tell(String why) {
+            Player driver = driver();
+            long now = world.getGameTime();
+            if (driver == null || now - wallWhyAt < 10) {
+                return;
+            }
+            wallWhyAt = now;
+            overhead(driver, why);
         }
 
         /**
@@ -3687,9 +3755,11 @@ public final class VehicleRuntime implements Listener {
                         double seatRadians = Math.toRadians(seatYaw(i));
                         double cos = Math.cos(seatRadians);
                         double sin = Math.sin(seatRadians);
+                        double leanPitch = ridden(state.pitch());
+                        double leanRoll = ridden(state.roll());
                         emotes.lean(rider,
-                                (float) (state.pitch() * cos + state.roll() * sin),
-                                (float) (state.roll() * cos - state.pitch() * sin));
+                                (float) (leanPitch * cos + leanRoll * sin),
+                                (float) (leanRoll * cos - leanPitch * sin));
                     }
                 }
                 reportSeat(i, rider, mount);
