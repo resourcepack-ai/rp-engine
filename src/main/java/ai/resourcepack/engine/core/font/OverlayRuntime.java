@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.font;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.OverlayInfo;
+import ai.resourcepack.engine.api.OverlayTrigger;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -63,6 +64,14 @@ public final class OverlayRuntime {
     private final Overlays overlays;
     private final Map<UUID, Set<ContentId>> worn = new ConcurrentHashMap<>();
     private final Map<UUID, Map<String, String>> values = new ConcurrentHashMap<>();
+    /**
+     * Which overlays a STATE trigger put on, per player.
+     *
+     * <p>Kept apart from {@link #worn} so a trigger only ever takes off what it
+     * itself put on. Without it, standing up out of a crouch would remove an
+     * overlay a plugin had shown deliberately.
+     */
+    private final Map<UUID, Set<ContentId>> triggered = new ConcurrentHashMap<>();
     private BukkitTask task;
 
     public OverlayRuntime(Overlays overlays) {
@@ -85,21 +94,136 @@ public final class OverlayRuntime {
         }
         worn.clear();
         values.clear();
+        triggered.clear();
     }
 
     private void tick() {
-        for (Map.Entry<UUID, Set<ContentId>> entry : worn.entrySet()) {
-            Player viewer = org.bukkit.Bukkit.getPlayer(entry.getKey());
-            if (viewer == null || !viewer.isOnline()) {
-                // Left. Their set goes with them rather than being kept for a
-                // return: an overlay is something a caller put on, and a caller
-                // that wants it back on login says so from a join handler.
-                worn.remove(entry.getKey());
-                values.remove(entry.getKey());
-                continue;
-            }
+        // Over the ONLINE players rather than over who is wearing something:
+        // a state trigger has to be able to turn an overlay ON for somebody
+        // wearing nothing, which a loop over wearers can never do.
+        for (Player viewer : org.bukkit.Bukkit.getOnlinePlayers()) {
+            applyStateTriggers(viewer);
             draw(viewer);
         }
+        // Anyone who left takes their set with them. An overlay is something a
+        // caller put on; a caller that wants it back on login has a JOIN
+        // trigger or a join handler.
+        worn.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
+        values.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
+        triggered.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
+    }
+
+    /**
+     * Turns state-triggered overlays on and off for one player.
+     *
+     * <p>Only ever touches overlays it put there itself — {@link #triggered} is
+     * that record. Without it, crouching once and standing up would take off an
+     * overlay a plugin had shown deliberately, and the two ways in would fight
+     * over the same screen.
+     */
+    private void applyStateTriggers(Player viewer) {
+        Set<ContentId> mine = triggered.computeIfAbsent(viewer.getUniqueId(),
+                key -> Collections.synchronizedSet(new LinkedHashSet<>()));
+        for (ContentId id : overlays.hudIds()) {
+            Optional<OverlayInfo> info = overlays.hud(id);
+            if (info.isEmpty()) {
+                continue;
+            }
+            List<OverlayTrigger> triggers = info.get().triggers();
+            if (triggers.isEmpty()) {
+                continue;
+            }
+            boolean wanted = false;
+            boolean hasState = false;
+            for (OverlayTrigger trigger : triggers) {
+                if (!trigger.isState()) {
+                    continue;
+                }
+                hasState = true;
+                if (holds(viewer, trigger)) {
+                    wanted = true;
+                    break;
+                }
+            }
+            if (!hasState) {
+                continue;
+            }
+            if (wanted && mine.add(id)) {
+                show(viewer, id);
+            } else if (!wanted && mine.remove(id)) {
+                hide(viewer, id);
+            }
+        }
+    }
+
+    /** Whether one rule holds for this player, right now. */
+    private static boolean holds(Player viewer, OverlayTrigger trigger) {
+        if (!trigger.permission().isEmpty() && !viewer.hasPermission(trigger.permission())) {
+            return false;
+        }
+        switch (trigger.kind()) {
+            case ALWAYS:
+                return true;
+            case SNEAK:
+                return viewer.isSneaking();
+            case HOLDING:
+                return holding(viewer, trigger.item());
+            default:
+                // JOIN is not a state and never reaches here.
+                return false;
+        }
+    }
+
+    /**
+     * Whether they are holding the named item, in either hand.
+     *
+     * <p>Matched on the VANILLA MATERIAL, case-insensitively, so
+     * {@code diamond_sword} and {@code DIAMOND_SWORD} both work. A custom
+     * item's content id does NOT match yet — that needs the item registry,
+     * which this class deliberately does not hold — so a rule naming one never
+     * fires. That is a gap rather than a trap: nothing throws, and a server
+     * owner sees an overlay that does not appear rather than a broken one.
+     */
+    private static boolean holding(Player viewer, String item) {
+        return matches(viewer.getInventory().getItemInMainHand(), item)
+                || matches(viewer.getInventory().getItemInOffHand(), item);
+    }
+
+    private static boolean matches(org.bukkit.inventory.ItemStack stack, String item) {
+        if (stack == null || stack.getType().isAir()) {
+            return false;
+        }
+        return stack.getType().name().equalsIgnoreCase(item);
+    }
+
+    /**
+     * Fires the JOIN triggers for a player who has just arrived.
+     *
+     * <p>A moment rather than a state, so this is a one-shot: what it shows
+     * stays until something hides it, and nothing here takes it off again.
+     */
+    public void onJoin(Player viewer) {
+        for (ContentId id : overlays.hudIds()) {
+            overlays.hud(id).ifPresent(info -> {
+                for (OverlayTrigger trigger : info.triggers()) {
+                    if (trigger.kind() == OverlayTrigger.Kind.JOIN && holds(viewer, joinAsState(trigger))) {
+                        show(viewer, id);
+                        return;
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * A JOIN rule as something {@link #holds} can answer.
+     *
+     * <p>{@code holds} switches on the kind and JOIN is not a state, so asking
+     * it directly would always be false. What a JOIN rule still has is its
+     * permission gate, and this is how that one part gets asked.
+     */
+    private static OverlayTrigger joinAsState(OverlayTrigger trigger) {
+        return OverlayTrigger.of(OverlayTrigger.Kind.ALWAYS, trigger.item(), trigger.permission());
     }
 
     /** Draws whatever this player is wearing, right now. */
@@ -156,6 +280,10 @@ public final class OverlayRuntime {
             return;
         }
         worn.remove(viewer.getUniqueId());
+        // Forgotten too, or a state trigger that is still holding would not
+        // put its overlay back: `applyStateTriggers` only shows what it has not
+        // already recorded as shown.
+        triggered.remove(viewer.getUniqueId());
     }
 
     public boolean isShowing(Player viewer, ContentId id) {

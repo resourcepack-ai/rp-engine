@@ -1333,6 +1333,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         announcePresence(event.getPlayer(), true);
         delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
+        // JOIN-triggered overlays, a tick later. The pack is still being
+        // applied at this moment — `delivery.apply` above is what starts it —
+        // and an overlay drawn before the client has the font is a run of
+        // missing-glyph boxes. One tick is enough to be after the join and is
+        // not a guess about download time: the redraw loop puts it right on its
+        // next pass either way, so the worst case here is that it appears a
+        // second late rather than wrong.
+        getServer().getScheduler().runTask(this, () -> {
+            if (event.getPlayer().isOnline()) {
+                overlayRuntime.onJoin(event.getPlayer());
+            }
+        });
     }
 
     @EventHandler
