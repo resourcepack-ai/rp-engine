@@ -359,6 +359,17 @@ public interface Vehicle {
      */
     void holdOccupant(Player occupant, boolean hold);
 
+    /**
+     * Whether this vehicle is riding a wall right now.
+     *
+     * <p>Always false for a vehicle whose definition does not say
+     * {@code wall-ride: true}. A ride starts on its own when one hits a wall
+     * fast enough and shallow enough, and ends when the speed or the wall
+     * does; there is nothing to start or stop from out here, only this to ask
+     * — which is what a plugin needs to dress its rider for it.
+     */
+    boolean wallRiding();
+
     /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
     double groundSpeed();
 

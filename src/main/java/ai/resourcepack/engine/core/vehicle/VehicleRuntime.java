@@ -270,6 +270,26 @@ public final class VehicleRuntime implements Listener {
      */
     private static final double HOLD_RELEASE_SPEED = VehiclePhysics.REVERSE_THRESHOLD;
 
+    /**
+     * How far to either side a wall counts as one to ride, in blocks.
+     *
+     * <p>Measured from the vehicle's centre, so it is half a hitbox plus a
+     * little: close enough that you have to actually go at the wall, far
+     * enough that the hair of clearance the collision resolver leaves does not
+     * read as open air.
+     */
+    private static final double WALL_REACH = 0.9;
+
+    /**
+     * How far up the wall has to be there, in blocks above the vehicle's base.
+     *
+     * <p>Two samples, low and high: a wall ride wants a wall, and a kerb, a
+     * fence post or a single slab is not one. Riding along the top edge of a
+     * one-block ledge would look like the board floating beside a step.
+     */
+    private static final double WALL_LOW = 0.4;
+    private static final double WALL_HIGH = 1.6;
+
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
 
@@ -1652,6 +1672,16 @@ public final class VehicleRuntime implements Listener {
         private double animationPhase;
 
         /**
+         * The wall this vehicle is riding, or null. Held across ticks rather
+         * than re-decided from scratch each one: STARTING a ride asks a lot
+         * (fast enough, off the ground, shallow enough) and CONTINUING one
+         * asks little (still fast, wall still there), which is what makes a
+         * ride something you commit to rather than something that flickers on
+         * and off along a bumpy wall.
+         */
+        private VehiclePhysics.Wall wall;
+
+        /**
          * Emotes a plugin has put on occupants over their seat's states —
          * {@link Vehicle#dress}. Consulted by {@link #dressOccupants} ahead
          * of the state table, and dropped when they get out.
@@ -2219,6 +2249,11 @@ public final class VehicleRuntime implements Listener {
                 driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
             }
             parked = false;
+        }
+
+        /** {@link Vehicle#wallRiding}. */
+        boolean wallRiding() {
+            return wall != null;
         }
 
         /** {@link Vehicle#holdOccupant}. */
@@ -2911,6 +2946,84 @@ public final class VehicleRuntime implements Listener {
             overhead(driver, nameOf(info) + " is out of the water - steer back in");
         }
 
+        /**
+         * The wall this vehicle is riding this tick, or null.
+         *
+         * <p>Two questions, and they are deliberately not the same one.
+         *
+         * <p><strong>Starting</strong> a ride takes everything at once: the
+         * vehicle says it can ({@code wall-ride:}), it is off the ground -
+         * you jump ONTO a wall, you do not drive into one - it is going at
+         * least {@link VehiclePhysics#WALL_RIDE_MIN_SPEED}, there is a wall
+         * beside it both low down and high up, and it is travelling within
+         * {@link VehiclePhysics#WALL_RIDE_MAX_ANGLE} of along that wall rather
+         * than into it. Going straight at a wall is a crash, and this is the
+         * line between the two.
+         *
+         * <p><strong>Continuing</strong> one takes almost nothing: the wall is
+         * still there and the speed has not run out. Re-asking the whole
+         * question every tick would drop the ride at the first pillar, the
+         * first doorway and the first tick the aligned heading no longer
+         * counted as "an approach" - so a ride ends for the two reasons a
+         * rider can feel, and not for bookkeeping.
+         *
+         * <p>The side is which way the vehicle leans; the yaw is the line of
+         * the wall nearest the way it was already going, which is what the
+         * physics straightens it onto.
+         */
+        private VehiclePhysics.Wall wallFor(boolean supported) {
+            if (!info.wallRide()) {
+                return null;
+            }
+            double speed = Math.abs(state.groundSpeed());
+            if (wall != null && speed >= VehiclePhysics.WALL_RIDE_MIN_SPEED * 0.6) {
+                // Still on it, as long as the wall has not run out.
+                return wallAt(wall.side()) == null ? null : new VehiclePhysics.Wall(wall.side(), wall.yaw());
+            }
+            if (supported || speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
+                return null;
+            }
+            for (int side : new int[] {-1, 1}) {
+                Double along = wallAt(side);
+                if (along == null) {
+                    continue;
+                }
+                // Along the wall the way we are already going: the wall's line
+                // runs both ways, and the nearer of the two is the one being
+                // ridden.
+                double heading = state.yaw();
+                double one = Math.abs(VehiclePhysics.wrap180(along - heading));
+                double other = Math.abs(VehiclePhysics.wrap180(along + 180 - heading));
+                double best = Math.min(one, other);
+                if (best > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
+                    continue;
+                }
+                return new VehiclePhysics.Wall(side, one <= other ? along : along + 180);
+            }
+            return null;
+        }
+
+        /**
+         * The line of the wall {@code side} of this vehicle, in degrees, or
+         * null if there is no wall there.
+         *
+         * <p>Solid at two heights or it is not a wall — see WALL_LOW. The line
+         * comes off the vehicle's own heading rather than off the block face,
+         * because a wall of blocks has four faces and a rider approaching at
+         * twenty degrees means the one they are sliding along.
+         */
+        private Double wallAt(int side) {
+            double yaw = state.yaw();
+            double[] right = VehiclePhysics.right(yaw);
+            double x = at.getX() + right[0] * WALL_REACH * side;
+            double z = at.getZ() + right[1] * WALL_REACH * side;
+            if (!BlockSurfaces.solidAt(world, x, at.getY() + WALL_LOW, z)
+                    || !BlockSurfaces.solidAt(world, x, at.getY() + WALL_HIGH, z)) {
+                return null;
+            }
+            return yaw;
+        }
+
         private Player driver() {
             UUID id = occupants.isEmpty() ? null : occupants.get(0);
             return id == null ? null : plugin.getServer().getPlayer(id);
@@ -2939,18 +3052,19 @@ public final class VehicleRuntime implements Listener {
             boolean supported = !Double.isNaN(surfaceUnder(at.getX(), at.getY(), at.getZ(),
                     info.hitbox(), at.getY() - SUPPORT_REACH, at.getY()));
             boolean water = here.getType() == Material.WATER;
+            wall = wallFor(supported);
             // The wheels only matter on land: a hull sits on the water however
             // the bed under it is shaped, and an aircraft's wheels are up.
             double[] wheels = info.medium() == VehicleMedium.LAND && supported ? wheelHeights() : null;
             if (!water) {
-                return new VehiclePhysics.Surroundings(supported, false, 0, wheels);
+                return new VehiclePhysics.Surroundings(supported, false, 0, wheels, wall);
             }
             // Fully under is a full block of push; otherwise the hull settles
             // with its base a little below the top of the block it is in,
             // which is what floating at the surface looks like.
             boolean deep = here.getRelative(0, 1, 0).getType() == Material.WATER;
             double submersion = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + 0.85) - at.getY()));
-            return new VehiclePhysics.Surroundings(supported, true, submersion, wheels);
+            return new VehiclePhysics.Surroundings(supported, true, submersion, wheels, wall);
         }
 
         /**
@@ -3890,6 +4004,12 @@ public final class VehicleRuntime implements Listener {
         public double groundSpeed() {
             Ride ride = ride();
             return ride == null ? 0 : ride.state().groundSpeed();
+        }
+
+        @Override
+        public boolean wallRiding() {
+            Ride ride = ride();
+            return ride != null && ride.wallRiding();
         }
 
         @Override

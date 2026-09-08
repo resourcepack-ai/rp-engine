@@ -402,6 +402,46 @@ public final class VehiclePhysics {
     /** Nose-up degrees per block per second squared of forward acceleration: squat and dive. */
     public static final double SQUAT = 0.3;
 
+    /**
+     * How fast a vehicle has to be going, blocks a second, to hold itself on a
+     * wall.
+     *
+     * <p>A wall ride is momentum against gravity and nothing else, so the
+     * number is what makes it feel earned rather than sticky: below this the
+     * wall lets go and the vehicle drops off it. Roughly half a skateboard's
+     * cruising speed.
+     */
+    public static final double WALL_RIDE_MIN_SPEED = 4.5;
+
+    /**
+     * How far off parallel a vehicle may hit a wall and still ride it,
+     * degrees.
+     *
+     * <p>Hitting a wall square on is a crash; sliding along it at a few
+     * degrees is a wall ride. Forty-five is the line between the two, and it
+     * is generous on purpose: the yaw is snapped onto the wall once the ride
+     * starts, so an approach that was nearly right becomes right.
+     */
+    public static final double WALL_RIDE_MAX_ANGLE = 45;
+
+    /** How far the body rolls over onto the wall, degrees. Nearly flat against it. */
+    public static final double WALL_RIDE_ROLL = 80;
+
+    /** How hard the wall scrubs speed off, blocks per second per second. */
+    public static final double WALL_RIDE_DRAG = 3.0;
+
+    /**
+     * How fast a wall ride sinks, blocks a second.
+     *
+     * <p>Not zero: a ride that held its height would end only when the wall or
+     * the speed did, and every one of them would look the same. Sliding gently
+     * down means a long one finishes on the floor, where it started.
+     */
+    public static final double WALL_RIDE_SINK = 1.2;
+
+    /** How quickly the heading is pulled onto the wall's line, per second. */
+    public static final double WALL_RIDE_ALIGN = 6.0;
+
     /** Degrees of body roll per block per second squared of cornering, for a car. Outward. */
     public static final double BODY_ROLL = 0.42;
 
@@ -451,6 +491,11 @@ public final class VehiclePhysics {
         // A land vehicle in the air, or a hull that has left both ground and
         // water: nothing to steer against and nothing to grip.
         boolean airborne = !air && !around.supported() && !around.inWater();
+
+        // The wall this vehicle is riding, if it is. Decided in the runtime,
+        // where the block reads are — see Surroundings.wall — so everything
+        // here is "am I on one", never "is there one".
+        Wall wall = around.wall();
 
         double throttle = demand.throttle();
         double lift = demand.lift();
@@ -552,6 +597,16 @@ public final class VehiclePhysics {
         double wasYaw = state.yaw();
         double yaw = wrap360(wasYaw + yawRate * dt);
 
+        // A wall straightens what is riding it. The steering above still ran,
+        // because a rider leaning off the wall is what ends a ride early; this
+        // is on top of it, and it is why an approach only has to be roughly
+        // right (WALL_RIDE_MAX_ANGLE) to become exactly right.
+        if (wall != null) {
+            double off = wrap180(wall.yaw() - yaw);
+            yaw = wrap360(yaw + off * Math.min(1, WALL_RIDE_ALIGN * dt));
+            yawRate = 0;
+        }
+
         // --- the velocity, now the body has turned under it -------------
 
         // The velocity is a world vector; the body turned and it did not. So
@@ -614,6 +669,11 @@ public final class VehiclePhysics {
         }
         double wasSpeed = speed;
         speed = approach(speed, target, rate * dt);
+        if (wall != null) {
+            // Wood on brick. A ride ends because it ran out of speed, which is
+            // what makes a long one worth doing.
+            speed = Math.max(0, Math.abs(speed) - WALL_RIDE_DRAG * dt) * Math.signum(speed);
+        }
 
         // A hill. Only once the vehicle is going or the driver is asking it
         // to: a car left on a slope holds, because a parked car has a
@@ -695,6 +755,13 @@ public final class VehiclePhysics {
                 break;
             case LAND:
             default:
+                // A wall ride carries its own vertical: gravity is what it is
+                // beating, and it sinks at its own pace instead. See
+                // WALL_RIDE_SINK, and `wall` above for what puts one here.
+                if (wall != null) {
+                    vertical = -WALL_RIDE_SINK;
+                    break;
+                }
                 // A land vehicle that jumps does so from the ground and only
                 // there: the key is read on the tick it is on something, it
                 // leaves with JUMP_SPEED, and from then on it is falling like
@@ -721,6 +788,12 @@ public final class VehiclePhysics {
             pitchTarget = Math.toDegrees(Math.atan2(climb, Math.max(Math.abs(speed), 1))) * 0.6;
             rollTarget = -clampMagnitude(yawRate * 0.25, 30);
             liftTarget = 0;
+        } else if (wall != null) {
+            // Over onto the wall, and the nose level: a wall ride is the body
+            // lying against something, not an arc through the air.
+            pitchTarget = 0;
+            rollTarget = WALL_RIDE_ROLL * wall.side();
+            liftTarget = state.lift();
         } else if (airborne) {
             // Off the ground: the nose follows the arc, and there is nothing
             // to lean on.
@@ -769,6 +842,34 @@ public final class VehiclePhysics {
         State next = new State(yaw, speed, slip, vertical, steer, yawRate,
                 pitchSpring[0], pitchSpring[1], rollSpring[0], rollSpring[1], liftSpring[0], liftSpring[1]);
         return new Step(next, dx, dy, dz, states(info, wasYaw, yaw, speed, around, dt));
+    }
+
+    /**
+     * A wall a vehicle is riding along.
+     *
+     * <p>{@code side} is -1 for a wall on the vehicle's left and 1 for one on
+     * its right - which is the way it leans - and {@code yaw} is the direction
+     * ALONG the wall nearest the way the vehicle was already going, so a board
+     * that hit it at fifteen degrees is straightened onto it rather than
+     * bouncing off.
+     */
+    public static final class Wall {
+
+        private final int side;
+        private final double yaw;
+
+        public Wall(int side, double yaw) {
+            this.side = side < 0 ? -1 : 1;
+            this.yaw = wrap360(yaw);
+        }
+
+        public int side() {
+            return side;
+        }
+
+        public double yaw() {
+            return yaw;
+        }
     }
 
     /**
@@ -1305,16 +1406,35 @@ public final class VehiclePhysics {
         private final boolean inWater;
         private final double submersion;
         private final double[] wheels;
+        private final Wall wall;
 
         public Surroundings(boolean supported, boolean inWater, double submersion) {
             this(supported, inWater, submersion, null);
         }
 
         public Surroundings(boolean supported, boolean inWater, double submersion, double[] wheels) {
+            this(supported, inWater, submersion, wheels, null);
+        }
+
+        public Surroundings(boolean supported, boolean inWater, double submersion, double[] wheels,
+                            Wall wall) {
             this.supported = supported;
             this.inWater = inWater;
             this.submersion = submersion;
             this.wheels = wheels == null || wheels.length != 4 ? null : wheels.clone();
+            this.wall = wall;
+        }
+
+        /**
+         * The wall this vehicle is riding, or null - which is almost always.
+         *
+         * <p>Decided by whoever built these surroundings rather than in here,
+         * because it is a question about the world: which side the wall is on,
+         * and which way along it the vehicle is pointing. The physics only has
+         * to know that it IS on one. See {@link Wall}.
+         */
+        public Wall wall() {
+            return wall;
         }
 
         public static Surroundings falling() {
