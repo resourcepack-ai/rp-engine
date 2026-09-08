@@ -128,6 +128,21 @@ vehicles:
   # a wall.
   push-players: false
 
+  # Whether vehicles collide with EACH OTHER.
+  #
+  # On. Two vehicles that meet exchange momentum the way two solid things do:
+  # what each comes away with is worked out from how fast they were closing,
+  # which way round they met, how far off centre the hit was and what the pack
+  # says each of them weighs. So a lorry shunts a moped aside and barely
+  # notices, a clip on the corner spins you and a square rear-ending does not,
+  # and at a crawl the whole thing becomes pushing rather than bumping.
+  #
+  # Turn it off for a server that would rather vehicles passed through each
+  # other - a race track where a pile-up is worse than a clean overtake, or a
+  # lobby where cars are parked shoulder to shoulder. Nothing here changes what
+  # a vehicle does about BLOCKS, placed models, players or mobs.
+  collide: true
+
   # Whether a driver sees their speed above the hotbar while moving, in
   # kilometres an hour (a block is a metre). It goes yellow while the tyres
   # are sliding. It stays off the action bar for a few seconds after anything

@@ -493,6 +493,28 @@ public final class VehiclePhysics {
     public static final double LANDING_COMPRESSION = 0.35;
 
     /**
+     * Degrees per second of pitch a collision throws into the springs, per
+     * block per second of speed it took off along the heading.
+     *
+     * <p>The impact equivalent of {@link #SQUAT}, and it exists because an
+     * impulse applied between two steps never appears as an acceleration
+     * within one — see {@link State#impacted}.
+     */
+    public static final double IMPACT_SQUAT = 3;
+
+    /** The same across the heading, for {@link #BODY_ROLL}'s rotation. */
+    public static final double IMPACT_ROLL = 3;
+
+    /**
+     * As far as one impact may throw either spring, degrees per second.
+     *
+     * <p>A head-on between two fast vehicles is a change of forty blocks a
+     * second in one tick, and without a bound on what that does to the body
+     * the car ends up momentarily on its roof.
+     */
+    public static final double MAX_IMPACT_SPRING = 90;
+
+    /**
      * How much of the hitbox's length the wheels span. The box is the
      * bodywork; the axles sit inside its ends.
      */
@@ -1372,6 +1394,47 @@ public final class VehiclePhysics {
             }
             return new State(yaw, speed, slip, verticalSpeed, steer, yawRate + degreesPerSecond,
                     pitch, pitchRate, roll, rollRate, lift, liftRate);
+        }
+
+        /**
+         * Hit by another vehicle: this world velocity and this spin, with the
+         * body thrown about on its springs by the change.
+         *
+         * <p>The velocity arrives as a WORLD vector and is read back into the
+         * body's frame here, exactly as {@link #deflected} does and for the same
+         * reason — an impulse is worked out between two vehicles that are not
+         * pointing the same way, so it has nowhere to be expressed but the
+         * world, and the conversion belongs at the one point that knows this
+         * body's heading.
+         *
+         * <p><strong>The springs are kicked rather than left to notice.</strong>
+         * A vehicle's nose dips under braking because the step computes an
+         * acceleration from how much the speed changed during it — and an
+         * impulse applied between steps is invisible to that arithmetic: the
+         * next step sees the new speed as the speed it started with. So the
+         * dip and the lurch are applied here, in the same shape
+         * {@link #landed} and {@link #stepped} use, as a rate the spring then
+         * settles out of.
+         *
+         * @param spin the new yaw rate, degrees per second
+         */
+        State impacted(double vx, double vz, double spin) {
+            if (!Double.isFinite(vx) || !Double.isFinite(vz) || !Double.isFinite(spin)) {
+                return this;
+            }
+            double[] world = {vx, vz};
+            double nextSpeed = dot(world, forward(yaw));
+            double nextSlip = dot(world, right(yaw));
+            // What the impulse did, in the body's own axes: along the heading
+            // squats or dives it, across the heading throws it over. Signs as
+            // SQUAT and BODY_ROLL, which is where the same two rotations come
+            // from when it is the driver rather than another car doing it.
+            double along = nextSpeed - speed;
+            double across = nextSlip - slip;
+            return new State(yaw, nextSpeed, nextSlip, verticalSpeed, steer, spin,
+                    pitch, pitchRate + clampMagnitude(along * IMPACT_SQUAT, MAX_IMPACT_SPRING),
+                    roll, rollRate - clampMagnitude(across * IMPACT_ROLL, MAX_IMPACT_SPRING),
+                    lift, liftRate);
         }
 
         /**

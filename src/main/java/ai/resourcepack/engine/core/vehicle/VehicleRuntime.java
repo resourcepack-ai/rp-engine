@@ -334,6 +334,17 @@ public final class VehicleRuntime implements Listener {
     private static final double SHOVE = 0.35;
 
     /**
+     * How much two vehicles' heights have to overlap, in blocks, before they
+     * count as touching each other.
+     *
+     * <p>Not zero. A vehicle parked on another's roof has its base exactly at
+     * the other's top, and a boat riding a river shares a plane with the bank
+     * it is beside; both would otherwise be a permanent collision resolved
+     * sideways for ever. A tenth of a block is under one pixel of model.
+     */
+    private static final double VERTICAL_TOUCH = 0.1;
+
+    /**
      * How far past itself a vehicle looks for placed models, in blocks.
      *
      * <p><strong>A placed model is found by its anchor and is not bounded by
@@ -616,6 +627,20 @@ public final class VehicleRuntime implements Listener {
      */
     private volatile boolean pushPlayers;
 
+    /** Whether vehicles collide with each other at all — {@code vehicles.collide}. */
+    private volatile boolean collide = true;
+
+    /**
+     * Half the diagonal of the biggest hitbox in the catalogue, in blocks.
+     *
+     * <p>How far past its own edge a vehicle has to look to be sure it has
+     * found everything it might be touching, since a neighbour is found by
+     * where its CENTRE is. Recomputed with the catalogue rather than per tick,
+     * and zero for a server with no vehicles at all. See
+     * {@link Ride#impactReach}.
+     */
+    private volatile double widest;
+
     /**
      * Whether an occupant nobody dressed is put in their rig anyway, from
      * config.yml.
@@ -702,13 +727,15 @@ public final class VehicleRuntime implements Listener {
      * {@code vehicles.seat-rig}. Called on enable and on every reload.
      */
     public void configure(double seatOffset, double seatForward, boolean pushPlayers,
-                          boolean seatRig, boolean debugSeats, boolean speedometer) {
+                          boolean seatRig, boolean debugSeats, boolean speedometer,
+                          boolean collide) {
         this.seatOffset = seatOffset;
         this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
         this.seatRig = seatRig;
         this.debugSeats = debugSeats;
         this.speedometer = speedometer;
+        this.collide = collide;
     }
 
     /**
@@ -736,6 +763,12 @@ public final class VehicleRuntime implements Listener {
      */
     public void replace(Map<ContentId, VehicleInfo> loaded) {
         this.catalogue = loaded == null ? Map.of() : Map.copyOf(loaded);
+        double biggest = 0;
+        for (VehicleInfo vehicle : this.catalogue.values()) {
+            VehicleHitbox box = vehicle.hitbox();
+            biggest = Math.max(biggest, Math.hypot(box.width(), box.length()) / 2);
+        }
+        this.widest = biggest;
         reseat.clear();
         for (UUID chassisId : List.copyOf(live.keySet())) {
             Ride ride = live.remove(chassisId);
@@ -1393,6 +1426,18 @@ public final class VehicleRuntime implements Listener {
      * nowhere to go, and a server with a hundred cars in a car park should pay
      * for none of them. That is also why the seats are only rebuilt when a
      * chunk loads: this loop never touches them.
+     *
+     * <p><strong>Three passes, not one, and the middle one is why.</strong>
+     * Every vehicle takes its step; then they are let hit each other; then each
+     * puts its entities where it ended up. A vehicle cannot resolve a collision
+     * during its own step, because the thing it is hitting may not have moved
+     * yet — whichever of the two the map happened to hand out first would get a
+     * different answer from the one that came second, and two cars meeting
+     * head-on would behave differently depending on which was spawned first.
+     * Stepping everybody before anybody is asked is what makes the exchange
+     * symmetric. And placing afterwards is what keeps a collision from being
+     * visible a tick late: the entities are teleported once, to where the
+     * vehicle finished, impact included.
      */
     private void tick() {
         for (Ride ride : live.values()) {
@@ -1404,6 +1449,74 @@ public final class VehicleRuntime implements Listener {
                 // vehicle that silently stopped moving is the exact failure
                 // this whole class is written to make visible.
                 log.warning("Vehicle " + ride.info.id() + " failed a tick: " + e);
+            }
+        }
+        try {
+            impacts();
+        } catch (RuntimeException e) {
+            log.warning("Vehicle collisions failed a tick: " + e);
+        }
+        for (Ride ride : live.values()) {
+            try {
+                ride.settle();
+            } catch (RuntimeException e) {
+                log.warning("Vehicle " + ride.info.id() + " failed to settle: " + e);
+            }
+        }
+    }
+
+    /**
+     * Lets every vehicle that moved this tick hit whatever it landed on.
+     *
+     * <p><strong>Asked only of vehicles that took a full tick.</strong> A
+     * parked one — empty and going nowhere — is not asked, so a car park of a
+     * hundred cars costs a hundred nothings, which is the same bargain
+     * {@code parked} strikes one level up and the reason this can afford to run
+     * every tick. It is still a perfectly good thing to be hit BY, which is
+     * what makes shunting one out of the way work; see {@link Ride#ticked} for
+     * why the test is not "did it move".
+     *
+     * <p>The neighbours come from the world's own entity index rather than from
+     * a spatial structure of ours, on the same terms {@link Ride#shoveAside}
+     * already uses: {@code live} is keyed by chassis id, so turning a nearby
+     * entity into a vehicle is one map lookup, and the chunk index does the
+     * part that would otherwise need a grid.
+     *
+     * <p>Each pair is resolved once. Where both ticked, the lower chassis id
+     * takes it, which is an arbitrary rule and only has to be a consistent
+     * one — resolving a pair twice in a tick is a collision that hits twice as
+     * hard as it should.
+     *
+     * <p>Applied as they are found rather than gathered and applied together,
+     * so a car shunted into a third car passes the shove on within the same
+     * tick. That is sequential impulse solving, which is what every physics
+     * engine does and for the same reason: the alternative needs a solver, and
+     * what it buys is exactness in a pile-up.
+     */
+    private void impacts() {
+        // One vehicle in the world has nothing to hit, and the entity search
+        // below is the most expensive call in this pass. Most servers running
+        // one car around a test world never get past this line.
+        if (!collide || live.size() < 2) {
+            return;
+        }
+        for (Ride ride : live.values()) {
+            if (!ride.collidable() || !ride.ticked()) {
+                continue;
+            }
+            Location where = ride.at;
+            double reach = ride.impactReach();
+            for (Entity nearby : where.getWorld().getNearbyEntities(where, reach, reach, reach)) {
+                Ride other = live.get(nearby.getUniqueId());
+                if (other == null || other == ride || !other.collidable()) {
+                    continue;
+                }
+                // The other side will take this pair if it ticked too and
+                // sorts first. Two parked vehicles are a pair nobody takes.
+                if (other.ticked() && other.chassisId.compareTo(ride.chassisId) < 0) {
+                    continue;
+                }
+                ride.collideWith(other);
             }
         }
     }
@@ -1697,6 +1810,24 @@ public final class VehicleRuntime implements Listener {
          * did rather than asking the player again a tick apart.
          */
         private VehiclePhysics.Demand lastDemand = VehiclePhysics.Demand.idle(0);
+
+        /**
+         * The step this tick took, waiting for {@link #settle} — or null for a
+         * vehicle that has not taken one this tick, which is every parked one
+         * and any whose chassis has gone.
+         *
+         * <p>A handoff between two halves of one tick, not state: it is written
+         * at the end of {@link #tick} and consumed at the top of {@link #settle},
+         * and nothing between those two points may read it except by knowing
+         * that. See {@link VehicleRuntime#tick()} for what runs in the gap.
+         */
+        private VehiclePhysics.Step pending;
+
+        /** What the world was doing during {@link #pending}. Same handoff. */
+        private VehiclePhysics.Surroundings pendingAround;
+
+        /** Whether a collision moved this vehicle after its own step. See {@link #settle}. */
+        private boolean bumped;
 
         /**
          * How far into its animation a speed-linked vehicle is, in seconds of
@@ -2500,6 +2631,8 @@ public final class VehicleRuntime implements Listener {
         // --- moving ---------------------------------------------------
 
         void tick() {
+            pending = null;
+            bumped = false;
             Entity chassis = chassis();
             if (chassis == null || !chassis.isValid()) {
                 // The chunk unloaded, or somebody removed it. Drop everything
@@ -2570,6 +2703,44 @@ public final class VehicleRuntime implements Listener {
                     shoveAside(step);
                 }
             }
+            // Everything from here on reads the position this vehicle finished
+            // at, and it has not finished until the collision pass has run.
+            // See VehicleRuntime.tick for the three passes and why they are
+            // three.
+            pending = step;
+            pendingAround = around;
+        }
+
+        /**
+         * The second half of a tick: the entities are put where the vehicle
+         * ended up, and everything that reports on where that is fires.
+         *
+         * <p>Split from {@link #tick} so the collision pass can sit between
+         * them. Does nothing for a vehicle that took the parked shortcut or
+         * whose chassis went away, which is what {@code pending} being null
+         * means.
+         */
+        void settle() {
+            VehiclePhysics.Step step = pending;
+            if (step == null) {
+                // Shunted while parked: it took no step of its own, so nothing
+                // below applies — but it HAS moved, and its entities are still
+                // standing where it was. Placing them is the whole of what a
+                // parked vehicle owes this pass.
+                if (bumped) {
+                    Entity chassis = chassis();
+                    if (chassis != null && chassis.isValid()) {
+                        place(chassis);
+                    }
+                }
+                return;
+            }
+            pending = null;
+            Entity chassis = chassis();
+            if (chassis == null || !chassis.isValid()) {
+                return;
+            }
+            Player driver = driver();
             place(chassis);
 
             // On the change and never on the tick — a listener that wants
@@ -2592,13 +2763,18 @@ public final class VehicleRuntime implements Listener {
             // while the vehicle moves and turns instead of leaving each loop
             // behind at the coordinate where it began.
             noise.play(sounds, chassis, info, step.states(), age);
-            sayIfBeached(driver, around);
+            sayIfBeached(driver, pendingAround);
             showSpeed(driver);
 
             // Occupied is never parked, whether or not it is moving: a rider's
             // rig is aimed every tick, and half a second of a driver's body
             // pointing where the vehicle used to point is a visible thing.
-            parked = !step.moves() && empty();
+            //
+            // Nor is anything that has just been hit. A shunted car has the
+            // speed to roll away from where it was pushed, and latching it as
+            // parked on the strength of a step taken BEFORE the impact is a
+            // vehicle that takes the shove and then declines to move.
+            parked = !step.moves() && !bumped && empty();
             parkedStates = step.states();
         }
 
@@ -3661,6 +3837,128 @@ public final class VehicleRuntime implements Listener {
                         : new Vector(dx / away, 0, dz / away).multiply(SHOVE);
                 nearby.setVelocity(nearby.getVelocity().add(push.add(new Vector(step.dx(), 0, step.dz()))));
             }
+        }
+
+        // --- hitting other vehicles ------------------------------------
+
+        /** Whether this vehicle is somewhere another one could hit it. */
+        boolean collidable() {
+            return world != null && at != null && at.getWorld() != null;
+        }
+
+        /**
+         * Whether it took a full tick this pass, which is the whole test for
+         * whether it is worth asking what it is touching. See
+         * {@link VehicleRuntime#impacts()}.
+         *
+         * <p>Deliberately not "did it MOVE". Two vehicles standing still inside
+         * each other — spawned there, or left there by an impact that ended
+         * with both stopped — would then have nothing to separate them, and
+         * "stuck inside another vehicle" is the one failure of this whole pass
+         * that a player cannot drive out of. A vehicle that took the parked
+         * shortcut is still excluded, which is what keeps the car park free.
+         */
+        boolean ticked() {
+            return pending != null;
+        }
+
+        /**
+         * How far to look for something to have hit, in blocks.
+         *
+         * <p>This box's own half diagonal plus the WIDEST vehicle the pack
+         * defines, because a neighbour is found by where its centre is and a
+         * long one reaches a good way past it. Derived from the catalogue
+         * rather than from the format's maximum, so a server whose biggest
+         * vehicle is a go-kart searches a go-kart's worth of world; see
+         * {@link VehicleRuntime#widest}.
+         *
+         * <p>Floored at this vehicle's own size, so two of the same thing can
+         * always find each other whatever the catalogue says. Which is not
+         * paranoia: a vehicle outlives the definition it was adopted with — a
+         * reload can drop its type entirely — and a reach that came out shorter
+         * than the vehicle is a pair parked nose to nose that never touches.
+         */
+        double impactReach() {
+            VehicleHitbox box = info.hitbox();
+            double mine = Math.hypot(box.width(), box.length()) / 2;
+            return mine + Math.max(widest, mine) + 0.5;
+        }
+
+        /**
+         * Hits {@code other}, if the two are in fact overlapping.
+         *
+         * <p>Height first, and on its own: two boxes whose footprints cross are
+         * not touching if one is on a bridge over the other, and the flat
+         * arithmetic in {@link VehicleImpacts} has no way to know that. A
+         * vehicle parked exactly on another's roof shares a plane and no
+         * volume, which is why this wants real overlap rather than contact.
+         */
+        void collideWith(Ride other) {
+            if (!world.equals(other.world)) {
+                return;
+            }
+            double base = Math.max(at.getY(), other.at.getY());
+            double top = Math.min(at.getY() + info.hitbox().height(),
+                    other.at.getY() + other.info.hitbox().height());
+            if (top - base <= VERTICAL_TOUCH) {
+                return;
+            }
+            VehicleImpacts.Body mine = body();
+            VehicleImpacts.Body theirs = other.body();
+            VehicleImpacts.Contact contact = VehicleImpacts.contact(mine, theirs);
+            if (contact == null) {
+                return;
+            }
+            VehicleImpacts.Exchange exchange = VehicleImpacts.resolve(mine, theirs, contact);
+            bump(exchange.a());
+            other.bump(exchange.b());
+        }
+
+        /** This vehicle as the impulse solver wants it. See {@link VehicleImpacts.Body}. */
+        private VehicleImpacts.Body body() {
+            double[] velocity = VehiclePhysics.worldVelocity(state.yaw(), state.speed(), state.slip());
+            VehicleHitbox box = info.hitbox();
+            // The pack's weight, straight through: only the RATIO between two
+            // vehicles is ever read, so the 1-100 the format states is as good
+            // a unit as any. The floor is for a pack that wrote a zero.
+            return new VehicleImpacts.Body(at.getX(), at.getZ(), state.yaw(),
+                    box.width(), box.length(), velocity[0], velocity[1], state.yawRate(),
+                    Math.max(0.1, info.weight()));
+        }
+
+        /**
+         * Takes this vehicle's half of a collision.
+         *
+         * <p>The velocity and the spin are the physics model's own state and go
+         * straight in. <strong>The separation has to ask the world first</strong>
+         * — it is a teleport, and the whole point of it is to move a vehicle
+         * somewhere it was not going, which for a car already squeezed against
+         * a building is into the building. A refused shove is not shared out
+         * again: the other vehicle has already been given its own half, and
+         * handing it the rest would mean a car pinned against a wall shoving
+         * back harder than one in the open. What it costs is that two vehicles
+         * jammed in an alley stay overlapped until one of them drives out,
+         * which is also what would happen to two cars.
+         */
+        private void bump(VehicleImpacts.Impulse impulse) {
+            if (impulse == null || !impulse.any()) {
+                return;
+            }
+            double[] velocity = VehiclePhysics.worldVelocity(state.yaw(), state.speed(), state.slip());
+            state = state.impacted(velocity[0] + impulse.dvx(), velocity[1] + impulse.dvz(),
+                    state.yawRate() + impulse.dspin());
+            if (impulse.pushX() != 0 || impulse.pushZ() != 0) {
+                double nextX = at.getX() + impulse.pushX();
+                double nextZ = at.getZ() + impulse.pushZ();
+                if (!blocked(nextX, at.getY(), nextZ, info.hitbox(), state.yaw())) {
+                    at = new Location(world, nextX, at.getY(), nextZ);
+                }
+            }
+            // Whatever this vehicle was doing, it is doing something else now.
+            // A parked one has to come back to the full tick to spend the speed
+            // it has just been given; see settle.
+            bumped = true;
+            parked = false;
         }
 
         /**
