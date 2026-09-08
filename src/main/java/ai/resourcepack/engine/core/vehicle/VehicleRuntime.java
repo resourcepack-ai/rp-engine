@@ -310,18 +310,25 @@ public final class VehicleRuntime implements Listener {
 
     /**
      * Where beside the vehicle the wall has to be solid, in blocks relative to
-     * its own base.
+     * its own base. Either sample will do.
      *
-     * <p>Both samples are AT the vehicle or BELOW it, and having them above is
-     * why this could not be started at first. Asking for solid a block ABOVE
-     * the vehicle asks for wall above wherever the jump got to - so a rider
-     * who clears a two-block wall and comes down its face finds nothing up
-     * there and is refused the ride they are obviously having. Below still
-     * tells a wall from a kerb: level with a kerb's top there is nothing
-     * beside you at all.
+     * <p><strong>Level with the vehicle or above it, NEVER below.</strong>
+     * Both ways round have been tried and both were wrong in a way that took a
+     * screenshot to see. Sampling a block ABOVE only is what made a ride
+     * impossible to start: it asks for wall above wherever the jump got to, so
+     * a rider coming down a two-block wall's face finds thin air. Sampling
+     * BELOW, which was the fix for that, is worse - half a block under a
+     * vehicle standing on a plaza is the plaza, so the floor answered as a
+     * wall in all four directions and a rider who jumped in the middle of an
+     * empty field was rolled eighty degrees onto nothing.
+     *
+     * <p>Level with the vehicle is the honest question, and it happens to
+     * answer both: a wall you are alongside is solid at your own height at any
+     * height up it, a kerb you have jumped over is not, and the floor never
+     * is.
      */
-    private static final double WALL_LOW = -0.5;
-    private static final double WALL_HIGH = 0.1;
+    private static final double WALL_LOW = 0.1;
+    private static final double WALL_HIGH = 0.8;
 
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
@@ -3776,6 +3783,14 @@ public final class VehicleRuntime implements Listener {
                         // the rider's own frame by the seat's yaw first — for a
                         // skater square across the board, the board's roll onto
                         // a wall IS the rider tipping onto their face.
+                        // The MODEL'S angles, not the state's: `attitude()`
+                        // draws the bodywork with rotateZ(-roll), and a rider
+                        // leaned from the raw number is a rider tipping the
+                        // opposite way to the thing they are standing on. It
+                        // does not show at the fourteen degrees a car corners
+                        // at. It shows completely at eighty, as a wall rider
+                        // lying INTO the wall with their board between them
+                        // and the open air.
                         double seatRadians = Math.toRadians(seatYaw(i));
                         double cos = Math.cos(seatRadians);
                         double sin = Math.sin(seatRadians);
@@ -3783,8 +3798,10 @@ public final class VehicleRuntime implements Listener {
                         // of it: they are lying on the thing. Everywhere else
                         // they are balancing on it, and take a fraction of a
                         // corner's lean at most - see ridden().
-                        double leanPitch = wall != null ? state.pitch() : ridden(state.pitch());
-                        double leanRoll = wall != null ? state.roll() : ridden(state.roll());
+                        double drawnPitch = state.pitch();
+                        double drawnRoll = -state.roll();
+                        double leanPitch = wall != null ? drawnPitch : ridden(drawnPitch);
+                        double leanRoll = wall != null ? drawnRoll : ridden(drawnRoll);
                         emotes.lean(rider,
                                 (float) (leanPitch * cos + leanRoll * sin),
                                 (float) (leanRoll * cos - leanPitch * sin));
