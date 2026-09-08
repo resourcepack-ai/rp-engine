@@ -47,15 +47,26 @@ import java.util.logging.Logger;
  *
  * <p>The default sheet — the rig anybody without one of their own wears — is
  * shipped in the jar rather than fetched: a mannequin of this plugin's own,
- * because Mojang's Steve is theirs and a fetch that fails on first start is a
- * server with no rigs at all.
+ * because a fetch that fails on first start would otherwise be a server with no
+ * rigs at all.
  */
 public final class SkinCache {
 
     /** Where the sheets live, under the plugin's data folder. */
     static final String FOLDER = "skins";
 
-    /** The mannequin every server has, shipped in the jar. */
+    /**
+     * The default every server has, shipped in the jar: Steve.
+     *
+     * <p>It used to be a mannequin drawn for this plugin, on the reasoning
+     * that the texture is Mojang's. The cost of that was a first join looking
+     * like a stranger's art rather than like Minecraft, which is what
+     * everybody actually reads it as - and Steve is the skin every server,
+     * every skin site and the game itself already shows for somebody with no
+     * skin of their own. Shipped rather than fetched, so it is ready before
+     * the first player arrives and on a server with no way out to the
+     * internet.
+     */
     private static final String DEFAULT_RESOURCE = "/rig/default-skin.png";
 
     private final Plugin plugin;
