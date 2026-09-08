@@ -117,6 +117,24 @@ class VehicleDefinitionsTest {
         assertEquals(true, one("mypack:bike").jumps());
     }
 
+    /**
+     * Opt-OUT, unlike every other flag here, and that asymmetry is the point:
+     * a dashboard is the ordinary case and a skateboard is the exception, so a
+     * pack written before this key existed keeps its readout.
+     */
+    @Test
+    void theSpeedometerIsOnUnlessTheVehicleSaysOtherwise() throws IOException {
+        write("mypack/vehicles/a.yml",
+                "cart:\n"
+                        + "  seats: [{role: driver}]\n"
+                        + "board:\n"
+                        + "  speedometer: false\n"
+                        + "  seats: [{role: driver}]\n");
+
+        assertEquals(true, one("mypack:cart").speedometer());
+        assertEquals(false, one("mypack:board").speedometer());
+    }
+
     @Test
     void refusesAVehicleWithNoDriverSeat() throws IOException {
         write("mypack/vehicles/a.yml",

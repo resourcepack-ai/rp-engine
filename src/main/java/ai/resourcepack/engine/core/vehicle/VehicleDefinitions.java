@@ -143,6 +143,12 @@ public final class VehicleDefinitions {
         // See VehicleInfo.wallRide: a decision about what the vehicle is,
         // rather than a cost, which is why it is opt-in.
         boolean wallRide = body.bool("wall-ride").orElse(false);
+        // A driver is shown their speed unless the pack says otherwise, which
+        // is what every vehicle written before this key existed did. Opt-OUT
+        // rather than opt-in for that reason, and because a dashboard is the
+        // ordinary case — a skateboard is the exception. See
+        // VehicleInfo.speedometer.
+        boolean speedometer = body.bool("speedometer").orElse(true);
         // A rider's cape is drawn unless the pack says otherwise: it is theirs,
         // and the surprising direction is taking it off them. See
         // `VehicleInfo.capes`.
@@ -292,6 +298,7 @@ public final class VehicleDefinitions {
                 .withTurnInPlace(turnInPlace)
                 .withAnimationFollowsSpeed(animationFollowsSpeed)
                 .withWallRide(wallRide)
+                .withSpeedometer(speedometer)
                 .withSounds(sounds(body, origin, where, diagnostics))
                 .withCapes(capes));
     }

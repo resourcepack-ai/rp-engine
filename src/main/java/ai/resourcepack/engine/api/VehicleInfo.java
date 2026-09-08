@@ -56,6 +56,7 @@ public final class VehicleInfo {
     private final boolean capes;
     private final boolean animationFollowsSpeed;
     private final boolean wallRide;
+    private final boolean speedometer;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
@@ -63,9 +64,10 @@ public final class VehicleInfo {
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
                         double scale, boolean jumps, boolean turnInPlace,
                         Map<VehicleState, String> sounds, boolean capes,
-                        boolean animationFollowsSpeed, boolean wallRide) {
+                        boolean animationFollowsSpeed, boolean wallRide, boolean speedometer) {
         this.animationFollowsSpeed = animationFollowsSpeed;
         this.wallRide = wallRide;
+        this.speedometer = speedometer;
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -120,7 +122,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false);
+                false, false, true);
     }
 
     /**
@@ -157,7 +159,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false);
+                false, false, true);
     }
 
     /**
@@ -346,7 +348,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**
@@ -363,7 +365,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**
@@ -381,7 +383,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed, wallRide);
+                copy, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**
@@ -418,6 +420,35 @@ public final class VehicleInfo {
         return wallRide;
     }
 
+    /**
+     * Whether this vehicle's driver is shown their speed above the hotbar.
+     *
+     * <p>On by default, and the server's {@code vehicles.speedometer} can turn
+     * it off for everything at once — this is the narrower question of whether
+     * a readout makes sense for THIS vehicle. A car has a speedometer on its
+     * dashboard and a skateboard does not, and a number counting up in the
+     * corner of the screen is the sort of thing that quietly turns a trick into
+     * a stat. So it is a decision about what the vehicle is, exactly like
+     * {@link #wallRide()}.
+     *
+     * <p>Nothing moves when this is off. The readout is not relocated to the
+     * chat, a boss bar or a title: it is simply not written, and the action bar
+     * is left to whatever else wants it.
+     */
+    public boolean speedometer() {
+        return speedometer;
+    }
+
+    /** The same vehicle, showing (or not) its driver's speed. See {@link #speedometer()}. */
+    public VehicleInfo withSpeedometer(boolean speedometer) {
+        if (speedometer == this.speedometer) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
+    }
+
     /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
     public VehicleInfo withWallRide(boolean wallRide) {
         if (wallRide == this.wallRide) {
@@ -425,7 +456,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
@@ -435,7 +466,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -445,7 +476,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**
@@ -468,7 +499,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**
@@ -495,7 +526,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer);
     }
 
     /**

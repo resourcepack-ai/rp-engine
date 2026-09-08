@@ -4017,9 +4017,18 @@ public final class VehicleRuntime implements Listener {
          * Only while moving: a parked car's dial reading zero is the action
          * bar being occupied for nothing, and it would paint over whatever
          * anything else wanted to say there.
+         *
+         * <p>Two switches, and they are different questions. The server's
+         * {@code vehicles.speedometer} is "does this server want speed
+         * readouts"; {@link VehicleInfo#speedometer()} is "does THIS vehicle
+         * have a dashboard", which a skateboard does not. Either one off is
+         * off, and off means nothing is written — the readout does not move to
+         * the chat or a boss bar, it stops existing, and the action bar goes
+         * back to whatever else wants it.
          */
         private void showSpeed(Player driver) {
-            if (!speedometer || driver == null || age < hushUntil || age % SPEEDOMETER_TICKS != 0) {
+            if (!speedometer || !info.speedometer() || driver == null
+                    || age < hushUntil || age % SPEEDOMETER_TICKS != 0) {
                 return;
             }
             double ground = state.groundSpeed();
