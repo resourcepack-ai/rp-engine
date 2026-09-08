@@ -42,10 +42,12 @@ public final class OverlayInfo {
     private final String color;
     private final String font;
     private final String text;
+    private final java.util.List<OverlayTrigger> triggers;
 
     private OverlayInfo(ContentId id, String file, String title, String container, Slot slot,
                         int height, int ascent, int offset, int codepoint,
-                        String color, String font, String text) {
+                        String color, String font, String text,
+                        java.util.List<OverlayTrigger> triggers) {
         this.id = id;
         this.file = file;
         this.title = title;
@@ -58,6 +60,18 @@ public final class OverlayInfo {
         this.color = color == null ? "" : color;
         this.font = font == null ? "" : font;
         this.text = text == null ? "" : text;
+        this.triggers = triggers == null ? java.util.List.of() : java.util.List.copyOf(triggers);
+    }
+
+    /**
+     * What shows this overlay with no plugin involved. Empty if nothing does.
+     *
+     * <p>See {@link OverlayTrigger}. An overlay with no triggers waits for
+     * {@link Overlays#show} or for {@code /rp hud}, which is the ordinary case
+     * for anything a plugin drives.
+     */
+    public java.util.List<OverlayTrigger> triggers() {
+        return triggers;
     }
 
     /**
@@ -110,7 +124,7 @@ public final class OverlayInfo {
                 "",
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                height, ascent, offset, codepoint, "", "", "");
+                height, ascent, offset, codepoint, "", "", "", java.util.List.of());
     }
 
     /**
@@ -124,7 +138,7 @@ public final class OverlayInfo {
      * this is the constructor that takes it.
      */
     public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot) {
-        return pushed(id, title, container, slot, "", "", "");
+        return pushed(id, title, container, slot, "", "", "", java.util.List.of());
     }
 
     /**
@@ -135,14 +149,15 @@ public final class OverlayInfo {
      * and for it they are not styling: see {@link #color()}.
      */
     public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot,
-                                     String color, String font, String text) {
+                                     String color, String font, String text,
+                        java.util.List<OverlayTrigger> triggers) {
         return new OverlayInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
                 Objects.requireNonNull(title, "title"),
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                0, 0, 0, 0, color, font, text);
+                0, 0, 0, 0, color, font, text, triggers);
     }
 
     /**

@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
+import ai.resourcepack.engine.api.OverlayTrigger;
 import ai.resourcepack.engine.api.SoundInfo;
 import ai.resourcepack.engine.api.VehicleEmitter;
 import ai.resourcepack.engine.api.VehicleFlight;
@@ -297,6 +298,15 @@ public final class StudioContent {
          * live server value can drive — see that method.
          */
         String text;
+        /** What shows it with no plugin involved. See {@link OverlayTrigger}. */
+        List<Trigger> triggers;
+    }
+
+    /** One rule from {@link Overlay#triggers}. */
+    static final class Trigger {
+        String kind;
+        String item;
+        String permission;
     }
 
     private final Gson gson = new Gson();
@@ -410,7 +420,7 @@ public final class StudioContent {
             }
             id(hud.id).ifPresent(id ->
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
-                            hud.color, hud.font, hud.text)));
+                            hud.color, hud.font, hud.text, triggers(hud.triggers))));
         }
 
         Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
@@ -839,7 +849,47 @@ public final class StudioContent {
         out.color = info.color().isEmpty() ? null : info.color();
         out.font = info.font().isEmpty() ? null : info.font();
         out.text = info.text().isEmpty() ? null : info.text();
+        if (!info.triggers().isEmpty()) {
+            out.triggers = new ArrayList<>();
+            for (OverlayTrigger trigger : info.triggers()) {
+                Trigger written = new Trigger();
+                written.kind = trigger.kind().wire();
+                written.item = trigger.item().isEmpty() ? null : trigger.item();
+                written.permission = trigger.permission().isEmpty() ? null : trigger.permission();
+                out.triggers.add(written);
+            }
+        }
         return out;
+    }
+
+    /**
+     * The triggers a manifest named, skipping any this engine does not have.
+     *
+     * <p>Skipped rather than refused: a newer Studio naming a kind this jar has
+     * never heard of should cost that one rule, not the whole overlay. The
+     * server owner sees an overlay that does not show itself, which is
+     * recoverable; an overlay that failed to load at all is not.
+     */
+    private static List<OverlayTrigger> triggers(List<Trigger> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<OverlayTrigger> out = new ArrayList<>();
+        for (Trigger trigger : raw) {
+            if (trigger == null) {
+                continue;
+            }
+            OverlayTrigger.Kind.of(trigger.kind).ifPresent(kind -> {
+                // A HOLDING rule with no item would fire constantly. Studio
+                // drops one before sending; this is the other end of that.
+                if (kind == OverlayTrigger.Kind.HOLDING
+                        && (trigger.item == null || trigger.item.isBlank())) {
+                    return;
+                }
+                out.add(OverlayTrigger.of(kind, trigger.item, trigger.permission));
+            });
+        }
+        return List.copyOf(out);
     }
 
     /** A manifest id, in our namespace. Anything unusable is skipped. */
