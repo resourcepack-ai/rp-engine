@@ -133,5 +133,15 @@ class AddonContentTest {
             String file = "assets/" + namespace + "/textures/" + path + ".png";
             assertTrue(names.contains(file), "the deck's model names " + ref + " but the pack has no " + file);
         }
+
+        // The wheels turn, which means the build wrote a rig: one item model
+        // per moving bone, derived from the piece's own id. The board's model
+        // is an exported .json with an `animations` array in it rather than a
+        // .bbmodel, and for a while only the project branch looked - so the
+        // board drove with its wheels welded on, from a file that said they
+        // turned. Anything matching is enough; the count is the model's
+        // business, not this test's.
+        assertTrue(names.stream().anyMatch(n -> n.startsWith("assets/skateboards/models/item/deck_")),
+                "the deck's animated parts were not written - are its wheels rigged? " + names);
     }
 }

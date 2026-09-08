@@ -7,6 +7,8 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonObject;
 
 import java.nio.charset.StandardCharsets;
@@ -254,6 +256,14 @@ public final class ItemAssets implements PackContributor {
         // referenced stays, because it is probably a shared parent.
         into.drop("assets/" + namespace + "/models/" + name + ".json");
         into.add(modelPath, model.get().json());
+        // A model file can carry animations too, and for a long time only the
+        // .bbmodel branch above looked. Studio EXPORTS a Java model with an
+        // `animations` array beside the elements — which is the shape
+        // ModelRigs reads — so a pack built from a studio export placed and
+        // drove as one still lump: a skateboard whose wheels were animated,
+        // in a file that said so, standing still. A model with no animations
+        // costs one parse and nothing else, because compute() answers empty.
+        writeRigIfAnimated(item, namespace, model.get().json(), into);
         for (String texture : model.get().textures()) {
             String textureNamespace = texture.substring(0, texture.indexOf(':'));
             // Only textures a pack in this bundle is supposed to ship. A model
@@ -324,6 +334,26 @@ public final class ItemAssets implements PackContributor {
         into.add(modelPath, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
         writeRig(item, namespace, converted.get().model(), into);
         return true;
+    }
+
+    /**
+     * {@link #writeRig} for a model file that may or may not have keyframes in
+     * it, given the bytes rather than a parsed project.
+     *
+     * <p>Silent when the file will not parse: it has already been read once by
+     * {@link Geometry#read}, so getting here with something unreadable is not
+     * possible, and a second error about it would say nothing new.
+     */
+    private void writeRigIfAnimated(ItemInfo item, String namespace, byte[] json,
+                                    Contribution into) {
+        try {
+            JsonElement parsed = JsonParser.parseString(new String(json, StandardCharsets.UTF_8));
+            if (parsed.isJsonObject()) {
+                writeRig(item, namespace, parsed.getAsJsonObject(), into);
+            }
+        } catch (RuntimeException ignored) {
+            // Read once already; see the note above.
+        }
     }
 
     /**
