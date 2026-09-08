@@ -1852,9 +1852,6 @@ public final class VehicleRuntime implements Listener {
          */
         private VehiclePhysics.Wall wall;
 
-        /** When the last "why not" was sent to the driver. See {@link #tell}. */
-        private long wallWhyAt;
-
 
 
         /**
@@ -3248,7 +3245,11 @@ public final class VehicleRuntime implements Listener {
                 return null;
             }
             if (Math.abs(state.groundSpeed()) < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
-                tell("Not enough speed to hold that wall.");
+                // Silently. It used to say so, back when a wall ride was a
+                // thing you had to be told you had nearly done; now that
+                // holding the key IS the whole entry condition, the only way
+                // to fail is to be barely moving, and a rider who is barely
+                // moving can see that.
                 return null;
             }
             return beside;
@@ -3318,25 +3319,6 @@ public final class VehicleRuntime implements Listener {
                 best = new VehiclePhysics.Wall(dot >= 0 ? 1 : -1, one <= other ? line : line + 180);
             }
             return best;
-        }
-
-        /**
-         * Tells the driver why the wall they are asking for did not take them.
-         *
-         * <p>CHAT, not the action bar: the speedometer is written to the
-         * action bar every tick, so anything else sent there is overwritten
-         * before a human eye can read it - which is what made this mechanic
-         * look silent when it had been talking all along. Twice a second at
-         * most.
-         */
-        private void tell(String why) {
-            Player driver = driver();
-            long now = world.getGameTime();
-            if (driver == null || now - wallWhyAt < 20) {
-                return;
-            }
-            wallWhyAt = now;
-            driver.sendMessage(ChatColor.GRAY + why);
         }
 
         /** Solid to a vehicle: a block, or a placed model it collides with. */
