@@ -152,13 +152,26 @@ final class CapeSway {
      * because the rig is where the player was a moment ago plus a lead — see
      * {@code EmoteDirector.advanceLead} — and a cape driven by that would be
      * reacting to a smoothed copy of the motion instead of to the motion.
+     *
+     * <p><b>{@code bodyYaw} is which way the BODY is pointing, or null to use
+     * the player's own look.</b> The lag vector is a world vector and means
+     * nothing until it is resolved into the axes the cape hangs on — so the yaw
+     * this is given decides what counts as "behind" and what counts as
+     * "sideways". For somebody walking around, their look IS their body and the
+     * two are the same number; for somebody being CARRIED they are not, and
+     * reading the look was the whole of a bug that had a driver's cape swing
+     * across their back every time they glanced at the scenery. Their camera
+     * had turned ninety degrees, the car had not, and a lag pointing straight
+     * out of the boot was resolved as pure sway. See
+     * {@code EmoteDirector.Session.facing} for who owns a carried body's
+     * heading.
      */
     // isOnGround is deprecated because the CLIENT owns it, and here that is the
     // point rather than the caveat: vanilla's own cape bob is cut by the same
     // flag on the same client, so reading anything else would be a different
     // animation that happened to be better informed. A spoofed flag costs a bob.
     @SuppressWarnings("deprecation")
-    void step(Player player) {
+    void step(Player player, Float bodyYaw) {
         if (player == null) return;
         Location now = player.getLocation();
 
@@ -190,14 +203,20 @@ final class CapeSway {
         // accumulates scaled distance, and the amplitude chases the speed and
         // is cut to nothing off the ground, so a fall bobs from the vertical
         // term alone rather than flapping as if the legs were still running.
+        //
+        // And cut to nothing for a body somebody else is carrying, on the same
+        // argument one step along: the bob is a STRIDE, and a passenger covering
+        // ground in a seat is not taking any. Without this a driver sitting
+        // perfectly still got the amplitude pinned at MAX_BOB_SPEED for the
+        // whole journey, which is a walk cycle playing on a pair of folded legs.
         double stepX = now.getX() - previous.getX();
         double stepZ = now.getZ() - previous.getZ();
         double speed = Math.sqrt(stepX * stepX + stepZ * stepZ);
         walked += speed * STRIDE_SCALE;
-        double wanted = player.isOnGround() ? Math.min(speed, MAX_BOB_SPEED) : 0;
+        double wanted = player.isOnGround() && bodyYaw == null ? Math.min(speed, MAX_BOB_SPEED) : 0;
         bob += (wanted - bob) * BOB_CHASE;
 
-        double[] resolved = angles(lagX, lagY, lagZ, now.getYaw(),
+        double[] resolved = angles(lagX, lagY, lagZ, bodyYaw != null ? bodyYaw : now.getYaw(),
             Math.sin(walked * STRIDE_TO_PHASE) * BOB_DEGREES * bob, player.isSneaking());
         lean = resolved[0];
         rise = resolved[1];

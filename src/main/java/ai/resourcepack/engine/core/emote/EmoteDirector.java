@@ -3618,7 +3618,11 @@ public final class EmoteDirector implements Listener {
             // listener too, so stepping it there as well would run the
             // integrator twice in a tick somebody happened to click in — a
             // cape that flinched when you hit something.
-            session.cape.step(player);
+            // Resolved into the body's heading rather than the camera's, which
+            // for a rider are two different numbers — see CapeSway.step and
+            // `facing`. Null for everybody who is not being carried, which is
+            // everybody until a vehicle says otherwise, and is the look.
+            session.cape.step(player, session.facing);
             // A worn emote is the whole of the other branch: it never asks
             // whether they moved, because moving is the point of it.
             if (session.stance()) {
