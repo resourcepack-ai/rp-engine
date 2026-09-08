@@ -919,6 +919,18 @@ not the animation itself is authored as a loop. A state is a condition rather
 than an event, so a rowing cycle written as a one-shot still rows continuously
 while the boat is moving.
 
+**Who may ride it** is `permission:`, and absent means anybody:
+
+```yaml
+  permission: mypack.ride.hovercar
+```
+
+Checked when somebody gets IN, which is the only moment that matters: a
+vehicle is a thing standing in the world that anyone can walk up to and
+right-click, so gating who was given the ITEM controls nothing once one is
+parked in a public square. It is the same key, with the same meaning, as an
+item's.
+
 **How freely it rolls** is `coast:`, in blocks a second squared, and the
 default is a car's:
 
