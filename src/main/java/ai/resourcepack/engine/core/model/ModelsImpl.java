@@ -282,6 +282,12 @@ public final class ModelsImpl implements Models {
         }
 
         @Override
+        public boolean seek(double seconds) {
+            Host.requireMainThread();
+            return animator.seek(hitbox, seconds);
+        }
+
+        @Override
         public boolean stop() {
             Host.requireMainThread();
             return animator.stop(hitbox);

@@ -1182,6 +1182,44 @@ public final class RigAnimator implements Listener {
         }, ticks + 1);
     }
 
+    /**
+     * Moves the playhead of whatever is playing to {@code seconds} in.
+     *
+     * <p>By moving the START rather than by keeping a second clock: the whole
+     * rig reads its time as "now minus the tick it began", so winding that
+     * tick back by the wanted number of seconds IS seeking, and every part,
+     * every trigger and the crossfade all agree about it without knowing this
+     * happened. The animation's own {@code speed} is divided out, because the
+     * caller is talking about the animation's timeline and the start tick is
+     * on the clock that feeds it.
+     *
+     * <p>Nothing is restarted and no fade begins: the active animation index
+     * is untouched, so as far as {@link #pose} is concerned the same cycle is
+     * simply further along than it was. {@link Placement#seek}.
+     *
+     * @return whether there was something playing to move
+     */
+    boolean seek(Interaction hitbox, double seconds) {
+        if (hitbox == null || !hitbox.isValid() || !Double.isFinite(seconds)) return false;
+        RigStore.Rig rig = rigOf(hitbox);
+        List<ItemDisplay> displays = displaysOf(hitbox);
+        if (displays.isEmpty()) return false;
+        long now = hitbox.getWorld().getGameTime();
+        boolean moved = false;
+        for (ItemDisplay display : displays) {
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
+            Integer active = pdc.get(activeAnimationKey, PersistentDataType.INTEGER);
+            RigStore.Animation animation = RigAnimations.animationAt(rig, active);
+            if (animation == null) continue;
+            long start = now - Math.round(Math.max(0, seconds)
+                    / RigAnimations.speedOf(animation) * 20.0);
+            pdc.set(animationStartKey, PersistentDataType.LONG, start);
+            moved = true;
+        }
+        return moved;
+    }
+
     /** Whether the placement is still on the same animation from the same moment. */
     private boolean stillRunning(Interaction hitbox, int index, long startedAt) {
         for (ItemDisplay display : displaysOf(hitbox)) {

@@ -101,6 +101,26 @@ public interface Placement {
      *
      * @return whether anything was actually playing.
      */
+    /**
+     * Moves the playhead of what is already playing to {@code seconds} in,
+     * without restarting it or fading anything.
+     *
+     * <p>The write half of {@link #playhead()}, and the same clock: pass it a
+     * number that grows by less than real time and the animation runs slow;
+     * stop growing it and the animation stops on that frame. That is what
+     * drives a wheel off how far the vehicle has actually travelled rather
+     * than off how long it has been playing - see the vehicle's
+     * {@code animation-follows-speed}.
+     *
+     * <p>Advance it yourself, every tick, from something continuous. Do not
+     * jump it about: a rig has one clock and every bone reads it, so a
+     * playhead that leaps drags the whole model with it. Beyond the
+     * animation's length it wraps for a loop exactly as playing on would.
+     *
+     * @return whether there was something playing to move
+     */
+    boolean seek(double seconds);
+
     boolean stop();
 
     /** Whether the rig is still standing. False once anything has removed it. */

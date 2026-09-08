@@ -136,6 +136,10 @@ public final class VehicleDefinitions {
         // ones that pivot on the spot — a tank, a hovercraft — say so. See
         // `VehicleInfo.turnInPlace`.
         boolean turnInPlace = body.bool("turn-in-place").orElse(false);
+        // Off by default: an animation on `moving` is not always a wheel, and
+        // a version bump should not quietly change what an existing pack looks
+        // like. See VehicleInfo.animationFollowsSpeed.
+        boolean animationFollowsSpeed = body.bool("animation-follows-speed").orElse(false);
         // A rider's cape is drawn unless the pack says otherwise: it is theirs,
         // and the surprising direction is taking it off them. See
         // `VehicleInfo.capes`.
@@ -283,6 +287,7 @@ public final class VehicleDefinitions {
                 .withScale(scale)
                 .withJump(jump)
                 .withTurnInPlace(turnInPlace)
+                .withAnimationFollowsSpeed(animationFollowsSpeed)
                 .withSounds(sounds(body, origin, where, diagnostics))
                 .withCapes(capes));
     }

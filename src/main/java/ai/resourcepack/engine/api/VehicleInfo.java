@@ -54,13 +54,16 @@ public final class VehicleInfo {
     private final boolean turnInPlace;
     private final Map<VehicleState, String> sounds;
     private final boolean capes;
+    private final boolean animationFollowsSpeed;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
                         VehicleHitbox hitbox, VehicleFlight flight, List<VehicleSeat> seats,
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
                         double scale, boolean jumps, boolean turnInPlace,
-                        Map<VehicleState, String> sounds, boolean capes) {
+                        Map<VehicleState, String> sounds, boolean capes,
+                        boolean animationFollowsSpeed) {
+        this.animationFollowsSpeed = animationFollowsSpeed;
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -114,7 +117,8 @@ public final class VehicleInfo {
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
-                Collections.<VehicleState, String>emptyMap(), true);
+                Collections.<VehicleState, String>emptyMap(), true,
+                false);
     }
 
     /**
@@ -150,7 +154,8 @@ public final class VehicleInfo {
                 flight == null ? VehicleFlight.forSpeed(speed) : flight,
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
-                Collections.<VehicleState, String>emptyMap(), true);
+                Collections.<VehicleState, String>emptyMap(), true,
+                false);
     }
 
     /**
@@ -339,7 +344,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes);
+                sounds, capes, animationFollowsSpeed);
     }
 
     /**
@@ -356,7 +361,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes);
+                sounds, capes, animationFollowsSpeed);
     }
 
     /**
@@ -374,7 +379,37 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes);
+                copy, capes, animationFollowsSpeed);
+    }
+
+    /**
+     * Whether this vehicle's animation clock runs on how far it has TRAVELLED
+     * rather than on how long it has been playing.
+     *
+     * <p>A drive cycle is a wheel turning, and a wheel turns because the
+     * vehicle is moving: at half speed it should turn at half the rate, and
+     * standing still it should not turn at all. Playing the cycle at its
+     * authored rate whatever the vehicle is doing gives the wheels of a
+     * pushed skateboard, which spin at exactly one speed from a crawl to a
+     * tuck, and the milk float whose wheels race while it creeps.
+     *
+     * <p>Off by default, because an animation on {@code moving} is not always
+     * a wheel — a bobbing suspension or a flapping flag is authored at a rate
+     * somebody chose — and changing what an existing pack looks like is not
+     * something a version bump should do quietly.
+     */
+    public boolean animationFollowsSpeed() {
+        return animationFollowsSpeed;
+    }
+
+    /** The same vehicle, with its animation clock tied (or not) to its speed. */
+    public VehicleInfo withAnimationFollowsSpeed(boolean animationFollowsSpeed) {
+        if (animationFollowsSpeed == this.animationFollowsSpeed) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -384,7 +419,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes);
+                sounds, capes, animationFollowsSpeed);
     }
 
     /**
@@ -407,7 +442,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes);
+                sounds, capes, animationFollowsSpeed);
     }
 
     /**
@@ -434,7 +469,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes);
+                sounds, capes, animationFollowsSpeed);
     }
 
     /**

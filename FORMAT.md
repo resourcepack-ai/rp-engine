@@ -918,6 +918,26 @@ not the animation itself is authored as a loop. A state is a condition rather
 than an event, so a rowing cycle written as a one-shot still rows continuously
 while the boat is moving.
 
+**A wheel turns because the vehicle MOVED, not because time passed.** By
+default a cycle plays at the rate it was authored at, whatever the vehicle is
+doing - which is a skateboard whose wheels spin at one speed from a crawl to a
+tuck, and a milk float whose wheels race while it creeps. Say so and the
+playhead is driven by the ground speed instead:
+
+```yaml
+  animation-follows-speed: true
+```
+
+At the vehicle's top speed the cycle runs at its authored rate; at half speed,
+half of it; standing still it stops on the frame it reached. The phase carries
+across a change of state, so braking out of `moving` into `reversing` picks the
+wheels up where they were.
+
+It is off by default because an animation on `moving` is not always a wheel - a
+bobbing suspension, a flapping flag or an exhaust puff is authored at a rate
+somebody chose, and slowing those down with the vehicle is not obviously right.
+Turn it on for anything whose animation IS the motion.
+
 When both `moving` and `reversing` are mapped, RP Engine keeps their cycle
 phase across a direction change instead of restarting the other animation at
 frame zero. Author them as the same cycle in opposite directions (for example,
