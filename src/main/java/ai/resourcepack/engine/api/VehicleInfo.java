@@ -57,6 +57,7 @@ public final class VehicleInfo {
     private final boolean animationFollowsSpeed;
     private final boolean wallRide;
     private final boolean speedometer;
+    private final String permission;
     private final double coast;
     private final VehicleBail bail;
 
@@ -67,7 +68,8 @@ public final class VehicleInfo {
                         double scale, boolean jumps, boolean turnInPlace,
                         Map<VehicleState, String> sounds, boolean capes,
                         boolean animationFollowsSpeed, boolean wallRide, boolean speedometer,
-                        double coast, VehicleBail bail) {
+                        double coast, VehicleBail bail, String permission) {
+        this.permission = permission == null || permission.isBlank() ? null : permission;
         this.coast = Double.isFinite(coast) && coast >= 0 ? coast : 0;
         this.bail = bail;
         this.animationFollowsSpeed = animationFollowsSpeed;
@@ -127,7 +129,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true, 0, null);
+                false, false, true, 0, null, null);
     }
 
     /**
@@ -164,7 +166,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true, 0, null);
+                false, false, true, 0, null, null);
     }
 
     /**
@@ -353,7 +355,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -370,7 +372,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -388,7 +390,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                copy, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -464,6 +466,33 @@ public final class VehicleInfo {
         return coast;
     }
 
+    /**
+     * What somebody needs to get into this, or empty for anybody.
+     *
+     * <p>The same shape as an item's, and checked at the same moment: on the
+     * way IN, not on the way to owning one. A vehicle is a thing standing in
+     * the world that anybody can walk up to and right-click, so without this
+     * the only control a server has over who rides what is who was given the
+     * item - which is no control at all once one is parked in a public square.
+     *
+     * <p>Absent is not "op": a vehicle nobody said anything about is one
+     * anybody may ride, which is what every pack written before this expects.
+     */
+    public java.util.Optional<String> permission() {
+        return java.util.Optional.ofNullable(permission);
+    }
+
+    /** The same vehicle, needing that. See {@link #permission()}. */
+    public VehicleInfo withPermission(String permission) {
+        if (java.util.Objects.equals(permission, this.permission)) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail,
+                permission);
+    }
+
     /** The same vehicle, coasting like that. See {@link #coast()}. */
     public VehicleInfo withCoast(double coast) {
         if (coast == this.coast) {
@@ -471,7 +500,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -493,7 +522,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, showing (or not) its driver's speed. See {@link #speedometer()}. */
@@ -503,7 +532,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
@@ -513,7 +542,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
@@ -523,7 +552,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -533,7 +562,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -556,7 +585,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**
@@ -583,7 +612,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail);
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
     }
 
     /**

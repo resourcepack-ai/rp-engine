@@ -1240,6 +1240,13 @@ public final class VehicleRuntime implements Listener {
         // that refuses seating means all of them, and inventing a second
         // cancellable event would make "may this player sit here" two
         // questions with two answers.
+        // Before either event, because a refusal here is not a decision any
+        // listener should have to make: the pack said who may ride this.
+        Optional<String> needed = ride.info.permission();
+        if (needed.isPresent() && !player.hasPermission(needed.get())) {
+            overhead(player, "You cannot ride that.");
+            return false;
+        }
         ModelSeatEvent asked = new ModelSeatEvent(player, at);
         plugin.getServer().getPluginManager().callEvent(asked);
         if (asked.isCancelled()) {

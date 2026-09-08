@@ -148,6 +148,7 @@ public final class VehicleDefinitions {
         // written before this had.
         double coast = body.decimal("coast").orElse(0.0);
         VehicleBail bail = bail(body, definition.id(), origin, diagnostics);
+        String permission = body.string("permission").orElse(null);
         // A driver is shown their speed unless the pack says otherwise, which
         // is what every vehicle written before this key existed did. Opt-OUT
         // rather than opt-in for that reason, and because a dashboard is the
@@ -305,6 +306,7 @@ public final class VehicleDefinitions {
                 .withWallRide(wallRide)
                 .withCoast(coast)
                 .withBail(bail)
+                .withPermission(permission)
                 .withSpeedometer(speedometer)
                 .withSounds(sounds(body, origin, where, diagnostics))
                 .withCapes(capes));
