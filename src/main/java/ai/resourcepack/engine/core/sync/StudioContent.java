@@ -268,6 +268,35 @@ public final class StudioContent {
         String container;
         /** A HUD's slot. Empty on a screen. */
         String slot;
+        /**
+         * The colour the run must be drawn in, {@code #rrggbb}. Null for white.
+         *
+         * <p><b>For a shader overlay this is an address, not a look.</b> The
+         * pack's core shader recognises one of its objects by the exact colour
+         * the text arrived with, so a run drawn in any other colour renders
+         * nothing at all.
+         *
+         * <p>Null on every overlay pushed before this field existed, which is
+         * why null has to keep meaning white — Gson leaves an absent field
+         * null, so an older pack must go on drawing exactly as it did.
+         */
+        String color;
+        /**
+         * The font the run must be drawn in. Null for the default font.
+         *
+         * <p>A shader object's canvas glyph lives in a font of its own, so it
+         * never lands in the icon list and its codepoints cannot collide with
+         * an icon's.
+         */
+        String font;
+        /**
+         * A line drawn after the picture, in the default font.
+         *
+         * <p>{@code {name}} placeholders are filled per player from whatever
+         * {@code Overlays.set} last put there. The only part of an overlay a
+         * live server value can drive — see that method.
+         */
+        String text;
     }
 
     private final Gson gson = new Gson();
@@ -380,7 +409,8 @@ public final class StudioContent {
                 continue;
             }
             id(hud.id).ifPresent(id ->
-                    readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot))));
+                    readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
+                            hud.color, hud.font, hud.text)));
         }
 
         Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
@@ -799,6 +829,16 @@ public final class StudioContent {
         out.title = info.title();
         out.container = screen ? info.container() : "";
         out.slot = screen ? "" : info.slot().name().toLowerCase(Locale.ROOT);
+        // Written back as null when empty rather than as "": this file is
+        // re-read by the constructor above, and a shader overlay that came home
+        // from disk without its colour is one that draws nothing at all after a
+        // restart. Null and "" both mean white on the way in, so the round trip
+        // is lossless either way — but null is what an older manifest holds,
+        // and keeping the two spellings identical is what stops a future reader
+        // having to know the difference.
+        out.color = info.color().isEmpty() ? null : info.color();
+        out.font = info.font().isEmpty() ? null : info.font();
+        out.text = info.text().isEmpty() ? null : info.text();
         return out;
     }
 

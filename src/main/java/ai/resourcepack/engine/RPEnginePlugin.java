@@ -276,6 +276,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
     private final Overlays overlays = new Overlays();
+    /**
+     * Who is wearing which overlay, and the loop that keeps it on screen.
+     *
+     * <p>Separate from {@code overlays}, which is the catalogue: a reload
+     * replaces what the pack HOLDS without disturbing what players are
+     * currently wearing.
+     */
+    private final ai.resourcepack.engine.core.font.OverlayRuntime overlayRuntime =
+            new ai.resourcepack.engine.core.font.OverlayRuntime(overlays);
+    private final ai.resourcepack.engine.api.Overlays overlayApi =
+            new ai.resourcepack.engine.core.font.OverlaysImpl(overlays, overlayRuntime);
 
     private PackHost packHost;
     private PackDelivery delivery;
@@ -465,6 +476,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         });
         recipes = new Recipes(this, items);
+        // The action bar fades, so an overlay somebody is wearing has to be
+        // re-sent. Started here rather than lazily on the first show: a loop
+        // over an empty map costs nothing, and a lazy start is one more thing
+        // that can fail to happen.
+        overlayRuntime.start(this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
         getServer().getPluginManager().registerEvents(seats, this);
@@ -593,7 +609,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
                 new ModelCommands(placements, creatures, boundModels, items, blocks, blockStates),
-                new InterfaceCommands(sounds, icons, overlays),
+                new InterfaceCommands(sounds, icons, overlays, overlayRuntime),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
                         this::announceMembers, this::unpush),
@@ -865,6 +881,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        // The redraw loop goes with the plugin, and so does who was wearing
+        // what: an overlay is held in memory rather than on the player, so
+        // there is nothing to persist and nothing to leak.
+        overlayRuntime.stop();
         if (edits != null) {
             // The watch loop goes with the plugin, and each open session is
             // told so its storage is released now rather than at its own
@@ -953,6 +973,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** The icons this server holds, and the way to put one into text. */
     public Icons icons() {
         return icons;
+    }
+
+    /**
+     * The overlays this server holds, and how to put one on somebody's screen.
+     *
+     * <p>See {@link ai.resourcepack.engine.api.Overlays} — in particular that
+     * showing one is a thing a player WEARS rather than a message sent, and
+     * that a live value can drive an overlay's text and never its shapes.
+     */
+    public ai.resourcepack.engine.api.Overlays overlays() {
+        return overlayApi;
     }
 
     /** The custom sounds this server holds. */
