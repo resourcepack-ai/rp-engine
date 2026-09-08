@@ -692,6 +692,16 @@ public final class VehicleRuntime implements Listener {
     /** Whether the driver sees their speed above the hotbar. {@code vehicles.speedometer}. */
     private volatile boolean speedometer = true;
 
+    /**
+     * Whether somebody getting in is told the controls. {@code
+     * vehicles.mount-hint}.
+     *
+     * <p>On by default, because a server whose keys cannot be read steers by
+     * LOOK and nothing anywhere else says so. Off for a server that has told
+     * its players once and would rather the screen stayed clean.
+     */
+    private volatile boolean mountHint = true;
+
     public VehicleRuntime(Plugin plugin, Items items, Compatibility compatibility, RigCarrier rigs,
                     ai.resourcepack.engine.api.Emotes emotes, ai.resourcepack.engine.api.Sounds sounds) {
         this.emotes = emotes;
@@ -744,7 +754,7 @@ public final class VehicleRuntime implements Listener {
      */
     public void configure(double seatOffset, double seatForward, boolean pushPlayers,
                           boolean seatRig, boolean debugSeats, boolean speedometer,
-                          boolean collide) {
+                          boolean collide, boolean mountHint) {
         this.seatOffset = seatOffset;
         this.seatForward = seatForward;
         this.pushPlayers = pushPlayers;
@@ -752,6 +762,7 @@ public final class VehicleRuntime implements Listener {
         this.debugSeats = debugSeats;
         this.speedometer = speedometer;
         this.collide = collide;
+        this.mountHint = mountHint;
     }
 
     /**
@@ -1275,12 +1286,20 @@ public final class VehicleRuntime implements Listener {
         // a permanent line in the chat log every time anybody gets into
         // anything. The action bar is exactly the right shape for it: read once
         // as you sit down, gone by the time you are driving.
-        if (!quiet) {
+        if (!quiet && mountHint) {
             ride.hush();
+            // The CONTROLS, and not what they just got into. A player who has
+            // this moment right-clicked a skateboard knows it is a skateboard;
+            // naming it back at them is the sort of line that reads as a plugin
+            // talking about itself. What they cannot know is which keys this
+            // server drives with, because that depends on what the server can
+            // read. A passenger has no controls at all, so they get which seat
+            // they took, which IS worth saying: on a small vehicle the markers
+            // overlap and somebody who meant to drive needs to know they did
+            // not.
             overhead(player, seat.isDriver()
-                    ? "Driving " + nameOf(ride.info) + " - " + controls.describe()
-                    : "Riding in " + nameOf(ride.info) + " - "
-                            + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
+                    ? controls.describe()
+                    : "Riding in " + seatName(ride.info, seat).toLowerCase(Locale.ROOT));
         }
         return true;
     }

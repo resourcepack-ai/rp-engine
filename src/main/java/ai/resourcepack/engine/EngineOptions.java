@@ -53,7 +53,8 @@ final class EngineOptions {
                     config.getBoolean("vehicles.seat-rig", true),
                     config.getBoolean("vehicles.debug-seats", false),
                     config.getBoolean("vehicles.speedometer", true),
-                    config.getBoolean("vehicles.collide", true));
+                    config.getBoolean("vehicles.collide", true),
+                    config.getBoolean("vehicles.mount-hint", true));
         }
     }
 

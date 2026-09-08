@@ -2449,7 +2449,13 @@ public final class EmoteDirector implements Listener {
             if (other == null) continue;
             Player member = Bukkit.getPlayer(id);
             if (member == null) continue;
-            if (!silent && host.messages() != null) {
+            // A STANCE ends quietly, whatever the caller asked for. The
+            // message is for somebody who typed /emote and is wondering where
+            // their dance went; a stance is something they were PUT in - a
+            // vehicle seat, a chair, a mob rig - and "Emote stopped" as you
+            // step off a skateboard is the engine narrating its own plumbing
+            // to somebody who never asked for an emote at all.
+            if (!silent && !other.stance() && host.messages() != null) {
                 host.messages().stopped(member,
                     id.equals(player.getUniqueId()) || session.troupe.size() == 1);
             }

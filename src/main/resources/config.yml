@@ -149,6 +149,16 @@ vehicles:
   # else is written there, so it never paints over which seat you got.
   speedometer: true
 
+  # Whether somebody getting into a vehicle is told the controls, once, above
+  # their hotbar. On by default: which keys drive depends on what this server
+  # can read from a client, a server that cannot read them steers by LOOK
+  # instead, and nothing else anywhere says so.
+  #
+  # It says the controls and nothing else - not what you just got into, which
+  # you know, having just clicked it. A passenger is told which seat they took
+  # instead, because on a small vehicle the markers overlap.
+  mount-hint: true
+
   # Whether somebody in a vehicle seat rides in their emote rig even when the
   # pack never said what they should be doing.
   #
