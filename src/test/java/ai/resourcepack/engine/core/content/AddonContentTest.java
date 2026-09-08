@@ -61,7 +61,7 @@ class AddonContentTest {
         assertTrue(report.definitions(ContentKind.ITEM).size() >= 1,
                 "the deck should be there: " + report.definitions(ContentKind.ITEM).size());
         assertEquals(1, report.definitions(ContentKind.VEHICLE).size());
-        assertEquals(18, report.definitions(ContentKind.EMOTE).size());
+        assertEquals(20, report.definitions(ContentKind.EMOTE).size());
 
         VehicleDefinitions.Result vehicles = VehicleDefinitions.parse(report);
         for (Diagnostic diagnostic : vehicles.diagnostics()) {
@@ -75,11 +75,12 @@ class AddonContentTest {
             System.out.println("skateboards emote: " + diagnostic);
         }
         assertTrue(emotes.diagnostics().isEmpty(), "emote problems: " + emotes.diagnostics());
-        assertEquals(18, emotes.count());
+        assertEquals(20, emotes.count());
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_push"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_pushback"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_tuck"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_coffin"));
+        assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_wallride"));
         assertTrue(emotes.byNamespace().get("skateboards").containsKey("skateboards_moving_goofy"));
     }
 

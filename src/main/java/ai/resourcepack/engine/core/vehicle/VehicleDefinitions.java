@@ -140,6 +140,9 @@ public final class VehicleDefinitions {
         // a version bump should not quietly change what an existing pack looks
         // like. See VehicleInfo.animationFollowsSpeed.
         boolean animationFollowsSpeed = body.bool("animation-follows-speed").orElse(false);
+        // See VehicleInfo.wallRide: a decision about what the vehicle is,
+        // rather than a cost, which is why it is opt-in.
+        boolean wallRide = body.bool("wall-ride").orElse(false);
         // A rider's cape is drawn unless the pack says otherwise: it is theirs,
         // and the surprising direction is taking it off them. See
         // `VehicleInfo.capes`.
@@ -288,6 +291,7 @@ public final class VehicleDefinitions {
                 .withJump(jump)
                 .withTurnInPlace(turnInPlace)
                 .withAnimationFollowsSpeed(animationFollowsSpeed)
+                .withWallRide(wallRide)
                 .withSounds(sounds(body, origin, where, diagnostics))
                 .withCapes(capes));
     }

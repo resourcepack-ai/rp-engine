@@ -55,6 +55,7 @@ public final class VehicleInfo {
     private final Map<VehicleState, String> sounds;
     private final boolean capes;
     private final boolean animationFollowsSpeed;
+    private final boolean wallRide;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
@@ -62,8 +63,9 @@ public final class VehicleInfo {
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
                         double scale, boolean jumps, boolean turnInPlace,
                         Map<VehicleState, String> sounds, boolean capes,
-                        boolean animationFollowsSpeed) {
+                        boolean animationFollowsSpeed, boolean wallRide) {
         this.animationFollowsSpeed = animationFollowsSpeed;
+        this.wallRide = wallRide;
         this.id = id;
         this.model = model;
         this.carrier = carrier;
@@ -118,7 +120,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false);
+                false, false);
     }
 
     /**
@@ -155,7 +157,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false);
+                false, false);
     }
 
     /**
@@ -344,7 +346,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
@@ -361,7 +363,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
@@ -379,7 +381,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed);
+                copy, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
@@ -402,6 +404,30 @@ public final class VehicleInfo {
         return animationFollowsSpeed;
     }
 
+    /**
+     * Whether this vehicle can ride a wall: hit one at speed and a shallow
+     * angle and it holds itself against it, rolled over onto its side, until
+     * the speed or the wall runs out.
+     *
+     * <p>Off by default, and not because it is expensive - a wall is only
+     * looked for on a vehicle that says this - but because it is a decision
+     * about what a vehicle IS. A skateboard wall rides. A tractor does not,
+     * and a tractor that did would be a bug in somebody's farm.
+     */
+    public boolean wallRide() {
+        return wallRide;
+    }
+
+    /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
+    public VehicleInfo withWallRide(boolean wallRide) {
+        if (wallRide == this.wallRide) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide);
+    }
+
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
     public VehicleInfo withAnimationFollowsSpeed(boolean animationFollowsSpeed) {
         if (animationFollowsSpeed == this.animationFollowsSpeed) {
@@ -409,7 +435,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -419,7 +445,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
@@ -442,7 +468,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
@@ -469,7 +495,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed);
+                sounds, capes, animationFollowsSpeed, wallRide);
     }
 
     /**
