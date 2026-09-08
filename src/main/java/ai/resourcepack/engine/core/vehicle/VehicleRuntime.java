@@ -278,10 +278,35 @@ public final class VehicleRuntime implements Listener {
      * enough that the hair of clearance the collision resolver leaves does not
      * read as open air.
      */
-    /** How many degrees of the bodywork's lean a rider absorbs. See Ride.ridden. */
-    private static final double RIDER_LEAN_SLACK = 8.0;
+    /** How many degrees of the bodywork's lean a rider absorbs outright. See Ride.ridden. */
+    private static final double RIDER_LEAN_SLACK = 6.0;
+
+    /**
+     * How much of what is left of a lean the rider takes.
+     *
+     * <p>A third, and it should stay small. Somebody riding something into a
+     * corner is holding themselves up against the lean, not lying in it: the
+     * bodywork goes over and the rider mostly does not. Taking even half of a
+     * board's cornering lean read as a rider falling off the side of it.
+     * A wall ride is not this case at all - there the rider takes the whole
+     * angle, because there they really are lying on the thing.
+     */
+    private static final double RIDER_LEAN_SHARE = 0.33;
 
     private static final double WALL_REACH = 1.2;
+
+    /** The four ways a wall can be, as world x/z steps. See Ride.wallBeside. */
+    private static final double[][] WALL_DIRECTIONS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+    /**
+     * How slowly a wall ride has to be going before the wall lets go, blocks a
+     * second.
+     *
+     * <p>Low, because running out of speed on a wall should be something a
+     * rider watches happen rather than a threshold that snatches the ride
+     * away. Holding space keeps you on it until you are barely moving.
+     */
+    private static final double WALL_RIDE_END_SPEED = 1.0;
 
     /**
      * Where beside the vehicle the wall has to be solid, in blocks relative to
@@ -1692,8 +1717,7 @@ public final class VehicleRuntime implements Listener {
         /** When the last "why not" was sent to the driver. See {@link #tell}. */
         private long wallWhyAt;
 
-        /** When the wall probe last wrote a line to the console. See {@link #trace}. */
-        private long wallTraceAt;
+
 
         /**
          * Emotes a plugin has put on occupants over their seat's states —
@@ -2280,7 +2304,7 @@ public final class VehicleRuntime implements Listener {
          */
         private static double ridden(double degrees) {
             double past = Math.abs(degrees) - RIDER_LEAN_SLACK;
-            return past <= 0 ? 0 : Math.copySign(past, degrees);
+            return past <= 0 ? 0 : Math.copySign(past * RIDER_LEAN_SHARE, degrees);
         }
 
         /** {@link Vehicle#wallRiding}. */
@@ -3007,98 +3031,100 @@ public final class VehicleRuntime implements Listener {
             if (!info.wallRide()) {
                 return null;
             }
-            double speed = Math.abs(state.groundSpeed());
-            if (wall != null && lastDemand.lift() > 0) {
-                // Space kicks off it: the ride ends now and the vehicle is
-                // thrown up and away from the wall, which is the whole reason
-                // State.kicked exists. Deliberately BEFORE the "is it still
-                // there" test, so a kick works even at the end of a wall.
-                state = state.kicked(VehiclePhysics.JUMP_SPEED,
-                        -wall.side() * VehiclePhysics.WALL_RIDE_KICK);
-                return null;
-            }
+            // HOLDING SPACE IS THE WHOLE ENTRY CONDITION, and everything else
+            // about starting a ride went away when it arrived.
+            //
+            // Angles and speeds were the first two answers and both were
+            // wrong, for the same reason: a rider cannot see the number they
+            // are failing, so a near miss and a broken feature look identical
+            // - and what they were actually experiencing was the collision
+            // resolver doing its job, sliding them off a wall they were trying
+            // to stick to. There is nothing to guess at once the rider says
+            // what they want. Hold space at a wall: you ride it. Let go: you
+            // come off it, with a kick.
+            boolean asking = lastDemand.lift() > 0;
+            VehiclePhysics.Wall beside = wallBeside();
+
             if (wall != null) {
-                // Continuing: the wall is still there and the speed has not
-                // run out. Nothing else is re-asked - see the note above.
-                return speed >= VehiclePhysics.WALL_RIDE_MIN_SPEED * 0.5 && wallAt(wall.side()) != null
-                        ? new VehiclePhysics.Wall(wall.side(), wall.yaw())
+                if (!asking) {
+                    // Letting go is how you get off, and it throws you clear
+                    // rather than dropping you - which is what a kick off a
+                    // wall is. State.kicked, because a nudge is along the
+                    // heading and the heading is along the wall.
+                    state = state.kicked(VehiclePhysics.JUMP_SPEED,
+                            -wall.side() * VehiclePhysics.WALL_RIDE_KICK);
+                    return null;
+                }
+                // Still holding: the ride lasts while there is wall beside
+                // them and they are still moving along it.
+                return beside != null && Math.abs(state.groundSpeed()) >= WALL_RIDE_END_SPEED
+                        ? new VehiclePhysics.Wall(beside.side(), beside.yaw())
                         : null;
             }
-            if (supported) {
+            if (!asking || supported || beside == null) {
                 return null;
             }
-
-            // Which walls are there, before asking anything about them: a
-            // vehicle in mid-air with nothing beside it is the ordinary case
-            // and says nothing to anybody.
-            Double left = wallAt(-1);
-            Double right = wallAt(1);
-            if (left == null && right == null) {
-                trace(speed, null, null);
+            if (Math.abs(state.groundSpeed()) < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
+                tell("Not enough speed to hold that wall.");
                 return null;
             }
-            trace(speed, left, right);
-            if (speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
-                tell(String.format(java.util.Locale.ROOT, "Too slow to hold the wall: %.1f, needs %.1f",
-                        speed, VehiclePhysics.WALL_RIDE_MIN_SPEED));
-                return null;
-            }
-            double heading = state.yaw();
-            Double closest = null;
-            for (int side : new int[] {-1, 1}) {
-                Double along = side < 0 ? left : right;
-                if (along == null) {
-                    continue;
-                }
-                // The wall's line runs both ways; the one being ridden is
-                // whichever is nearer the way the vehicle is already going.
-                double one = Math.abs(VehiclePhysics.wrap180(along - heading));
-                double other = Math.abs(VehiclePhysics.wrap180(along + 180 - heading));
-                double off = Math.min(one, other);
-                if (off > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
-                    closest = closest == null ? off : Math.min(closest, off);
-                    continue;
-                }
-                return new VehiclePhysics.Wall(side, one <= other ? along : along + 180);
-            }
-            tell(String.format(java.util.Locale.ROOT,
-                    "Too square onto the wall: %.0f degrees off it, needs %.0f",
-                    closest == null ? 90.0 : closest, VehiclePhysics.WALL_RIDE_MAX_ANGLE));
-            return null;
+            return beside;
         }
 
         /**
-         * What the wall probe saw this tick, on the console, while somebody is
-         * riding a wall-riding vehicle through the air.
+         * The wall this vehicle is up against, whichever way it is pointing,
+         * or null.
          *
-         * <p>Temporary in spirit and cheap in fact - it only runs for a
-         * vehicle that says {@code wall-ride}, only while it is off the
-         * ground, and only twice a second. It is here because the first three
-         * attempts at this mechanic were debugged by guessing, which cost an
-         * evening.
+         * <p><strong>The four world directions, not the vehicle's own
+         * sides.</strong> Probing along the vehicle's right hand is right only
+         * when the vehicle is already parallel to the wall - which it is not
+         * when it has just flown into one at an angle and is being slid along
+         * it, and that is exactly the moment a rider is asking for a wall
+         * ride. Aimed forty degrees into a wall, "the vehicle's right" points
+         * into open air, so the probe found nothing and the mechanic looked
+         * broken from the only approach anybody actually makes.
+         *
+         * <p>Either sample being solid is enough - level with the vehicle or
+         * half a block under it - so a wall found on the way up, on the way
+         * down, or scraping along is the same wall.
          */
-        private void trace(double speed, Double left, Double right) {
-            long now = world.getGameTime();
-            if (driver() == null || now - wallTraceAt < 10) {
-                return;
+        private VehiclePhysics.Wall wallBeside() {
+            double[] right = VehiclePhysics.right(state.yaw());
+            double heading = state.yaw();
+            VehiclePhysics.Wall best = null;
+            double bestOff = Double.MAX_VALUE;
+            for (double[] direction : WALL_DIRECTIONS) {
+                double x = at.getX() + direction[0] * WALL_REACH;
+                double z = at.getZ() + direction[1] * WALL_REACH;
+                if (!solidFor(x, at.getY() + WALL_HIGH, z) && !solidFor(x, at.getY() + WALL_LOW, z)) {
+                    continue;
+                }
+                // A face reached by stepping in x is a wall running along z,
+                // and the other way round.
+                double line = direction[0] != 0 ? 0.0 : 90.0;
+                double one = Math.abs(VehiclePhysics.wrap180(line - heading));
+                double other = Math.abs(VehiclePhysics.wrap180(line + 180 - heading));
+                double off = Math.min(one, other);
+                if (off >= bestOff) {
+                    continue;
+                }
+                // Which of the rider's sides it is on, so the body knows which
+                // way to roll over.
+                double dot = right[0] * direction[0] + right[1] * direction[1];
+                bestOff = off;
+                best = new VehiclePhysics.Wall(dot >= 0 ? 1 : -1, one <= other ? line : line + 180);
             }
-            wallTraceAt = now;
-            log.info(String.format(java.util.Locale.ROOT,
-                    "[wallride] airborne at %.1f,%.1f,%.1f speed %.1f yaw %.0f left %s right %s",
-                    at.getX(), at.getY(), at.getZ(), speed, state.yaw(),
-                    left == null ? "-" : String.format(java.util.Locale.ROOT, "%.0f", left),
-                    right == null ? "-" : String.format(java.util.Locale.ROOT, "%.0f", right)));
+            return best;
         }
 
         /**
-         * Tells the driver why the wall they are alongside did not take them.
+         * Tells the driver why the wall they are asking for did not take them.
          *
-         * <p>Only when there IS a wall - an ordinary jump in an empty field
-         * says nothing - and only for the two failures a rider can do
-         * something about: too slow, or too square onto it. A mechanic with
-         * silent ways to fail is one nobody can learn, and "you were sixty
-         * degrees off" is the difference between practising it and giving up
-         * on it. Twice a second at most, so it reads rather than flickers.
+         * <p>CHAT, not the action bar: the speedometer is written to the
+         * action bar every tick, so anything else sent there is overwritten
+         * before a human eye can read it - which is what made this mechanic
+         * look silent when it had been talking all along. Twice a second at
+         * most.
          */
         private void tell(String why) {
             Player driver = driver();
@@ -3107,43 +3133,7 @@ public final class VehicleRuntime implements Listener {
                 return;
             }
             wallWhyAt = now;
-            // CHAT, not the action bar. The action bar is where the
-            // speedometer lives and it is written every tick, so anything else
-            // sent there is overwritten before a human eye can read it - which
-            // is exactly what happened to the first version of this: it looked
-            // like the mechanic was silent when it had been talking all along.
             driver.sendMessage(ChatColor.GRAY + why);
-            log.info("[wallride] " + info.id() + " " + why);
-        }
-
-        /**
-         * The LINE of the wall {@code side} of this vehicle, in degrees, or
-         * null if there is nothing solid there.
-         *
-         * <p>Solid at two heights or it is not a wall: a kerb, a fence post
-         * and a single slab are all things you would rather ride over than
-         * along. Placed models count as well as blocks, so a wall somebody
-         * built out of the skatepark's own pieces is a wall.
-         *
-         * <p><strong>The line comes off the block face, not off the
-         * vehicle.</strong> Taking it from the heading — which is what this
-         * did first — makes the angle test compare a number with itself, so
-         * every wall is a perfect approach and nothing is ever straightened
-         * onto anything. Which axis the probe crossed to reach the wall is
-         * what says which way the wall runs: stepping in x finds a face whose
-         * wall runs along z, and the other way round.
-         */
-        private Double wallAt(int side) {
-            double yaw = state.yaw();
-            double[] right = VehiclePhysics.right(yaw);
-            double x = at.getX() + right[0] * WALL_REACH * side;
-            double z = at.getZ() + right[1] * WALL_REACH * side;
-            if (!solidFor(x, at.getY() + WALL_LOW, z) || !solidFor(x, at.getY() + WALL_HIGH, z)) {
-                return null;
-            }
-            // Which way the wall runs, from which way we stepped to find it.
-            // The bigger step is the one that crossed the face.
-            return Math.abs(right[0] * side) >= Math.abs(right[1] * side) ? 0.0 : 90.0;
         }
 
         /** Solid to a vehicle: a block, or a placed model it collides with. */
@@ -3789,8 +3779,12 @@ public final class VehicleRuntime implements Listener {
                         double seatRadians = Math.toRadians(seatYaw(i));
                         double cos = Math.cos(seatRadians);
                         double sin = Math.sin(seatRadians);
-                        double leanPitch = ridden(state.pitch());
-                        double leanRoll = ridden(state.roll());
+                        // On a wall the rider goes over with the board, all
+                        // of it: they are lying on the thing. Everywhere else
+                        // they are balancing on it, and take a fraction of a
+                        // corner's lean at most - see ridden().
+                        double leanPitch = wall != null ? state.pitch() : ridden(state.pitch());
+                        double leanRoll = wall != null ? state.roll() : ridden(state.roll());
                         emotes.lean(rider,
                                 (float) (leanPitch * cos + leanRoll * sin),
                                 (float) (leanRoll * cos - leanPitch * sin));
