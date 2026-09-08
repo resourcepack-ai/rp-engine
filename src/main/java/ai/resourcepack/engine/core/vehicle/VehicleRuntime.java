@@ -3065,7 +3065,7 @@ public final class VehicleRuntime implements Listener {
                 // Still holding: the ride lasts while there is wall beside
                 // them and they are still moving along it.
                 return beside != null && Math.abs(state.groundSpeed()) >= WALL_RIDE_END_SPEED
-                        ? new VehiclePhysics.Wall(beside.side(), beside.yaw())
+                        ? new VehiclePhysics.Wall(beside.side(), beside.yaw(), climbOn(wall))
                         : null;
             }
             if (!asking || supported || beside == null) {
@@ -3076,6 +3076,26 @@ public final class VehicleRuntime implements Listener {
                 return null;
             }
             return beside;
+        }
+
+        /**
+         * Where the nose is pointed up the wall this tick, in degrees.
+         *
+         * <p>The steering turns it, at {@link VehiclePhysics#WALL_RIDE_TURN} a
+         * second, and letting go eases it back to a shallow descent - gravity,
+         * said as an angle. Steering TOWARD the wall climbs, which is the way
+         * round a rider expects: you lean into the thing you are riding to go
+         * up it.
+         */
+        private double climbOn(VehiclePhysics.Wall riding) {
+            double climb = riding.climb();
+            double steer = lastDemand.steer() * riding.side();
+            double seconds = 1 / 20.0;
+            if (steer != 0) {
+                return climb + steer * VehiclePhysics.WALL_RIDE_TURN * seconds;
+            }
+            return climb + (VehiclePhysics.WALL_RIDE_REST_CLIMB - climb)
+                    * VehiclePhysics.WALL_RIDE_SETTLE * seconds;
         }
 
         /**

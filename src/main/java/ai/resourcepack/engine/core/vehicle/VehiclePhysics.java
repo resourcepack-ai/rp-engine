@@ -435,28 +435,27 @@ public final class VehiclePhysics {
     /** How hard the wall scrubs speed off, blocks per second per second. */
     public static final double WALL_RIDE_DRAG = 0.8;
 
+    /** How steeply a wall ride can point up or down the wall, degrees. */
+    public static final double WALL_RIDE_MAX_CLIMB = 55;
+
+    /** How fast the steering turns the vehicle up and down the wall, degrees a second. */
+    public static final double WALL_RIDE_TURN = 150;
+
     /**
-     * How fast a wall ride sinks, blocks a second.
+     * Where the nose settles when nobody is steering, degrees.
      *
-     * <p>Not zero: a ride that held its height would end only when the wall or
-     * the speed did, and every one of them would look the same. Sliding gently
-     * down means a long one finishes on the floor, where it started.
+     * <p>Slightly down the wall, and this is what gravity IS on a wall ride.
+     * Saying it as an angle rather than as a sink rate is the whole trick:
+     * let go of the steering and the ride eases into a shallow descent that it
+     * is pointing down, instead of sliding down a wall it is pointing along.
      */
-    public static final double WALL_RIDE_SINK = 0.7;
+    public static final double WALL_RIDE_REST_CLIMB = -12;
+
+    /** How quickly an unsteered wall ride eases back to its resting angle, per second. */
+    public static final double WALL_RIDE_SETTLE = 1.6;
 
     /** How quickly the heading is pulled onto the wall's line, per second. */
     public static final double WALL_RIDE_ALIGN = 6.0;
-
-    /**
-     * How much of the sink the steering can trim away, blocks a second.
-     *
-     * <p>The steering has nothing to do on a wall — the heading is the wall's
-     * — so it becomes the one control a wall ride has: lean into the wall and
-     * you hold your line up it, lean off and you come down it. Bigger than
-     * {@link #WALL_RIDE_SINK}, so full lock into the wall climbs rather than
-     * merely stops falling.
-     */
-    public static final double WALL_RIDE_CLIMB = 4.5;
 
     /** How much of its top speed a vehicle will drive to along a wall. */
     public static final double WALL_RIDE_DRIVE = 0.8;
@@ -799,10 +798,10 @@ public final class VehiclePhysics {
                 // beating, and it sinks at its own pace instead. See
                 // WALL_RIDE_SINK, and `wall` above for what puts one here.
                 if (wall != null) {
-                    // Steering leans up or down the wall instead of turning:
-                    // toward the wall climbs, away from it drops. See
-                    // WALL_RIDE_CLIMB.
-                    vertical = -WALL_RIDE_SINK + demand.steer() * wall.side() * WALL_RIDE_CLIMB;
+                    // Where it is pointing is where it goes, exactly as on the
+                    // ground: the wall is only a floor turned on its side. See
+                    // Wall.climb, which is the steering that got it there.
+                    vertical = speed * Math.sin(Math.toRadians(wall.climb()));
                     break;
                 }
                 // A land vehicle that jumps does so from the ground and only
@@ -842,7 +841,11 @@ public final class VehiclePhysics {
             // into the air, the wheels face the bricks. Rolled the other way
             // it lies on a wall that is not there, which is precisely what it
             // looked like.
-            pitchTarget = 0;
+            // The nose points up or down the wall by however far it is
+            // being steered there. On a body already rolled onto the wall,
+            // the pitch IS that angle - so steering up there needs nothing
+            // the bodywork cannot already do.
+            pitchTarget = wall.climb();
             rollTarget = -WALL_RIDE_ROLL * wall.side();
             liftTarget = state.lift();
         } else if (airborne) {
@@ -884,6 +887,12 @@ public final class VehiclePhysics {
         double planar = air && !demand.steersByKeys()
                 ? speed * Math.cos(Math.toRadians(demand.pitch()))
                 : speed;
+        if (wall != null) {
+            // Climbing costs ground, the same way a climbing aircraft covers
+            // less of it: the speed is along the WALL, and only part of that
+            // is along the floor.
+            planar = speed * Math.cos(Math.toRadians(wall.climb()));
+        }
 
         double[] move = worldVelocity(yaw, planar, slip);
         double dx = move[0] * dt;
@@ -908,10 +917,36 @@ public final class VehiclePhysics {
 
         private final int side;
         private final double yaw;
+        private final double climb;
 
         public Wall(int side, double yaw) {
+            this(side, yaw, 0);
+        }
+
+        public Wall(int side, double yaw, double climb) {
             this.side = side < 0 ? -1 : 1;
             this.yaw = wrap360(yaw);
+            this.climb = clampMagnitude(climb, WALL_RIDE_MAX_CLIMB);
+        }
+
+        /**
+         * How steeply the vehicle is pointed up the wall, degrees, positive
+         * up.
+         *
+         * <p><strong>A wall is a floor turned on its side, and this is the
+         * steering on it.</strong> The first version had the steering trim a
+         * sink RATE, so the vehicle moved up and down while it went on
+         * pointing straight along the wall - it slid rather than drove, and it
+         * read as exactly that. An angle instead: the driver turns it, the
+         * body is drawn pointing at it, and where the vehicle goes falls out
+         * of where it is pointing. Which is what turning means everywhere
+         * else.
+         *
+         * <p>Carried on the wall rather than in the physics state because it
+         * belongs to the ride - kick off and it goes with it.
+         */
+        public double climb() {
+            return climb;
         }
 
         public int side() {
