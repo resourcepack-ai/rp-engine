@@ -251,6 +251,15 @@ ride.
 Tell the rider what the key does now, somewhere they will read it. A vehicle
 whose shift key silently stopped working is a bug report.
 
+`Placement.seek(seconds)` is the write half of `playhead()`: it moves what is
+already playing without restarting it or fading anything, so a clock you
+advance yourself — by distance travelled, by fuel burnt, by anything
+continuous — drives the animation. Grow it slower than real time and the cycle
+runs slow; stop growing it and the cycle stops. A vehicle gets this off one
+line of YAML (`animation-follows-speed`, see FORMAT.md); this is for the cases
+that are not a vehicle. Advance it every tick from something smooth rather than
+jumping it about: a rig has one clock, and every bone on it reads that clock.
+
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
 

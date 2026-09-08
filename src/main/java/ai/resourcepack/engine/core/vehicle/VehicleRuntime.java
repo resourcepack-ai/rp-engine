@@ -1639,6 +1639,19 @@ public final class VehicleRuntime implements Listener {
         private VehiclePhysics.Demand lastDemand = VehiclePhysics.Demand.idle(0);
 
         /**
+         * How far into its animation a speed-linked vehicle is, in seconds of
+         * that animation - advanced by how far the vehicle TRAVELLED this
+         * tick rather than by the tick itself. See
+         * {@link VehicleInfo#animationFollowsSpeed}.
+         *
+         * <p>Kept across a change of state on purpose: `moving` and
+         * `reversing` are the same wheel at the same angle, so a cycle that
+         * carried on from where the last one was is one less thing for the
+         * crossfade to hide.
+         */
+        private double animationPhase;
+
+        /**
          * Emotes a plugin has put on occupants over their seat's states —
          * {@link Vehicle#dress}. Consulted by {@link #dressOccupants} ahead
          * of the state table, and dropped when they get out.
@@ -2807,6 +2820,21 @@ public final class VehicleRuntime implements Listener {
             }
             Placement placement = found.get();
 
+            // A wheel turns because the vehicle moved, not because time
+            // passed. The clock is driven from here rather than left to run at
+            // the animation's own rate, which is what had a pushed skateboard
+            // spinning its wheels at one speed from a crawl to a tuck.
+            boolean seekWanted = false;
+            if (info.animationFollowsSpeed() && wanted != null) {
+                double top = Math.max(0.1, info.speed());
+                double rate = Math.min(4, Math.abs(state().groundSpeed()) / top);
+                animationPhase += rate / 20.0;
+                // Applied after the play() below on the tick a state changes,
+                // so a cycle that has just started is moved to the phase this
+                // vehicle is at rather than left at zero.
+                seekWanted = true;
+            }
+
             if (!Objects.equals(wanted, playing)) {
                 playing = wanted;
                 if (wanted == null) {
@@ -2820,6 +2848,9 @@ public final class VehicleRuntime implements Listener {
                     // the model no longer has would otherwise be a lookup per
                     // tick for ever.
                     playable = placement.play(wanted, true);
+                }
+                if (seekWanted && playable) {
+                    placement.seek(animationPhase);
                 }
                 return;
             }
@@ -2839,6 +2870,14 @@ public final class VehicleRuntime implements Listener {
             // told, so a HOLD or a genuine loop never trips this.
             if (playable && playing != null && placement.playing().isEmpty()) {
                 placement.play(playing, true);
+            }
+
+            // The ordinary tick for a speed-linked vehicle: the cycle is
+            // already the right one and only its playhead moves, by however
+            // far this vehicle travelled. Standing still, the phase does not
+            // move and neither do the wheels.
+            if (seekWanted && playable) {
+                placement.seek(animationPhase);
             }
         }
 
