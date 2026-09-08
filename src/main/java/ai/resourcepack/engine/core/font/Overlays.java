@@ -6,6 +6,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
@@ -91,20 +93,120 @@ public final class Overlays {
             return false;
         }
         OverlayInfo info = found.get();
-        String drawn = title(info);
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
+            // **A boss bar cannot carry a font.** Bukkit's BossBar takes a
+            // legacy String, and legacy formatting has codes for colour but
+            // none for a font — so an overlay whose glyph lives in a font of
+            // its own (every shader object does) cannot be drawn here at all.
+            // Studio therefore sends those as ACTION_BAR; this branch stays for
+            // the ordinary pushed and hand-authored overlays, which live in the
+            // default font and only ever needed a colour.
             BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
-                    key -> Bukkit.createBossBar(drawn, BarColor.WHITE, BarStyle.SOLID));
-            bar.setTitle(drawn);
+                    key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
+            bar.setTitle(legacy(info));
             // Invisible bar, visible art: the bar itself is a rendering
             // surface here rather than a meter.
             bar.setProgress(0d);
             bar.addPlayer(viewer);
             bar.setVisible(true);
         } else {
-            viewer.sendMessage(drawn);
+            // ACTION_BAR, and it really is the action bar.
+            //
+            // **This used to be `viewer.sendMessage`, which is CHAT** — so an
+            // overlay declared `action_bar` drew a full-screen picture into
+            // somebody's chat log, and the javadoc on the enum promising it is
+            // "redrawn while shown" had nothing redrawing it. Same call
+            // `ActionRunner` and `VehicleRuntime.overhead` already use; Paper's
+            // `Player#sendActionBar` is not available on the Spigot this
+            // compiles against.
+            viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, component(info));
         }
         return true;
+    }
+
+    /**
+     * Draws one overlay for one player, with that player's values filled in.
+     *
+     * <p>What {@link OverlayRuntime}'s loop calls. Separate from {@link #draw}
+     * because that one looks an id up and this one already has the info — and
+     * because only this one knows about values.
+     *
+     * <p><b>Two components, not one.</b> The picture is a glyph in a font of
+     * its own, drawn in a colour the pack's core shader matches on; the text is
+     * ordinary words in the default font and an ordinary colour. One component
+     * cannot be in two fonts, and drawing the text in the picture's colour
+     * would run that shader object's shapes inside every letter — so they are
+     * sent as two parts of one message.
+     */
+    public void send(Player viewer, OverlayInfo info, java.util.Map<String, String> values) {
+        if (viewer == null || !viewer.isOnline() || info == null) {
+            return;
+        }
+        String text = OverlayRuntime.fill(info.text(), values == null ? java.util.Map.of() : values);
+        BaseComponent[] parts = text.isEmpty()
+                ? component(info)
+                : new BaseComponent[] {component(info)[0], new TextComponent(" " + text)};
+        if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
+            // See draw(): a boss bar cannot carry a font, so this surface only
+            // ever holds the default-font overlays, and their text rides the
+            // legacy string with them.
+            BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
+                    key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
+            bar.setTitle(legacy(info) + (text.isEmpty() ? "" : ChatColor.RESET + " " + text));
+            bar.setProgress(0d);
+            bar.addPlayer(viewer);
+            bar.setVisible(true);
+            return;
+        }
+        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, parts);
+    }
+
+    /**
+     * The run to draw, as a component.
+     *
+     * <p>Components rather than a legacy string because a shader overlay needs
+     * two things a legacy string cannot carry: an exact RGB colour, and a font.
+     * The colour is the object's address — the pack's core shader recognises it
+     * by the vertex colour its text arrived with — so "close enough" renders
+     * nothing.
+     */
+    static BaseComponent[] component(OverlayInfo info) {
+        TextComponent text = new TextComponent(drawnText(info));
+        // White unless the overlay named a colour: the client tints art with
+        // whatever colour the surrounding text is drawn in, and anything but
+        // white comes out muddy. A shader overlay is the exception, and for it
+        // the colour is not a look at all.
+        text.setColor(info.color().isEmpty()
+                ? net.md_5.bungee.api.ChatColor.WHITE
+                : net.md_5.bungee.api.ChatColor.of(info.color()));
+        if (!info.font().isEmpty()) {
+            text.setFont(info.font());
+        }
+        return new BaseComponent[] {text};
+    }
+
+    /**
+     * The same run as a legacy string, for the boss bar.
+     *
+     * <p>White, or the client tints the art with whatever colour the
+     * surrounding text is drawn in and it comes out muddy. A colour the overlay
+     * named wins, spelled the legacy way ({@code §x§r§r§g§g§b§b}) since that is
+     * all this surface can take.
+     */
+    static String legacy(OverlayInfo info) {
+        String prefix = info.color().isEmpty()
+                ? ChatColor.WHITE.toString()
+                : net.md_5.bungee.api.ChatColor.of(info.color()).toString();
+        return prefix + drawnText(info);
+    }
+
+    /** The characters themselves, without any colour in front of them. */
+    private static String drawnText(OverlayInfo info) {
+        if (!info.title().isEmpty()) {
+            // A pushed pack did its own arithmetic with its own codepoints.
+            return info.title();
+        }
+        return shift(info.offset()) + info.character();
     }
 
     /** Clears whatever this engine is drawing for a player. */
@@ -126,11 +228,9 @@ public final class Overlays {
      * space, then the glyph.
      */
     private static String title(OverlayInfo info) {
-        if (!info.title().isEmpty()) {
-            // A pushed pack did its own arithmetic with its own codepoints.
-            return ChatColor.WHITE + info.title();
-        }
-        return ChatColor.WHITE + shift(info.offset()) + info.character();
+        // A container title is a legacy string too, so it is the same run the
+        // boss bar draws. One builder, so the two cannot drift.
+        return legacy(info);
     }
 
     /**

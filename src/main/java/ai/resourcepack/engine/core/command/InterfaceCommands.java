@@ -33,11 +33,14 @@ public final class InterfaceCommands implements Area {
     private final SoundsImpl sounds;
     private final IconsImpl icons;
     private final Overlays overlays;
+    private final ai.resourcepack.engine.core.font.OverlayRuntime runtime;
 
-    public InterfaceCommands(SoundsImpl sounds, IconsImpl icons, Overlays overlays) {
+    public InterfaceCommands(SoundsImpl sounds, IconsImpl icons, Overlays overlays,
+                             ai.resourcepack.engine.core.font.OverlayRuntime runtime) {
         this.sounds = sounds;
         this.icons = icons;
         this.overlays = overlays;
+        this.runtime = runtime;
     }
 
     @Override
@@ -54,7 +57,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("say", "<text>", "text with :pack:icon: in it"),
                 Help.of("screens", "list the screens and HUDs"),
                 Help.of("screen", "<id> [player]", "open a screen"),
-                Help.of("hud", "<id|clear> [player]", "draw or clear one"));
+                Help.of("hud", "<id|clear> [player]", "show or clear one"));
     }
 
     @Override
@@ -216,11 +219,19 @@ public final class InterfaceCommands implements Area {
             return true;
         }
         if (args[1].equalsIgnoreCase("clear")) {
+            // Both halves: the boss bar this engine may be holding, and
+            // whatever the player is WEARING on the action bar.
+            runtime.hideAll(target);
             overlays.clear(target);
             Reply.to(sender, "Cleared.");
             return true;
         }
-        boolean drawn = ContentId.parse(args[1]).map(id -> overlays.draw(target, id))
+        // Shown rather than sent. The action bar fades after about three
+        // seconds, so a one-shot draw is a picture that vanishes — which is
+        // what this command used to do, against an enum whose javadoc has
+        // always said an overlay is "redrawn while shown". `clear` is how it
+        // comes off.
+        boolean drawn = ContentId.parse(args[1]).map(id -> runtime.show(target, id))
                 .orElse(Boolean.FALSE);
         if (!drawn) {
             Reply.to(sender, "No HUD called " + args[1] + ".");

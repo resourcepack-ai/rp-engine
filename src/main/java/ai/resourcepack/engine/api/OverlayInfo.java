@@ -39,9 +39,13 @@ public final class OverlayInfo {
     private final int ascent;
     private final int offset;
     private final int codepoint;
+    private final String color;
+    private final String font;
+    private final String text;
 
     private OverlayInfo(ContentId id, String file, String title, String container, Slot slot,
-                        int height, int ascent, int offset, int codepoint) {
+                        int height, int ascent, int offset, int codepoint,
+                        String color, String font, String text) {
         this.id = id;
         this.file = file;
         this.title = title;
@@ -51,6 +55,50 @@ public final class OverlayInfo {
         this.ascent = ascent;
         this.offset = offset;
         this.codepoint = codepoint;
+        this.color = color == null ? "" : color;
+        this.font = font == null ? "" : font;
+        this.text = text == null ? "" : text;
+    }
+
+    /**
+     * A line drawn after the picture, in the default font. Empty if there is none.
+     *
+     * <p>May contain {@code {name}} placeholders, filled per player from
+     * whatever {@link Overlays#set} last put there. <b>This is the only part of
+     * an overlay a live server value can drive.</b> A shader object's shapes are
+     * compiled into the pack and a core shader has no channel a server can push
+     * a number through — text is the exception only because it never enters the
+     * shader at all.
+     */
+    public String text() {
+        return text;
+    }
+
+    /**
+     * The colour this must be drawn in, {@code #rrggbb}, or empty for white.
+     *
+     * <p><b>An address rather than a look, when it is set.</b> A shader overlay
+     * is recognised by the pack's own core shader from the exact colour its
+     * text arrived with — so this run drawn in any other colour draws nothing,
+     * and ordinary text drawn in THIS colour would run that object's shapes
+     * inside every letter of it.
+     *
+     * <p>Empty for everything the engine builds itself and for every pack
+     * pushed before shaders existed, which is what keeps those drawing white
+     * exactly as they did.
+     */
+    public String color() {
+        return color;
+    }
+
+    /**
+     * The font this must be drawn in, or empty for the default.
+     *
+     * <p>A shader object's canvas glyph lives in a font of its own, so it stays
+     * out of the icon list and cannot collide with an icon's codepoint.
+     */
+    public String font() {
+        return font;
     }
 
     /** Engine internal; built by the screen or HUD loader. */
@@ -62,7 +110,7 @@ public final class OverlayInfo {
                 "",
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                height, ascent, offset, codepoint);
+                height, ascent, offset, codepoint, "", "", "");
     }
 
     /**
@@ -76,13 +124,25 @@ public final class OverlayInfo {
      * this is the constructor that takes it.
      */
     public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot) {
+        return pushed(id, title, container, slot, "", "", "");
+    }
+
+    /**
+     * As {@link #pushed(ContentId, String, String, Slot)}, with the colour and
+     * font the run has to be drawn in.
+     *
+     * <p>Both empty for an ordinary pushed overlay. A SHADER overlay sets them,
+     * and for it they are not styling: see {@link #color()}.
+     */
+    public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot,
+                                     String color, String font, String text) {
         return new OverlayInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
                 Objects.requireNonNull(title, "title"),
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                0, 0, 0, 0);
+                0, 0, 0, 0, color, font, text);
     }
 
     /**
