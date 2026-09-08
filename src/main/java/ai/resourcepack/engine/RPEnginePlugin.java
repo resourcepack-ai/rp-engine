@@ -780,16 +780,24 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean rebaking;
 
     /**
-     * How long a rebuild waits after the first new skin, ticks.
+     * How long after a rebuild another one waits, ticks.
      *
-     * <p>Five seconds. Long enough to swallow a group arriving together - one
-     * rebuild for the lot - and short enough that somebody who joined alone
-     * has their own face before they have finished walking out of spawn.
+     * <p>Not a delay before the FIRST one - that fires at once, because a
+     * player who joined alone should not stand about as a default skin
+     * waiting out a window that exists for crowds. This is the window after
+     * it: anybody who arrives while that rebuild is running, or in the few
+     * seconds after it, is covered by a single follow-up instead of costing a
+     * rebuild each. A server filling up at the start of an evening therefore
+     * pays two, not twenty, and the person who walked in on their own pays
+     * nothing at all.
      */
-    private static final long REBAKE_DELAY_TICKS = 100L;
+    private static final long REBAKE_COOLDOWN_TICKS = 100L;
 
     /** {@code emotes.bake-on-join}. See {@link #rebakeSoon}. */
     private volatile boolean bakeOnJoin = true;
+
+    /** When the last rebuild for a new skin ran, in ticks. See {@link #rebakeSoon}. */
+    private long lastRebake = Long.MIN_VALUE / 2;
 
     /**
      * Rebuilds the packs shortly, because somebody is here whose rig is not in
@@ -817,11 +825,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (!bakeOnJoin || rebaking || !isEnabled()) {
             return;
         }
+        long now = getServer().getWorlds().isEmpty() ? 0 : getServer().getWorlds().get(0).getFullTime();
+        long since = now - lastRebake;
+        // NEXT TICK rather than this instant: this is reached from inside the
+        // join, and rebuilding every pack on the server halfway through
+        // somebody's PlayerJoinEvent is a reentrancy nobody wants. One tick is
+        // fifty milliseconds and reads as immediate.
+        long wait = since >= REBAKE_COOLDOWN_TICKS ? 1L : REBAKE_COOLDOWN_TICKS - since;
         rebaking = true;
         getServer().getScheduler().runTaskLater(this, () -> {
             rebaking = false;
+            lastRebake = getServer().getWorlds().isEmpty()
+                    ? 0 : getServer().getWorlds().get(0).getFullTime();
             reloadContent(getServer().getConsoleSender());
-        }, REBAKE_DELAY_TICKS);
+        }, wait);
     }
 
     /** {@code /rp push}: forget what they are holding and send it again. */
