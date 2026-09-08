@@ -278,7 +278,7 @@ public final class VehicleRuntime implements Listener {
      * enough that the hair of clearance the collision resolver leaves does not
      * read as open air.
      */
-    private static final double WALL_REACH = 0.9;
+    private static final double WALL_REACH = 1.1;
 
     /**
      * How far up the wall has to be there, in blocks above the vehicle's base.
@@ -287,8 +287,8 @@ public final class VehicleRuntime implements Listener {
      * fence post or a single slab is not one. Riding along the top edge of a
      * one-block ledge would look like the board floating beside a step.
      */
-    private static final double WALL_LOW = 0.4;
-    private static final double WALL_HIGH = 1.6;
+    private static final double WALL_LOW = 0.2;
+    private static final double WALL_HIGH = 1.2;
 
     /** How hard a vehicle shoves somebody out of its way, blocks per tick. */
     private static final double SHOVE = 0.35;
@@ -2976,9 +2976,22 @@ public final class VehicleRuntime implements Listener {
                 return null;
             }
             double speed = Math.abs(state.groundSpeed());
-            if (wall != null && speed >= VehiclePhysics.WALL_RIDE_MIN_SPEED * 0.6) {
-                // Still on it, as long as the wall has not run out.
-                return wallAt(wall.side()) == null ? null : new VehiclePhysics.Wall(wall.side(), wall.yaw());
+            if (wall != null && lastDemand.lift() > 0) {
+                // Space kicks off it: the ride ends now and the vehicle is
+                // thrown up and away from the wall, which is the whole reason
+                // State.kicked exists. Deliberately BEFORE the "is it still
+                // there" test, so a kick works even at the end of a wall.
+                int side = wall.side();
+                state = state.kicked(VehiclePhysics.JUMP_SPEED,
+                        -side * VehiclePhysics.WALL_RIDE_KICK);
+                return null;
+            }
+            if (wall != null) {
+                // Continuing: the wall is still there and the speed has not
+                // run out. Nothing else is re-asked - see the note above.
+                return speed >= VehiclePhysics.WALL_RIDE_MIN_SPEED * 0.5 && wallAt(wall.side()) != null
+                        ? new VehiclePhysics.Wall(wall.side(), wall.yaw())
+                        : null;
             }
             if (supported || speed < VehiclePhysics.WALL_RIDE_MIN_SPEED) {
                 return null;
@@ -2988,14 +3001,12 @@ public final class VehicleRuntime implements Listener {
                 if (along == null) {
                     continue;
                 }
-                // Along the wall the way we are already going: the wall's line
-                // runs both ways, and the nearer of the two is the one being
-                // ridden.
+                // The wall's line runs both ways; the one being ridden is
+                // whichever is nearer the way the vehicle is already going.
                 double heading = state.yaw();
                 double one = Math.abs(VehiclePhysics.wrap180(along - heading));
                 double other = Math.abs(VehiclePhysics.wrap180(along + 180 - heading));
-                double best = Math.min(one, other);
-                if (best > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
+                if (Math.min(one, other) > VehiclePhysics.WALL_RIDE_MAX_ANGLE) {
                     continue;
                 }
                 return new VehiclePhysics.Wall(side, one <= other ? along : along + 180);
@@ -3004,24 +3015,38 @@ public final class VehicleRuntime implements Listener {
         }
 
         /**
-         * The line of the wall {@code side} of this vehicle, in degrees, or
-         * null if there is no wall there.
+         * The LINE of the wall {@code side} of this vehicle, in degrees, or
+         * null if there is nothing solid there.
          *
-         * <p>Solid at two heights or it is not a wall — see WALL_LOW. The line
-         * comes off the vehicle's own heading rather than off the block face,
-         * because a wall of blocks has four faces and a rider approaching at
-         * twenty degrees means the one they are sliding along.
+         * <p>Solid at two heights or it is not a wall: a kerb, a fence post
+         * and a single slab are all things you would rather ride over than
+         * along. Placed models count as well as blocks, so a wall somebody
+         * built out of the skatepark's own pieces is a wall.
+         *
+         * <p><strong>The line comes off the block face, not off the
+         * vehicle.</strong> Taking it from the heading — which is what this
+         * did first — makes the angle test compare a number with itself, so
+         * every wall is a perfect approach and nothing is ever straightened
+         * onto anything. Which axis the probe crossed to reach the wall is
+         * what says which way the wall runs: stepping in x finds a face whose
+         * wall runs along z, and the other way round.
          */
         private Double wallAt(int side) {
             double yaw = state.yaw();
             double[] right = VehiclePhysics.right(yaw);
             double x = at.getX() + right[0] * WALL_REACH * side;
             double z = at.getZ() + right[1] * WALL_REACH * side;
-            if (!BlockSurfaces.solidAt(world, x, at.getY() + WALL_LOW, z)
-                    || !BlockSurfaces.solidAt(world, x, at.getY() + WALL_HIGH, z)) {
+            if (!solidFor(x, at.getY() + WALL_LOW, z) || !solidFor(x, at.getY() + WALL_HIGH, z)) {
                 return null;
             }
-            return yaw;
+            // Which way the wall runs, from which way we stepped to find it.
+            // The bigger step is the one that crossed the face.
+            return Math.abs(right[0] * side) >= Math.abs(right[1] * side) ? 0.0 : 90.0;
+        }
+
+        /** Solid to a vehicle: a block, or a placed model it collides with. */
+        private boolean solidFor(double x, double y, double z) {
+            return BlockSurfaces.solidAt(world, x, y, z) || nearbyModels.solidAt(x, y, z);
         }
 
         private Player driver() {
@@ -3644,8 +3669,27 @@ public final class VehicleRuntime implements Listener {
                     // rig, or one playing nothing, leaves the rider on their
                     // own clock.
                     if (rig != null) {
-                        rig.placement().flatMap(Placement::playhead)
-                                .ifPresent(at -> emotes.seek(rider, at));
+                        // Not while the vehicle's own clock runs on DISTANCE
+                        // (animation-follows-speed): that clock is a wheel's,
+                        // and a rider's legs are not a function of how far the
+                        // thing has rolled. Slaving them to it plays a push in
+                        // slow motion at walking pace.
+                        if (!info.animationFollowsSpeed()) {
+                            rig.placement().flatMap(Placement::playhead)
+                                    .ifPresent(at -> emotes.seek(rider, at));
+                        }
+                        // The rider goes over with the bodywork. The vehicle's
+                        // pitch and roll are about ITS axes and the rider may
+                        // be sitting side-on to them, so they are turned into
+                        // the rider's own frame by the seat's yaw first — for a
+                        // skater square across the board, the board's roll onto
+                        // a wall IS the rider tipping onto their face.
+                        double seatRadians = Math.toRadians(seatYaw(i));
+                        double cos = Math.cos(seatRadians);
+                        double sin = Math.sin(seatRadians);
+                        emotes.lean(rider,
+                                (float) (state.pitch() * cos + state.roll() * sin),
+                                (float) (state.roll() * cos - state.pitch() * sin));
                     }
                 }
                 reportSeat(i, rider, mount);

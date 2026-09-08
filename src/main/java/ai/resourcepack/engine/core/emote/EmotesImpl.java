@@ -141,6 +141,15 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public void lean(Player wearer, float pitch, float roll) {
+        Host.requireMainThread();
+        // Told every tick by whatever is carrying them, exactly like seek, so
+        // an offline player is a no-op rather than a refusal.
+        if (wearer == null) return;
+        director.lean(wearer.getUniqueId(), pitch, roll);
+    }
+
+    @Override
     public void face(Player player, Float yaw) {
         Host.requireMainThread();
         // Not refused for an offline player, and not reported either: this is

@@ -442,6 +442,20 @@ public final class VehiclePhysics {
     /** How quickly the heading is pulled onto the wall's line, per second. */
     public static final double WALL_RIDE_ALIGN = 6.0;
 
+    /**
+     * How much of the sink the steering can trim away, blocks a second.
+     *
+     * <p>The steering has nothing to do on a wall — the heading is the wall's
+     * — so it becomes the one control a wall ride has: lean into the wall and
+     * you hold your line up it, lean off and you come down it. Bigger than
+     * {@link #WALL_RIDE_SINK}, so full lock into the wall climbs rather than
+     * merely stops falling.
+     */
+    public static final double WALL_RIDE_CLIMB = 2.4;
+
+    /** How hard kicking off a wall throws you away from it, blocks a second. */
+    public static final double WALL_RIDE_KICK = 5.0;
+
     /** Degrees of body roll per block per second squared of cornering, for a car. Outward. */
     public static final double BODY_ROLL = 0.42;
 
@@ -759,7 +773,10 @@ public final class VehiclePhysics {
                 // beating, and it sinks at its own pace instead. See
                 // WALL_RIDE_SINK, and `wall` above for what puts one here.
                 if (wall != null) {
-                    vertical = -WALL_RIDE_SINK;
+                    // Steering leans up or down the wall instead of turning:
+                    // toward the wall climbs, away from it drops. See
+                    // WALL_RIDE_CLIMB.
+                    vertical = -WALL_RIDE_SINK + demand.steer() * wall.side() * WALL_RIDE_CLIMB;
                     break;
                 }
                 // A land vehicle that jumps does so from the ground and only
@@ -1256,6 +1273,21 @@ public final class VehiclePhysics {
                 return this;
             }
             return new State(yaw, speed + blocksPerSecond, slip, verticalSpeed, steer, yawRate,
+                    pitch, pitchRate, roll, rollRate, lift, liftRate);
+        }
+
+        /**
+         * Thrown off something: {@code up} straight up and {@code sideways}
+         * across the heading, both blocks a second, replacing whatever
+         * vertical and sideways motion there was.
+         *
+         * <p>Written for kicking off a wall, which is a push in a direction
+         * nothing else here can push: {@link #nudged} is along the heading and
+         * a wall ride's heading is along the wall, so a nudge would send a
+         * rider further along it rather than out into the air.
+         */
+        public State kicked(double up, double sideways) {
+            return new State(yaw, speed, sideways, up, steer, yawRate,
                     pitch, pitchRate, roll, rollRate, lift, liftRate);
         }
 
