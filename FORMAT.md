@@ -604,6 +604,7 @@ hatchback:
     - {role: passenger, x: -0.4, y: 0.6, z: -0.5}
     - {role: passenger, x:  0.4, y: 0.6, z: -0.5}
   capes: true               # optional — is a rider's cape drawn in it?
+  speedometer: true         # optional — does its driver see their speed?
   animations:               # optional — which animation plays when
     idle: parked
     moving: drive
@@ -1067,6 +1068,21 @@ It is worth setting for anything a rider sits **inside** — a car's cabin, an
 aeroplane's fuselage, a tank. A cape hangs off the back of the rider's rig, and
 in a cabin it hangs through the bodywork, which is not something you can fix
 from the model. An open cart or a horse-drawn trap wants to keep it.
+
+### The speedometer
+
+`speedometer: false` stops this vehicle writing its driver's speed above their
+hotbar. The default is `true`, which is what every vehicle did before the key
+existed.
+
+A car has a dashboard. A skateboard, a horse, a hang glider and a shopping
+trolley do not, and a number counting up in the corner of the screen turns a
+line you were riding into a stat you were watching. **Nothing takes its
+place** — the readout is not moved to the chat, a boss bar or a title, it is
+simply not written, and the action bar is left for whatever else wants it.
+
+`vehicles.speedometer: false` in `config.yml` is the same switch for the whole
+server at once. Either one off is off.
 
 It takes away the CAPE and nothing else: the rider is still there, still posed,
 still visible. `hidden: true` on a seat is the switch that removes the person.
