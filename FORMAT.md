@@ -919,6 +919,36 @@ not the animation itself is authored as a loop. A state is a condition rather
 than an event, so a rowing cycle written as a one-shot still rows continuously
 while the boat is moving.
 
+**How freely it rolls** is `coast:`, in blocks a second squared, and the
+default is a car's:
+
+```yaml
+  coast: 0.15
+```
+
+A vehicle with nobody on the throttle slows at whatever the engine thinks a
+car does, which is right for everything with an engine in it and wrong for
+everything without one. Small numbers roll far - 0.15 is a skateboard on
+smooth concrete, 0.6 a bicycle, 2 a shopping trolley with a bad wheel. It
+replaces a floor rather than the whole of the drag, so a vehicle whose own
+acceleration implies more still gets that.
+
+**Landing badly** can throw the rider off, and is off unless you ask:
+
+```yaml
+  bail:
+    from: 50          # degrees off the way it was travelling
+    to: 130
+    min-speed: 3.0    # slower than this is a stumble, not a fall
+    damage: 1.0       # half a heart
+```
+
+`bail: true` on its own takes those numbers. The window has a far edge on
+purpose: landing straight BACKWARDS is riding away fakie, which is a trick
+rather than a crash, so only the sideways part of the range throws anybody.
+A plugin can veto any individual one - see `VehicleBailEvent` in `API.md` -
+which is how a server switch for it gets written without editing a pack.
+
 **A wheel turns because the vehicle MOVED, not because time passed.** By
 default a cycle plays at the rate it was authored at, whatever the vehicle is
 doing - which is a skateboard whose wheels spin at one speed from a crawl to a

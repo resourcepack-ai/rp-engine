@@ -711,7 +711,15 @@ public final class VehiclePhysics {
                         // hover: pressing the back key up there sets the
                         // throttle to nothing and turns the key into a descent,
                         // so whatever this rate is IS what "let go" feels like.
-                        ? flying ? accel * AIR_COAST_FRACTION : Math.max(COAST_FLOOR, accel * COAST_FRACTION)
+                        // A vehicle that says how freely it rolls replaces
+                        // the FLOOR with its own - see VehicleInfo.coast. The
+                        // acceleration-relative rate still applies over the
+                        // top, so a quick vehicle still slows faster than a
+                        // slow one; what a skateboard is escaping is a floor
+                        // written for something with an engine in it.
+                        ? flying ? accel * AIR_COAST_FRACTION
+                                : Math.max(info.coast() > 0 ? info.coast() : COAST_FLOOR,
+                                        accel * COAST_FRACTION)
                         : drive;
         if (demand.braking()) {
             target = 0;

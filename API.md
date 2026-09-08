@@ -260,6 +260,19 @@ line of YAML (`animation-follows-speed`, see FORMAT.md); this is for the cases
 that are not a vehicle. Advance it every tick from something smooth rather than
 jumping it about: a rig has one clock, and every bone on it reads that clock.
 
+`dressVariant(player, "goofy")` makes one rider wear a VARIANT of whatever
+their seat's state table says - `moving` becomes `moving_goofy`, falling back
+to the plain one where no such emote exists. For a per-person fact a seat
+cannot know, a skater's stance being the case it was written for. Without it a
+plugin has to take over the whole state table and re-implement its
+fall-through rules to get back what the seat was already doing.
+
+A vehicle that bails (`bail:` in its YAML, see FORMAT.md) fires
+`VehicleBailEvent` before it throws anybody, and it is cancellable. That is
+how a server-side switch for it is written: the pack states the rule, your
+plugin's config decides whether it applies. Cancelling leaves the rider
+aboard and takes nothing off them.
+
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
 
@@ -339,6 +352,29 @@ Where priority does matter is vanilla's own events. The engine listens to those
 at `LOW` with `ignoreCancelled = true`, so a plugin that cancels a
 `PlayerInteractEvent` at `LOWEST` stops a custom item's use before RP Engine
 ever sees the click — which is usually exactly what a protection plugin wants.
+
+## Shipping content in your own jar
+
+An addon carries its models, items, vehicles and emotes as an ordinary content
+folder inside its jar, under `resources/content/<namespace>/`, and installs it
+into the engine on enable:
+
+```java
+if (AddonContent.install(this, engine, "skateboards")) {
+    engine.reload();   // only when something actually changed
+}
+```
+
+A `.version` stamp beside the files says which build last wrote them, so
+restarting on the same jar copies nothing and reloads nothing - a reload
+rebuilds every pack on the server, which is not something to do on every boot
+for files that have not changed. A new build overwrites its own files and only
+its own: whatever the server owner added to the folder stays, because the
+folder is theirs to extend. Files are written whole or not at all.
+
+Catch the `IOException` and disable your plugin over it. Content that did not
+install is items that do not exist, and failing at boot beats a command that
+says nothing an hour later.
 
 ## Content of your own
 

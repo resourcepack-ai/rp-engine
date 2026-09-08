@@ -323,6 +323,26 @@ public interface Vehicle {
     void undress(Player occupant);
 
     /**
+     * Makes an occupant wear a VARIANT of whatever their seat's state table
+     * says: {@code moving} becomes {@code moving_left} for a variant of
+     * {@code left}, falling back to the plain one where no such emote exists.
+     * {@code null} clears it.
+     *
+     * <p>For a per-PERSON fact about how they ride, which a seat cannot know
+     * because a seat is written once for everybody: a skater's stance, a
+     * left-handed archer, which team's salute a passenger gives. Without it a
+     * plugin has to take over the whole state table and dress its riders
+     * itself every tick - which the skateboard did, and which means
+     * reimplementing the fall-through rules to get back what the seat was
+     * already doing.
+     *
+     * <p>The fallback is per emote, not per rider: a set that has a variant
+     * for the two states worth mirroring and nothing else works, and states
+     * with no variant simply play as authored.
+     */
+    void dressVariant(Player occupant, String variant);
+
+    /**
      * Turns an occupant to face {@code yaw} degrees clockwise from the
      * vehicle's heading instead of the way their seat points, until cleared
      * with {@code null} or they get out.

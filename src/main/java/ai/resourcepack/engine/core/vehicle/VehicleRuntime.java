@@ -14,6 +14,8 @@ import ai.resourcepack.engine.api.VehicleState;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.api.event.ModelSeatEvent;
 import ai.resourcepack.engine.api.event.VehicleEnterEvent;
+import ai.resourcepack.engine.api.VehicleBail;
+import ai.resourcepack.engine.api.event.VehicleBailEvent;
 import ai.resourcepack.engine.api.event.VehicleExitEvent;
 import ai.resourcepack.engine.api.event.VehicleMoveEvent;
 import ai.resourcepack.engine.api.event.VehicleStateEvent;
@@ -307,6 +309,20 @@ public final class VehicleRuntime implements Listener {
      * away. Holding space keeps you on it until you are barely moving.
      */
     private static final double WALL_RIDE_END_SPEED = 1.0;
+
+    /**
+     * Longest a press of sneak can be and still mean "let me out", ticks.
+     *
+     * <p>Only for a rider the engine is holding in their seat
+     * ({@link Vehicle#holdOccupant}) - otherwise sneak is vanilla's dismount
+     * and none of this is reached. A hold is the plugin's to give a meaning
+     * to; a tap still gets you off, because a rider who cannot get off
+     * something is a bug however good the reason.
+     *
+     * <p>A quarter of a second: long enough to be deliberate, short enough
+     * that whatever the plugin does with a hold does not feel delayed.
+     */
+    private static final int SNEAK_TAP_TICKS = 5;
 
     /**
      * Where beside the vehicle the wall has to be solid, in blocks relative to
@@ -1852,6 +1868,18 @@ public final class VehicleRuntime implements Listener {
          */
         private VehiclePhysics.Wall wall;
 
+        /** Whether it was off the ground last tick, so a landing can be noticed. */
+        private boolean wasAirborne;
+
+        /** Where it was last tick, for working out which way a landing was travelling. */
+        private Location lastAt;
+
+        /**
+         * How long the driver has held sneak, ticks, while the engine is
+         * holding them in their seat. See {@link #SNEAK_TAP_TICKS}.
+         */
+        private int sneakTicks;
+
 
 
         /**
@@ -1867,6 +1895,13 @@ public final class VehicleRuntime implements Listener {
          * dropped when they get out.
          */
         private final Map<UUID, Double> yawOverrides = new java.util.HashMap<>();
+
+        /**
+         * Emote variants a plugin has given occupants - {@link
+         * Vehicle#dressVariant}. Applied to whatever the seat's state table
+         * names, and dropped when they get out.
+         */
+        private final Map<UUID, String> variants = new java.util.HashMap<>();
 
         /**
          * Occupants a plugin has asked to keep in their seats through the
@@ -2447,6 +2482,35 @@ public final class VehicleRuntime implements Listener {
             return wall != null;
         }
 
+        /**
+         * {@code named} in this occupant's variant, if they have one and it
+         * exists.
+         *
+         * <p>Falls back to the plain emote rather than refusing, which is what
+         * makes a partial set of variants a sensible thing to ship: the engine
+         * asks the emote store whether the variant is there, and plays what is.
+         */
+        private String variantOf(UUID occupant, String named) {
+            String variant = variants.get(occupant);
+            if (named == null || variant == null || emotes == null) {
+                return named;
+            }
+            String wanted = named + variant;
+            return emotes.info(wanted).isPresent() ? wanted : named;
+        }
+
+        /** {@link Vehicle#dressVariant}. */
+        void dressVariant(UUID occupant, String variant) {
+            if (!occupants.contains(occupant)) {
+                return;
+            }
+            if (variant == null || variant.isBlank()) {
+                variants.remove(occupant);
+            } else {
+                variants.put(occupant, variant.startsWith("_") ? variant : "_" + variant);
+            }
+        }
+
         /** {@link Vehicle#holdOccupant}. */
         void holdOccupant(UUID occupant, boolean hold) {
             if (!occupants.contains(occupant)) {
@@ -2481,6 +2545,88 @@ public final class VehicleRuntime implements Listener {
                 yawOverrides.put(occupant, VehiclePhysics.wrap360(yaw));
             }
             parked = false;
+        }
+
+        /**
+         * Throws the rider off, if this vehicle bails and that landing was bad
+         * enough.
+         *
+         * <p>Measured off where the vehicle actually WENT rather than off its
+         * velocity: a landing is where the last tick put it against where this
+         * one did, and the direction of that is what the vehicle was doing
+         * irrespective of what its wheels were pointing at. That difference is
+         * the whole trick - a board landed sideways is one whose heading and
+         * whose travel disagree.
+         *
+         * <p>The window has a far edge for a reason: landing straight
+         * backwards is riding away fakie, which is a trick and not a fall.
+         * See {@link VehicleBail}.
+         */
+        private void bailed(Set<VehicleState> states) {
+            boolean airborne = states.contains(VehicleState.AIRBORNE);
+            Location was = lastAt;
+            boolean landed = wasAirborne && !airborne && wall == null;
+            wasAirborne = airborne;
+            lastAt = at.clone();
+            VehicleBail rules = info.bail();
+            if (!landed || rules == null || was == null || was.getWorld() != world) {
+                return;
+            }
+            Player rider = driver();
+            if (rider == null) {
+                return;
+            }
+            double dx = at.getX() - was.getX();
+            double dz = at.getZ() - was.getZ();
+            double travelled = Math.hypot(dx, dz) * 20;
+            if (travelled < rules.minSpeed()) {
+                return;
+            }
+            // Minecraft's yaw: 0 faces +z and increases clockwise, so the way
+            // it was travelling is atan2(-dx, dz).
+            double travelYaw = Math.toDegrees(Math.atan2(-dx, dz));
+            double off = Math.abs(VehiclePhysics.wrap180(travelYaw - state.yaw()));
+            if (off < rules.from() || off > rules.to()) {
+                return;
+            }
+            VehicleBailEvent event =
+                    new VehicleBailEvent(rider, handle(chassisId), off, travelled);
+            plugin.getServer().getPluginManager().callEvent(event);
+            if (event.isCancelled()) {
+                return;
+            }
+            evictAll(VehicleExitEvent.Cause.DISMOUNTED);
+            halt();
+            if (rules.damage() > 0) {
+                rider.damage(rules.damage());
+            }
+        }
+
+        /**
+         * A tap of sneak by a held rider still gets them out.
+         *
+         * <p>The engine refuses their dismount so the key can mean something
+         * else (see {@link Vehicle#holdOccupant}), and that refusal took the
+         * ordinary way OFF with it. So the two are told apart here rather than
+         * in every plugin that uses the door: the key is counted while it is
+         * down, and a release inside {@link #SNEAK_TAP_TICKS} is an exit the
+         * engine performs itself.
+         */
+        private void sneakTap() {
+            Player driver = driver();
+            if (driver == null || !this.held.contains(driver.getUniqueId())) {
+                sneakTicks = 0;
+                return;
+            }
+            if (lastDemand.sneak()) {
+                sneakTicks++;
+                return;
+            }
+            int pressed = sneakTicks;
+            sneakTicks = 0;
+            if (pressed > 0 && pressed <= SNEAK_TAP_TICKS) {
+                evictAll(VehicleExitEvent.Cause.DISMOUNTED);
+            }
         }
 
         /** {@link Vehicle#input}: the last demand, as the keys a plugin can read. */
@@ -2753,6 +2899,8 @@ public final class VehicleRuntime implements Listener {
             // ended up at rather than the one it was asked to go to — a
             // vehicle stopped by a wall should not throw its exhaust inside
             // the wall.
+            sneakTap();
+            bailed(step.states());
             animate(step.states());
             dressOccupants(step.states());
             particles.emit(world, at, state.yaw(), info, step.states(), age);
@@ -2871,6 +3019,11 @@ public final class VehicleRuntime implements Listener {
                 if (override != null) {
                     named = override;
                 }
+                // And this rider's own variant of it, where one exists: a
+                // stance, a handedness, a team. Per emote rather than per
+                // rider, so a set that mirrors the two states worth mirroring
+                // and leaves the rest alone works — see Vehicle.dressVariant.
+                named = variantOf(id, named);
                 String wanted = named != null ? named : fallbackStance(seat);
                 // A rig that was ON and is not any more is re-asked whatever
                 // the memo says: something outside this vehicle took it off,
@@ -4457,6 +4610,14 @@ public final class VehicleRuntime implements Listener {
             Ride ride = ride();
             if (ride != null && occupant != null) {
                 ride.turnOccupant(occupant.getUniqueId(), yaw);
+            }
+        }
+
+        @Override
+        public void dressVariant(Player occupant, String variant) {
+            Ride ride = ride();
+            if (ride != null && occupant != null) {
+                ride.dressVariant(occupant.getUniqueId(), variant);
             }
         }
 
