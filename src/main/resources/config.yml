@@ -178,6 +178,20 @@ vehicles:
   seat-rig: true
 
 emotes:
+  # Rebuild the packs shortly after somebody turns up whose emote rig is not
+  # in them, and send the new ones out.
+  #
+  # A player's rig IS pack content - a model per bone wearing their skin - so
+  # a player this server has never seen has no rig to wear, and rides, sits
+  # and dances as the shared default until a build catches up. That is the
+  # "why is my friend Steve" every server asks the first time, and it happens
+  # on the first join, which is the worst possible moment for it.
+  #
+  # The rebuild waits five seconds and covers everybody who arrived in the
+  # meantime, and only players whose pack is actually out of date are sent a
+  # new one. Turn it off if you would rather choose the moment yourself - a
+  # big pack, a busy lobby - and /rp reload still bakes whatever has arrived.
+  bake-on-join: true
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that
   # already has an /emote from somewhere else, or that wants one command

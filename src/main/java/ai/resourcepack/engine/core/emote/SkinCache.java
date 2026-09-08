@@ -68,10 +68,27 @@ public final class SkinCache {
     /** Which keys the LAST bake covered, so a join can say whether its rig is in the pack. */
     private volatile Set<String> baked = Set.of();
 
+    /**
+     * Told when a skin arrives that the pack does not have a rig for yet. See
+     * {@link #tellIfUnbaked}.
+     */
+    private volatile Runnable onNewSkin = () -> { };
+
     public SkinCache(Plugin plugin) {
         this.plugin = plugin;
         this.folder = plugin.getDataFolder().toPath().resolve(FOLDER);
         this.log = plugin.getLogger();
+    }
+
+    /**
+     * What to do when somebody turns up whose rig is not in the pack.
+     *
+     * <p>A callback rather than this class doing it, because what it costs is
+     * a whole pack rebuild and the decision to spend that belongs to the
+     * plugin, not to the thing that fetches PNGs.
+     */
+    public void onNewSkin(Runnable action) {
+        this.onNewSkin = action == null ? () -> { } : action;
     }
 
     /** The key a player's files are named by: the UUID as 32 hex digits. */
@@ -163,11 +180,19 @@ public final class SkinCache {
     }
 
     private void tellIfUnbaked(Player player, String key) {
-        if (baked.contains(key) || !told.add(player.getUniqueId())) {
+        if (baked.contains(key)) {
             return;
         }
-        log.info(player.getName() + "'s skin is kept for their emote rig; it is baked into the pack on the next "
-                + "/rp reload or restart, and until then they wear the shared default rig.");
+        // The rebuild is asked for on EVERY arrival of an unbaked skin, not
+        // only the first time this player is seen: `told` stops the console
+        // line repeating, and hanging the rebuild off it as well meant a
+        // player who joined while a bake was already running never got one.
+        onNewSkin.run();
+        if (!told.add(player.getUniqueId())) {
+            return;
+        }
+        log.info(player.getName() + "'s skin is kept for their emote rig; a rebuild is scheduled, and "
+                + "until it lands they wear the shared default rig.");
     }
 
     /** Called by the bake, so joins can be told whether their rig is in the pack. */

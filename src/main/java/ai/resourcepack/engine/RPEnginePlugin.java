@@ -395,6 +395,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
         skinCache = new SkinCache(this);
+        bakeOnJoin = getConfig().getBoolean("emotes.bake-on-join", true);
+        skinCache.onNewSkin(this::rebakeSoon);
         // What a pushed pack holds that a command can name. Loaded here rather
         // than built on the first push, because a player is still wearing the
         // last one after a restart.
@@ -770,6 +772,56 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     public void reload() {
         reloadContent(getServer().getConsoleSender());
+    }
+
+    /**
+     * Whether a rebuild is already booked, so a rush of joins costs one.
+     */
+    private boolean rebaking;
+
+    /**
+     * How long a rebuild waits after the first new skin, ticks.
+     *
+     * <p>Five seconds. Long enough to swallow a group arriving together - one
+     * rebuild for the lot - and short enough that somebody who joined alone
+     * has their own face before they have finished walking out of spawn.
+     */
+    private static final long REBAKE_DELAY_TICKS = 100L;
+
+    /** {@code emotes.bake-on-join}. See {@link #rebakeSoon}. */
+    private volatile boolean bakeOnJoin = true;
+
+    /**
+     * Rebuilds the packs shortly, because somebody is here whose rig is not in
+     * them.
+     *
+     * <p><strong>A player's rig is pack content.</strong> It is a model per
+     * bone wearing their skin, so a player the server has never seen has no
+     * rig to wear until the pack is built again and the clients have it - and
+     * until then they ride, sit and dance as the shared default, which is the
+     * "why is my friend Steve" everybody asks the first time. Waiting for a
+     * reload was the honest answer and a bad one: the first thing a new player
+     * does is the thing they see it on.
+     *
+     * <p>Delayed and coalesced rather than immediate: a server filling up at
+     * the start of an evening would otherwise rebuild once per arrival, and
+     * the rebuild is the expensive half. One booking covers everybody who
+     * turns up while it is pending, and the delivery below re-sends only to
+     * players whose pack is actually out of date.
+     *
+     * <p>{@code emotes.bake-on-join: false} turns it off for a server that
+     * would rather choose its own moment - a big pack, a busy lobby - and
+     * {@code /rp reload} still bakes whatever has arrived since.
+     */
+    private void rebakeSoon() {
+        if (!bakeOnJoin || rebaking || !isEnabled()) {
+            return;
+        }
+        rebaking = true;
+        getServer().getScheduler().runTaskLater(this, () -> {
+            rebaking = false;
+            reloadContent(getServer().getConsoleSender());
+        }, REBAKE_DELAY_TICKS);
     }
 
     /** {@code /rp push}: forget what they are holding and send it again. */
