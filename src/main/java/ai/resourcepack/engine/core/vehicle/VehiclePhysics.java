@@ -433,7 +433,7 @@ public final class VehiclePhysics {
     public static final double WALL_RIDE_ROLL = 80;
 
     /** How hard the wall scrubs speed off, blocks per second per second. */
-    public static final double WALL_RIDE_DRAG = 3.0;
+    public static final double WALL_RIDE_DRAG = 0.8;
 
     /**
      * How fast a wall ride sinks, blocks a second.
@@ -442,7 +442,7 @@ public final class VehiclePhysics {
      * the speed did, and every one of them would look the same. Sliding gently
      * down means a long one finishes on the floor, where it started.
      */
-    public static final double WALL_RIDE_SINK = 1.2;
+    public static final double WALL_RIDE_SINK = 0.7;
 
     /** How quickly the heading is pulled onto the wall's line, per second. */
     public static final double WALL_RIDE_ALIGN = 6.0;
@@ -456,7 +456,21 @@ public final class VehiclePhysics {
      * {@link #WALL_RIDE_SINK}, so full lock into the wall climbs rather than
      * merely stops falling.
      */
-    public static final double WALL_RIDE_CLIMB = 2.4;
+    public static final double WALL_RIDE_CLIMB = 4.5;
+
+    /** How much of its top speed a vehicle will drive to along a wall. */
+    public static final double WALL_RIDE_DRIVE = 0.8;
+
+    /**
+     * How much harder than usual the throttle pulls on a wall.
+     *
+     * <p>A skateboard has almost no throttle by design - it is pushed, and you
+     * cannot push while your board is against a wall - so without this a wall
+     * ride is whatever momentum you arrived with, decaying. This is the
+     * "assist" in wall ride assist: the wall holds you up, the throttle keeps
+     * you going along it.
+     */
+    public static final double WALL_RIDE_PUSH = 6.0;
 
     /** How hard kicking off a wall throws you away from it, blocks a second. */
     public static final double WALL_RIDE_KICK = 5.0;
@@ -689,9 +703,16 @@ public final class VehiclePhysics {
         double wasSpeed = speed;
         speed = approach(speed, target, rate * dt);
         if (wall != null) {
-            // Wood on brick. A ride ends because it ran out of speed, which is
-            // what makes a long one worth doing.
+            // Wood on brick, but barely: a wall ride is meant to be DRIVEN
+            // along, not endured. It was three blocks a second of drag and it
+            // turned every ride into a two-second slide with no say in it.
             speed = Math.max(0, Math.abs(speed) - WALL_RIDE_DRAG * dt) * Math.signum(speed);
+            // And the throttle still works up there. The wall carries the
+            // vehicle; the driver decides how fast along it - which is what
+            // makes it a ride rather than a cutscene.
+            if (demand.throttle() > 0) {
+                speed = approach(speed, top * WALL_RIDE_DRIVE, accel * WALL_RIDE_PUSH * dt);
+            }
         }
 
         // A hill. Only once the vehicle is going or the driver is asking it
@@ -813,8 +834,16 @@ public final class VehiclePhysics {
         } else if (wall != null) {
             // Over onto the wall, and the nose level: a wall ride is the body
             // lying against something, not an arc through the air.
+            //
+            // AWAY from the wall, which is the opposite of the obvious sign
+            // and the one that reads right. Roll is right-side-down, and a
+            // board against a wall on its right has its right edge UP the wall
+            // and its left edge down toward the ground - the deck faces out
+            // into the air, the wheels face the bricks. Rolled the other way
+            // it lies on a wall that is not there, which is precisely what it
+            // looked like.
             pitchTarget = 0;
-            rollTarget = WALL_RIDE_ROLL * wall.side();
+            rollTarget = -WALL_RIDE_ROLL * wall.side();
             liftTarget = state.lift();
         } else if (airborne) {
             // Off the ground: the nose follows the arc, and there is nothing
