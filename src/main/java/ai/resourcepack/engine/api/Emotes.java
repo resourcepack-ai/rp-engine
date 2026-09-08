@@ -292,6 +292,27 @@ public interface Emotes {
     void seek(Player player, double seconds);
 
     /**
+     * Leans a worn rig over, pitch and roll in degrees, about the wearer's
+     * feet - or {@code 0, 0} to stand them up again.
+     *
+     * <p>For a rider who is not upright: a motorbike laid into a corner, a
+     * skateboard on its side against a wall. A vehicle already draws its own
+     * bodywork at an angle, and until this existed its rider stayed bolt
+     * upright inside it - which nobody notices at the fourteen degrees a car
+     * corners at and everybody notices at eighty.
+     *
+     * <p><strong>In the WEARER'S frame, not the world's.</strong> Pitch tips
+     * them onto their face, roll onto their shoulder, whichever way they
+     * happen to be facing - so a caller working in some other frame (a
+     * vehicle's, whose rider may be sitting side-on to it) turns its own
+     * angles into these first.
+     *
+     * <p>Held until it is set again or the rig comes off, and it does not
+     * fade: a lean that eased in would lag the corner it is part of.
+     */
+    void lean(Player wearer, float pitch, float roll);
+
+    /**
      * Whether a worn rig's CAPE is drawn.
      *
      * <p>A cape is baked into the rig as an extra bone and hangs off the back

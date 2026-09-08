@@ -232,6 +232,16 @@ public final class EmoteDirector implements Listener {
     /** The animator key studio stores the whole-body transform under. */
     private static final String ROOT_TARGET = "root";
 
+    /**
+     * The point a lean turns about: the wearer's feet, in model px.
+     *
+     * <p>Not the hip the emote's own root turns about. A lean is the whole
+     * person going over with whatever they are standing on, and somebody
+     * tipping about their hips would have their feet swing out from under
+     * them - through the deck of the board they are supposed to be on.
+     */
+    private static final float[] LEAN_PIVOT = {8f, -8f, 8f};
+
     private static final float[] PROP_ZERO = {0f, 0f, 0f};
     private static final float[] PROP_ONE = {1f, 1f, 1f};
 
@@ -439,6 +449,12 @@ public final class EmoteDirector implements Listener {
     private final NamespacedKey emotePartKey;
 
     private final Map<UUID, Session> active = new ConcurrentHashMap<>();
+
+    /**
+     * Whole-body leans, by wearer: pitch and roll in degrees, in their own
+     * frame. See {@link ai.resourcepack.engine.api.Emotes#lean}.
+     */
+    private final Map<UUID, float[]> leans = new ConcurrentHashMap<>();
     private int taskId = -1;
 
     /**
@@ -874,6 +890,18 @@ public final class EmoteDirector implements Listener {
             if (player != null) stop(player, true, EmoteEndEvent.Cause.SHUTDOWN);
         }
         active.clear();
+    }
+
+    /** {@link ai.resourcepack.engine.api.Emotes#lean}. */
+    public void lean(UUID playerId, float pitch, float roll) {
+        if (playerId == null) {
+            return;
+        }
+        if (pitch == 0f && roll == 0f) {
+            leans.remove(playerId);
+        } else {
+            leans.put(playerId, new float[] {pitch, roll});
+        }
     }
 
     public boolean isEmoting(UUID playerId) {
@@ -3689,6 +3717,18 @@ public final class EmoteDirector implements Listener {
         // already been moved and turned. An emote without one starts from the
         // identity and is posed exactly as it always was.
         Matrix4f root = shown != null ? rootMatrix(shown[last]) : rootMatrix(session, t);
+
+        // A lean goes on the OUTSIDE of the root: the emote poses a body, and
+        // then the whole body - emote and all - is tipped over about the feet.
+        // The other way round would be the emote's own root rotation happening
+        // in a leaned frame, which is a different pose. See Emotes.lean.
+        float[] lean = leans.get(playerId);
+        if (lean != null) {
+            Matrix4f tipped = new Matrix4f();
+            RigMath.composeStep(tipped, LEAN_PIVOT,
+                    new float[] {lean[0], 0f, lean[1], 0f, 0f, 0f, 1f, 1f, 1f});
+            root = tipped.mul(root);
+        }
 
         // Each bone's composed animation matrix (root and every parent already
         // folded in), so a child starts from its parent instead of from the

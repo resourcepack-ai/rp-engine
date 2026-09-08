@@ -135,6 +135,27 @@ public final class RigAnimator implements Listener {
     private final Map<UUID, Fade> fades = new ConcurrentHashMap<>();
 
     /**
+     * Playheads set by {@link #seek}, per part display: how far into the
+     * animation it is in seconds, and the tick that was said on.
+     *
+     * <p><strong>In memory because a tick is not fine enough.</strong> The
+     * clock every other animation runs on is a start TICK in persistent data,
+     * which is exact for what it was built for - an animation that started
+     * when it started. A caller driving the playhead itself is a different
+     * thing: it hands over a smooth number twenty times a second, and rounding
+     * each one to the nearest tick puts a fifty-millisecond stagger into
+     * something that was smooth. On a wheel cycle turning eight times a
+     * revolution that stagger is nearly sixty degrees of wheel, which reads as
+     * wheels shaking rather than turning.
+     *
+     * <p>Read only while FRESH - one tick - so a rig nobody is driving any
+     * more goes back to its own clock rather than freezing on the last number
+     * anybody said. Losing these on a restart is the same: the rig resumes on
+     * its start tick, and whoever was driving it says so again next tick.
+     */
+    private final Map<UUID, double[]> driven = new ConcurrentHashMap<>();
+
+    /**
      * What each display was last posed as: which animation, so a change is
      * visible, and the values it was posed WITH, so a change can fade from
      * them. The values are the base animation's alone — overlays and the head
@@ -300,6 +321,7 @@ public final class RigAnimator implements Listener {
         rangeOccupants.clear();
         hitboxOfDisplay.clear();
         fades.clear();
+        driven.clear();
         posed.clear();
     }
 
@@ -416,6 +438,7 @@ public final class RigAnimator implements Listener {
     void untrack(UUID id) {
         tracked.remove(id);
         fades.remove(id);
+        driven.remove(id);
         posed.remove(id);
     }
 
@@ -565,6 +588,12 @@ public final class RigAnimator implements Listener {
         double elapsed = animationStart == null
             ? 0
             : Math.max(0, display.getWorld().getGameTime() - animationStart) / 20.0;
+        // A playhead somebody is driving beats the start tick, to the fraction
+        // of a tick they gave. See `driven`.
+        Double drivenAt = drivenElapsed(display, rig, activeIndex);
+        if (drivenAt != null) {
+            elapsed = drivenAt;
+        }
         // The choice decides the resting loop too, not just one-shots: two
         // animations can both claim `loop`.
         // A carried rig is DRIVEN: whatever carries it decides what plays, so
@@ -1215,9 +1244,35 @@ public final class RigAnimator implements Listener {
             long start = now - Math.round(Math.max(0, seconds)
                     / RigAnimations.speedOf(animation) * 20.0);
             pdc.set(animationStartKey, PersistentDataType.LONG, start);
+            // And the exact number beside it: the tick is what survives a
+            // restart, this is what the next pose actually uses. See `driven`.
+            driven.put(display.getUniqueId(), new double[] {Math.max(0, seconds), now});
             moved = true;
         }
         return moved;
+    }
+
+    /**
+     * The elapsed time to use for {@code display} because somebody is driving
+     * its playhead, or null to use its own clock.
+     *
+     * <p>Returned as ELAPSED rather than as the animation's own time, because
+     * that is what every caller here already has: the animation's speed is
+     * divided out on the way in and multiplied back on the way out, so a
+     * driven rig and a running one go through exactly the same arithmetic
+     * afterwards.
+     */
+    private Double drivenElapsed(ItemDisplay display, RigStore.Rig rig, Integer activeIndex) {
+        double[] at = driven.get(display.getUniqueId());
+        if (at == null) {
+            return null;
+        }
+        if (display.getWorld().getGameTime() - at[1] > 1) {
+            driven.remove(display.getUniqueId());
+            return null;
+        }
+        RigStore.Animation animation = RigAnimations.animationAt(rig, activeIndex);
+        return animation == null ? null : at[0] / RigAnimations.speedOf(animation);
     }
 
     /** Whether the placement is still on the same animation from the same moment. */
@@ -1259,6 +1314,10 @@ public final class RigAnimator implements Listener {
             double elapsed = started == null
                 ? 0
                 : Math.max(0, display.getWorld().getGameTime() - started) / 20.0;
+            Double drivenAt = drivenElapsed(display, rig, active);
+            if (drivenAt != null) {
+                elapsed = drivenAt;
+            }
             RigStore.Animation animation = RigAnimations.animationAt(rig, RigAnimations.playbackAnimationIndex(
                 rig, active, elapsed, chosen, !pdc.has(yawHostKey, PersistentDataType.STRING)));
             return animation == null ? null : RigAnimations.animationTime(animation, elapsed);
