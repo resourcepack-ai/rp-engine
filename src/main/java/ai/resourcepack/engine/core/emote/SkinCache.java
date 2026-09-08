@@ -202,8 +202,8 @@ public final class SkinCache {
         if (!told.add(player.getUniqueId())) {
             return;
         }
-        log.info(player.getName() + "'s skin is kept for their emote rig; a rebuild is scheduled, and "
-                + "until it lands they wear the shared default rig.");
+        log.info(player.getName() + "'s skin is kept for their emote rig; a rebuild is under way, and "
+                + "until their client has the new pack they wear the shared default rig.");
     }
 
     /** Called by the bake, so joins can be told whether their rig is in the pack. */

@@ -187,10 +187,15 @@ emotes:
   # "why is my friend Steve" every server asks the first time, and it happens
   # on the first join, which is the worst possible moment for it.
   #
-  # The rebuild waits five seconds and covers everybody who arrived in the
-  # meantime, and only players whose pack is actually out of date are sent a
-  # new one. Turn it off if you would rather choose the moment yourself - a
-  # big pack, a busy lobby - and /rp reload still bakes whatever has arrived.
+  # The rebuild starts at once, because somebody who walked in on their own
+  # should not stand about as a default skin waiting out a window that exists
+  # for crowds. Anybody who arrives during it, or in the five seconds after,
+  # is covered by a single follow-up rather than costing a rebuild each - so a
+  # server filling up at the start of an evening pays two, not twenty. Only
+  # players whose pack is actually out of date are sent a new one.
+  #
+  # Turn it off if you would rather choose the moment yourself - a big pack, a
+  # busy lobby - and /rp reload still bakes whatever has arrived.
   bake-on-join: true
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that
