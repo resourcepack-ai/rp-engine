@@ -417,6 +417,24 @@ public final class StudioContent {
      * here too or the command still offers it.
      */
     public MergeResult updateFromJson(String json) {
+        return updateFromJson(json, null);
+    }
+
+    /**
+     * As above, saying out loud what it had to skip.
+     *
+     * <p><b>Silence here cost a whole debugging session.</b> An entry whose id
+     * this engine cannot parse was dropped by an {@code ifPresent} with no
+     * else — so a Studio that sent a shader overlay called {@code Text} (a
+     * display name, where a content id is {@code a-z0-9_.-}) produced a server
+     * on which that overlay simply did not exist, with a manifest that said it
+     * had arrived and nothing anywhere saying otherwise. The count in the log
+     * line was the only clue and it is a number nobody knows the right value
+     * of.
+     *
+     * @param log where to say it, or null to keep the old silence
+     */
+    public MergeResult updateFromJson(String json, Logger log) {
         if (json == null || json.isEmpty()) {
             return MergeResult.failed("empty manifest");
         }
@@ -435,7 +453,7 @@ public final class StudioContent {
             if (sound == null || sound.event == null || sound.event.isEmpty()) {
                 continue;
             }
-            id(sound.id).ifPresent(id ->
+            id(sound.id, log, "sound").ifPresent(id ->
                     readSounds.put(id, SoundInfo.pushed(id, sound.event, sound.category)
                             .withLength(sound.durationSeconds == null ? 0 : sound.durationSeconds)));
         }
@@ -445,7 +463,7 @@ public final class StudioContent {
             if (screen == null || screen.title == null || screen.container == null) {
                 continue;
             }
-            id(screen.id).ifPresent(id -> readScreens.put(id,
+            id(screen.id, log, "screen").ifPresent(id -> readScreens.put(id,
                     OverlayInfo.pushed(id, screen.title, screen.container, null)));
         }
 
@@ -454,7 +472,7 @@ public final class StudioContent {
             if (hud == null || hud.title == null) {
                 continue;
             }
-            id(hud.id).ifPresent(id ->
+            id(hud.id, log, "HUD overlay").ifPresent(id ->
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
                             hud.color, hud.font, hud.text, triggers(hud.triggers),
                             runs(hud.runs))
@@ -695,7 +713,7 @@ public final class StudioContent {
         }
         try {
             MergeResult result = updateFromJson(
-                    new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+                    new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8), log);
             if (result.ok()) {
                 if (result.count() > 0) {
                     log.info("Loaded " + result.count() + " pushed asset(s) from " + file.getName());
@@ -967,6 +985,17 @@ public final class StudioContent {
     /** A manifest id, in our namespace. Anything unusable is skipped. */
     private static java.util.Optional<ContentId> id(String path) {
         return path == null ? java.util.Optional.empty() : ContentId.parse(NAMESPACE + ":" + path);
+    }
+
+    /** The same, reported rather than dropped in silence. See {@link #updateFromJson(String, Logger)}. */
+    private static java.util.Optional<ContentId> id(String path, Logger log, String what) {
+        java.util.Optional<ContentId> parsed = id(path);
+        if (parsed.isEmpty() && log != null) {
+            log.warning("A pushed " + what + " is named \"" + path + "\", which is not usable as a content id "
+                    + "(a-z, 0-9, _, . and - only), so it was skipped. Whatever pushed this pack is sending a "
+                    + "display name where an id belongs.");
+        }
+        return parsed;
     }
 
     private static OverlayInfo.Slot slotOf(String slot) {

@@ -120,7 +120,7 @@ public final class StudioRelay {
         // What the pack holds that a command can name. Registered on the main
         // thread below with everything else that touches shared state.
         joined(contentJson)
-                .ifPresent(json -> merged("Pushed content", content.updateFromJson(json),
+                .ifPresent(json -> merged("Pushed content", content.updateFromJson(json, log),
                         () -> content.save(log)));
 
         if (fetched.pack().isEmpty()) {
