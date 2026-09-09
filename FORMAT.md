@@ -593,7 +593,7 @@ hatchback:
   turn-in-place: false      # optional - can it turn while standing still?
   weight: 14                # 1-100. Slower to get going, and harder to shove
   scale: 1                  # how many times its built size it is drawn
-  jump: false               # land only: space jumps instead of braking
+  jump: false               # land and water: space jumps instead of braking
   hitbox:                   # what players click to get in, in blocks
     width: 1.4              # side to side
     height: 1.2             # up from the base
@@ -643,7 +643,9 @@ How you drive depends on your server:
 - **Paper 1.21.4 and up** — W and S to move, **A and D to steer**, space for
   the handbrake on land and water. A land vehicle with `jump: true` — a dirt
   bike, a skateboard — **jumps on space instead**, about a block and a half,
-  and has no handbrake: S already brakes before it reverses.
+  and has no handbrake: S already brakes before it reverses. A water vehicle
+  with `jump: true` pops off the surface the same way — a surfboard's air off
+  the lip — once per press, from its float line.
 
   In the **air** the vertical controls are their own: **space climbs, S
   descends**, and S only reverses once you are back on the ground — there is
