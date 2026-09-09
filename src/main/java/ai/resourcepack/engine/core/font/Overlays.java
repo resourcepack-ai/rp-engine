@@ -181,58 +181,7 @@ public final class Overlays {
             return;
         }
         java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
-        java.util.List<BaseComponent> parts = new java.util.ArrayList<>();
-        parts.add(component(info)[0]);
-
-        // Positioned runs first, and the unpositioned `text` only if there are
-        // none: they are two spellings of the same thing, and an overlay pushed
-        // by a newer Studio carries the positioned form. Drawing both would put
-        // every label on screen twice.
-        if (!info.runs().isEmpty()) {
-            // WHERE THE CURSOR IS, carried across the runs.
-            //
-            // This is the arithmetic the pack cannot do. Each run's shift was
-            // worked out as if the cursor were still where the picture left it,
-            // which is true of the first run and of no other: drawing a run
-            // moves the cursor by however wide the drawn string turned out to
-            // be, and the string is only finished here, once the placeholders
-            // are filled. Without this the second label landed a whole label to
-            // the right of where the author put it, and the third further
-            // still.
-            boolean placeOurselves = info.positionsRuns();
-            int cursor = info.advance();
-            for (OverlayInfo.OverlayRun run : info.runs()) {
-                String drawn = OverlayRuntime.fill(run.text(), filled);
-                if (drawn.isEmpty()) {
-                    continue;
-                }
-                // The shift is space characters in the pack's own font, where
-                // their advances are declared — so it is its own component. Put
-                // them in the text's font and they are glyphs that font has
-                // never heard of.
-                String moveBy = placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift();
-                if (!moveBy.isEmpty()) {
-                    TextComponent shift = new TextComponent(moveBy);
-                    shift.setFont(info.font().isEmpty() ? null : info.font());
-                    parts.add(shift);
-                }
-                TextComponent body = new TextComponent(drawn);
-                if (!run.font().isEmpty()) {
-                    body.setFont(run.font());
-                }
-                body.setColor(run.color().isEmpty()
-                        ? net.md_5.bungee.api.ChatColor.WHITE
-                        : net.md_5.bungee.api.ChatColor.of(run.color()));
-                parts.add(body);
-                cursor = run.x() + TextWidth.of(drawn);
-            }
-        } else {
-            String text = OverlayRuntime.fill(info.text(), filled);
-            if (!text.isEmpty()) {
-                parts.add(new TextComponent(" " + text));
-            }
-        }
-        BaseComponent[] drawnParts = parts.toArray(new BaseComponent[0]);
+        BaseComponent[] drawnParts = compose(info, filled);
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
             // See draw(): a boss bar cannot carry a font, so this surface only
             // ever holds the default-font overlays, and their text rides the
@@ -264,21 +213,82 @@ public final class Overlays {
         viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, drawnParts);
     }
 
-    /**
-     * A run of shift characters that moves the cursor by {@code pixels}.
-     *
-     * <p>Greedy over the powers of two the pack declared, so any offset up to
-     * 1023 costs at most ten characters rather than one per pixel. Anything
-     * past that is clamped rather than left to overflow — a label a thousand
-     * pixels off the canvas is off every screen either way, and the clamp keeps
-     * the component short.
-     */
+    /** Compose a stable-width action bar independently of the network send. */
+    static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled) {
+        java.util.List<BaseComponent> parts = new java.util.ArrayList<>();
+        parts.add(component(info)[0]);
+
+        // Positioned runs first, and the unpositioned `text` only if there are
+        // none: they are two spellings of the same thing, and an overlay pushed
+        // by a newer Studio carries the positioned form. Drawing both would put
+        // every label on screen twice.
+        if (!info.runs().isEmpty()) {
+            // WHERE THE CURSOR IS, carried across the runs.
+            //
+            // This is the arithmetic the pack cannot do. Each run's shift was
+            // worked out as if the cursor were still where the picture left it,
+            // which is true of the first run and of no other: drawing a run
+            // moves the cursor by however wide the drawn string turned out to
+            // be, and the string is only finished here, once the placeholders
+            // are filled. Without this the second label landed a whole label to
+            // the right of where the author put it, and the third further
+            // still.
+            boolean placeOurselves = info.positionsRuns();
+            int cursor = info.advance();
+            for (OverlayInfo.OverlayRun run : info.runs()) {
+                String drawn = OverlayRuntime.fill(run.text(), filled);
+                // A shader run's RGB is its positioning address. Legacy codes
+                // in a value must not replace it or make half a label unpositioned.
+                if (run.color().matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])")) {
+                    drawn = ChatColor.stripColor(drawn);
+                }
+                if (drawn.isEmpty()) {
+                    continue;
+                }
+                // The shift is space characters in the pack's own font, where
+                // their advances are declared — so it is its own component. Put
+                // them in the text's font and they are glyphs that font has
+                // never heard of.
+                String moveBy = placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift();
+                if (!moveBy.isEmpty()) {
+                    TextComponent shift = new TextComponent(moveBy);
+                    shift.setFont(info.font().isEmpty() ? null : info.font());
+                    parts.add(shift);
+                }
+                TextComponent body = new TextComponent(drawn);
+                if (!run.font().isEmpty()) {
+                    body.setFont(run.font());
+                }
+                body.setColor(run.color().isEmpty()
+                        ? net.md_5.bungee.api.ChatColor.WHITE
+                        : net.md_5.bungee.api.ChatColor.of(run.color()));
+                parts.add(body);
+                cursor = run.x() + TextWidth.of(drawn);
+            }
+            // The action bar centres the FINAL advance, not the picture.
+            // Restore the canvas width so labels and changing values cannot
+            // drag the whole overlay sideways (including empty final runs).
+            if (placeOurselves) {
+                TextComponent end = new TextComponent(shiftTo(info, info.advance() - cursor));
+                end.setFont(info.font().isEmpty() ? null : info.font());
+                parts.add(end);
+            }
+        } else {
+            String text = OverlayRuntime.fill(info.text(), filled);
+            if (!text.isEmpty()) {
+                parts.add(new TextComponent(" " + text));
+            }
+        }
+        return parts.toArray(new BaseComponent[0]);
+    }
+
+    /** Powers of two, repeating the largest step when a move exceeds 1023 pixels. */
     static String shiftTo(OverlayInfo info, int pixels) {
         String alphabet = pixels < 0 ? info.shiftMinus() : info.shiftPlus();
         if (alphabet.isEmpty() || pixels == 0) {
             return "";
         }
-        int left = Math.min(Math.abs(pixels), (1 << alphabet.length()) - 1);
+        int left = Math.abs(pixels);
         StringBuilder out = new StringBuilder();
         for (int step = alphabet.length() - 1; step >= 0; step--) {
             int size = 1 << step;

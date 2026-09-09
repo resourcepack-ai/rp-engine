@@ -31,24 +31,15 @@ public final class TextWidth {
     private TextWidth() {
     }
 
-    /**
-     * Every character that is not five pixels wide, grouped by width.
-     *
-     * <p>Eight ones, two twos, six threes, nine fours and one six — which is
-     * {@link #NARROW_WIDTH} read as runs. A pair of arrays rather than a map:
-     * this runs once per text run per redraw for every player wearing an
-     * overlay, and a hash per character over two dozen entries is worse than
-     * the scan.
-     */
-    private static final String NARROW = "!.,:;i|'" + "`l" + "I[]\"* " + "fkt()<>{}" + "@";
+    // Measured from vanilla font/ascii.png (rightmost opaque column).
+    private static final String NARROW = "!.,:;i|'" + "`l" + "I[]\"* ()t{}" + "fk<>" + "@~";
 
-    /** Their widths, positionally against {@link #NARROW}. */
     private static final int[] NARROW_WIDTH = {
         1, 1, 1, 1, 1, 1, 1, 1,
         2, 2,
-        3, 3, 3, 3, 3, 3,
-        4, 4, 4, 4, 4, 4, 4, 4, 4,
-        6,
+        3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+        4, 4, 4, 4,
+        6, 6,
     };
 
     /** What the renderer puts between two glyphs. */
@@ -89,7 +80,7 @@ public final class TextWidth {
         return width;
     }
 
-    private static int widthOf(char c) {
+    private static int widthOf(int c) {
         int at = NARROW.indexOf(c);
         return at < 0 ? DEFAULT : NARROW_WIDTH[at];
     }
