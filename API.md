@@ -295,6 +295,33 @@ One animation at a time, because a rig has one clock — the same rule the state
 table lives under. An animation that has to keep the wheels turning while it
 plays has to turn them itself.
 
+#### Coming down
+
+An aircraft's height is its own — held once it is fast enough, climbed and
+dived on the keys, sunk at its `stall-sink` when it is too slow. `setDescent`
+replaces all of that with one number for as long as it is set:
+
+```java
+Vehicle chute = engine.vehicles().spawn(player.getLocation(), PARACHUTE).orElseThrow();
+chute.seat(player);
+chute.setDescent(45);                      // freefall: down at 45 blocks/s, whatever the speed
+...
+chute.setDescent(keys.jump() ? 1.5 : 5.5); // under the canopy: a flare, or full flight
+```
+
+The vehicle comes down at that rate whatever it is doing, the climb and dive
+keys do nothing to its height, and it lands where it reaches the ground and
+sits there. Throttle and steering are untouched, so it still goes where it is
+pointed — a glide, not a drop. It is the door for anything that comes down at
+a rate the PLUGIN decides: a parachute, whose canopy sinks at one rate, brakes
+at another and flares at a third; a glider; a helicopter you have just run out
+of fuel. Call it every tick from something smooth when the rate changes, and
+note that it is **not clamped** to the editor's flight bounds — a freefall is
+allowed — and, like `setSpeedLimit`, not remembered across a chunk unload.
+Zero holds the height; a negative number clears it. A vehicle under a descent
+keeps its nose level rather than pitching into the dive, and still banks into
+its turns.
+
 `dressVariant(player, "goofy")` makes one rider wear a VARIANT of whatever
 their seat's state table says - `moving` becomes `moving_goofy`, falling back
 to the plain one where no such emote exists. For a per-person fact a seat

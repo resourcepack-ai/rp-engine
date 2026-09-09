@@ -822,7 +822,12 @@ public final class VehiclePhysics {
                     // out of throttle comes down rather than parking in
                     // mid-air. Opening the throttle again recovers it, which is
                     // why this is a glide rather than gravity.
-                    climb = -info.flight().stallSink();
+                    //
+                    // Or a vehicle a plugin has told how fast to come down
+                    // (VehicleFlight.withDescent), which is the same arm with
+                    // the number replaced and the recovery taken away: a
+                    // parachute under a canopy is a permanent, gentle stall.
+                    climb = -info.flight().descent();
                 }
                 vertical = 0;
                 break;
@@ -884,7 +889,15 @@ public final class VehiclePhysics {
         double liftTarget;
         if (flying) {
             // The nose follows the climb, and the wings bank into the turn.
-            pitchTarget = Math.toDegrees(Math.atan2(climb, Math.max(Math.abs(speed), 1))) * 0.6;
+            //
+            // Except under an imposed descent, where the nose stays level: a
+            // thing that is coming down because it cannot stay up is hanging
+            // or falling, not diving, and a canopy that pitched forty degrees
+            // nose-down because its skydiver was falling at fifty blocks a
+            // second would be the mechanism showing through. It still banks.
+            pitchTarget = info.flight().descends()
+                    ? 0
+                    : Math.toDegrees(Math.atan2(climb, Math.max(Math.abs(speed), 1))) * 0.6;
             rollTarget = -clampMagnitude(yawRate * 0.25, 30);
             liftTarget = 0;
         } else if (wall != null) {
@@ -1057,7 +1070,7 @@ public final class VehiclePhysics {
     /** Whether an aircraft is going fast enough to fly. Anything that is not an aircraft always is. */
     public static boolean airborneEnough(VehicleInfo info, double speed) {
         return info.medium() != VehicleMedium.AIR
-                || Math.abs(speed) >= info.flight().takeoffSpeed();
+                || info.flight().flies(speed);
     }
 
     /** A hull out of the water. */

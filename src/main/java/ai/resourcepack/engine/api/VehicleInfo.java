@@ -628,6 +628,20 @@ public final class VehicleInfo {
     }
 
     /**
+     * The same vehicle flying differently. What {@link Vehicle#setDescent}
+     * hands the physics: the pack's own numbers with a descent imposed on
+     * them, and nothing else about the vehicle touched.
+     */
+    public VehicleInfo withFlight(VehicleFlight flight) {
+        if (flight == null || flight == this.flight) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+    }
+
+    /**
      * The seats, in the order people are put in them.
      *
      * <p><strong>The order is the contract.</strong> The driver is index 0 and

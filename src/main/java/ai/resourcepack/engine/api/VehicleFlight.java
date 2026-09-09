@@ -48,11 +48,23 @@ public final class VehicleFlight {
     private final double diveRate;
     private final double stallSink;
 
+    /**
+     * A descent a plugin has imposed, blocks per second, or NaN for none.
+     * See {@link #withDescent}.
+     */
+    private final double descent;
+
     private VehicleFlight(double takeoffSpeed, double climbRate, double diveRate, double stallSink) {
+        this(takeoffSpeed, climbRate, diveRate, stallSink, Double.NaN);
+    }
+
+    private VehicleFlight(double takeoffSpeed, double climbRate, double diveRate, double stallSink,
+                          double descent) {
         this.takeoffSpeed = takeoffSpeed;
         this.climbRate = climbRate;
         this.diveRate = diveRate;
         this.stallSink = stallSink;
+        this.descent = descent;
     }
 
     /**
@@ -130,14 +142,64 @@ public final class VehicleFlight {
         return stallSink;
     }
 
+    /**
+     * The same numbers with a descent imposed: the vehicle comes down at
+     * {@code blocksPerSecond} whatever its speed, and never flies.
+     *
+     * <p>This is {@link Vehicle#setDescent}'s shape, and it is a different
+     * kind of number from the four above, which is why it is not a fifth
+     * field in a pack's {@code flight:} block. Those describe an aircraft
+     * — a thing that can hold its height once it is going fast enough. A
+     * vehicle with a descent is one that <em>cannot</em>: a parachute, a
+     * glider, a helicopter whose engine a plugin has just failed. Its
+     * takeoff speed no longer means anything, the climb and dive keys do
+     * nothing to its height, and it sinks at this rate until it is on the
+     * ground — where it sits, exactly as a stalled aeroplane does.
+     *
+     * <p><strong>Not clamped to {@link #MAX_STALL_SINK}.</strong> That bound
+     * is the editor's slider, and a stall is a slow thing; a freefall is not.
+     * Anything unreadable, or under zero, clears it.
+     */
+    public VehicleFlight withDescent(double blocksPerSecond) {
+        double wanted = Double.isFinite(blocksPerSecond) && blocksPerSecond >= 0 ? blocksPerSecond : Double.NaN;
+        if (Double.isNaN(wanted) && Double.isNaN(descent) || wanted == descent) {
+            return this;
+        }
+        return new VehicleFlight(takeoffSpeed, climbRate, diveRate, stallSink, wanted);
+    }
+
+    /** Whether a plugin has told this vehicle how fast to come down. See {@link #withDescent}. */
+    public boolean descends() {
+        return !Double.isNaN(descent);
+    }
+
+    /**
+     * The imposed descent, blocks per second, or {@link #stallSink} when
+     * there is none: what an aircraft that is not flying comes down at.
+     */
+    public double descent() {
+        return descends() ? descent : stallSink;
+    }
+
     /** Whether it needs a run-up at all. */
     public boolean needsTakeoffRun() {
         return takeoffSpeed > 0;
     }
 
+    /**
+     * Whether an aircraft doing {@code speed} is going fast enough to fly.
+     *
+     * <p>Never, once a descent has been imposed: a vehicle that has been
+     * told how fast to come down is not asked whether it could stay up.
+     */
+    public boolean flies(double speed) {
+        return !descends() && Math.abs(speed) >= takeoffSpeed;
+    }
+
     @Override
     public String toString() {
         return "takeoff " + takeoffSpeed + ", climb " + climbRate
-                + ", dive " + diveRate + ", stall " + stallSink;
+                + ", dive " + diveRate + ", stall " + stallSink
+                + (descends() ? ", descending " + descent : "");
     }
 }
