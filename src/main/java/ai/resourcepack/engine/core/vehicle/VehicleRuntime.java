@@ -3402,12 +3402,24 @@ public final class VehicleRuntime implements Listener {
          * the message is what makes that legible as "get back in the water"
          * instead of "this is broken now".
          */
+        /** Ticks a hull has to sit on land before it is told so. */
+        private static final int BEACHED_SAY_AFTER = 10;
+        private int beachedTicks;
+
         private void sayIfBeached(Player driver, VehiclePhysics.Surroundings around) {
             if (!VehiclePhysics.beached(info, around)) {
                 toldBeached = false;
+                beachedTicks = 0;
                 return;
             }
-            if (toldBeached || driver == null) {
+            // Out of the water AND on something, for a moment. A hull in the
+            // air is not beached - a surfboard leaving the top of a wave is
+            // out of the water for a dozen ticks and back in it - and a hull
+            // bumping over a rock at the edge of a pool is not either.
+            if (!around.supported()) {
+                return;
+            }
+            if (++beachedTicks < BEACHED_SAY_AFTER || toldBeached || driver == null) {
                 return;
             }
             toldBeached = true;
