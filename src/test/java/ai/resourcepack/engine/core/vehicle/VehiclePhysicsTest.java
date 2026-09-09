@@ -456,6 +456,37 @@ class VehiclePhysicsTest {
         assertTrue(down < 0, "a hull above the surface should settle");
     }
 
+    /**
+     * A hull that says {@code jump: true} pops off the surface on the key -
+     * a surfboard's air off the lip - once, from its float line, and never
+     * while already rising. One that does not jump keeps its buoyancy and
+     * nothing else.
+     */
+    @Test
+    void aJumpingHullLeavesTheSurfaceOnceAndOnlyFromTheSurface() {
+        VehicleInfo board = car(VehicleMedium.WATER).withJump(true);
+        VehiclePhysics.Demand hop = new VehiclePhysics.Demand(0, 0, 0, 1, false);
+        VehiclePhysics.Surroundings afloat = new VehiclePhysics.Surroundings(false, true, 0);
+
+        VehiclePhysics.Step off = VehiclePhysics.step(board, VehiclePhysics.State.still(0), hop, afloat, DT);
+        assertEquals(VehiclePhysics.JUMP_SPEED, off.state().verticalSpeed(), 1e-9);
+
+        // Still in the water on the next tick and still holding the key: no
+        // second jump, because it is already on its way up.
+        VehiclePhysics.Step again = VehiclePhysics.step(board, off.state(), hop, afloat, DT);
+        assertTrue(again.state().verticalSpeed() < VehiclePhysics.JUMP_SPEED);
+
+        // Pushed well under, the key does nothing: it is the surface that is jumped off.
+        VehiclePhysics.Surroundings under = new VehiclePhysics.Surroundings(false, true, 1);
+        VehiclePhysics.Step sunk = VehiclePhysics.step(board, VehiclePhysics.State.still(0), hop, under, DT);
+        assertTrue(sunk.state().verticalSpeed() < VehiclePhysics.JUMP_SPEED);
+
+        // A hull that does not jump: buoyancy alone, which at the float line is nothing.
+        VehiclePhysics.Step boat = VehiclePhysics.step(car(VehicleMedium.WATER),
+                VehiclePhysics.State.still(0), hop, afloat, DT);
+        assertEquals(0, boat.state().verticalSpeed(), 1e-9);
+    }
+
     @Test
     void aBoatOnLandFallsLikeAnythingElse() {
         VehicleInfo boat = car(VehicleMedium.WATER);

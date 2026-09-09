@@ -149,6 +149,22 @@ public final class VehiclePhysics {
     public static final double WATER_DAMPING = 0.75;
 
     /**
+     * How far below its float line a hull may sit and still jump, in blocks
+     * of submersion. A little under zero rather than exactly it, because a
+     * floating hull bobs about its line and a key that only worked on the
+     * tick it happened to be exactly there would be a key that mostly did
+     * not work.
+     */
+    public static final double WATER_JUMP_FROM = -0.3;
+
+    /**
+     * And how far under it may be pushed before a jump is no longer off the
+     * surface at all. A hull buried by a wave is under water, not on it, and
+     * the key waits until it has come back up.
+     */
+    public static final double WATER_JUMP_TO = 0.5;
+
+    /**
      * How fast an air vehicle climbs or dives at full lift, as a fraction of
      * its top speed. Kept for the flight-block defaults; see
      * {@link ai.resourcepack.engine.api.VehicleFlight#forSpeed}.
@@ -812,10 +828,21 @@ public final class VehiclePhysics {
                 break;
             case WATER:
                 if (around.inWater()) {
-                    // Toward the surface, damped. A hull pushed under rises,
-                    // which is what makes going over a waterfall look right
-                    // instead of leaving the boat at the height it entered.
-                    vertical = (vertical + BUOYANCY * around.submersion() * dt) * WATER_DAMPING;
+                    if (info.jumps() && lift > 0 && vertical <= 0
+                            && around.submersion() > WATER_JUMP_FROM && around.submersion() < WATER_JUMP_TO) {
+                        // A hull that jumps does so off the surface: a
+                        // surfboard popping an air off the lip. Only from at or
+                        // below its float line and only while not already
+                        // rising, so a held key is one jump rather than a
+                        // climb - the same rule as the ground's, with the
+                        // surface standing in for the ground.
+                        vertical = JUMP_SPEED;
+                    } else {
+                        // Toward the surface, damped. A hull pushed under rises,
+                        // which is what makes going over a waterfall look right
+                        // instead of leaving the boat at the height it entered.
+                        vertical = (vertical + BUOYANCY * around.submersion() * dt) * WATER_DAMPING;
+                    }
                 } else if (around.supported()) {
                     vertical = 0;
                 } else {

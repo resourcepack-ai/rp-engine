@@ -261,6 +261,13 @@ public final class VehicleRuntime implements Listener {
     private static final double SUPPORT_REACH = 0.15;
 
     /**
+     * Where a hull's base settles in a source block of water, as a fraction
+     * of the block: a little under the eight ninths the water is drawn at.
+     * Flowing water settles the same shade under its own level.
+     */
+    private static final double WATER_SURFACE = 0.85;
+
+    /**
      * How slowly a vehicle has to be going before a held occupant's sneak
      * gets them out after all, blocks per second.
      *
@@ -3593,11 +3600,37 @@ public final class VehicleRuntime implements Listener {
                 return new VehiclePhysics.Surroundings(supported, false, 0, wheels, wall);
             }
             // Fully under is a full block of push; otherwise the hull settles
-            // with its base a little below the top of the block it is in,
-            // which is what floating at the surface looks like.
+            // with its base a little below the top of the WATER in the block
+            // it is in, which is what floating at the surface looks like.
+            //
+            // The top of the water, not of the block: flowing water is drawn
+            // at its level - seven eighths for the block beside a source,
+            // one eighth at the end of its run - and a hull that floated a
+            // full block up in a puddle an eighth deep would be standing in
+            // the air. A river's edge is the everyday case; a wave built out
+            // of levels (the surfing addon's wave pool) is the one that made
+            // it matter, because there the whole surface is levels.
             boolean deep = here.getRelative(0, 1, 0).getType() == Material.WATER;
-            double submersion = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + 0.85) - at.getY()));
+            double submersion = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + waterTop(here)) - at.getY()));
             return new VehiclePhysics.Surroundings(supported, true, submersion, wheels, wall);
+        }
+
+        /**
+         * How far up its block a water block's surface is, where a hull's
+         * base settles: a shade under the eight ninths a source is drawn at,
+         * and for flowing water the height its level is drawn at, by the
+         * same shade. Falling water (level 8 and up) is a full column.
+         */
+        private static double waterTop(Block water) {
+            org.bukkit.block.data.BlockData data = water.getBlockData();
+            if (!(data instanceof org.bukkit.block.data.Levelled)) {
+                return WATER_SURFACE;
+            }
+            int level = ((org.bukkit.block.data.Levelled) data).getLevel();
+            if (level <= 0 || level >= 8) {
+                return WATER_SURFACE;
+            }
+            return Math.max(0.05, (8 - level) / 9.0 - (8 / 9.0 - WATER_SURFACE));
         }
 
         /**
