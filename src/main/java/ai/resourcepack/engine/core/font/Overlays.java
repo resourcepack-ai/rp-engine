@@ -132,16 +132,12 @@ public final class Overlays {
             return false;
         }
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
-            // **A boss bar cannot carry a font.** Bukkit's BossBar takes a
-            // legacy String, and legacy formatting has codes for colour but
-            // none for a font — so an overlay whose glyph lives in a font of
-            // its own (every shader object does) cannot be drawn here at all.
-            // Studio therefore sends those as ACTION_BAR; this branch stays for
-            // the ordinary pushed and hand-authored overlays, which live in the
-            // default font and only ever needed a colour.
+            // One composer for both surfaces — see legacyComposed(), which also
+            // records why a boss bar can hold a shader overlay now when it once
+            // could not.
             BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
                     key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
-            bar.setTitle(legacy(info));
+            bar.setTitle(legacyComposed(info, java.util.Map.of(), viewer));
             // Invisible bar, visible art: the bar itself is a rendering
             // surface here rather than a meter.
             bar.setProgress(0d);
@@ -181,40 +177,111 @@ public final class Overlays {
             return;
         }
         java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
-        BaseComponent[] drawnParts = compose(info, filled);
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
-            // See draw(): a boss bar cannot carry a font, so this surface only
-            // ever holds the default-font overlays, and their text rides the
-            // legacy string with them.
             BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
                     key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
-            // A boss bar takes a legacy string, so a positioned run's font
-            // cannot survive here — its text rides along unpositioned rather
-            // than being dropped.
-            StringBuilder trailing = new StringBuilder();
-            for (OverlayInfo.OverlayRun run : info.runs()) {
-                String drawn = OverlayRuntime.fill(run.text(), filled);
-                if (!drawn.isEmpty()) {
-                    trailing.append(' ').append(drawn);
-                }
-            }
-            if (info.runs().isEmpty()) {
-                String plain = OverlayRuntime.fill(info.text(), filled);
-                if (!plain.isEmpty()) {
-                    trailing.append(' ').append(plain);
-                }
-            }
-            bar.setTitle(legacy(info) + (trailing.length() == 0 ? "" : ChatColor.RESET + trailing.toString()));
+            bar.setTitle(legacyComposed(info, filled, viewer));
+            // Invisible bar, visible art: the bar itself is a rendering surface
+            // here rather than a meter.
             bar.setProgress(0d);
             bar.addPlayer(viewer);
             bar.setVisible(true);
             return;
         }
-        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, drawnParts);
+        // Whatever was on the boss bar comes off. An overlay that changed slot
+        // between two pushes would otherwise be drawn twice — once on the bar
+        // nothing is updating any more, and once where it now lives.
+        BossBar stale = bars.remove(viewer.getUniqueId());
+        if (stale != null) {
+            stale.removeAll();
+        }
+        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                compose(info, filled, viewer));
+    }
+
+    /**
+     * The same composed run, as the legacy string a boss bar takes.
+     *
+     * <p><b>A boss bar can carry a shader overlay now, and once could not.</b>
+     * The objection was real: legacy formatting has codes for colour and none
+     * for a font, so a canvas glyph living in a font of its own could not be
+     * named here at all. The glyph moved into the pack's DEFAULT font — which it
+     * did for an unrelated reason, so that a stale pack draws nothing rather
+     * than four missing-glyph boxes — and with it the shift characters. Nothing
+     * in a shader overlay needs a font any more, and {@code §x} spells the exact
+     * RGB the shader matches on.
+     *
+     * <p>So this walks the same cursor {@link #compose} does, over the same
+     * runs, and differs only in how it spells a colour. A run that genuinely
+     * does name a font is the one thing that cannot survive: it is drawn
+     * unstyled rather than dropped.
+     */
+    static String legacyComposed(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
+        StringBuilder out = new StringBuilder(legacy(info));
+        boolean placeOurselves = info.positionsRuns();
+        int cursor = info.advance();
+        for (OverlayInfo.OverlayRun run : info.runs()) {
+            String drawn = drawnRun(run, filled, viewer);
+            if (drawn.isEmpty()) {
+                continue;
+            }
+            out.append(placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift());
+            out.append(run.color().isEmpty()
+                    ? ChatColor.WHITE.toString()
+                    : net.md_5.bungee.api.ChatColor.of(run.color()).toString());
+            out.append(drawn);
+            cursor = run.x() + widthOf(run, drawn);
+        }
+        if (info.runs().isEmpty()) {
+            String plain = OverlayRuntime.fill(info.text(), filled, viewer);
+            if (!plain.isEmpty()) {
+                out.append(ChatColor.RESET).append(' ').append(plain);
+            }
+        } else if (placeOurselves) {
+            out.append(shiftTo(info, info.advance() - cursor));
+        }
+        return out.toString();
+    }
+
+    /**
+     * What one run actually says for one player, placeholders filled.
+     *
+     * <p>Two substitutions, in this order and not the other: which CHARACTER
+     * this player draws (a head is their own face, and the pack baked one glyph
+     * each), and then what the {@code {name}} placeholders in it come to. A head
+     * carries no placeholders and a label carries no per-player character, so
+     * the order is only a rule for the case that never happens — but a rule
+     * beats finding out.
+     */
+    private static String drawnRun(OverlayInfo.OverlayRun run, java.util.Map<String, String> filled, Player viewer) {
+        String drawn = OverlayRuntime.fill(
+                run.textFor(viewer == null ? null : viewer.getUniqueId()), filled, viewer);
+        // A shader run's RGB is its positioning address. Legacy codes in a value
+        // must not replace it or make half a label unpositioned.
+        if (run.color().matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])")) {
+            drawn = ChatColor.stripColor(drawn);
+        }
+        return drawn;
+    }
+
+    /**
+     * How far drawing this run moved the cursor.
+     *
+     * <p>The run's own figure when it has one, and a measurement otherwise. A
+     * head's glyph is one the pack invented, so no table of vanilla's widths can
+     * hold it and guessing puts every label after it in the wrong place.
+     */
+    private static int widthOf(OverlayInfo.OverlayRun run, String drawn) {
+        return run.advance() > 0 ? run.advance() : TextWidth.of(drawn);
     }
 
     /** Compose a stable-width action bar independently of the network send. */
     static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled) {
+        return compose(info, filled, null);
+    }
+
+    /** The same, for one player — whose head is their own. See {@code OverlayRun.textFor}. */
+    static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
         java.util.List<BaseComponent> parts = new java.util.ArrayList<>();
         parts.add(component(info)[0]);
 
@@ -236,12 +303,7 @@ public final class Overlays {
             boolean placeOurselves = info.positionsRuns();
             int cursor = info.advance();
             for (OverlayInfo.OverlayRun run : info.runs()) {
-                String drawn = OverlayRuntime.fill(run.text(), filled);
-                // A shader run's RGB is its positioning address. Legacy codes
-                // in a value must not replace it or make half a label unpositioned.
-                if (run.color().matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])")) {
-                    drawn = ChatColor.stripColor(drawn);
-                }
+                String drawn = drawnRun(run, filled, viewer);
                 if (drawn.isEmpty()) {
                     continue;
                 }
@@ -263,7 +325,7 @@ public final class Overlays {
                         ? net.md_5.bungee.api.ChatColor.WHITE
                         : net.md_5.bungee.api.ChatColor.of(run.color()));
                 parts.add(body);
-                cursor = run.x() + TextWidth.of(drawn);
+                cursor = run.x() + widthOf(run, drawn);
             }
             // The action bar centres the FINAL advance, not the picture.
             // Restore the canvas width so labels and changing values cannot
@@ -274,7 +336,7 @@ public final class Overlays {
                 parts.add(end);
             }
         } else {
-            String text = OverlayRuntime.fill(info.text(), filled);
+            String text = OverlayRuntime.fill(info.text(), filled, viewer);
             if (!text.isEmpty()) {
                 parts.add(new TextComponent(" " + text));
             }

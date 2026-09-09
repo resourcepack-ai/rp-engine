@@ -65,13 +65,66 @@ public final class OverlayInfo {
         private final String text;
         private final String font;
         private final String color;
+        private final int advance;
+        private final java.util.Map<String, String> players;
 
         public OverlayRun(String shift, int x, String text, String font, String color) {
+            this(shift, x, text, font, color, 0, java.util.Map.of());
+        }
+
+        /**
+         * A run whose width is stated rather than measured, and which may draw a
+         * different character for each player.
+         *
+         * @param advance how far drawing this run moves the cursor, or 0 to
+         *                measure the drawn string. Stated for a glyph the pack
+         *                invented, whose width the engine's width table cannot know.
+         * @param players the character to draw instead of {@code text}, by
+         *                lowercase undashed UUID. Empty for ordinary text.
+         */
+        public OverlayRun(String shift, int x, String text, String font, String color,
+                          int advance, java.util.Map<String, String> players) {
             this.shift = shift == null ? "" : shift;
             this.x = x;
             this.text = text == null ? "" : text;
             this.font = font == null ? "" : font;
             this.color = color == null ? "" : color;
+            this.advance = Math.max(0, advance);
+            this.players = players == null ? java.util.Map.of() : java.util.Map.copyOf(players);
+        }
+
+        /**
+         * How far drawing this run moves the cursor, or 0 to measure it.
+         *
+         * <p>Zero for words, which the engine measures against vanilla's
+         * own glyph widths. Non-zero for a picture drawn as a glyph — a player's
+         * head — where there is no table to consult and the pack states the
+         * exact figure it declared in the font.
+         */
+        public int advance() {
+            return advance;
+        }
+
+        /**
+         * What this run draws for one player, or {@link #text()} for anybody
+         * not named.
+         *
+         * <p><b>This is how a head is the viewer's own face.</b> A resource pack
+         * cannot read a skin, so a push bakes one glyph per recipient and this
+         * map says which is whose. Everyone else — a player who joined after the
+         * push, anybody on a pack from an export — draws the default, which is
+         * Steve rather than nothing.
+         */
+        public String textFor(java.util.UUID viewer) {
+            if (viewer == null || players.isEmpty()) {
+                return text;
+            }
+            return players.getOrDefault(viewer.toString().toLowerCase(java.util.Locale.ROOT).replace("-", ""), text);
+        }
+
+        /** The per-player characters, by lowercase undashed UUID. See {@link #textFor}. */
+        public java.util.Map<String, String> players() {
+            return players;
         }
 
         /**
