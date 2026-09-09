@@ -390,6 +390,52 @@ public interface Vehicle {
      */
     boolean wallRiding();
 
+    /**
+     * Plays one of the MODEL's own animations instead of whatever its state
+     * table says, until {@link #rest} or the vehicle is taken apart.
+     *
+     * <p>{@link #dress} for the vehicle itself. A seat's state table says what
+     * a rider's body does and {@code dress} overrides it for a state the
+     * engine does not have; {@code animations:} says what the vehicle's own
+     * rig does and this overrides it for the same reason. A bike's wheelie, a
+     * barspin, a digger's arm coming down: motion that belongs to the model
+     * and is decided by a plugin rather than by which of six words describes
+     * how fast it is going.
+     *
+     * <p><strong>It loops for as long as it is set</strong>, exactly as a
+     * state's animation does, whatever the animation itself was authored as.
+     * A state is a condition that holds and so is this, so the length of a
+     * trick is the plugin's to time: set it, count your ticks, call
+     * {@link #rest}. That is the same shape as wearing a push emote for the
+     * length of a kick, and it is deliberately not a one-shot with a callback
+     * — there is no tick you could be told about that you were not already
+     * having.
+     *
+     * <p><strong>A performed animation runs on real time, even on a vehicle
+     * with {@code animation-follows-speed}.</strong> That link exists so a
+     * wheel turns because the vehicle moved; a trick is not a wheel, and a
+     * barspin that ran at a quarter speed because the rider was slowing down
+     * would be a bug rather than a feature. The speed-driven playhead is put
+     * aside while this holds and picked up where it was on {@link #rest}, so
+     * the wheels do not jump when a trick ends.
+     *
+     * <p>One animation at a time, because a rig has one clock — the same rule
+     * the state table lives under. An animation that has to keep the wheels
+     * turning has to turn them itself.
+     *
+     * @param animation one of the model's animation names; {@code null} is
+     *                  {@link #rest}
+     */
+    void perform(String animation);
+
+    /** Hands the rig back to the vehicle's own state table. */
+    default void rest() {
+        perform(null);
+    }
+
+    /** What {@link #perform} is playing, or empty when the state table has the rig. */
+    Optional<String> performing();
+
     /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
     double groundSpeed();
 

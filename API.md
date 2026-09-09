@@ -260,6 +260,41 @@ line of YAML (`animation-follows-speed`, see FORMAT.md); this is for the cases
 that are not a vehicle. Advance it every tick from something smooth rather than
 jumping it about: a rig has one clock, and every bone on it reads that clock.
 
+#### Moving the vehicle's own model
+
+`dress` is for the rider's body. `perform` is the same door for the vehicle's:
+it plays one of the MODEL's animations instead of whatever its `animations:`
+table says.
+
+```java
+bike.perform("wheelie");   // the whole bike tips back about the rear axle
+...
+bike.rest();               // back to the state table, wheels where they were
+```
+
+A bike's wheelie, a barspin, a digger's arm coming down: motion that belongs
+to the model and is decided by a plugin rather than by which of six words
+describes how fast the thing is going. A vehicle with no `animations:` at all
+can be given one this way, so a pack need not have anticipated your trick.
+
+**It loops for as long as it is set**, exactly as a state's animation does,
+whatever the animation was authored as — so the length of a trick is yours to
+time: set it, count your ticks, `rest()`. That is the same shape as wearing a
+push emote for the length of a kick, and it is deliberately not a one-shot
+with a callback: there is no tick you could be told about that you were not
+already having.
+
+**A performed animation runs on real time**, even on a vehicle with
+`animation-follows-speed`. That link exists so a wheel turns because the
+vehicle moved, and a trick is not a wheel — a barspin that ran at a quarter
+speed because the rider was braking into it would be the mechanism showing
+through. The speed-driven playhead is put aside while it holds and picked up
+where it was on `rest()`, so the wheels do not jump when the trick ends.
+
+One animation at a time, because a rig has one clock — the same rule the state
+table lives under. An animation that has to keep the wheels turning while it
+plays has to turn them itself.
+
 `dressVariant(player, "goofy")` makes one rider wear a VARIANT of whatever
 their seat's state table says - `moving` becomes `moving_goofy`, falling back
 to the plain one where no such emote exists. For a per-person fact a seat
