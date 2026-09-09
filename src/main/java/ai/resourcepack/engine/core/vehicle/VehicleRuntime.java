@@ -1829,8 +1829,14 @@ public final class VehicleRuntime implements Listener {
         private double speedLimit = Double.NaN;
 
         /**
-         * {@link #info} with the speed limit applied, or {@code info} itself
-         * when there is none.
+         * A plugin's rate of descent, or NaN for none —
+         * {@link Vehicle#setDescent}. Not persisted, for the same reason.
+         */
+        private double descent = Double.NaN;
+
+        /**
+         * {@link #info} with the speed limit and the descent applied, or
+         * {@code info} itself when there is neither.
          *
          * <p>What the physics is given. Everything else — seats, hitbox, the
          * name — reads {@code info}, because a limit changes none of those.
@@ -2493,14 +2499,45 @@ public final class VehicleRuntime implements Listener {
 
         /** {@link Vehicle#setSpeedLimit}. */
         void limitSpeed(double blocksPerSecond) {
-            if (!Double.isFinite(blocksPerSecond) || blocksPerSecond <= 0) {
-                speedLimit = Double.NaN;
-                driven = info;
-            } else {
-                speedLimit = blocksPerSecond;
-                driven = info.withSpeed(Math.min(blocksPerSecond, info.speed()));
-            }
+            speedLimit = !Double.isFinite(blocksPerSecond) || blocksPerSecond <= 0
+                    ? Double.NaN
+                    : blocksPerSecond;
+            redrive();
             parked = false;
+        }
+
+        OptionalDouble descent() {
+            return Double.isNaN(descent) ? OptionalDouble.empty() : OptionalDouble.of(descent);
+        }
+
+        /**
+         * {@link Vehicle#setDescent}. Only an air vehicle reads its flight,
+         * so on anything else this is remembered and does nothing, which is
+         * what the interface promises.
+         */
+        void descend(double blocksPerSecond) {
+            descent = !Double.isFinite(blocksPerSecond) || blocksPerSecond < 0
+                    ? Double.NaN
+                    : blocksPerSecond;
+            redrive();
+        }
+
+        /**
+         * Rebuilds {@link #driven} from {@link #info} and whatever a plugin
+         * has imposed on it. The one place that does, so the two overrides
+         * cannot forget each other: clearing the speed limit used to hand
+         * the physics {@code info} itself, which would have dropped the
+         * descent with it.
+         */
+        private void redrive() {
+            VehicleInfo wanted = info;
+            if (!Double.isNaN(speedLimit)) {
+                wanted = wanted.withSpeed(Math.min(speedLimit, info.speed()));
+            }
+            if (!Double.isNaN(descent)) {
+                wanted = wanted.withFlight(wanted.flight().withDescent(descent));
+            }
+            driven = wanted;
         }
 
         /**
@@ -4690,6 +4727,20 @@ public final class VehicleRuntime implements Listener {
             Ride ride = ride();
             if (ride != null) {
                 ride.limitSpeed(blocksPerSecond);
+            }
+        }
+
+        @Override
+        public OptionalDouble descent() {
+            Ride ride = ride();
+            return ride == null ? OptionalDouble.empty() : ride.descent();
+        }
+
+        @Override
+        public void setDescent(double blocksPerSecond) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.descend(blocksPerSecond);
             }
         }
 

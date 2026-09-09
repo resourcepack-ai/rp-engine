@@ -247,6 +247,43 @@ public interface Vehicle {
     void setSpeedLimit(double blocksPerSecond);
 
     /**
+     * The rate of descent a plugin has imposed, in blocks per second, if one
+     * has. Empty means the pack's own {@code flight:} numbers apply.
+     */
+    OptionalDouble descent();
+
+    /**
+     * Tells an air vehicle how fast to come down, in blocks per second, and
+     * that it cannot stay up.
+     *
+     * <p>An aircraft's height is its own: it holds it once it is going fast
+     * enough, climbs and dives on its driver's keys, and sinks at its
+     * {@code stall-sink} when it is too slow. This replaces all of that with
+     * one number for as long as it is set. The vehicle comes down at this
+     * rate whatever its speed, the climb and dive keys do nothing to its
+     * height, and it lands where it reaches the ground and sits there. The
+     * throttle and the steering are untouched, so it still goes where it is
+     * pointed — which is what makes it a glide rather than a drop.
+     *
+     * <p>For anything that comes down at a rate the plugin decides: a
+     * parachute, whose canopy sinks at one rate, brakes at another and
+     * flares at a third; a glider; a helicopter a plugin has just run out of
+     * fuel. Call it every tick from something smooth if the rate changes
+     * — a canopy does not snap from a flare to full flight. <strong>Not
+     * clamped to the editor's bounds</strong>, so a freefall is possible;
+     * zero holds the height, and a negative or non-finite number clears it.
+     *
+     * <p>Does nothing on a {@code land} or {@code water} vehicle, which have
+     * gravity and buoyancy for this.
+     *
+     * <p><strong>Not remembered</strong>, like {@link #setSpeedLimit}: a
+     * vehicle found again after a chunk unload has the pack's own flight
+     * back. A plugin that was between the two — a parachute is only ever
+     * open with somebody under it — has its {@link #data()}.
+     */
+    void setDescent(double blocksPerSecond);
+
+    /**
      * Stops it dead, this tick.
      *
      * <p>Speed to zero and the driver's throttle reset, as though it had hit
