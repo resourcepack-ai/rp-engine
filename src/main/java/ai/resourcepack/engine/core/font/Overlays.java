@@ -221,16 +221,16 @@ public final class Overlays {
         boolean placeOurselves = info.positionsRuns();
         int cursor = info.advance();
         for (OverlayInfo.OverlayRun run : info.runs()) {
-            String drawn = drawnRun(run, filled, viewer);
-            if (drawn.isEmpty()) {
+            Drawn drawn = drawnRun(info, run, filled, viewer);
+            if (drawn.text().isEmpty()) {
                 continue;
             }
             out.append(placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift());
             out.append(run.color().isEmpty()
                     ? ChatColor.WHITE.toString()
                     : net.md_5.bungee.api.ChatColor.of(run.color()).toString());
-            out.append(drawn);
-            cursor = run.x() + widthOf(run, drawn);
+            out.append(drawn.text());
+            cursor = run.x() + drawn.advance();
         }
         if (info.runs().isEmpty()) {
             String plain = OverlayRuntime.fill(info.text(), filled, viewer);
@@ -253,7 +253,11 @@ public final class Overlays {
      * the order is only a rule for the case that never happens — but a rule
      * beats finding out.
      */
-    private static String drawnRun(OverlayInfo.OverlayRun run, java.util.Map<String, String> filled, Player viewer) {
+    private static Drawn drawnRun(OverlayInfo info, OverlayInfo.OverlayRun run,
+                                  java.util.Map<String, String> filled, Player viewer) {
+        if (run.bar() != null) {
+            return barRun(info, run.bar(), filled, viewer);
+        }
         String drawn = OverlayRuntime.fill(
                 run.textFor(viewer == null ? null : viewer.getUniqueId()), filled, viewer);
         // A shader run's RGB is its positioning address. Legacy codes in a value
@@ -261,7 +265,91 @@ public final class Overlays {
         if (isRunMark(run.color())) {
             drawn = ChatColor.stripColor(drawn);
         }
-        return drawn;
+        // The run's own figure when it has one, and a measurement otherwise. A
+        // head's glyph is one the pack invented, so no table of vanilla's widths
+        // can hold it and guessing puts every label after it in the wrong place.
+        return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn));
+    }
+
+    /**
+     * What a run came to, and how far it moved the cursor.
+     *
+     * <p>One value rather than two calls, because for a bar the two answers come
+     * out of the same arithmetic — measuring the assembled string afterwards
+     * would mean re-deriving a number we had already worked out, against a
+     * width table that has never heard of the glyphs in it.
+     */
+    private record Drawn(String text, int advance) {
+    }
+
+    /**
+     * One of a bar's two runs, assembled.
+     *
+     * <p>The background is always the full length; the fill is as long as the
+     * value says. Both are built the same way: take the widest rectangle that
+     * still fits, then a single left shift to close the pixel the font renderer
+     * puts after every glyph, and repeat. Greedy over powers of two, so any
+     * length is about a dozen characters rather than one per pixel.
+     *
+     * <p>A value nothing can answer reads as zero, which draws an empty bar. A
+     * MAX nothing can answer reads as the bar's own length, so the bar becomes a
+     * plain pixel gauge rather than dividing by zero.
+     */
+    private static Drawn barRun(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar,
+                                java.util.Map<String, String> filled, Player viewer) {
+        int pixels = bar.total();
+        if (bar.fill()) {
+            double value = number(bar.value(), filled, viewer, 0d);
+            double max = number(bar.max(), filled, viewer, bar.total());
+            double fraction = max <= 0d ? 0d : value / max;
+            pixels = (int) Math.round(Math.max(0d, Math.min(1d, fraction)) * bar.total());
+        }
+        StringBuilder out = new StringBuilder();
+        int left = pixels;
+        for (OverlayInfo.OverlayRun.Bar.Glyph glyph : bar.glyphs()) {
+            while (glyph.px() > 0 && left >= glyph.px()) {
+                out.append(glyph.character()).append(shiftTo(info, -1));
+                left -= glyph.px();
+            }
+        }
+        return new Drawn(out.toString(), pixels - left);
+    }
+
+    /**
+     * A number out of a placeholder, or out of the text itself.
+     *
+     * <p>Both spellings are ordinary — a mana bar is out of a number somebody
+     * chose and a health bar is out of {@code health_max}, which only the server
+     * knows — so a name that parses as a number is used as one and everything
+     * else is looked up. That order matters: it means a bar can be given a plain
+     * ceiling without inventing a placeholder to hold it.
+     */
+    private static double number(String name, java.util.Map<String, String> filled, Player viewer, double fallback) {
+        if (name == null || name.isEmpty()) {
+            return fallback;
+        }
+        Double literal = parse(name);
+        if (literal != null) {
+            return literal;
+        }
+        Double resolved = parse(Placeholders.resolve(viewer, name, filled));
+        return resolved == null ? fallback : resolved;
+    }
+
+    /** A number, or null. Commas and a trailing percent are what people type. */
+    private static Double parse(String text) {
+        if (text == null) {
+            return null;
+        }
+        String cleaned = text.trim().replace(",", "").replace("%", "");
+        if (cleaned.isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -284,16 +372,7 @@ public final class Overlays {
                 || color.matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])");
     }
 
-    /**
-     * How far drawing this run moved the cursor.
-     *
-     * <p>The run's own figure when it has one, and a measurement otherwise. A
-     * head's glyph is one the pack invented, so no table of vanilla's widths can
-     * hold it and guessing puts every label after it in the wrong place.
-     */
-    private static int widthOf(OverlayInfo.OverlayRun run, String drawn) {
-        return run.advance() > 0 ? run.advance() : TextWidth.of(drawn);
-    }
+
 
     /** Compose a stable-width action bar independently of the network send. */
     static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled) {
@@ -323,8 +402,8 @@ public final class Overlays {
             boolean placeOurselves = info.positionsRuns();
             int cursor = info.advance();
             for (OverlayInfo.OverlayRun run : info.runs()) {
-                String drawn = drawnRun(run, filled, viewer);
-                if (drawn.isEmpty()) {
+                Drawn drawn = drawnRun(info, run, filled, viewer);
+                if (drawn.text().isEmpty()) {
                     continue;
                 }
                 // The shift is space characters in the pack's own font, where
@@ -337,7 +416,7 @@ public final class Overlays {
                     shift.setFont(info.font().isEmpty() ? null : info.font());
                     parts.add(shift);
                 }
-                TextComponent body = new TextComponent(drawn);
+                TextComponent body = new TextComponent(drawn.text());
                 if (!run.font().isEmpty()) {
                     body.setFont(run.font());
                 }
@@ -345,7 +424,7 @@ public final class Overlays {
                         ? net.md_5.bungee.api.ChatColor.WHITE
                         : net.md_5.bungee.api.ChatColor.of(run.color()));
                 parts.add(body);
-                cursor = run.x() + widthOf(run, drawn);
+                cursor = run.x() + drawn.advance();
             }
             // The action bar centres the FINAL advance, not the picture.
             // Restore the canvas width so labels and changing values cannot

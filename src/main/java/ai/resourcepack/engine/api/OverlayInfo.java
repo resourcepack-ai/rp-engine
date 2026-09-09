@@ -67,6 +67,65 @@ public final class OverlayInfo {
         private final String color;
         private final int advance;
         private final java.util.Map<String, String> players;
+        private final Bar bar;
+
+        /**
+         * How to build a run whose LENGTH depends on a number.
+         *
+         * <p>A progress bar, and the reason it is a shape the engine assembles
+         * rather than a string the pack ships: the value is not known until a
+         * tick before the line is sent, so the pack can only hand over the
+         * rectangles and say how long full is.
+         *
+         * <p>The rectangles are plain white glyphs in powers-of-two widths,
+         * tinted by the run's own colour. A bitmap glyph advances by its width
+         * plus the pixel the font renderer puts between glyphs, so each one is
+         * followed by a single left shift from the overlay's own alphabet —
+         * without that a bar is a dotted line.
+         */
+        public static final class Bar {
+            private final java.util.List<Glyph> glyphs;
+            private final int total;
+            private final String value;
+            private final String max;
+            private final boolean fill;
+
+            /** One rectangle: the character, and how many pixels it draws. */
+            public record Glyph(String character, int px) {
+            }
+
+            public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill) {
+                this.glyphs = glyphs == null ? java.util.List.of() : java.util.List.copyOf(glyphs);
+                this.total = Math.max(0, total);
+                this.value = value == null ? "" : value;
+                this.max = max == null ? "" : max;
+                this.fill = fill;
+            }
+
+            public java.util.List<Glyph> glyphs() {
+                return glyphs;
+            }
+
+            /** How many pixels long the bar is when full. */
+            public int total() {
+                return total;
+            }
+
+            /** The placeholder that fills it. A bare name, no braces. */
+            public String value() {
+                return value;
+            }
+
+            /** What full means: a placeholder name, or a plain number. */
+            public String max() {
+                return max;
+            }
+
+            /** Whether this run is the fill rather than the background. */
+            public boolean fill() {
+                return fill;
+            }
+        }
 
         public OverlayRun(String shift, int x, String text, String font, String color) {
             this(shift, x, text, font, color, 0, java.util.Map.of());
@@ -84,6 +143,12 @@ public final class OverlayInfo {
          */
         public OverlayRun(String shift, int x, String text, String font, String color,
                           int advance, java.util.Map<String, String> players) {
+            this(shift, x, text, font, color, advance, players, null);
+        }
+
+        public OverlayRun(String shift, int x, String text, String font, String color,
+                          int advance, java.util.Map<String, String> players, Bar bar) {
+            this.bar = bar;
             this.shift = shift == null ? "" : shift;
             this.x = x;
             this.text = text == null ? "" : text;
@@ -125,6 +190,11 @@ public final class OverlayInfo {
         /** The per-player characters, by lowercase undashed UUID. See {@link #textFor}. */
         public java.util.Map<String, String> players() {
             return players;
+        }
+
+        /** How to build this run as a progress bar, or null for ordinary text. */
+        public Bar bar() {
+            return bar;
         }
 
         /**
