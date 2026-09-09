@@ -258,10 +258,30 @@ public final class Overlays {
                 run.textFor(viewer == null ? null : viewer.getUniqueId()), filled, viewer);
         // A shader run's RGB is its positioning address. Legacy codes in a value
         // must not replace it or make half a label unpositioned.
-        if (run.color().matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])")) {
+        if (isRunMark(run.color())) {
             drawn = ChatColor.stripColor(drawn);
         }
         return drawn;
+    }
+
+    /**
+     * Whether this colour is a shader run's ADDRESS rather than a look.
+     *
+     * <p>The band is {@code #f0GGBB} with both of the last two channels a
+     * multiple of eight, which is not decoration: the game draws every label a
+     * second time at a quarter of its colour as a drop shadow, and the pack's
+     * shader recognises that shadow so it can move it with the label it belongs
+     * to. Spacing the channels is what keeps a shadow legible after being
+     * divided by four — see Studio's `signatures.ts`, which is the other end of
+     * this and has the full reasoning.
+     *
+     * <p>Matched loosely on purpose: a manifest from an older Studio uses the
+     * previous {@code #fdGGBB} band, and a run of that vintage still wants its
+     * legacy codes stripped for exactly the same reason.
+     */
+    static boolean isRunMark(String color) {
+        return color.matches("(?i)#f0[0-9a-f][08][0-9a-f][08]")
+                || color.matches("(?i)#fd[0-9a-f]{2}(0[2-9a-f]|1[0-9a-f]|2[01])");
     }
 
     /**

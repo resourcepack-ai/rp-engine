@@ -8,7 +8,7 @@ plugins {
 group = 'ai.resourcepack'
 // Bump this before deploying a release: the deploy refuses to overwrite a
 // published RPEngine-<version>.jar, and the versioned key is immutable.
-version = '0.1.39'
+version = '0.1.40'
 
 java {
     toolchain {
@@ -22,7 +22,7 @@ java {
 //
 // It is 17 because the engine supports Minecraft 1.19.4, and a 1.19.4 server
 // runs on Java 17. A Java 17 runtime cannot load a Java 21 class file at all
-// — the jar does not start, there is no partial mode and no useful error for
+// â€” the jar does not start, there is no partial mode and no useful error for
 // the server owner, and every graceful degradation the version system does is
 // moot if the plugin never loads. So this number is a floor set by the oldest
 // game version supported, and it moves only when that does.
@@ -32,7 +32,7 @@ tasks.withType(JavaCompile).configureEach {
 
 // Geyser's jars are built for Java 21 and say so, which makes Gradle refuse
 // to put them on a classpath targeting 17. Both are compileOnly and only
-// GeyserBridge touches them, and that class is reached exactly once — behind
+// GeyserBridge touches them, and that class is reached exactly once â€” behind
 // a check that Geyser-Spigot is installed, inside a catch for
 // NoClassDefFoundError. A server running Geyser is a server on Java 21 by
 // Geyser's own requirement, so the classes it needs are loadable wherever it
@@ -73,7 +73,7 @@ dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
 
     // Geyser for the Bedrock bridge: per-session pack serving and
-    // transfer-based reconnects. compileOnly on purpose — at runtime the
+    // transfer-based reconnects. compileOnly on purpose â€” at runtime the
     // classes come from the server's own Geyser-Spigot, and everything that
     // touches them goes through BedrockSupport, which answers no on a server
     // that has none rather than throwing NoClassDefFoundError somewhere
@@ -147,7 +147,7 @@ build {
     dependsOn shadowJar
 }
 
-// Drops the built jar straight into a local test server. Development only —
+// Drops the built jar straight into a local test server. Development only â€”
 // production deploys are a different problem and do not belong in a Gradle
 // task somebody could run by accident.
 //
