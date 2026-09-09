@@ -1885,6 +1885,17 @@ public final class VehicleRuntime implements Listener {
         private double animationPhase;
 
         /**
+         * The animation a plugin asked for with {@code Vehicle.perform}, or
+         * null while the state table has the rig.
+         *
+         * <p>Deliberately NOT written to the chassis. A trick is a condition
+         * of the moment in the same way a speed limit is, and a bike that came
+         * back from a restart still holding a wheelie would be one nobody
+         * could get out of.
+         */
+        private String performed;
+
+        /**
          * The wall this vehicle is riding, or null. Held across ticks rather
          * than re-decided from scratch each one: STARTING a ride asks a lot
          * (fast enough, off the ground, shallow enough) and CONTINUING one
@@ -2506,6 +2517,28 @@ public final class VehicleRuntime implements Listener {
         /** {@link Vehicle#wallRiding}. */
         boolean wallRiding() {
             return wall != null;
+        }
+
+        /**
+         * {@link Vehicle#perform}. Blank is null, so a plugin reading an
+         * animation name out of a config cannot accidentally ask for "".
+         */
+        void perform(String animation) {
+            String wanted = animation == null || animation.isBlank() ? null : animation.trim();
+            if (Objects.equals(wanted, performed)) {
+                return;
+            }
+            performed = wanted;
+            // Nothing is played from here: `animate` runs every tick and is
+            // the one place that decides what the rig is doing, so setting the
+            // field is the whole change. Playing it here as well would be a
+            // second answer to the same question, and the two would disagree
+            // on the tick a state changed.
+        }
+
+        /** {@link Vehicle#performing}. */
+        Optional<String> performing() {
+            return Optional.ofNullable(performed);
         }
 
         /**
@@ -3255,10 +3288,22 @@ public final class VehicleRuntime implements Listener {
          * flash to hide.
          */
         private void animate(Set<VehicleState> states) {
-            if (rig == null || info.animations().isEmpty()) {
+            if (rig == null) {
                 return;
             }
-            String wanted = VehicleState.choose(states, info.animations()).orElse(null);
+            // A plugin's `perform` outranks the state table, the way `dress`
+            // outranks a seat's. Asked FIRST rather than folded into the
+            // table, so a vehicle with no `animations:` at all can still be
+            // given one from outside - which is most of what makes this
+            // usable by an addon whose tricks the pack knows nothing about.
+            String wanted = performed != null ? performed
+                    : info.animations().isEmpty() ? null
+                    : VehicleState.choose(states, info.animations()).orElse(null);
+            if (wanted == null && playing == null) {
+                // The ordinary case for a vehicle with no animations: nothing
+                // to start and nothing to stop, before any lookup is done.
+                return;
+            }
             Optional<Placement> found = rig.placement();
             if (found.isEmpty()) {
                 // The rig has been broken or its chunk went. Forgetting what
@@ -3274,8 +3319,15 @@ public final class VehicleRuntime implements Listener {
             // passed. The clock is driven from here rather than left to run at
             // the animation's own rate, which is what had a pushed skateboard
             // spinning its wheels at one speed from a crawl to a tuck.
+            //
+            // A PERFORMED animation is exempt: that link is there so a wheel
+            // turns because the vehicle moved, and a trick is not a wheel. A
+            // barspin slowing to a crawl because the rider was braking into it
+            // would be the mechanism showing through. The phase is left where
+            // it is rather than reset, so the wheels pick up where they were
+            // the moment the trick ends.
             boolean seekWanted = false;
-            if (info.animationFollowsSpeed() && wanted != null) {
+            if (performed == null && info.animationFollowsSpeed() && wanted != null) {
                 double top = Math.max(0.1, info.speed());
                 double rate = Math.min(4, Math.abs(state().groundSpeed()) / top);
                 animationPhase += rate / 20.0;
@@ -4665,6 +4717,20 @@ public final class VehicleRuntime implements Listener {
         public boolean wallRiding() {
             Ride ride = ride();
             return ride != null && ride.wallRiding();
+        }
+
+        @Override
+        public void perform(String animation) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.perform(animation);
+            }
+        }
+
+        @Override
+        public Optional<String> performing() {
+            Ride ride = ride();
+            return ride == null ? Optional.empty() : ride.performing();
         }
 
         @Override
