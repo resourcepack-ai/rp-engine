@@ -336,6 +336,22 @@ public final class StudioContent {
         String text;
         String font;
         String color;
+        /**
+         * How far drawing this run moves the cursor, or absent to measure it.
+         *
+         * <p>Absent for words. Present for a picture drawn as a glyph — a
+         * player's head — whose width no table of vanilla's glyphs can hold.
+         */
+        int advance;
+        /**
+         * The character to draw instead of {@link #text}, by lowercase undashed
+         * UUID.
+         *
+         * <p>How a head is the viewer's own face: a push bakes one glyph per
+         * recipient and this says which is whose. Absent on every overlay
+         * written before heads existed, and absent for ordinary text always.
+         */
+        Map<String, String> players;
     }
 
     /** One rule from {@link Overlay#triggers}. */
@@ -914,6 +930,11 @@ public final class StudioContent {
                 written.text = run.text();
                 written.font = run.font();
                 written.color = run.color();
+                // Zero is "measure it", which is both the default and what an
+                // absent field deserialises to — so a run of words round-trips
+                // through disk unchanged and a head keeps its exact width.
+                written.advance = run.advance();
+                written.players = run.players().isEmpty() ? null : new java.util.LinkedHashMap<>(run.players());
                 out.runs.add(written);
             }
             // Written back beside the runs, because without them the runs come
@@ -947,7 +968,8 @@ public final class StudioContent {
             if (run == null || run.text == null || run.text.isEmpty()) {
                 continue;
             }
-            out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color));
+            out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color,
+                    run.advance, run.players == null ? Map.of() : Map.copyOf(run.players)));
         }
         return List.copyOf(out);
     }
