@@ -300,6 +300,21 @@ public final class StudioContent {
         String text;
         /** What shows it with no plugin involved. See {@link OverlayTrigger}. */
         List<Trigger> triggers;
+        /**
+         * Positioned runs of text, drawn after the picture on the same line.
+         *
+         * <p>Preferred over {@link #text}, which is the older unpositioned
+         * form kept so a pack pushed before positioning existed still draws.
+         */
+        List<Run> runs;
+    }
+
+    /** One entry of {@link Overlay#runs}. */
+    static final class Run {
+        String shift;
+        String text;
+        String font;
+        String color;
     }
 
     /** One rule from {@link Overlay#triggers}. */
@@ -420,7 +435,8 @@ public final class StudioContent {
             }
             id(hud.id).ifPresent(id ->
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
-                            hud.color, hud.font, hud.text, triggers(hud.triggers))));
+                            hud.color, hud.font, hud.text, triggers(hud.triggers),
+                            runs(hud.runs))));
         }
 
         Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
@@ -849,6 +865,17 @@ public final class StudioContent {
         out.color = info.color().isEmpty() ? null : info.color();
         out.font = info.font().isEmpty() ? null : info.font();
         out.text = info.text().isEmpty() ? null : info.text();
+        if (!info.runs().isEmpty()) {
+            out.runs = new ArrayList<>();
+            for (OverlayInfo.OverlayRun run : info.runs()) {
+                Run written = new Run();
+                written.shift = run.shift();
+                written.text = run.text();
+                written.font = run.font();
+                written.color = run.color();
+                out.runs.add(written);
+            }
+        }
         if (!info.triggers().isEmpty()) {
             out.triggers = new ArrayList<>();
             for (OverlayTrigger trigger : info.triggers()) {
@@ -860,6 +887,21 @@ public final class StudioContent {
             }
         }
         return out;
+    }
+
+    /** The positioned text runs a manifest carried. Nulls are skipped. */
+    private static List<OverlayInfo.OverlayRun> runs(List<Run> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<OverlayInfo.OverlayRun> out = new ArrayList<>();
+        for (Run run : raw) {
+            if (run == null || run.text == null || run.text.isEmpty()) {
+                continue;
+            }
+            out.add(new OverlayInfo.OverlayRun(run.shift, run.text, run.font, run.color));
+        }
+        return List.copyOf(out);
     }
 
     /**

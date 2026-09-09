@@ -142,23 +142,74 @@ public final class Overlays {
         if (viewer == null || !viewer.isOnline() || info == null) {
             return;
         }
-        String text = OverlayRuntime.fill(info.text(), values == null ? java.util.Map.of() : values);
-        BaseComponent[] parts = text.isEmpty()
-                ? component(info)
-                : new BaseComponent[] {component(info)[0], new TextComponent(" " + text)};
+        java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
+        java.util.List<BaseComponent> parts = new java.util.ArrayList<>();
+        parts.add(component(info)[0]);
+
+        // Positioned runs first, and the unpositioned `text` only if there are
+        // none: they are two spellings of the same thing, and an overlay pushed
+        // by a newer Studio carries the positioned form. Drawing both would put
+        // every label on screen twice.
+        if (!info.runs().isEmpty()) {
+            for (OverlayInfo.OverlayRun run : info.runs()) {
+                String drawn = OverlayRuntime.fill(run.text(), filled);
+                if (drawn.isEmpty()) {
+                    continue;
+                }
+                // The shift is space characters in the SHADER font, where their
+                // advances are declared — so it is its own component. Put them
+                // in the text's font and they are glyphs that font has never
+                // heard of.
+                if (!run.shift().isEmpty()) {
+                    TextComponent shift = new TextComponent(run.shift());
+                    shift.setFont(info.font().isEmpty() ? null : info.font());
+                    parts.add(shift);
+                }
+                TextComponent body = new TextComponent(drawn);
+                if (!run.font().isEmpty()) {
+                    body.setFont(run.font());
+                }
+                body.setColor(run.color().isEmpty()
+                        ? net.md_5.bungee.api.ChatColor.WHITE
+                        : net.md_5.bungee.api.ChatColor.of(run.color()));
+                parts.add(body);
+            }
+        } else {
+            String text = OverlayRuntime.fill(info.text(), filled);
+            if (!text.isEmpty()) {
+                parts.add(new TextComponent(" " + text));
+            }
+        }
+        BaseComponent[] drawnParts = parts.toArray(new BaseComponent[0]);
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
             // See draw(): a boss bar cannot carry a font, so this surface only
             // ever holds the default-font overlays, and their text rides the
             // legacy string with them.
             BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
                     key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
-            bar.setTitle(legacy(info) + (text.isEmpty() ? "" : ChatColor.RESET + " " + text));
+            // A boss bar takes a legacy string, so a positioned run's font
+            // cannot survive here — its text rides along unpositioned rather
+            // than being dropped.
+            StringBuilder trailing = new StringBuilder();
+            for (OverlayInfo.OverlayRun run : info.runs()) {
+                String drawn = OverlayRuntime.fill(run.text(), filled);
+                if (!drawn.isEmpty()) {
+                    trailing.append(' ').append(drawn);
+                }
+            }
+            if (info.runs().isEmpty()) {
+                String plain = OverlayRuntime.fill(info.text(), filled);
+                if (!plain.isEmpty()) {
+                    trailing.append(' ').append(plain);
+                }
+            }
+            bar.setTitle(legacy(info) + (trailing.length() == 0 ? "" : ChatColor.RESET + trailing.toString()));
             bar.setProgress(0d);
             bar.addPlayer(viewer);
             bar.setVisible(true);
             return;
         }
-        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, parts);
+        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, drawnParts);
     }
 
     /**
