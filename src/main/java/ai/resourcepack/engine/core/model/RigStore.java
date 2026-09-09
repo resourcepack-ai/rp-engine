@@ -34,6 +34,13 @@ public final class RigStore {
     static final class Part {
         String item;
         List<Step> program;
+        /**
+         * How far the part's geometry was moved to sit on its own pivot, in
+         * model px, added back by the animator as the innermost step. Absent
+         * on a pushed rig and on any manifest older than this, which draw the
+         * geometry where the source put it. See ModelRigs.Part.anchor().
+         */
+        float[] anchor;
         /** The bone this part came from. Absent on a manifest older than this. */
         String bone;
         /** Its whole lineage, root first. What a bone mask is matched against. */

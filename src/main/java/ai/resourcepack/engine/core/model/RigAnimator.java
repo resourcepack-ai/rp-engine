@@ -733,6 +733,15 @@ public final class RigAnimator implements Listener {
         // head back off whatever it was looking at.
         HeadLook.applyTo(animationTransform, part, display);
 
+        // Innermost of all: a part whose geometry the pack re-centred on its
+        // own pivot is put back where it belongs. A CONSTANT translation, so
+        // the client has only the rotation to tween and a spinning wheel is a
+        // rotation rather than a rotation plus a wobble. See
+        // ModelRigs.Part.anchor().
+        if (part.anchor != null && part.anchor.length == 3) {
+            animationTransform.translate(part.anchor[0] / 16f, part.anchor[1] / 16f, part.anchor[2] / 16f);
+        }
+
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
         // The carrier's body attitude, ahead of the animation and about the
