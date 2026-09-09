@@ -352,6 +352,35 @@ public final class StudioContent {
          * written before heads existed, and absent for ordinary text always.
          */
         Map<String, String> players;
+        /**
+         * How to build this run when its length depends on a number.
+         *
+         * <p>Present only on a progress bar's two runs. The pack cannot fill in
+         * a bar for the same reason it cannot position a second label: the value
+         * is not known until a tick before the line is sent. So it ships the
+         * rectangles and the engine assembles them.
+         */
+        Bar bar;
+    }
+
+    /** How the engine builds one of a bar's runs. See {@link Run#bar}. */
+    static final class Bar {
+        List<BarGlyph> glyphs;
+        /** How many pixels long the bar is when full. */
+        int total;
+        /** The placeholder that fills it. A bare name, no braces. */
+        String value;
+        /** What full means: a placeholder name, or a plain number. */
+        String max;
+        /** True for the fill run; the background is always {@link #total} long. */
+        boolean fill;
+    }
+
+    /** One rectangle a bar is assembled from. */
+    static final class BarGlyph {
+        String character;
+        /** How many pixels wide it draws. A power of two. */
+        int px;
     }
 
     /** One rule from {@link Overlay#triggers}. */
@@ -935,6 +964,7 @@ public final class StudioContent {
                 // through disk unchanged and a head keeps its exact width.
                 written.advance = run.advance();
                 written.players = run.players().isEmpty() ? null : new java.util.LinkedHashMap<>(run.players());
+                written.bar = written(run.bar());
                 out.runs.add(written);
             }
             // Written back beside the runs, because without them the runs come
@@ -965,13 +995,49 @@ public final class StudioContent {
         }
         List<OverlayInfo.OverlayRun> out = new ArrayList<>();
         for (Run run : raw) {
-            if (run == null || run.text == null || run.text.isEmpty()) {
+            // A bar carries no text of its own — the engine assembles it — so
+            // "nothing to draw" cannot be decided by looking at the string here.
+            if (run == null || ((run.text == null || run.text.isEmpty()) && run.bar == null)) {
                 continue;
             }
             out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color,
-                    run.advance, run.players == null ? Map.of() : Map.copyOf(run.players)));
+                    run.advance, run.players == null ? Map.of() : Map.copyOf(run.players), bar(run.bar)));
         }
         return List.copyOf(out);
+    }
+
+    /** A bar spec, both ways round. Null passes straight through. */
+    private static OverlayInfo.OverlayRun.Bar bar(Bar raw) {
+        if (raw == null) {
+            return null;
+        }
+        List<OverlayInfo.OverlayRun.Bar.Glyph> glyphs = new ArrayList<>();
+        for (BarGlyph glyph : raw.glyphs == null ? List.<BarGlyph>of() : raw.glyphs) {
+            if (glyph != null && glyph.character != null && !glyph.character.isEmpty() && glyph.px > 0) {
+                glyphs.add(new OverlayInfo.OverlayRun.Bar.Glyph(glyph.character, glyph.px));
+            }
+        }
+        return new OverlayInfo.OverlayRun.Bar(glyphs, raw.total, raw.value, raw.max, raw.fill);
+    }
+
+    /** The same, on the way back out to disk. */
+    private static Bar written(OverlayInfo.OverlayRun.Bar from) {
+        if (from == null) {
+            return null;
+        }
+        Bar out = new Bar();
+        out.glyphs = new ArrayList<>();
+        for (OverlayInfo.OverlayRun.Bar.Glyph glyph : from.glyphs()) {
+            BarGlyph one = new BarGlyph();
+            one.character = glyph.character();
+            one.px = glyph.px();
+            out.glyphs.add(one);
+        }
+        out.total = from.total();
+        out.value = from.value();
+        out.max = from.max();
+        out.fill = from.fill();
+        return out;
     }
 
     /**
