@@ -43,11 +43,57 @@ public final class OverlayInfo {
     private final String font;
     private final String text;
     private final java.util.List<OverlayTrigger> triggers;
+    private final java.util.List<OverlayRun> runs;
+
+    /**
+     * One positioned run of text within an overlay.
+     *
+     * <p>Everything here was worked out by the pack build, because all of it
+     * depends on codepoints and advances only the pack declares: {@code shift}
+     * is space characters that move the cursor to this run's x, and
+     * {@code font} is a font whose baseline sits at its y. The engine writes
+     * what it is given and computes none of it.
+     */
+    public static final class OverlayRun {
+
+        private final String shift;
+        private final String text;
+        private final String font;
+        private final String color;
+
+        public OverlayRun(String shift, String text, String font, String color) {
+            this.shift = shift == null ? "" : shift;
+            this.text = text == null ? "" : text;
+            this.font = font == null ? "" : font;
+            this.color = color == null ? "" : color;
+        }
+
+        /** Space characters moving the cursor to this run's x. */
+        public String shift() {
+            return shift;
+        }
+
+        /** The text, with {@code {name}} placeholders still in it. */
+        public String text() {
+            return text;
+        }
+
+        /** A font whose baseline sits at this run's y. */
+        public String font() {
+            return font;
+        }
+
+        /** {@code #rrggbb}, or empty for white. */
+        public String color() {
+            return color;
+        }
+    }
 
     private OverlayInfo(ContentId id, String file, String title, String container, Slot slot,
                         int height, int ascent, int offset, int codepoint,
                         String color, String font, String text,
-                        java.util.List<OverlayTrigger> triggers) {
+                        java.util.List<OverlayTrigger> triggers,
+                        java.util.List<OverlayRun> runs) {
         this.id = id;
         this.file = file;
         this.title = title;
@@ -61,6 +107,17 @@ public final class OverlayInfo {
         this.font = font == null ? "" : font;
         this.text = text == null ? "" : text;
         this.triggers = triggers == null ? java.util.List.of() : java.util.List.copyOf(triggers);
+        this.runs = runs == null ? java.util.List.of() : java.util.List.copyOf(runs);
+    }
+
+    /**
+     * The positioned runs of text this overlay draws. Empty if it has none.
+     *
+     * <p>Preferred over {@link #text()}, which is the older unpositioned form
+     * kept so an overlay pushed before positioning existed still draws.
+     */
+    public java.util.List<OverlayRun> runs() {
+        return runs;
     }
 
     /**
@@ -124,7 +181,7 @@ public final class OverlayInfo {
                 "",
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                height, ascent, offset, codepoint, "", "", "", java.util.List.of());
+                height, ascent, offset, codepoint, "", "", "", java.util.List.of(), java.util.List.of());
     }
 
     /**
@@ -138,7 +195,7 @@ public final class OverlayInfo {
      * this is the constructor that takes it.
      */
     public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot) {
-        return pushed(id, title, container, slot, "", "", "", java.util.List.of());
+        return pushed(id, title, container, slot, "", "", "", java.util.List.of(), java.util.List.of());
     }
 
     /**
@@ -150,14 +207,15 @@ public final class OverlayInfo {
      */
     public static OverlayInfo pushed(ContentId id, String title, String container, Slot slot,
                                      String color, String font, String text,
-                        java.util.List<OverlayTrigger> triggers) {
+                        java.util.List<OverlayTrigger> triggers,
+                        java.util.List<OverlayRun> runs) {
         return new OverlayInfo(
                 Objects.requireNonNull(id, "id"),
                 "",
                 Objects.requireNonNull(title, "title"),
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                0, 0, 0, 0, color, font, text, triggers);
+                0, 0, 0, 0, color, font, text, triggers, runs);
     }
 
     /**
