@@ -180,6 +180,91 @@ class ModelRigsTest {
         assertFalse(part.has("groups"));
     }
 
+    // ---- re-centring, which is what keeps a wheel on its axle -------------
+
+    @Test
+    void aMovingPartIsDrawnAboutItsOwnPivot() {
+        // The arm's pivot is at y 6, two pixels below the model's centre, so
+        // its cube is written two pixels UP and the part remembers the shift.
+        JsonObject source = animated();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", source).orElseThrow();
+
+        ModelRigs.Part arm = rig.parts().get(0);
+        assertArrayEqualsish(new float[]{0f, -2f, 0f}, arm.anchor().orElseThrow());
+        JsonObject cube = ModelRigs.partModel(source, arm).getAsJsonArray("elements").get(0).getAsJsonObject();
+        assertEquals("[0,2,0]", cube.get("from").toString());
+        assertEquals("[4,6,4]", cube.get("to").toString());
+
+        // The still remainder has no pivot to sit on and is left alone.
+        ModelRigs.Part still = rig.parts().get(1);
+        assertTrue(still.anchor().isEmpty());
+        JsonObject untouched = ModelRigs.partModel(source, still).getAsJsonArray("elements").get(0).getAsJsonObject();
+        assertEquals("[4,0,0]", untouched.get("from").toString());
+
+        // And the source model itself was not edited on the way.
+        assertEquals("[0,0,0]", source.getAsJsonArray("elements").get(0).getAsJsonObject().get("from").toString());
+    }
+
+    @Test
+    void aCubesOwnRotationOriginMovesWithIt() {
+        JsonObject source = model("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],"
+                + "\"rotation\":{\"angle\":22.5,\"axis\":\"y\",\"origin\":[2,2,2]},\"faces\":{}}],"
+                + "\"groups\":[" + bone("arm", 6, "0") + "],"
+                + "\"animations\":[" + animation(rotate("g:0")) + "]}");
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", source).orElseThrow();
+        JsonObject cube = ModelRigs.partModel(source, rig.parts().get(0)).getAsJsonArray("elements").get(0).getAsJsonObject();
+        assertEquals("[2,4,2]", cube.getAsJsonObject("rotation").get("origin").toString());
+        assertEquals(22.5, cube.getAsJsonObject("rotation").get("angle").getAsDouble(), 1e-6);
+    }
+
+    @Test
+    void aPartThatWouldLeaveTheModelIsLeftWhereItWas() {
+        // A pivot 32 pixels above the centre would push the cube to y -32,
+        // below the -16 a block model allows: the part draws as before.
+        JsonObject source = model("{\"elements\":[" + cube(0) + "],"
+                + "\"groups\":[" + bone("arm", 40, "0") + "],"
+                + "\"animations\":[" + animation(rotate("g:0")) + "]}");
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", source).orElseThrow();
+        assertTrue(rig.parts().get(0).anchor().isEmpty());
+        JsonObject cube = ModelRigs.partModel(source, rig.parts().get(0)).getAsJsonArray("elements").get(0).getAsJsonObject();
+        assertEquals("[0,0,0]", cube.get("from").toString());
+    }
+
+    @Test
+    void reCentringChangesNothingAboutWhereACubeIsDrawn() {
+        // The property the animator relies on: the old transform applied to
+        // a point of the cube, and the new transform (the same steps, then
+        // the anchor added back innermost) applied to that point SHIFTED,
+        // land in the same place. Checked through a whole turn of the arm.
+        float[] pivot = {8f, 6f, 8f};
+        float[] anchor = {0f, -2f, 0f};
+        float[] corner = {4f, 4f, 4f};
+        for (int degrees = 0; degrees <= 360; degrees += 45) {
+            float[] values = {degrees * 0.5f, degrees, 0f, 0f, 0f, 0f, 1f, 1f, 1f};
+            org.joml.Matrix4f old = new org.joml.Matrix4f();
+            ai.resourcepack.engine.core.animation.RigMath.composeStep(old, pivot, values);
+            org.joml.Vector3f was = old.transformPosition(new org.joml.Vector3f(
+                    (corner[0] - 8f) / 16f, (corner[1] - 8f) / 16f, (corner[2] - 8f) / 16f));
+
+            org.joml.Matrix4f now = new org.joml.Matrix4f();
+            ai.resourcepack.engine.core.animation.RigMath.composeStep(now, pivot, values);
+            now.translate(anchor[0] / 16f, anchor[1] / 16f, anchor[2] / 16f);
+            org.joml.Vector3f is = now.transformPosition(new org.joml.Vector3f(
+                    (corner[0] - anchor[0] - 8f) / 16f, (corner[1] - anchor[1] - 8f) / 16f, (corner[2] - anchor[2] - 8f) / 16f));
+
+            assertEquals(was.x, is.x, 1e-5, "x at " + degrees);
+            assertEquals(was.y, is.y, 1e-5, "y at " + degrees);
+            assertEquals(was.z, is.z, 1e-5, "z at " + degrees);
+
+            // And the translation the client is handed no longer depends on
+            // the angle, which is the whole point.
+            org.joml.Vector3f translation = now.getTranslation(new org.joml.Vector3f());
+            assertEquals(0f, translation.x, 1e-5);
+            assertEquals(-2f / 16f, translation.y, 1e-5);
+            assertEquals(0f, translation.z, 1e-5);
+        }
+    }
+
     // ---- the manifest ----------------------------------------------------
 
     @Test
@@ -196,6 +281,8 @@ class ModelRigsTest {
         assertEquals(2, stored.parts.size());
         assertEquals("mypack:golem__part0", stored.parts.get(0).item);
         assertEquals("g:0", stored.parts.get(0).program.get(0).target);
+        assertArrayEqualsish(new float[]{0f, -2f, 0f}, stored.parts.get(0).anchor);
+        assertEquals(null, stored.parts.get(1).anchor);
         assertEquals(1, stored.animations.size());
         assertEquals("spin", stored.animations.get(0).name);
         assertTrue(stored.animations.get(0).loop);

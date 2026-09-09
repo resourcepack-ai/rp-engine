@@ -82,9 +82,11 @@ public final class ModelRigs {
         private final float[] pivot;
         private final float size;
         private final List<String> lineage;
+        private final float[] anchor;
 
         Part(String item, List<Integer> elements, List<Step> program,
-             String bone, BoneBehaviour behaviour, float[] pivot, float size, List<String> lineage) {
+             String bone, BoneBehaviour behaviour, float[] pivot, float size, List<String> lineage,
+             float[] anchor) {
             this.item = item;
             this.elements = List.copyOf(elements);
             this.program = List.copyOf(program);
@@ -93,6 +95,32 @@ public final class ModelRigs {
             this.pivot = pivot;
             this.size = size;
             this.lineage = List.copyOf(lineage);
+            this.anchor = anchor;
+        }
+
+        /**
+         * How far this part's own geometry was moved so that its innermost
+         * pivot sits at the model's centre, in model pixels - or empty for a
+         * part drawn where the source put it.
+         *
+         * <p><strong>This is what stops a spinning wheel shaking.</strong> The
+         * client tweens a display's translation and its rotation as two
+         * separate quantities. A part rotating about a pivot a distance r from
+         * the entity's origin has a translation that CHANGES with the angle
+         * (it is {@code p - R*p}), so between two sends the tween passes
+         * through poses with the part off its pivot, bulging outward by
+         * r(1 - cos(step/2)). A go-kart's wheels breathed at 10 Hz because of
+         * it; a BMX's, nine pixels from the origin and turning fast, visibly
+         * wobbled. With the geometry re-centred on the pivot the translation
+         * is the constant {@code anchor} and only the rotation moves, and a
+         * rotation tweened on its own is exactly a rotation.
+         *
+         * <p>The animator adds it back as the innermost step of the part's
+         * transform, so the part draws where it always did. A pushed rig
+         * without one is drawn the old way, which is why it is optional.
+         */
+        public Optional<float[]> anchor() {
+            return anchor == null ? Optional.empty() : Optional.of(anchor.clone());
         }
 
         /** The item model id this part renders as: {@code <modelId>__part<n>}. */
@@ -301,7 +329,10 @@ public final class ModelRigs {
         JsonArray mine = new JsonArray();
         for (int index : part.elements()) {
             if (index >= 0 && index < elements.size()) {
-                mine.add(elements.get(index));
+                // Re-centred on its own pivot where it can be - see anchor().
+                mine.add(part.anchor == null || !elements.get(index).isJsonObject()
+                        ? elements.get(index)
+                        : shifted(elements.get(index).getAsJsonObject(), part.anchor));
             }
         }
 
@@ -445,6 +476,13 @@ public final class ModelRigs {
                 JsonObject out = new JsonObject();
                 out.addProperty("item", part.item());
                 out.add("program", program);
+                if (part.anchor != null) {
+                    JsonArray anchor = new JsonArray();
+                    for (float value : part.anchor) {
+                        anchor.add(value);
+                    }
+                    out.add("anchor", anchor);
+                }
                 if (!part.bone().isEmpty()) {
                     out.addProperty("bone", part.bone());
                     JsonArray lineage = new JsonArray();
@@ -543,7 +581,96 @@ public final class ModelRigs {
                              String bone, BoneBehaviour behaviour, float[] pivot, JsonArray source,
                              List<String> lineage) {
         return new Part(modelId + PART_MARKER + index, elements, program, bone, behaviour, pivot,
-                measure(source, elements), lineage);
+                measure(source, elements), lineage, anchorOf(program, source, elements));
+    }
+
+    /**
+     * The smallest coordinate a block model element may have, and the largest.
+     * A cube outside this range fails the client's model loader and the whole
+     * part draws as the missing-texture box.
+     */
+    static final float ELEMENT_MIN = -16f;
+    static final float ELEMENT_MAX = 32f;
+
+    /**
+     * Where a moving part's geometry can be re-centred, or null where it
+     * cannot. See {@link Part#anchor()}.
+     *
+     * <p>The pivot chosen is the INNERMOST step's: that is the part's own
+     * bone, which is the rotation that turns fastest - a wheel on a tilting
+     * frame spins about its axle far more than the frame tilts. Its ancestors'
+     * rotations still move the translation, but slowly.
+     *
+     * <p>Refused, and the part left where the source put it, when the shift
+     * would carry any of its cubes outside the range a block model allows: a
+     * frame pivoted at its head tube and reaching a block back from it is the
+     * case. Nothing is lost by refusing, because the old drawing is still
+     * correct - only the smoothing is forgone.
+     */
+    private static float[] anchorOf(List<Step> program, JsonArray source, List<Integer> elements) {
+        if (program == null || program.isEmpty() || elements.isEmpty()) {
+            return null;
+        }
+        float[] pivot = program.get(program.size() - 1).pivot();
+        float[] anchor = {pivot[0] - 8f, pivot[1] - 8f, pivot[2] - 8f};
+        if (anchor[0] == 0f && anchor[1] == 0f && anchor[2] == 0f) {
+            return null;
+        }
+        for (int index : elements) {
+            if (index < 0 || index >= source.size() || !source.get(index).isJsonObject()) {
+                continue;
+            }
+            JsonObject element = source.get(index).getAsJsonObject();
+            for (String key : new String[]{"from", "to"}) {
+                float[] corner = vec3(element, key, null);
+                if (corner == null) {
+                    continue;
+                }
+                for (int axis = 0; axis < 3; axis++) {
+                    float moved = corner[axis] - anchor[axis];
+                    if (moved < ELEMENT_MIN || moved > ELEMENT_MAX) {
+                        return null;
+                    }
+                }
+            }
+        }
+        return anchor;
+    }
+
+    /** A copy of {@code element} moved by {@code -anchor}: its corners and its own rotation origin. */
+    static JsonObject shifted(JsonObject element, float[] anchor) {
+        JsonObject out = element.deepCopy();
+        for (String key : new String[]{"from", "to"}) {
+            float[] corner = vec3(out, key, null);
+            if (corner != null) {
+                out.add(key, moved(corner, anchor));
+            }
+        }
+        JsonElement rotation = out.get("rotation");
+        if (rotation != null && rotation.isJsonObject()) {
+            JsonObject spin = rotation.getAsJsonObject().deepCopy();
+            float[] origin = vec3(spin, "origin", null);
+            if (origin != null) {
+                spin.add("origin", moved(origin, anchor));
+            }
+            out.add("rotation", spin);
+        }
+        return out;
+    }
+
+    private static JsonArray moved(float[] point, float[] by) {
+        JsonArray out = new JsonArray();
+        for (int axis = 0; axis < 3; axis++) {
+            float value = point[axis] - by[axis];
+            // Whole numbers stay whole: 3.0 reads fine, but a clean file is
+            // easier to diff against the one it came from.
+            if (value == Math.rint(value)) {
+                out.add((int) value);
+            } else {
+                out.add(value);
+            }
+        }
+        return out;
     }
 
     /** The names of bone {@code g} and everything it hangs off, root first. */
