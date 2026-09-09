@@ -961,6 +961,26 @@ rather than a crash, so only the sideways part of the range throws anybody.
 A plugin can veto any individual one - see `VehicleBailEvent` in `API.md` -
 which is how a server switch for it gets written without editing a pack.
 
+**Riding a wall** is off unless you ask, for the same reason bailing is:
+
+```yaml
+  wall-ride: true
+```
+
+Jump at a wall fast enough and shallow enough, holding the jump key, and the
+vehicle sticks to it - body and rider rolled right over onto it, sinking
+gently, steering up and down it for as long as the key is held and there is
+wall to ride. Letting go kicks you off. There is nothing to start or stop from
+a command or a file: a ride begins on its own when the conditions are met and
+ends when the speed or the wall does.
+
+It belongs to the things that are RIDDEN rather than driven. A car that
+climbed the side of a building the first time somebody clipped a wall would be
+a bug, which is why this is a key rather than a default. A plugin can ask
+whether a vehicle is riding one right now (`Vehicle.wallRiding()` in
+`API.md`), which is what lets it pose the rider for it - the engine does the
+physics and has no opinion about what the person on top should look like.
+
 **A wheel turns because the vehicle MOVED, not because time passed.** By
 default a cycle plays at the rate it was authored at, whatever the vehicle is
 doing - which is a skateboard whose wheels spin at one speed from a crawl to a
