@@ -61,9 +61,9 @@ class ShaderHeadRunTest {
         return OverlayInfo.pushed(ContentId.parse("test:hud").orElseThrow(), "canvas", "", slot,
                         "#fe0001", "", "", List.of(),
                         List.of(
-                                new OverlayInfo.OverlayRun("", 0, STEVE, "", "#fd0002", HEAD_ADVANCE,
+                                new OverlayInfo.OverlayRun("", 0, STEVE, "", "#f00008", HEAD_ADVANCE,
                                         Map.of(key(ALICE), ALICE_FACE, key(BOB), BOB_FACE)),
-                                new OverlayInfo.OverlayRun("", 40, "{player}", "", "#fd0003")))
+                                new OverlayInfo.OverlayRun("", 40, "{player}", "", "#f00010")))
                 .withCursor(257, PLUS, MINUS);
     }
 
@@ -132,7 +132,7 @@ class ShaderHeadRunTest {
         assertTrue(legacy.contains(STEVE), "the head's default glyph is drawn");
         assertTrue(legacy.contains("Alice"), "the placeholder is filled");
         // The signature, spelled the only way a legacy string can spell one.
-        assertTrue(legacy.contains("§x§f§d§0§0§0§2"), legacy);
+        assertTrue(legacy.contains("§x§f§0§0§0§0§8"), legacy);
         assertTrue(legacy.chars().anyMatch(c -> PLUS.indexOf(c) >= 0 || MINUS.indexOf(c) >= 0),
                 "the runs are positioned rather than appended");
     }
