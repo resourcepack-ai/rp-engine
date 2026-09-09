@@ -81,6 +81,35 @@ public final class DistributionManager implements Listener {
     /** Players we handed a distribution pack to and are awaiting a reply from. */
     private final Map<UUID, Boolean> awaiting = new ConcurrentHashMap<>();
 
+    /**
+     * Players whose client said it loaded the published pack.
+     *
+     * <p>Kept because <b>a published pack is a Studio pack too</b>, and the
+     * things that need one — a shader overlay's glyph, most obviously — have
+     * to be drawn for these players as much as for the one who ran the sync.
+     * Nothing else here would say so: distribution sends its pack directly
+     * rather than through the bundle machinery, so the engine's record of who
+     * holds what has never heard of these players.
+     *
+     * <p>Only SUCCESSFULLY_LOADED goes in. A client that declined or failed the
+     * download is one with no glyph, which is exactly the case this exists to
+     * keep an overlay away from.
+     */
+    private final Map<UUID, Boolean> loaded = new ConcurrentHashMap<>();
+
+    /** Whether this player is holding the published pack. See {@link #loaded}. */
+    public boolean serving(UUID player) {
+        return player != null && loaded.containsKey(player);
+    }
+
+    /** Forgets a player who left. Called from the plugin's quit handler. */
+    public void forget(UUID player) {
+        if (player != null) {
+            awaiting.remove(player);
+            loaded.remove(player);
+        }
+    }
+
     /** How a pack reaches a player here; see {@link PackSending}. */
     private final PackSending sending;
 
@@ -285,16 +314,19 @@ public final class DistributionManager implements Listener {
         switch (event.getStatus().name()) {
             case "SUCCESSFULLY_LOADED":
                 awaiting.remove(id);
+                loaded.put(id, Boolean.TRUE);
                 outcome(id, "accepted");
                 return;
             case "DECLINED":
                 awaiting.remove(id);
+                loaded.remove(id);
                 outcome(id, "declined");
                 return;
             case "FAILED_DOWNLOAD":
             case "INVALID_URL":
             case "FAILED_RELOAD":
                 awaiting.remove(id);
+                loaded.remove(id);
                 outcome(id, "failed");
                 return;
             default:

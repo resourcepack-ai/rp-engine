@@ -307,11 +307,32 @@ public final class StudioContent {
          * form kept so a pack pushed before positioning existed still draws.
          */
         List<Run> runs;
+        /**
+         * How far the picture moves the cursor, in pixels.
+         *
+         * <p>Where the cursor is when the first run starts, and so the origin
+         * every run's {@code x} is measured from. Zero on a manifest written
+         * before the engine did its own positioning, which is what
+         * {@link OverlayInfo#positionsRuns()} tests for.
+         */
+        int advance;
+        /**
+         * The characters that move the cursor right by 1, 2, 4 … 512 pixels,
+         * in that order, and their negative twins.
+         *
+         * <p>Studio allocates these codepoints and declares their advances in a
+         * font only it writes, so the engine is handed the alphabet rather than
+         * inventing one. Without them it cannot place a run itself.
+         */
+        String shiftPlus;
+        String shiftMinus;
     }
 
     /** One entry of {@link Overlay#runs}. */
     static final class Run {
         String shift;
+        /** Where this run starts, in pixels from the picture's left edge. */
+        int x;
         String text;
         String font;
         String color;
@@ -436,7 +457,8 @@ public final class StudioContent {
             id(hud.id).ifPresent(id ->
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
                             hud.color, hud.font, hud.text, triggers(hud.triggers),
-                            runs(hud.runs))));
+                            runs(hud.runs))
+                            .withCursor(hud.advance, hud.shiftPlus, hud.shiftMinus)));
         }
 
         Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
@@ -870,11 +892,19 @@ public final class StudioContent {
             for (OverlayInfo.OverlayRun run : info.runs()) {
                 Run written = new Run();
                 written.shift = run.shift();
+                written.x = run.x();
                 written.text = run.text();
                 written.font = run.font();
                 written.color = run.color();
                 out.runs.add(written);
             }
+            // Written back beside the runs, because without them the runs come
+            // home from disk unpositionable — every one after the first would
+            // land a string-width to the right of where it did before the
+            // restart, which is the kind of thing nobody connects to a restart.
+            out.advance = info.advance();
+            out.shiftPlus = info.shiftPlus().isEmpty() ? null : info.shiftPlus();
+            out.shiftMinus = info.shiftMinus().isEmpty() ? null : info.shiftMinus();
         }
         if (!info.triggers().isEmpty()) {
             out.triggers = new ArrayList<>();
@@ -899,7 +929,7 @@ public final class StudioContent {
             if (run == null || run.text == null || run.text.isEmpty()) {
                 continue;
             }
-            out.add(new OverlayInfo.OverlayRun(run.shift, run.text, run.font, run.color));
+            out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color));
         }
         return List.copyOf(out);
     }

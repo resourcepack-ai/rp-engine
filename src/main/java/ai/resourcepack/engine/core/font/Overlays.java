@@ -34,6 +34,38 @@ public final class Overlays {
     private volatile Map<ContentId, OverlayInfo> huds = Map.of();
     private final Map<UUID, BossBar> bars = new HashMap<>();
 
+    /**
+     * Who is actually holding a pushed pack. Everybody, until told otherwise.
+     *
+     * <p><b>A pushed overlay is not for the whole server.</b> Studio pushes a
+     * pack to the player who asked for it; the rest are wearing whatever the
+     * server itself serves, and the picture in an overlay is a glyph that only
+     * exists in the pushed pack. So drawing one for them puts a row of
+     * missing-glyph boxes over their hotbar for something they never asked to
+     * see — and the manifest outlives the push, so after one sync every player
+     * who ever joined got it, for good.
+     *
+     * <p>The engine's own content is not gated: a server's own bundle is what
+     * its players are already wearing, and a server owner who turns hosting off
+     * has made that decision themselves.
+     */
+    private volatile java.util.function.Predicate<Player> pushedAudience = viewer -> true;
+
+    /**
+     * Says who may be shown an overlay whose art came from a pushed pack.
+     *
+     * <p>Set once at start-up. Idempotent and safe to call again; a null
+     * restores "everybody", which is what an engine with no sync would want.
+     */
+    public void audience(java.util.function.Predicate<Player> holdsPushedPack) {
+        this.pushedAudience = holdsPushedPack == null ? viewer -> true : holdsPushedPack;
+    }
+
+    /** Whether this player can see this overlay at all. See {@link #audience}. */
+    private boolean visible(Player viewer, OverlayInfo info) {
+        return !info.fromPushedPack() || pushedAudience.test(viewer);
+    }
+
     /** Replaces both catalogues, as a reload does. */
     public void replace(Map<ContentId, OverlayInfo> loadedScreens, Map<ContentId, OverlayInfo> loadedHuds) {
         this.screens = loadedScreens == null ? Map.of() : Map.copyOf(loadedScreens);
@@ -93,6 +125,12 @@ public final class Overlays {
             return false;
         }
         OverlayInfo info = found.get();
+        if (!visible(viewer, info)) {
+            // Not an error: the overlay exists, this player has no pack to draw
+            // it out of. False is what lets /rp hud say so rather than report a
+            // success nobody can see.
+            return false;
+        }
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
             // **A boss bar cannot carry a font.** Bukkit's BossBar takes a
             // legacy String, and legacy formatting has codes for colour but
@@ -139,7 +177,7 @@ public final class Overlays {
      * sent as two parts of one message.
      */
     public void send(Player viewer, OverlayInfo info, java.util.Map<String, String> values) {
-        if (viewer == null || !viewer.isOnline() || info == null) {
+        if (viewer == null || !viewer.isOnline() || info == null || !visible(viewer, info)) {
             return;
         }
         java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
@@ -151,17 +189,30 @@ public final class Overlays {
         // by a newer Studio carries the positioned form. Drawing both would put
         // every label on screen twice.
         if (!info.runs().isEmpty()) {
+            // WHERE THE CURSOR IS, carried across the runs.
+            //
+            // This is the arithmetic the pack cannot do. Each run's shift was
+            // worked out as if the cursor were still where the picture left it,
+            // which is true of the first run and of no other: drawing a run
+            // moves the cursor by however wide the drawn string turned out to
+            // be, and the string is only finished here, once the placeholders
+            // are filled. Without this the second label landed a whole label to
+            // the right of where the author put it, and the third further
+            // still.
+            boolean placeOurselves = info.positionsRuns();
+            int cursor = info.advance();
             for (OverlayInfo.OverlayRun run : info.runs()) {
                 String drawn = OverlayRuntime.fill(run.text(), filled);
                 if (drawn.isEmpty()) {
                     continue;
                 }
-                // The shift is space characters in the SHADER font, where their
-                // advances are declared — so it is its own component. Put them
-                // in the text's font and they are glyphs that font has never
-                // heard of.
-                if (!run.shift().isEmpty()) {
-                    TextComponent shift = new TextComponent(run.shift());
+                // The shift is space characters in the pack's own font, where
+                // their advances are declared — so it is its own component. Put
+                // them in the text's font and they are glyphs that font has
+                // never heard of.
+                String moveBy = placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift();
+                if (!moveBy.isEmpty()) {
+                    TextComponent shift = new TextComponent(moveBy);
                     shift.setFont(info.font().isEmpty() ? null : info.font());
                     parts.add(shift);
                 }
@@ -173,6 +224,7 @@ public final class Overlays {
                         ? net.md_5.bungee.api.ChatColor.WHITE
                         : net.md_5.bungee.api.ChatColor.of(run.color()));
                 parts.add(body);
+                cursor = run.x() + TextWidth.of(drawn);
             }
         } else {
             String text = OverlayRuntime.fill(info.text(), filled);
@@ -210,6 +262,32 @@ public final class Overlays {
             return;
         }
         viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, drawnParts);
+    }
+
+    /**
+     * A run of shift characters that moves the cursor by {@code pixels}.
+     *
+     * <p>Greedy over the powers of two the pack declared, so any offset up to
+     * 1023 costs at most ten characters rather than one per pixel. Anything
+     * past that is clamped rather than left to overflow — a label a thousand
+     * pixels off the canvas is off every screen either way, and the clamp keeps
+     * the component short.
+     */
+    static String shiftTo(OverlayInfo info, int pixels) {
+        String alphabet = pixels < 0 ? info.shiftMinus() : info.shiftPlus();
+        if (alphabet.isEmpty() || pixels == 0) {
+            return "";
+        }
+        int left = Math.min(Math.abs(pixels), (1 << alphabet.length()) - 1);
+        StringBuilder out = new StringBuilder();
+        for (int step = alphabet.length() - 1; step >= 0; step--) {
+            int size = 1 << step;
+            while (left >= size) {
+                out.append(alphabet.charAt(step));
+                left -= size;
+            }
+        }
+        return out.toString();
     }
 
     /**

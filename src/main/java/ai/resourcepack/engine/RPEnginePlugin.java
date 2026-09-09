@@ -569,6 +569,21 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emotes.start();
         getServer().getPluginManager().registerEvents(distribution, this);
         distribution.start();
+        // WHO MAY BE SHOWN A PUSHED OVERLAY.
+        //
+        // Its picture is a glyph that only exists in a Studio pack, so drawing
+        // one for somebody who has not got that pack is a row of missing-glyph
+        // boxes over their hotbar. And the pushed manifest outlives the push —
+        // it is saved and reloaded — so one sync used to hand every player who
+        // ever joined afterwards an overlay they could not see.
+        //
+        // Two ways to be holding one, and both count. A push goes through the
+        // bundle machinery, so `sessions` knows about it. Distribution does
+        // not: it sends its own pack straight to every joining player, which
+        // is the "the server publishes it for everyone" case, and there the
+        // client's own SUCCESSFULLY_LOADED is the record.
+        overlays.audience(player -> sessions.holds(player.getUniqueId(), StudioPush.BUNDLE)
+                || distribution.serving(player.getUniqueId()));
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
@@ -1369,6 +1384,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+        if (distribution != null) {
+            distribution.forget(event.getPlayer().getUniqueId());
+        }
         // Studio stops offering to push to somebody who is not here.
         if (sync != null) {
             // If they owned a sync it ends and everybody on it loses the pack,

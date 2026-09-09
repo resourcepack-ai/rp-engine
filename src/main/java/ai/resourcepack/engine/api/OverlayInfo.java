@@ -44,6 +44,10 @@ public final class OverlayInfo {
     private final String text;
     private final java.util.List<OverlayTrigger> triggers;
     private final java.util.List<OverlayRun> runs;
+    private final int advance;
+    private final String shiftPlus;
+    private final String shiftMinus;
+    private final boolean pushed;
 
     /**
      * One positioned run of text within an overlay.
@@ -57,20 +61,36 @@ public final class OverlayInfo {
     public static final class OverlayRun {
 
         private final String shift;
+        private final int x;
         private final String text;
         private final String font;
         private final String color;
 
-        public OverlayRun(String shift, String text, String font, String color) {
+        public OverlayRun(String shift, int x, String text, String font, String color) {
             this.shift = shift == null ? "" : shift;
+            this.x = x;
             this.text = text == null ? "" : text;
             this.font = font == null ? "" : font;
             this.color = color == null ? "" : color;
         }
 
-        /** Space characters moving the cursor to this run's x. */
+        /**
+         * Space characters moving the cursor to this run's x.
+         *
+         * <p><b>Right for the FIRST run only.</b> Every run drawn moves the
+         * cursor by however wide the drawn string turned out to be, and this
+         * was worked out as if the cursor were still where the picture left it
+         * — so a second run positioned this way lands one string-width too far
+         * right. Use it when {@link OverlayInfo#positionsRuns()} is false and
+         * there is nothing better; otherwise place the run from {@link #x()}.
+         */
         public String shift() {
             return shift;
+        }
+
+        /** Where this run starts, in pixels from the picture's left edge. */
+        public int x() {
+            return x;
         }
 
         /** The text, with {@code {name}} placeholders still in it. */
@@ -93,7 +113,12 @@ public final class OverlayInfo {
                         int height, int ascent, int offset, int codepoint,
                         String color, String font, String text,
                         java.util.List<OverlayTrigger> triggers,
-                        java.util.List<OverlayRun> runs) {
+                        java.util.List<OverlayRun> runs,
+                        boolean pushed, int advance, String shiftPlus, String shiftMinus) {
+        this.pushed = pushed;
+        this.advance = advance;
+        this.shiftPlus = shiftPlus == null ? "" : shiftPlus;
+        this.shiftMinus = shiftMinus == null ? "" : shiftMinus;
         this.id = id;
         this.file = file;
         this.title = title;
@@ -181,7 +206,8 @@ public final class OverlayInfo {
                 "",
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                height, ascent, offset, codepoint, "", "", "", java.util.List.of(), java.util.List.of());
+                height, ascent, offset, codepoint, "", "", "", java.util.List.of(), java.util.List.of(),
+                false, 0, "", "");
     }
 
     /**
@@ -215,7 +241,67 @@ public final class OverlayInfo {
                 Objects.requireNonNull(title, "title"),
                 container == null ? "" : container,
                 slot == null ? Slot.ACTION_BAR : slot,
-                0, 0, 0, 0, color, font, text, triggers, runs);
+                0, 0, 0, 0, color, font, text, triggers, runs,
+                true, 0, "", "");
+    }
+
+    /**
+     * The same overlay, told where the cursor is and how to move it.
+     *
+     * <p>Separate from the constructor because it arrived after the wire did: a
+     * manifest written by an older Studio carries none of it, and everything
+     * here degrades to {@link OverlayRun#shift()} rather than to nothing.
+     *
+     * @param advance    how far the picture moves the cursor, in pixels
+     * @param shiftPlus  the characters that move it right by 1, 2, 4 … 512
+     * @param shiftMinus their negative twins
+     */
+    public OverlayInfo withCursor(int advance, String shiftPlus, String shiftMinus) {
+        return new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
+                color, font, text, triggers, runs, pushed, advance, shiftPlus, shiftMinus);
+    }
+
+    /**
+     * Whether this engine can place the runs itself.
+     *
+     * <p>It can only when the pack told it where the picture leaves the cursor
+     * and gave it the characters to move it with — both of which are codepoints
+     * the pack allocated, so there is nothing to fall back on but each run's
+     * own pre-built shift.
+     */
+    public boolean positionsRuns() {
+        return advance > 0 && !shiftPlus.isEmpty() && !shiftMinus.isEmpty();
+    }
+
+    /** How far the picture moves the cursor, in pixels. See {@link #positionsRuns()}. */
+    public int advance() {
+        return advance;
+    }
+
+    /** The characters that move the cursor right by 1, 2, 4 … 512 pixels, in that order. */
+    public String shiftPlus() {
+        return shiftPlus;
+    }
+
+    /** Their negative twins. */
+    public String shiftMinus() {
+        return shiftMinus;
+    }
+
+    /**
+     * Whether this overlay's art came from a pushed pack rather than from this
+     * server's own content.
+     *
+     * <p><b>What it is for is deciding who may be shown it.</b> A pushed pack
+     * goes to the player who asked for it, and everybody else on the server is
+     * holding whatever the server itself serves — so drawing a pushed overlay
+     * for them sends a character their client has no glyph for, and they get a
+     * row of missing-glyph boxes above their hotbar for something they never
+     * asked to see. The engine's own content is not gated this way, because a
+     * server's own bundle is what its players are already wearing.
+     */
+    public boolean fromPushedPack() {
+        return pushed;
     }
 
     /**
