@@ -314,20 +314,6 @@ public final class Overlays {
             fraction = max <= 0d ? 0d : Math.max(0d, Math.min(1d, value / max));
         }
         String color = bar.fill() ? shadeFor(bar, fraction) : null;
-        if (!bar.frames().isEmpty()) {
-            // A RADIAL gauge: one baked picture per level, and the value picks
-            // one. Nothing is assembled — an arc's sweep is geometry compiled
-            // into the pack, so the frames ARE the animation.
-            //
-            // The advance is the diameter plus the pixel the font renderer puts
-            // between glyphs, which is `total + 1` because a gauge's `total` is
-            // its diameter. Both runs report it whatever they drew, so the
-            // background and the fill occupy the same width and nothing after
-            // them moves as the value changes.
-            int last = bar.frames().size() - 1;
-            int at = (int) Math.round(fraction * last);
-            return new Drawn(bar.frames().get(Math.max(0, Math.min(last, at))), bar.total() + 1, color);
-        }
         return bar.segments() > 0
                 ? segmented(info, bar, fraction, color)
                 : new Drawn(strip(info, bar, (int) Math.round(fraction * bar.total())),
