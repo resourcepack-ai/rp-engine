@@ -174,6 +174,17 @@ public final class RigAnimator implements Listener {
     private final Map<UUID, float[]> tilts = new ConcurrentHashMap<>();
 
     /**
+     * A carried rig's authored parent transform, in model space.
+     *
+     * <p>Vehicles need only {@link #tilt}; an animated emote prop may hang
+     * under a posed hand, carry an offset and have its own outer keyframes.
+     * That complete matrix must wrap every model bone before ItemDisplay's
+     * coordinate conversion, or the model animates at the world origin while
+     * the player reaches somewhere else.
+     */
+    private final Map<UUID, Matrix4f> carrierPoses = new ConcurrentHashMap<>();
+
+    /**
      * The most any one send of a crossfade turns a bone, in degrees.
      *
      * <p>The fade is composed here, about each bone's own pivot, so every pose
@@ -323,6 +334,7 @@ public final class RigAnimator implements Listener {
         fades.clear();
         driven.clear();
         posed.clear();
+        carrierPoses.clear();
     }
 
     /** Registers an entity if it's one of our moving rig part displays. */
@@ -398,6 +410,16 @@ public final class RigAnimator implements Listener {
         }
     }
 
+    /** Sets or clears the model-space parent transform of a carried rig. */
+    void carrierPose(UUID yawHost, Matrix4f pose) {
+        if (yawHost == null) return;
+        if (pose == null) {
+            carrierPoses.remove(yawHost);
+        } else {
+            carrierPoses.put(yawHost, new Matrix4f(pose));
+        }
+    }
+
     /**
      * The body attitude as a rotation in a display's local frame — the
      * model's front at -z, its right at +x — nose-up a positive turn about x
@@ -440,6 +462,7 @@ public final class RigAnimator implements Listener {
         fades.remove(id);
         driven.remove(id);
         posed.remove(id);
+        carrierPoses.remove(id);
     }
 
     void untrackHitbox(UUID id) {
@@ -600,6 +623,7 @@ public final class RigAnimator implements Listener {
         // it has no resting loop of its own to fall back to. See the overload.
         boolean carried = pdc.has(yawHostKey, PersistentDataType.STRING);
         float[] tilt = carried ? tiltOf(pdc) : null;
+        Matrix4f carrierPose = carried ? carrierPoseOf(pdc) : null;
         int playbackIndex = RigAnimations.playbackAnimationIndex(
             rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING), !carried);
 
@@ -693,7 +717,7 @@ public final class RigAnimator implements Listener {
         // A tilted carried part is exempt too: the body under it is moving
         // whether or not its animation is. Dedupe below still drops a frame
         // whose matrix comes out identical.
-        if (!bound && !overlaid && fade == null && tilt == null
+        if (!bound && !overlaid && fade == null && tilt == null && carrierPose == null
                 && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) {
             was.values = target;
             return;
@@ -749,7 +773,10 @@ public final class RigAnimator implements Listener {
         // wheel keeps spinning about its own axle; the axle tilts with the
         // car. See tilt.
         if (tilt != null) m.mul(tiltMatrix(tilt[0], tilt[1]));
-        m.mul(RigMath.toItemDisplaySpace(animationTransform));
+        Matrix4f posedTransform = carrierPose == null
+                ? animationTransform
+                : new Matrix4f(carrierPose).mul(animationTransform);
+        m.mul(RigMath.toItemDisplaySpace(posedTransform));
         applyRigScale(m, pdc);
 
         Transformation next = RigMath.toTransformation(m);
@@ -834,6 +861,18 @@ public final class RigAnimator implements Listener {
         return pdc.get(yawKey, PersistentDataType.FLOAT);
     }
 
+    /** The model-space parent transform keyed by this carried part's yaw host. */
+    private Matrix4f carrierPoseOf(PersistentDataContainer pdc) {
+        String host = pdc.get(yawHostKey, PersistentDataType.STRING);
+        if (host == null || carrierPoses.isEmpty()) return null;
+        try {
+            Matrix4f pose = carrierPoses.get(UUID.fromString(host));
+            return pose == null ? null : new Matrix4f(pose);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     // The pose a part holds when nothing is animating it: placement yaw only.
     // Sent without interpolation, since this is recovery, not playback.
     private void applyRestPose(ItemDisplay display, PersistentDataContainer pdc) {
@@ -844,7 +883,10 @@ public final class RigAnimator implements Listener {
         Float yaw = yawOf(display, pdc);
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
-        m.mul(RigMath.toItemDisplaySpace(new Matrix4f()));
+        Matrix4f carrierPose = pdc.has(yawHostKey, PersistentDataType.STRING)
+                ? carrierPoseOf(pdc)
+                : null;
+        m.mul(RigMath.toItemDisplaySpace(carrierPose == null ? new Matrix4f() : carrierPose));
         applyRigScale(m, pdc);
 
         Transformation next = RigMath.toTransformation(m);

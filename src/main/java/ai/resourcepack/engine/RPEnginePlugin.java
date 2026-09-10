@@ -413,25 +413,27 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // last one after a restart.
         pushed = new StudioContent(getDataFolder());
         pushed.load(getLogger());
+        // The rig carrier, so anything whose model animates wears the rig
+        // rather than one still display: a vehicle, and an emote carrying a
+        // model only part of which moves. ONE of them, built here rather than
+        // inside either — everything it needs (the store, the animator, the
+        // placement handles) was assembled above, and a second copy would be a
+        // second animator fighting over the same entities.
+        RigCarrier rigCarrier = new RigCarrier(library, rigs, animator, models);
         // EmoteWording rather than nothing. Three things an emote has to say
         // happen to somebody who did not run the command — being pulled in, an
         // emote ending, and finding on join that the one you were in did not
         // survive a crash — and EmoteMessages' own doc says silence there
         // reads as a bug.
-        emotes = new EmoteDirector(library, emoteStore);
+        emotes = new EmoteDirector(library, emoteStore, rigCarrier);
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items);
-        // The rig carrier, so a vehicle whose model animates wears the rig
-        // rather than one still display. Built here rather than inside
-        // VehicleRuntime because everything it needs — the store, the animator, the
-        // placement handles — was assembled above and a second copy of any of
-        // them would be a second animator fighting over the same entities.
         // emotes() is a fresh facade each call and holds no state of its own —
         // it is a view of the director, which is what actually owns a session.
         // So handing one to VehicleRuntime is handing it the same director everything
         // else uses rather than a second emote system.
         vehicles = new VehicleRuntime(this, items, compatibility,
-                new RigCarrier(library, rigs, animator, models), emotes(), sounds);
+                rigCarrier, emotes(), sounds);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         blockStates = new BlockStates(getDataFolder());

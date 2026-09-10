@@ -80,6 +80,19 @@ class EmoteStoreTest {
     }
 
     @Test
+    void aPropCanNameTheModelAnimationThatSharesItsClock() {
+        store.updateFromJson(manifest("").replace(
+                "\"animators\": {",
+                "\"props\": [{\"id\":\"bench\",\"modelId\":\"weight_bench\","
+                + "\"attach\":\"none\",\"offset\":[0,-8,-24],\"scale\":1,"
+                + "\"animation\":\"emote_bench_press_bench\"}],\"animators\": {"));
+
+        EmoteStore.Prop prop = store.find("wave").props.get(0);
+        assertEquals("weight_bench", prop.modelId);
+        assertEquals("emote_bench_press_bench", prop.animation);
+    }
+
+    @Test
     void somebodyWithNoRigOfTheirOwnGetsTheSharedDefault() {
         store.updateFromJson(manifest(""));
 

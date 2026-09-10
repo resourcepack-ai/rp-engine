@@ -19,14 +19,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
  * An animated rig worn by something that MOVES AND TURNS and is not ridden.
  *
- * <p>A vehicle, today, and nothing else — but the awkward shape it solves is
- * general, so it is a class of its own rather than eight methods inside
- * {@code Vehicles}.
+ * <p>A vehicle, and a model an emote carries only part of which moves — a
+ * barbell lifted off its bench. The awkward shape it solves turned out to be
+ * general, which is why it was a class of its own rather than eight methods
+ * inside {@code Vehicles} before there was a second caller for it.
+ *
+ * <p>The two differ in exactly one thing, and it is {@link CarriedRig#pose}:
+ * a vehicle's parent transform is an attitude and nothing else, so it needs
+ * only {@link CarriedRig#tilt}, while an emote prop hangs under a posed hand
+ * and carries an offset and keyframes of its own.
  *
  * <h2>Why neither existing arrangement fits</h2>
  *
@@ -173,6 +180,9 @@ public final class RigCarrier {
         List<String> still = new ArrayList<>();
         for (ItemDisplay part : parts) {
             ids.add(part.getUniqueId().toString());
+            // A carried rig is derived from its owner (vehicle or emote) and
+            // has no independent life to restore after a server restart.
+            part.setPersistent(false);
             if (!animator.animates(part)) {
                 still.add(part.getUniqueId().toString());
             }
@@ -233,12 +243,27 @@ public final class RigCarrier {
          */
         public void tilt(float pitch, float roll) {
             animator.tilt(anchorId, pitch, roll);
-            if (stillIds.isEmpty()) {
-                return;
-            }
             Matrix4f m = Math.abs(pitch) < 0.05f && Math.abs(roll) < 0.05f
                     ? new Matrix4f()
                     : RigAnimator.tiltMatrix(pitch, roll);
+            poseStill(m);
+        }
+
+        /**
+         * Wraps every model bone in an authored model-space transform.
+         *
+         * <p>Used by emote props: the matrix is the player's root/bone chain,
+         * the prop offset and its outer keyframes. The model's own animation
+         * remains inside it and is driven through {@link #placement()}.
+         */
+        public void pose(Matrix4f pose) {
+            animator.carrierPose(anchorId, pose);
+            poseStill(RigMath.toItemDisplaySpace(
+                    pose == null ? new Matrix4f() : new Matrix4f(pose)));
+        }
+
+        private void poseStill(Matrix4f m) {
+            if (stillIds.isEmpty()) return;
             if (scale != 1f) {
                 // The same growth-about-the-floor a still part was spawned
                 // with; see RigSpawn and RigAnimator.applyRigScale.
@@ -266,6 +291,15 @@ public final class RigCarrier {
         /** How many part displays it is made of. Zero is a rig that failed to spawn. */
         public int parts() {
             return size;
+        }
+
+        /** Visits each live part display, for viewer-specific hiding. */
+        public void forEachPart(Consumer<ItemDisplay> action) {
+            if (action == null) return;
+            for (String id : partIds) {
+                Entity part = entity(id);
+                if (part instanceof ItemDisplay) action.accept((ItemDisplay) part);
+            }
         }
 
         /**
@@ -338,6 +372,7 @@ public final class RigCarrier {
         /** Takes every entity of it out of the world. */
         public void despawn() {
             animator.tilt(anchorId, 0f, 0f);
+            animator.carrierPose(anchorId, null);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {
                 yawHost.remove();
