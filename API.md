@@ -16,6 +16,7 @@ engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
+engine.overlays();  // HUD overlays: show one, hide one, feed it values
 engine.registry();  // everything this server holds, by id
 engine.registration(); // and how to put content of your own into it
 ```
@@ -337,6 +338,69 @@ aboard and takes nothing off them.
 
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
+
+## HUD overlays
+
+An overlay is a picture the engine keeps on a player's screen — a stat block, a
+health bar, a crouch indicator. Server owners draw them (in Studio, or by hand);
+your job is deciding who sees one and what numbers are in it.
+
+```java
+engine.overlays().show(player, "studio:health");  // and it stays until hidden
+engine.overlays().hide(player, "studio:health");
+engine.overlays().hideAll(player);
+engine.overlays().showing(player);                // what they are wearing
+```
+
+Held rather than sent, so there is a `hide` rather than a duration: a caller who
+wants one for five seconds schedules the hide, and one who wants it until a
+fight ends hides it when the fight ends.
+
+### Feeding it values
+
+An overlay's text and its progress bars can print `{name}` placeholders. **Any
+name at all works, and yours wins.**
+
+```java
+engine.overlays().set(player, "speed", "83");
+engine.overlays().set(player, "stamina", "40");
+engine.overlays().set(player, "stamina", null);   // remove it
+engine.overlays().value(player, "speed");         // what you last set
+```
+
+Three sources are asked, in this order:
+
+1. **Whatever you set**, because a plugin that took the trouble to publish a
+   number means that number and must not be overruled by a built-in that
+   happens to share its name.
+2. **The engine's built-ins** — `player`, `health`, `health_max`,
+   `health_percent`, `food`, `level`, `xp`, `ping`, `world`, `x`, `y`, `z`,
+   `direction`, `time`, `day`, `gamemode`, `online`, `max_online`, `air`,
+   `uuid`, `displayname`, `name`. These are the questions the server can already answer
+   about a player, so an overlay using them works with no code at all.
+   (`name` is a second spelling of `player`.)
+3. **PlaceholderAPI**, if it is installed.
+
+Anything none of the three answers draws as nothing, rather than as a leftover
+brace: a gap reads as "no value yet" where `{speed}` reads as a broken pack.
+
+**Per player, not per overlay.** A number called `speed` means the same thing to
+everything on that player's screen, which is what stops two overlays disagreeing
+about it. Values are drawn on the next redraw rather than immediately, so
+setting several in a row costs one draw rather than one each.
+
+A **progress bar** reads the same names. Its `max` is either another placeholder
+or a plain number the author typed, so a stamina bar out of 100 needs one call:
+
+```java
+engine.overlays().set(player, "stamina", String.valueOf(current));
+```
+
+**`set` and `value` are safe from any thread**, and are the one part of this
+that is: they write into a concurrent map and draw nothing, precisely so a
+caller updating six values in a row costs one redraw rather than six. The loop
+picks them up within about a second and a half. `show`, `hide` and `hideAll`
+draw, so those are main thread only.
 
 ## Icons in your own text
 
