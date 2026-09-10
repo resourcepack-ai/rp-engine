@@ -226,9 +226,14 @@ public final class Overlays {
                 continue;
             }
             out.append(placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift());
-            out.append(run.color().isEmpty()
+            // A bar's fill can name its own colour — the mark for whichever
+            // threshold the value fell under — and it wins over the run's,
+            // which is the mark for the bar's base colour. Everything else
+            // reports null and keeps what the pack wrote.
+            String tint = drawn.colorOr(run.color());
+            out.append(tint.isEmpty()
                     ? ChatColor.WHITE.toString()
-                    : net.md_5.bungee.api.ChatColor.of(run.color()).toString());
+                    : net.md_5.bungee.api.ChatColor.of(tint).toString());
             out.append(drawn.text());
             cursor = run.x() + drawn.advance();
         }
@@ -269,7 +274,7 @@ public final class Overlays {
         // A head's glyph is one the pack invented, and so is any picture the
         // author placed — no table of vanilla's widths can hold either, and
         // guessing puts every run after it in the wrong place.
-        return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn));
+        return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn), null);
     }
 
     /**
@@ -280,7 +285,11 @@ public final class Overlays {
      * would mean re-deriving a number we had already worked out, against a
      * width table that has never heard of the glyphs in it.
      */
-    private record Drawn(String text, int advance) {
+    private record Drawn(String text, int advance, String color) {
+        /** The colour to draw it in: the bar's chosen shade, else the run's own. */
+        String colorOr(String fallback) {
+            return color == null || color.isEmpty() ? fallback : color;
+        }
     }
 
     /**
@@ -298,13 +307,45 @@ public final class Overlays {
      */
     private static Drawn barRun(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar,
                                 java.util.Map<String, String> filled, Player viewer) {
-        int pixels = bar.total();
+        double fraction = 1d;
         if (bar.fill()) {
             double value = number(bar.value(), filled, viewer, 0d);
             double max = number(bar.max(), filled, viewer, bar.total());
-            double fraction = max <= 0d ? 0d : value / max;
-            pixels = (int) Math.round(Math.max(0d, Math.min(1d, fraction)) * bar.total());
+            fraction = max <= 0d ? 0d : Math.max(0d, Math.min(1d, value / max));
         }
+        String color = bar.fill() ? shadeFor(bar, fraction) : null;
+        return bar.segments() > 0
+                ? segmented(info, bar, fraction, color)
+                : new Drawn(strip(info, bar, (int) Math.round(fraction * bar.total())),
+                        (int) Math.round(fraction * bar.total()), color);
+    }
+
+    /**
+     * The colour a fill takes at this fraction, or null to keep the run's own.
+     *
+     * <p>The list is lowest threshold first and its last entry is the bar's own
+     * colour at 1, so the first match is always the right one and there is no
+     * fallback to disagree with it. Every value in it is a MARK the pack has
+     * declared a vertex branch for — see {@link OverlayInfo.OverlayRun.Bar.Shade}.
+     */
+    private static String shadeFor(OverlayInfo.OverlayRun.Bar bar, double fraction) {
+        for (OverlayInfo.OverlayRun.Bar.Shade shade : bar.colors()) {
+            if (fraction <= shade.at()) {
+                return shade.color();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * A run of rectangles that draws exactly {@code pixels} across.
+     *
+     * <p>Greedy from the widest, and every glyph followed by a one-pixel LEFT
+     * shift: a bitmap glyph advances by its width plus the pixel the font
+     * renderer puts between glyphs, and without closing that up a bar is a
+     * dotted line.
+     */
+    private static String strip(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar, int pixels) {
         StringBuilder out = new StringBuilder();
         int left = pixels;
         for (OverlayInfo.OverlayRun.Bar.Glyph glyph : bar.glyphs()) {
@@ -313,7 +354,41 @@ public final class Overlays {
                 left -= glyph.px();
             }
         }
-        return new Drawn(out.toString(), pixels - left);
+        return out.toString();
+    }
+
+    /**
+     * A bar drawn as discrete chunks rather than one strip.
+     *
+     * <p>Vanilla's own hearts and armour read this way, and a value out of ten
+     * is easier to read as ten things than as a length. The chunks are the same
+     * rectangles a solid bar is built from — what differs is that the fill
+     * rounds UP to a whole chunk and each one is followed by a gap.
+     *
+     * <p>Rounds up rather than down so that any value above empty lights at
+     * least one chunk: a bar showing nothing at 4% reads as broken, and the
+     * whole point of chunks is that the last one going out is the warning.
+     *
+     * <p><b>The advance is the whole bar's, not the drawn part's.</b> Both runs
+     * have to occupy the same width or the background and the fill would start
+     * the cursor in different places and every run after them would move as the
+     * value changed.
+     */
+    private static Drawn segmented(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar,
+                                   double fraction, String color) {
+        int count = Math.max(1, bar.segments());
+        int gap = Math.max(0, bar.gap());
+        // What is left for the chunks once the gaps between them are taken out.
+        int chunk = Math.max(1, (bar.total() - gap * (count - 1)) / count);
+        int lit = (int) Math.ceil(fraction * count - 1e-9);
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < lit; i++) {
+            if (i > 0) {
+                out.append(shiftTo(info, gap));
+            }
+            out.append(strip(info, bar, chunk));
+        }
+        return new Drawn(out.toString(), chunk * count + gap * (count - 1), color);
     }
 
     /**
@@ -421,9 +496,11 @@ public final class Overlays {
                 if (!run.font().isEmpty()) {
                     body.setFont(run.font());
                 }
-                body.setColor(run.color().isEmpty()
+                // See the legacy path: a bar's fill picks its own mark by value.
+                String tint = drawn.colorOr(run.color());
+                body.setColor(tint.isEmpty()
                         ? net.md_5.bungee.api.ChatColor.WHITE
-                        : net.md_5.bungee.api.ChatColor.of(run.color()));
+                        : net.md_5.bungee.api.ChatColor.of(tint));
                 parts.add(body);
                 cursor = run.x() + drawn.advance();
             }

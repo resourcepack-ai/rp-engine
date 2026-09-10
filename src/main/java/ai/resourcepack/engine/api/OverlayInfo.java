@@ -89,17 +89,52 @@ public final class OverlayInfo {
             private final String value;
             private final String max;
             private final boolean fill;
+            private final int segments;
+            private final int gap;
+            private final java.util.List<Shade> colors;
 
             /** One rectangle: the character, and how many pixels it draws. */
             public record Glyph(String character, int px) {
             }
 
+            /**
+             * One colour the fill takes at or below a fraction of full.
+             *
+             * <p><b>{@code color} is a MARK rather than a colour</b>, and that is
+             * what makes this possible at all: a run's RGB is the address the
+             * pack's vertex shader routes on, and the shader restores an authored
+             * colour per address. So a bar that changes colour is a pack that has
+             * declared one address per threshold, and this is the engine picking
+             * between addresses that already exist. It cannot invent one — a
+             * colour with no branch behind it is drawn as the address itself.
+             */
+            public record Shade(double at, String color) {
+            }
+
+            /** A bar of one colour, in one continuous strip. */
             public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill) {
+                this(glyphs, total, value, max, fill, 0, 0, java.util.List.of());
+            }
+
+            /**
+             * @param segments how many chunks to break the bar into, or 0 for one
+             *                 continuous strip. The fill rounds to whole chunks.
+             * @param gap      pixels of nothing after each chunk. Read only when
+             *                 {@code segments} is non-zero.
+             * @param colors   what colour the fill takes by how full it is, lowest
+             *                 threshold first. Empty keeps the run's own colour.
+             *                 See {@link Shade}.
+             */
+            public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill,
+                       int segments, int gap, java.util.List<Shade> colors) {
                 this.glyphs = glyphs == null ? java.util.List.of() : java.util.List.copyOf(glyphs);
                 this.total = Math.max(0, total);
                 this.value = value == null ? "" : value;
                 this.max = max == null ? "" : max;
                 this.fill = fill;
+                this.segments = Math.max(0, segments);
+                this.gap = Math.max(0, gap);
+                this.colors = colors == null ? java.util.List.of() : java.util.List.copyOf(colors);
             }
 
             public java.util.List<Glyph> glyphs() {
@@ -124,6 +159,21 @@ public final class OverlayInfo {
             /** Whether this run is the fill rather than the background. */
             public boolean fill() {
                 return fill;
+            }
+
+            /** How many chunks the bar is broken into, or 0 for one strip. */
+            public int segments() {
+                return segments;
+            }
+
+            /** Pixels after each chunk. Only meaningful when {@link #segments} is set. */
+            public int gap() {
+                return gap;
+            }
+
+            /** What colour the fill takes by how full it is. See {@link Shade}. */
+            public java.util.List<Shade> colors() {
+                return colors;
             }
         }
 

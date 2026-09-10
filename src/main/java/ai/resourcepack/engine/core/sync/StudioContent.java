@@ -378,6 +378,23 @@ public final class StudioContent {
         String max;
         /** True for the fill run; the background is always {@link #total} long. */
         boolean fill;
+        /**
+         * How many chunks to break the bar into, or 0 for one continuous strip.
+         *
+         * <p>Absent on a manifest written before segmented bars existed, which
+         * Gson leaves at zero — and zero is the continuous bar those manifests
+         * meant. Nothing has to migrate.
+         */
+        int segments;
+        /** Pixels of nothing after each chunk. Read only when {@link #segments} is set. */
+        int gap;
+        /**
+         * What colour the fill takes by how full it is, lowest threshold first.
+         *
+         * <p>Null on the background run and on any bar of one colour, which is
+         * every bar written before thresholds existed.
+         */
+        List<BarShade> colors;
     }
 
     /** One rectangle a bar is assembled from. */
@@ -385,6 +402,17 @@ public final class StudioContent {
         String character;
         /** How many pixels wide it draws. A power of two. */
         int px;
+    }
+
+    /**
+     * One colour a bar's fill takes at or below a fraction of full.
+     *
+     * <p>{@code color} is a MARK — see {@link OverlayInfo.OverlayRun.Bar.Shade},
+     * which is the same record one layer out and carries the reasoning.
+     */
+    static final class BarShade {
+        double at;
+        String color;
     }
 
     /** One rule from {@link Overlay#triggers}. */
@@ -1021,7 +1049,17 @@ public final class StudioContent {
                 glyphs.add(new OverlayInfo.OverlayRun.Bar.Glyph(glyph.character, glyph.px));
             }
         }
-        return new OverlayInfo.OverlayRun.Bar(glyphs, raw.total, raw.value, raw.max, raw.fill);
+        List<OverlayInfo.OverlayRun.Bar.Shade> colors = new ArrayList<>();
+        for (BarShade shade : raw.colors == null ? List.<BarShade>of() : raw.colors) {
+            // A threshold naming no colour is one the engine would draw in the
+            // mark itself — a bar in whatever #f0xxxx happens to look like —
+            // so it is dropped rather than passed through.
+            if (shade != null && shade.color != null && !shade.color.isEmpty()) {
+                colors.add(new OverlayInfo.OverlayRun.Bar.Shade(shade.at, shade.color));
+            }
+        }
+        return new OverlayInfo.OverlayRun.Bar(glyphs, raw.total, raw.value, raw.max, raw.fill,
+                raw.segments, raw.gap, colors);
     }
 
     /** The same, on the way back out to disk. */
@@ -1041,6 +1079,17 @@ public final class StudioContent {
         out.value = from.value();
         out.max = from.max();
         out.fill = from.fill();
+        out.segments = from.segments();
+        out.gap = from.gap();
+        // Null rather than an empty list, so a bar of one colour round-trips to
+        // the same JSON it arrived as instead of growing an empty array.
+        out.colors = from.colors().isEmpty() ? null : new ArrayList<>();
+        for (OverlayInfo.OverlayRun.Bar.Shade shade : from.colors()) {
+            BarShade one = new BarShade();
+            one.at = shade.at();
+            one.color = shade.color();
+            out.colors.add(one);
+        }
         return out;
     }
 
