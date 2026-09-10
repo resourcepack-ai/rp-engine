@@ -92,6 +92,7 @@ public final class OverlayInfo {
             private final int segments;
             private final int gap;
             private final java.util.List<Shade> colors;
+            private final java.util.List<String> frames;
 
             /** One rectangle: the character, and how many pixels it draws. */
             public record Glyph(String character, int px) {
@@ -113,7 +114,13 @@ public final class OverlayInfo {
 
             /** A bar of one colour, in one continuous strip. */
             public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill) {
-                this(glyphs, total, value, max, fill, 0, 0, java.util.List.of());
+                this(glyphs, total, value, max, fill, 0, 0, java.util.List.of(), java.util.List.of());
+            }
+
+            /** A linear bar, of one shape and any number of colours. */
+            public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill,
+                       int segments, int gap, java.util.List<Shade> colors) {
+                this(glyphs, total, value, max, fill, segments, gap, colors, java.util.List.of());
             }
 
             /**
@@ -125,8 +132,17 @@ public final class OverlayInfo {
              *                 threshold first. Empty keeps the run's own colour.
              *                 See {@link Shade}.
              */
+            /**
+             * @param frames a RADIAL gauge's baked pictures, emptiest first, or
+             *               empty for a linear bar. When present these replace
+             *               {@code glyphs} outright: the engine draws exactly one
+             *               of them and {@code total} is the gauge's diameter
+             *               rather than its length. An arc's sweep is geometry
+             *               compiled into the pack, so the pack ships every frame
+             *               the gauge can show and the engine picks.
+             */
             public Bar(java.util.List<Glyph> glyphs, int total, String value, String max, boolean fill,
-                       int segments, int gap, java.util.List<Shade> colors) {
+                       int segments, int gap, java.util.List<Shade> colors, java.util.List<String> frames) {
                 this.glyphs = glyphs == null ? java.util.List.of() : java.util.List.copyOf(glyphs);
                 this.total = Math.max(0, total);
                 this.value = value == null ? "" : value;
@@ -135,6 +151,7 @@ public final class OverlayInfo {
                 this.segments = Math.max(0, segments);
                 this.gap = Math.max(0, gap);
                 this.colors = colors == null ? java.util.List.of() : java.util.List.copyOf(colors);
+                this.frames = frames == null ? java.util.List.of() : java.util.List.copyOf(frames);
             }
 
             public java.util.List<Glyph> glyphs() {
@@ -174,6 +191,16 @@ public final class OverlayInfo {
             /** What colour the fill takes by how full it is. See {@link Shade}. */
             public java.util.List<Shade> colors() {
                 return colors;
+            }
+
+            /**
+             * A radial gauge's baked frames, emptiest first. Empty for a linear bar.
+             *
+             * <p>When this is not empty the bar is ONE glyph rather than a run of
+             * rectangles, and {@link #total} is its diameter.
+             */
+            public java.util.List<String> frames() {
+                return frames;
             }
         }
 

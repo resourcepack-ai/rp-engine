@@ -395,6 +395,16 @@ public final class StudioContent {
          * every bar written before thresholds existed.
          */
         List<BarShade> colors;
+        /**
+         * A RADIAL gauge's baked frames, emptiest first.
+         *
+         * <p>Null for a linear bar, which is every bar written before gauges
+         * existed. When it is set it replaces {@link #glyphs} outright and
+         * {@link #total} is the gauge's diameter rather than its length — an
+         * arc's sweep is geometry compiled into the pack, so the pack ships
+         * every frame and the engine picks the one the value lands on.
+         */
+        List<String> frames;
     }
 
     /** One rectangle a bar is assembled from. */
@@ -1058,8 +1068,16 @@ public final class StudioContent {
                 colors.add(new OverlayInfo.OverlayRun.Bar.Shade(shade.at, shade.color));
             }
         }
+        List<String> frames = new ArrayList<>();
+        for (String frame : raw.frames == null ? List.<String>of() : raw.frames) {
+            // An empty frame would draw nothing at that level, which reads as a
+            // gauge that blinks out partway round.
+            if (frame != null && !frame.isEmpty()) {
+                frames.add(frame);
+            }
+        }
         return new OverlayInfo.OverlayRun.Bar(glyphs, raw.total, raw.value, raw.max, raw.fill,
-                raw.segments, raw.gap, colors);
+                raw.segments, raw.gap, colors, frames);
     }
 
     /** The same, on the way back out to disk. */
@@ -1081,6 +1099,9 @@ public final class StudioContent {
         out.fill = from.fill();
         out.segments = from.segments();
         out.gap = from.gap();
+        // Null rather than empty, so a linear bar round-trips to the JSON it
+        // arrived as instead of growing an empty array.
+        out.frames = from.frames().isEmpty() ? null : new ArrayList<>(from.frames());
         // Null rather than an empty list, so a bar of one colour round-trips to
         // the same JSON it arrived as instead of growing an empty array.
         out.colors = from.colors().isEmpty() ? null : new ArrayList<>();
