@@ -168,7 +168,9 @@ public final class RigCarrier {
         // into every moving part's pose, and a carried rig is turned by its
         // entity yaw instead (see RigAnimator.yawOf) — passing the real yaw
         // here would apply it twice for the one frame before the first move.
-        // The `moveTo` below puts the real heading on straight away.
+        // The `moveTo` at the END of this method is what puts the real heading
+        // on, and it lives there rather than in the caller because a caller
+        // that never moves its rig had one facing south for ever.
         List<ItemDisplay> parts = spawns.parts(anchor, modelId, rig, 0f, null, scale,
                 part -> partItem.apply(part.item));
 
@@ -207,7 +209,23 @@ public final class RigCarrier {
         // will accept — see RigAnimator.track's Interaction arm.
         animator.track(yawHost);
 
-        return Optional.of(new CarriedRig(yawHost.getUniqueId(), ids, still, scale, parts.size()));
+        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, scale, parts.size());
+        // **The heading goes on HERE, not left to the caller.** The parts are
+        // spawned at yaw zero deliberately (see above), and a carried part's
+        // matrix never carries a yaw either — RigAnimator.yawOf returns 0 for
+        // anything with a yaw host, because the entity is supposed to hold it.
+        // So between spawning and the first moveTo a carried rig faces world
+        // south whatever it was asked for.
+        //
+        // A vehicle never noticed: it moves every tick, so its first move was a
+        // tick away. An EMOTE prop is not moved at all unless its wearer is
+        // walking — follow() runs for a stance or a rider and for nothing else
+        // — so a one-shot emote's model simply stayed facing south while the
+        // rig it belongs to turned with the player. It read as the player being
+        // rotated, by exactly their own yaw, which is why it looked like a
+        // different angle every time somebody tried it.
+        carried.moveTo(anchor, yaw);
+        return Optional.of(carried);
     }
 
     /** One rig riding one moving thing. Obtained from {@link #carry}. */
