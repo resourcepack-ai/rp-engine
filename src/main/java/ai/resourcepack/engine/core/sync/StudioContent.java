@@ -339,8 +339,12 @@ public final class StudioContent {
         /**
          * How far drawing this run moves the cursor, or absent to measure it.
          *
-         * <p>Absent for words. Present for a picture drawn as a glyph — a
-         * player's head — whose width no table of vanilla's glyphs can hold.
+         * <p>Absent for words, which {@code TextWidth} measures. Present for
+         * any run whose glyph the PACK invented and no table of vanilla's
+         * widths can hold: a player's head, and any picture the author placed.
+         * Both are ordinary runs in every other respect — this field and the
+         * one below are the whole of what makes them different, which is why
+         * neither has a kind of its own anywhere in this file.
          */
         int advance;
         /**

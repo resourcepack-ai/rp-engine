@@ -265,9 +265,10 @@ public final class Overlays {
         if (isRunMark(run.color())) {
             drawn = ChatColor.stripColor(drawn);
         }
-        // The run's own figure when it has one, and a measurement otherwise. A
-        // head's glyph is one the pack invented, so no table of vanilla's widths
-        // can hold it and guessing puts every label after it in the wrong place.
+        // The run's own figure when it has one, and a measurement otherwise.
+        // A head's glyph is one the pack invented, and so is any picture the
+        // author placed — no table of vanilla's widths can hold either, and
+        // guessing puts every run after it in the wrong place.
         return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn));
     }
 
