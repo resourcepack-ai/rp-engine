@@ -185,6 +185,8 @@ public final class EmoteStore {
         /** Rest offset from whatever it rides, block-model px. */
         float[] offset;
         float scale;
+        /** Named animation on modelId, sought to this emote's playhead. */
+        String animation;
         /** Its own motion, on top of what it is attached to. */
         Map<String, List<Keyframe>> animator;
     }

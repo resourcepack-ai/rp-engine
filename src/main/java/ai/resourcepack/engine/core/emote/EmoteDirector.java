@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.EmoteResult.Reason;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.EmoteTrigger;
 import ai.resourcepack.engine.api.Keyframe;
+import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.EmoteEndEvent;
 import ai.resourcepack.engine.api.event.EmoteStartEvent;
 import ai.resourcepack.engine.core.Host;
@@ -11,6 +12,7 @@ import ai.resourcepack.engine.core.animation.RigMath;
 import ai.resourcepack.engine.core.animation.Sampler;
 
 import ai.resourcepack.engine.core.model.DisplayCarry;
+import ai.resourcepack.engine.core.model.RigCarrier;
 import ai.resourcepack.engine.core.model.RigTags;
 
 import org.bukkit.Bukkit;
@@ -186,6 +188,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class EmoteDirector implements Listener {
 
     private final Map<UUID, Long> lastStart = new ConcurrentHashMap<>();
+    private final RigCarrier rigCarrier;
 
     /**
      * How often every emote is stepped, in ticks.
@@ -533,8 +536,8 @@ public final class EmoteDirector implements Listener {
         /** Ticks of the settle window still to run. See {@link #anchor}. */
         int settling = SETTLE_CHECKS;
         /** Where the player stood, where the rig is, and where they go back to. */
-        /** One display per prop, index-aligned with emote.props. */
-        List<ItemDisplay> propParts = new ArrayList<>();
+        /** One static display or animated model rig per prop, index-aligned with emote.props. */
+        List<PropPart> propParts = new ArrayList<>();
         /**
          * The floating name over this participant's rig, or null.
          *
@@ -861,12 +864,52 @@ public final class EmoteDirector implements Listener {
     }
 
     public EmoteDirector(Host host, EmoteStore emotes) {
+        this(host, emotes, null);
+    }
+
+    public EmoteDirector(Host host, EmoteStore emotes, RigCarrier rigCarrier) {
         this.host = host;
         this.emotes = emotes;
+        this.rigCarrier = rigCarrier;
         this.previousModeKey = host.key("emote-previous-mode");
         this.previousInvisKey = host.key("emote-previous-invis");
         this.originKey = host.key("emote-origin");
         this.emotePartKey = host.key("emote-part");
+    }
+
+    /** The two possible renderers of one prop. Exactly one field is set. */
+    private static final class PropPart {
+        final ItemDisplay display;
+        final RigCarrier.CarriedRig rig;
+
+        PropPart(ItemDisplay display) {
+            this.display = display;
+            this.rig = null;
+        }
+
+        PropPart(RigCarrier.CarriedRig rig) {
+            this.display = null;
+            this.rig = rig;
+        }
+
+        boolean valid() {
+            return display != null ? display.isValid() : rig != null && rig.isValid();
+        }
+
+        void remove() {
+            if (display != null && display.isValid()) display.remove();
+            if (rig != null) rig.despawn();
+        }
+
+        void carryAs(DisplayCarry how) {
+            if (display != null && display.isValid()) how.carry(display);
+            if (rig != null) rig.forEachPart(how::carry);
+        }
+
+        void moveTo(Location base, float yaw) {
+            if (display != null && display.isValid()) display.teleport(base);
+            if (rig != null) rig.moveTo(base, yaw);
+        }
     }
 
     public void start() {
@@ -2027,9 +2070,7 @@ public final class EmoteDirector implements Listener {
      */
     private void spawnProps(
             Player player, Session session, EmoteStore.Emote emote, Location base, String performerId) {
-        for (ItemDisplay display : session.propParts) {
-            if (display != null && display.isValid()) display.remove();
-        }
+        for (PropPart part : session.propParts) if (part != null) part.remove();
         session.propParts = new ArrayList<>();
         for (EmoteStore.Prop prop : emote.props == null
                 ? java.util.Collections.<EmoteStore.Prop>emptyList()
@@ -2037,6 +2078,22 @@ public final class EmoteDirector implements Listener {
             if (prop == null || prop.modelId == null || prop.modelId.isEmpty() || !carries(prop, performerId)) {
                 session.propParts.add(null);
                 continue;
+            }
+            if (rigCarrier != null && prop.animation != null && !prop.animation.isEmpty()
+                    && rigCarrier.animates(prop.modelId)) {
+                java.util.Optional<RigCarrier.CarriedRig> carriedRig = rigCarrier.carry(
+                        base, prop.modelId, session.yaw, displayCarry, EmoteDirector::boneItem);
+                if (carriedRig.isPresent()) {
+                    RigCarrier.CarriedRig rig = carriedRig.get();
+                    java.util.Optional<Placement> placement = rig.placement();
+                    if (placement.isPresent()) {
+                        placement.get().play(prop.animation, true);
+                        placement.get().seek(0);
+                    }
+                    session.propParts.add(new PropPart(rig));
+                    if (session.hideFromOwnWearer()) rig.forEachPart(display -> hideFromWearer(player, display));
+                    continue;
+                }
             }
             ItemStack item = boneItem(prop.modelId);
             final boolean carried = session.stance();
@@ -2046,7 +2103,7 @@ public final class EmoteDirector implements Listener {
                 d.setPersistent(false);
                 if (carried) carry(d);
             });
-            session.propParts.add(display);
+            session.propParts.add(new PropPart(display));
             // Respawned on every member swap of a group, so this is not a
             // one-time hide at the start: a prop that arrived with the walk
             // cycle has to be hidden from the wearer exactly as the bones were.
@@ -2415,9 +2472,7 @@ public final class EmoteDirector implements Listener {
         for (ItemDisplay display : session.parts) {
             if (display != null && display.isValid()) display.remove();
         }
-        for (ItemDisplay display : session.propParts) {
-            if (display != null && display.isValid()) display.remove();
-        }
+        for (PropPart part : session.propParts) if (part != null) part.remove();
         // The hands are the third list, and the reason this method exists at
         // all: props were once added as a second one without it and leaked on
         // two of the three ways out.
@@ -3125,9 +3180,7 @@ public final class EmoteDirector implements Listener {
         for (ItemDisplay display : session.parts) {
             if (display != null && display.isValid()) how.carry(display);
         }
-        for (ItemDisplay display : session.propParts) {
-            if (display != null && display.isValid()) how.carry(display);
-        }
+        for (PropPart part : session.propParts) if (part != null) part.carryAs(how);
         if (session.mainHand != null && session.mainHand.isValid()) how.carry(session.mainHand);
         if (session.offHand != null && session.offHand.isValid()) how.carry(session.offHand);
         if (session.shadow != null && session.shadow.isValid()) how.carry(session.shadow);
@@ -3381,9 +3434,7 @@ public final class EmoteDirector implements Listener {
             for (ItemDisplay display : session.parts) {
                 if (display != null && display.isValid()) display.teleport(base);
             }
-            for (ItemDisplay display : session.propParts) {
-                if (display != null && display.isValid()) display.teleport(base);
-            }
+            for (PropPart part : session.propParts) if (part != null) part.moveTo(base, session.yaw);
             // Carried on the same terms as everything else. A hand left behind
             // would hold the sword where its owner was standing a moment ago,
             // which is the drift the lead exists to cancel.
@@ -3899,9 +3950,9 @@ public final class EmoteDirector implements Listener {
         List<EmoteStore.Prop> props = session.emote.props;
         if (props == null) return;
         for (int i = 0; i < props.size() && i < session.propParts.size(); i++) {
-            ItemDisplay display = session.propParts.get(i);
+            PropPart part = session.propParts.get(i);
             EmoteStore.Prop prop = props.get(i);
-            if (display == null || !display.isValid() || prop == null) continue;
+            if (part == null || !part.valid() || prop == null) continue;
 
             String attach = prop.attach == null ? "none" : prop.attach;
             Matrix4f m = new Matrix4f();
@@ -3929,6 +3980,17 @@ public final class EmoteDirector implements Listener {
             }
 
             applyPropStep(m, prop, t);
+
+            if (part.rig != null) {
+                Matrix4f parent = new Matrix4f().scale(PLAYER_SCALE).mul(m);
+                part.rig.pose(parent);
+                java.util.Optional<Placement> placement = part.rig.placement();
+                if (placement.isPresent()) placement.get().seek(t);
+                continue;
+            }
+
+            ItemDisplay display = part.display;
+            if (display == null || !display.isValid()) continue;
 
             Matrix4f out = new Matrix4f();
             if (session.yaw != 0f) out.rotateY((float) Math.toRadians(-session.yaw));
