@@ -623,6 +623,7 @@ hatchback:
     vehicle-status:
       enabled: true
       max-health: 100
+      durability: 1          # 2 takes half damage; 0.5 takes double damage
       damage-multiplier: 0.45
       minimum-collision-severity: 3.5
       disabled-health-percent: 0
@@ -632,7 +633,9 @@ hatchback:
       part-detach-severity: 12
       part-despawn-seconds: 30
       crash-force-multiplier: 1
-      broken-part-lean-degrees: 10
+      wheel-detach-severity: 18
+      mechanical-damage: 1
+      region-damage-multiplier: 1
       status:
         enabled: false
         interval-seconds: 1

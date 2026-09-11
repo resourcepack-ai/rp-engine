@@ -14,6 +14,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Transformation;
 import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -216,6 +217,7 @@ public final class RigCarrier {
         List<String> still = new ArrayList<>();
         Map<String, List<String>> bones = new LinkedHashMap<>();
         Map<String, float[]> pivots = new LinkedHashMap<>();
+        Map<String, Vector3f> centres = new LinkedHashMap<>();
         for (ItemDisplay part : parts) {
             ids.add(part.getUniqueId().toString());
             // A carried rig is derived from its owner (vehicle or emote) and
@@ -227,6 +229,15 @@ public final class RigCarrier {
             Integer index = part.getPersistentDataContainer().get(partKey, PersistentDataType.INTEGER);
             if (index != null && index >= 0 && index < rig.parts.size()) {
                 RigStore.Part definition = rig.parts.get(index);
+                if (definition.pivot != null && definition.pivot.length >= 3) {
+                    float[] p = definition.pivot;
+                    float[] a = definition.anchor == null ? new float[3] : definition.anchor;
+                    // ItemDisplay applies a half-turn to the item after its matrix.
+                    centres.put(part.getUniqueId().toString(), new Vector3f(
+                            -(p[0] - a[0] - 8) / 16f,
+                            (p[1] - a[1] - 8) / 16f,
+                            -(p[2] - a[2] - 8) / 16f));
+                }
                 // A display is filed under its WHOLE lineage, not only the bone
                 // that owns it. A bone whose children are all bones owns no
                 // display of its own, so filing by the owner alone left every
@@ -264,7 +275,7 @@ public final class RigCarrier {
         // will accept — see RigAnimator.track's Interaction arm.
         animator.track(yawHost);
 
-        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, bones, pivots,
+        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, bones, pivots, centres,
                 scale, parts.size());
         // **The heading goes on HERE, not left to the caller.** The parts are
         // spawned at yaw zero deliberately (see above), and a carried part's
@@ -292,6 +303,7 @@ public final class RigCarrier {
         private final List<String> stillIds;
         private final Map<String, List<String>> boneIds;
         private final Map<String, float[]> bonePivots;
+        private final Map<String, Vector3f> centres;
         private final float scale;
         private final int size;
 
@@ -300,12 +312,14 @@ public final class RigCarrier {
 
         private CarriedRig(UUID anchorId, List<String> partIds, List<String> stillIds,
                            Map<String, List<String>> boneIds, Map<String, float[]> bonePivots,
+                           Map<String, Vector3f> centres,
                            float scale, int size) {
             this.anchorId = anchorId;
             this.partIds = partIds;
             this.stillIds = stillIds;
             this.boneIds = boneIds;
             this.bonePivots = bonePivots;
+            this.centres = centres;
             this.scale = scale;
             this.size = size;
         }
@@ -418,6 +432,21 @@ public final class RigCarrier {
                 stillIds.remove(id);
                 animator.bones().detach(display);
                 animator.untrack(display.getUniqueId());
+                Vector3f centre = centres.remove(id);
+                if (centre != null) {
+                    Transformation pose = display.getTransformation();
+                    Matrix4f matrix = new Matrix4f().translation(pose.getTranslation())
+                            .rotate(pose.getLeftRotation()).scale(pose.getScale()).rotate(pose.getRightRotation());
+                    Vector3f offset = matrix.transformPosition(new Vector3f(centre));
+                    Location origin = display.getLocation();
+                    double yaw = Math.toRadians(origin.getYaw());
+                    origin.add(offset.x * Math.cos(yaw) - offset.z * Math.sin(yaw), offset.y,
+                            offset.x * Math.sin(yaw) + offset.z * Math.cos(yaw));
+                    // Preserve every vertex's world position while moving the physics origin to the part.
+                    matrix.translateLocal(-offset.x, -offset.y, -offset.z);
+                    display.setTransformation(RigMath.toTransformation(matrix));
+                    display.teleport(origin);
+                }
                 display.getPersistentDataContainer().remove(modelKey);
                 display.getPersistentDataContainer().remove(partKey);
                 display.getPersistentDataContainer().remove(yawHostKey);
