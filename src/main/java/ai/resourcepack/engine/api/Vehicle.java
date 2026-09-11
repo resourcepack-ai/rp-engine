@@ -572,6 +572,43 @@ public interface Vehicle {
     void setHandling(double speedFactor, double turnFactor);
 
     /**
+     * What is mechanically wrong with this vehicle, as the handling model
+     * reads it. {@link VehicleDamage#NONE} for one with nothing wrong.
+     */
+    VehicleDamage damage();
+
+    /**
+     * Tells the handling model what state the machine is in.
+     *
+     * <p>The asymmetric counterpart to {@link #setHandling}, and the two
+     * compose. That one scales what the vehicle may do and leaves it driving
+     * straight; this one describes a machine with a corner missing, and what
+     * follows — the lean, the pull, the understeer where the tyre is gone, the
+     * drag that eventually stops it — is the ordinary physics reading the
+     * ordinary tyres, not an effect drawn on top. So a rider in it is thrown
+     * about by it, a slope still tilts it, and a vehicle that can no longer
+     * turn genuinely cannot turn.
+     *
+     * <p>See {@link VehicleDamage} for what it can say. {@code null} is
+     * {@link VehicleDamage#NONE}.
+     *
+     * <p><strong>Not remembered</strong>, like {@link #setSpeedLimit} and
+     * unlike {@link #setEnabled}: a vehicle found again after a chunk unload or
+     * a restart is sound until something says otherwise. Anything that should
+     * outlive the session belongs in {@link #data()}, re-asserted when the
+     * vehicle is adopted — which also means a plugin may call this every tick
+     * with the same value, and should, because rebuilding a rig is what puts a
+     * broken vehicle back on its feet.
+     *
+     * <p>This does not take a vehicle's art away and never detaches anything;
+     * {@link #detachPart} is that, and the two are deliberately separate. A
+     * vehicle can limp with all four wheels still bolted to it — which is what
+     * a bent axle is — and a wheel can be thrown without the handling being
+     * told, which is what a cosmetic one is.
+     */
+    void setDamage(VehicleDamage damage);
+
+    /**
      * Shows one legacy-colour status line above every occupant's hotbar.
      *
      * <p>Uses the vehicle's existing status surface and briefly yields its

@@ -8,6 +8,8 @@ import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleInput;
+import ai.resourcepack.engine.api.VehicleCorner;
+import ai.resourcepack.engine.api.VehicleDamage;
 import ai.resourcepack.engine.api.VehicleImpactArea;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
@@ -369,6 +371,17 @@ public final class VehicleRuntime implements Listener {
      * sideways for ever. A tenth of a block is under one pixel of model.
      */
     private static final double VERTICAL_TOUCH = 0.1;
+
+    /**
+     * How uneven the ground under the four wheels has to be, in blocks, before
+     * a landing is reported as having come down on a CORNER rather than flat.
+     *
+     * <p>Under this the four are level enough that naming one of them would be
+     * naming whichever the loop happened to see first — which is always the
+     * same one, so every flat landing in the game would report a front-left
+     * impact. Roughly a wheel's worth. See {@code landingContact}.
+     */
+    private static final double LANDING_CORNER = 0.35;
 
     /**
      * How far past itself a vehicle looks for placed models, in blocks.
@@ -1941,6 +1954,19 @@ public final class VehicleRuntime implements Listener {
         private double postureRoll;
 
         /**
+         * What a plugin says is mechanically wrong with it —
+         * {@link Vehicle#setDamage}. Not persisted, for the same reason as the
+         * three above, and re-asserted by whoever imposed it.
+         *
+         * <p>Unlike those, it is handed to the physics rather than folded into
+         * {@link #driven}: the handling penalty is a pair of scalars on the
+         * vehicle's own figures, which {@link #redrive} can express as a
+         * modified {@link VehicleInfo}, and this is not — it is asymmetric, so
+         * it has to reach the model at the six places that know left from right.
+         */
+        private VehicleDamage damage = VehicleDamage.NONE;
+
+        /**
          * A plugin's rate of descent, or NaN for none —
          * {@link Vehicle#setDescent}. Not persisted, for the same reason.
          */
@@ -2980,6 +3006,14 @@ public final class VehicleRuntime implements Listener {
             postureRoll = Double.isFinite(roll) ? Math.max(-60, Math.min(60, roll)) : 0;
         }
 
+        VehicleDamage damage() {
+            return damage;
+        }
+
+        void setDamage(VehicleDamage wanted) {
+            damage = wanted == null ? VehicleDamage.NONE : wanted;
+        }
+
         void setHandling(double speed, double turn) {
             double wantedSpeed = Double.isFinite(speed) ? Math.max(0.05, Math.min(1, speed)) : 1;
             double wantedTurn = Double.isFinite(turn) ? Math.max(0.05, Math.min(1, turn)) : 1;
@@ -3195,7 +3229,7 @@ public final class VehicleRuntime implements Listener {
             VehiclePhysics.Surroundings around = surroundings();
             // `driven` rather than `info`: the same vehicle with a plugin's
             // speed limit applied, or `info` itself when there is none.
-            VehiclePhysics.Step step = VehiclePhysics.step(driven, state, demand, around, DT);
+            VehiclePhysics.Step step = VehiclePhysics.step(driven, state, demand, around, DT, damage);
             state = step.state();
             if (step.moves()) {
                 // Asked before the world is: a listener sees where the
@@ -4120,12 +4154,80 @@ public final class VehicleRuntime implements Listener {
             VehicleImpactArea area = cause == VehicleImpactEvent.Cause.LANDING
                     ? VehicleImpactArea.UNDERSIDE
                     : impactArea(body(), normal.getX(), normal.getZ());
+            Vector where = cause == VehicleImpactEvent.Cause.LANDING
+                    ? landingContact()
+                    : faceContact(normal);
             VehicleImpactEvent.Outcome outcome = new VehicleImpactEvent.Outcome(
                     handle(chassisId), oldVelocity, change, normal, closing,
                     Math.max(0.1, info.weight()) * change.length(),
-                    after.yawRate() - before.yawRate(), area);
+                    after.yawRate() - before.yawRate(), area, where);
             plugin.getServer().getPluginManager().callEvent(
                     new VehicleImpactEvent(cause, point, outcome, null));
+        }
+
+        /**
+         * The middle of whichever side a world-space normal points out of, in
+         * the body's own frame.
+         *
+         * <p>The honest answer for a wall, and deliberately no better than
+         * that: the block collision is resolved per world axis
+         * ({@code alongX}/{@code alongZ} above), so nothing in that path knows
+         * where ALONG the side the vehicle touched. Reporting a corner here
+         * would be inventing one, and a listener deciding which wheel to break
+         * would then break an arbitrary one every time a wing brushed a
+         * building.
+         */
+        private Vector faceContact(Vector worldNormal) {
+            double[] forward = VehiclePhysics.forward(state.yaw());
+            double[] right = VehiclePhysics.right(state.yaw());
+            double across = worldNormal.getX() * right[0] + worldNormal.getZ() * right[1];
+            double along = worldNormal.getX() * forward[0] + worldNormal.getZ() * forward[1];
+            VehicleHitbox box = info.hitbox();
+            return new Vector(across * box.width() / 2,
+                    worldNormal.getY() * box.height() / 2,
+                    along * box.length() / 2);
+        }
+
+        /**
+         * The corner that reached the ground first, in the body's own frame —
+         * or the middle of the vehicle when it came down flat.
+         *
+         * <p>The ground under each wheel is already sampled every tick for the
+         * body's pitch and roll, and the highest of those four is the one the
+         * vehicle arrived on. It costs a second sample here because a landing
+         * is one tick in a flight and the reads are three blocks apiece.
+         *
+         * <p><strong>{@link VehicleCorner}'s order is {@link #wheelHeights()}'s
+         * order</strong>, front-left, front-right, rear-left, rear-right, which
+         * is what makes the index the corner. The two are written down together
+         * on purpose; a mismatch would drop the diagonally opposite wheel with
+         * nothing to report it.
+         */
+        private Vector landingContact() {
+            double[] heights = wheelHeights();
+            int first = 0;
+            double highest = Double.NEGATIVE_INFINITY;
+            double lowest = Double.POSITIVE_INFINITY;
+            for (int wheel = 0; wheel < heights.length; wheel++) {
+                double height = Double.isNaN(heights[wheel]) ? -VehiclePhysics.WHEEL_DROOP : heights[wheel];
+                if (height > highest) {
+                    highest = height;
+                    first = wheel;
+                }
+                lowest = Math.min(lowest, height);
+            }
+            // Flat, within a tyre's worth. A belly landing has no corner, and
+            // picking the first index would quietly make every one of them a
+            // front-left one.
+            if (!(highest - lowest > LANDING_CORNER)) {
+                return new Vector();
+            }
+            VehicleCorner corner = VehicleCorner.values()[first];
+            VehicleHitbox box = info.hitbox();
+            return new Vector(
+                    (corner.left() ? -1 : 1) * VehiclePhysics.track(box) / 2,
+                    0,
+                    (corner.front() ? 1 : -1) * VehiclePhysics.wheelbase(box) / 2);
         }
 
         /**
@@ -4518,15 +4620,41 @@ public final class VehicleRuntime implements Listener {
                         handle(chassisId), new Vector(mine.vx(), 0, mine.vz()),
                         new Vector(exchange.a().dvx(), 0, exchange.a().dvz()), normal,
                         exchange.closingSpeed(), exchange.normalImpulse(), exchange.a().dspin(),
-                        impactArea(mine, contact.nx(), contact.nz()));
+                        impactArea(mine, contact.nx(), contact.nz()),
+                        bodyContact(mine, contact.px(), contact.pz(), point.getY() - at.getY()));
                 VehicleImpactEvent.Outcome second = new VehicleImpactEvent.Outcome(
                         handle(other.chassisId), new Vector(theirs.vx(), 0, theirs.vz()),
                         new Vector(exchange.b().dvx(), 0, exchange.b().dvz()), normal.clone().multiply(-1),
                         exchange.closingSpeed(), exchange.normalImpulse(), exchange.b().dspin(),
-                        impactArea(theirs, -contact.nx(), -contact.nz()));
+                        impactArea(theirs, -contact.nx(), -contact.nz()),
+                        bodyContact(theirs, contact.px(), contact.pz(), point.getY() - other.at.getY()));
                 plugin.getServer().getPluginManager().callEvent(
                         new VehicleImpactEvent(VehicleImpactEvent.Cause.VEHICLE, point, first, second));
             }
+        }
+
+        /**
+         * The solver's contact point, read in {@code body}'s own frame.
+         *
+         * <p>The exact one — the point the impulse and the spin were both
+         * computed about, so a listener asking "which corner took that" and the
+         * rotation the vehicle actually came away with are answering to the
+         * same place. That is the whole reason this is worth carrying out to
+         * the API: everything else about a collision can be re-derived from
+         * what was already published, and this cannot.
+         *
+         * <p>Static, and taking the body rather than reading {@code this},
+         * because it is asked twice per collision — once for each participant,
+         * about one point.
+         */
+        private static Vector bodyContact(VehicleImpacts.Body body, double px, double pz, double dy) {
+            double dx = px - body.x();
+            double dz = pz - body.z();
+            double[] forward = VehiclePhysics.forward(body.yaw());
+            double[] right = VehiclePhysics.right(body.yaw());
+            return new Vector(dx * right[0] + dz * right[1],
+                    Double.isFinite(dy) ? dy : 0,
+                    dx * forward[0] + dz * forward[1]);
         }
 
         /** Which side of {@code body} faces a world-space contact normal. */
@@ -5182,6 +5310,20 @@ public final class VehicleRuntime implements Listener {
         public void setPosture(double pitch, double roll) {
             Ride ride = ride();
             if (ride != null) ride.setPosture(pitch, roll);
+        }
+
+        @Override
+        public VehicleDamage damage() {
+            Ride ride = ride();
+            return ride == null ? VehicleDamage.NONE : ride.damage();
+        }
+
+        @Override
+        public void setDamage(VehicleDamage damage) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.setDamage(damage);
+            }
         }
 
         @Override
