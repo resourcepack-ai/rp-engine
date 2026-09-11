@@ -260,6 +260,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * have studio push them a pack they are already wearing.
      */
     private final Map<UUID, Long> joinedAt = new ConcurrentHashMap<>();
+
+    /**
+     * The studio pack each player has been pushed, so it survives a rebuild.
+     *
+     * <p>A push is not a one-off send: it is a bundle the player goes on
+     * holding until the sync ends. Anything that re-applies a stack —
+     * a content reload, a skin bake, another player joining and provoking one
+     * — asks {@link #desiredFor} what somebody should be wearing, and an
+     * answer that left the push out took it back off them. That is exactly
+     * what happened: one player syncs, a stranger joins with a skin the pack
+     * has no rig for, the rebuild that provokes re-applies everybody's stack,
+     * and the pack under test vanishes from the client of the person watching
+     * it.
+     *
+     * <p>Keyed by uuid and emptied on quit, like every other per-player map
+     * here; a client drops its packs on disconnect, so a returning player is
+     * pushed to again rather than believed.
+     */
+    private final Map<UUID, BuiltPack> studioPacks = new ConcurrentHashMap<>();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -1242,18 +1261,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * against the server it will actually run on.
      */
     private void pushTo(Player player, BuiltPack pack) {
-        List<BuiltPack> stack = new ArrayList<>(desiredFor(player));
-        stack.removeIf(held -> held.bundle().equals(StudioPush.BUNDLE));
-        stack.add(pack);
-        delivery.apply(player, stack);
+        // Recorded BEFORE the send, because desiredFor is what the send is
+        // built from now. A second push replaces the first, which is the same
+        // rule the single `studio` bundle already imposed.
+        studioPacks.put(player.getUniqueId(), pack);
+        delivery.apply(player, desiredFor(player));
     }
 
     /** Takes a pushed pack back off somebody, leaving the server's own content. */
     private void unpush(String name) {
         Player player = getServer().getPlayerExact(name);
-        if (player != null) {
-            delivery.apply(player, desiredFor(player));
+        if (player == null) {
+            return;
         }
+        // Forgotten first, or desiredFor would ask for the pack this is
+        // taking off and nothing would move.
+        studioPacks.remove(player.getUniqueId());
+        delivery.apply(player, desiredFor(player));
     }
 
     /**
@@ -1307,15 +1331,24 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * than ours, so it arrives as an API rather than as a guess.
      */
     private List<BuiltPack> desiredFor(Player player) {
-        if (defaultBundle.isEmpty()) {
-            return List.of();
-        }
-        for (BuiltPack pack : built) {
-            if (pack.bundle().equals(defaultBundle)) {
-                return List.of(pack);
+        List<BuiltPack> stack = new ArrayList<>(2);
+        if (!defaultBundle.isEmpty()) {
+            for (BuiltPack pack : built) {
+                if (pack.bundle().equals(defaultBundle)) {
+                    stack.add(pack);
+                    break;
+                }
             }
         }
-        return List.of();
+        // On top of the server's own content, and on top of THEIR bundle
+        // rather than the claimer's, since somebody sharing a sync may be in a
+        // different world — so a pack under test is tried against the server it
+        // will actually run on.
+        BuiltPack pushedPack = player == null ? null : studioPacks.get(player.getUniqueId());
+        if (pushedPack != null) {
+            stack.add(pushedPack);
+        }
+        return List.copyOf(stack);
     }
 
     /**
@@ -1403,6 +1436,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+        studioPacks.remove(event.getPlayer().getUniqueId());
         if (distribution != null) {
             distribution.forget(event.getPlayer().getUniqueId());
         }
