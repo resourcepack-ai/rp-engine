@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -539,6 +540,13 @@ public final class EmoteDirector implements Listener {
         /** One static display or animated model rig per prop, index-aligned with emote.props. */
         List<PropPart> propParts = new ArrayList<>();
         /**
+         * The prop list {@link #propParts} was spawned for, and whose. A swap
+         * to an emote carrying the same models keeps the displays - see
+         * spawnProps - so this is what "the same" is judged against.
+         */
+        List<EmoteStore.Prop> propsSpawned;
+        String propsPerformer;
+        /**
          * The floating name over this participant's rig, or null.
          *
          * <p><b>Hiding the body hides the nametag with it</b>, which is the
@@ -881,6 +889,15 @@ public final class EmoteDirector implements Listener {
     private static final class PropPart {
         final ItemDisplay display;
         final RigCarrier.CarriedRig rig;
+        /**
+         * Not yet posed. A new display starts at the identity - at the rig's
+         * origin, a block up - and a first pose sent with an interpolation
+         * window glides it from there to wherever it belongs, which for a
+         * skate is a boot flying out of the hip to the foot. The first pose of
+         * a fresh part is sent with no window; every pose after it is eased
+         * like a bone's.
+         */
+        boolean fresh = true;
 
         PropPart(ItemDisplay display) {
             this.display = display;
@@ -2070,8 +2087,25 @@ public final class EmoteDirector implements Listener {
      */
     private void spawnProps(
             Player player, Session session, EmoteStore.Emote emote, Location base, String performerId) {
+        List<EmoteStore.Prop> wanted = emote.props == null
+                ? java.util.Collections.<EmoteStore.Prop>emptyList() : emote.props;
+        // <b>A swap to an emote carrying the same models keeps them.</b> The
+        // bones survive a swap - the new pose is eased onto the old one - and
+        // a prop that was removed and spawned again on every swap did not: a
+        // new display begins at the rig's origin and its first eased pose is
+        // a visible flight from there to the bone. On a vehicle whose plugin
+        // dresses its rider that is a swap every few ticks at speed, and the
+        // boots flicked off the feet and back with each one. Same model, same
+        // bone, same carrier: same display, posed on.
+        if (sameProps(session.propsSpawned, wanted) && Objects.equals(session.propsPerformer, performerId)
+                && session.propParts.size() == wanted.size()
+                && session.propParts.stream().allMatch(part -> part == null || part.valid())) {
+            return;
+        }
         for (PropPart part : session.propParts) if (part != null) part.remove();
         session.propParts = new ArrayList<>();
+        session.propsSpawned = wanted;
+        session.propsPerformer = performerId;
         for (EmoteStore.Prop prop : emote.props == null
                 ? java.util.Collections.<EmoteStore.Prop>emptyList()
                 : emote.props) {
@@ -2486,6 +2520,8 @@ public final class EmoteDirector implements Listener {
             if (display != null && display.isValid()) display.remove();
         }
         for (PropPart part : session.propParts) if (part != null) part.remove();
+        session.propsSpawned = null;
+        session.propsPerformer = null;
         // The hands are the third list, and the reason this method exists at
         // all: props were once added as a second one without it and leaked on
         // two of the three ways out.
@@ -4018,8 +4054,9 @@ public final class EmoteDirector implements Listener {
             if (next.equals(display.getTransformation())) continue;
             display.setInterpolationDelay(1);
             display.setInterpolationDelay(0);
-            display.setInterpolationDuration(ticks);
+            display.setInterpolationDuration(part.fresh ? 0 : ticks);
             display.setTransformation(next);
+            part.fresh = false;
         }
     }
 
@@ -4066,6 +4103,29 @@ public final class EmoteDirector implements Listener {
 
         float scale = prop.scale > 0 ? prop.scale : 1f;
         m.scale(scale);
+    }
+
+    /**
+     * Whether two prop lists spawn the same displays: the same models on the
+     * same bones for the same people, in the same order. Offsets and
+     * animators are not compared - those are posed, not spawned.
+     */
+    private static boolean sameProps(List<EmoteStore.Prop> a, List<EmoteStore.Prop> b) {
+        if (a == null || b == null || a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            EmoteStore.Prop x = a.get(i);
+            EmoteStore.Prop y = b.get(i);
+            if (x == null || y == null) {
+                if (x != y) return false;
+                continue;
+            }
+            if (!Objects.equals(x.modelId, y.modelId) || !Objects.equals(x.attach, y.attach)
+                    || !Objects.equals(x.performer, y.performer) || !Objects.equals(x.animation, y.animation)
+                    || x.scale != y.scale) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
