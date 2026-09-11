@@ -3053,10 +3053,15 @@ public final class VehicleRuntime implements Listener {
                     || !supportedParts.contains(name) || detachedParts().contains(name)) {
                 return false;
             }
+            Set<String> attachedBefore = new LinkedHashSet<>(rig.bones());
             List<ItemDisplay> displays = rig.detach(name);
             if (displays.isEmpty()) return false;
             Set<String> detached = new LinkedHashSet<>(detachedParts());
             detached.add(name);
+            attachedBefore.removeAll(rig.bones());
+            // A grouping bone can take declared wheels with it. Remember every
+            // bone whose geometry disappeared so damage consumers see the loss.
+            detached.addAll(attachedBefore);
             Entity chassis = chassis();
             if (chassis != null) {
                 chassis.getPersistentDataContainer().set(detachedPartsKey, PersistentDataType.STRING,
