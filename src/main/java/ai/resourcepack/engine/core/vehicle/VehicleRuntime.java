@@ -2047,13 +2047,53 @@ public final class VehicleRuntime implements Listener {
                 parts.put(part.getUniqueId(), chassisId);
             }
 
-            // An animated model first: a vehicle whose art moves is several
-            // displays the animator retimes, and a still one is a single
-            // display. Same branch, and for the same reason, as
-            // ModelPlacementListener's — which is why it is a question about
-            // the MODEL rather than about the vehicle.
-            if (!spawnRig()) {
-                art().ifPresent(this::spawnModel);
+            refreshArt();
+        }
+
+        /** Whether anybody is in any seat. */
+        private boolean occupied() {
+            for (UUID id : occupants) {
+                if (id != null) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Draws the art, or takes it away, according to whether it should be
+         * seen right now: always, unless the vehicle is WORN and somebody is
+         * in it - see {@link VehicleInfo#worn()}. Idempotent, and called from
+         * the three places the answer can change: the parts being spawned,
+         * somebody getting in, somebody getting out.
+         *
+         * <p>Taking it away is a despawn rather than an invisible item, so
+         * that an animated model's rig goes with it and nothing keeps posing
+         * displays nobody can see; spawning it again restarts its clock,
+         * which for a thing that was just stepped out of is the right frame
+         * to start on.
+         */
+        private void refreshArt() {
+            boolean hidden = info.worn() && occupied();
+            boolean drawn = modelId != null || rig != null;
+            if (hidden && drawn) {
+                removeEntity(modelId);
+                modelId = null;
+                if (rig != null) {
+                    rig.despawn();
+                    rig = null;
+                    playing = null;
+                    playable = false;
+                }
+            } else if (!hidden && !drawn) {
+                // An animated model first: a vehicle whose art moves is several
+                // displays the animator retimes, and a still one is a single
+                // display. Same branch, and for the same reason, as
+                // ModelPlacementListener's — which is why it is a question about
+                // the MODEL rather than about the vehicle.
+                if (!spawnRig()) {
+                    art().ifPresent(this::spawnModel);
+                }
             }
         }
 
@@ -2378,6 +2418,7 @@ public final class VehicleRuntime implements Listener {
             // getting into a parked vehicle would otherwise wait up to
             // PARKED_POLL_TICKS before it noticed them.
             parked = false;
+            refreshArt();
             return true;
         }
 
@@ -2407,6 +2448,10 @@ public final class VehicleRuntime implements Listener {
             if (index < 0) {
                 return;
             }
+            // A worn vehicle's art comes back the moment its last occupant
+            // is out - before the exit event, so a listener that removes the
+            // vehicle on a dismount finds a whole one to remove.
+            refreshArt();
             Player who = plugin.getServer().getPlayer(player);
             if (who != null) {
                 // After the seat is free and they are themselves again: the

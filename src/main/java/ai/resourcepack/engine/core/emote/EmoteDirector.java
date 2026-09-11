@@ -2095,7 +2095,7 @@ public final class EmoteDirector implements Listener {
                     continue;
                 }
             }
-            ItemStack item = boneItem(prop.modelId);
+            ItemStack item = propItem(prop.modelId);
             final boolean carried = session.stance();
             ItemDisplay display = base.getWorld().spawn(base, ItemDisplay.class, d -> {
                 d.setItemStack(item);
@@ -4195,6 +4195,38 @@ public final class EmoteDirector implements Listener {
         if (resolved != null) {
             rigTags = resolved;
         }
+    }
+
+    /**
+     * How a prop's {@code modelId} becomes a stack when it names one of the
+     * pack's own ITEMS ({@code namespace:path}) rather than a pushed model.
+     *
+     * <p>A pushed pack's model is reached by its carrier string, which
+     * {@link #boneItem} writes as a rig tag; an authored pack's models are
+     * reached through its items, which is a version fork the item service
+     * owns (see {@code Items.wearModel}). So the plugin hands one in, and a
+     * hand-authored emote may carry a model from its own content folder -
+     * a pair of skates on the shins - by naming the item that wears it.
+     */
+    private static volatile java.util.function.Function<String, ItemStack> propItems = id -> null;
+
+    /** Set from the plugin once the item service exists. */
+    public static void propItems(java.util.function.Function<String, ItemStack> resolver) {
+        if (resolver != null) {
+            propItems = resolver;
+        }
+    }
+
+    /** A prop's stack: the pack's own item if the id names one, else the carrier string. */
+    private static ItemStack propItem(String modelId) {
+        if (modelId != null && modelId.indexOf(':') > 0) {
+            ItemStack own = propItems.apply(modelId);
+            if (own != null) {
+                own.setAmount(1);
+                return own;
+            }
+        }
+        return boneItem(modelId);
     }
 
     /** How long a carried display is given to cover a move. */

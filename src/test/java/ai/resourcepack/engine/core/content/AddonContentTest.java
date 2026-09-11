@@ -135,15 +135,16 @@ class AddonContentTest {
     }
 
     /**
-     * The rollerskates: the fifth addon, and the one where every pose is TWO
-     * animations - a rider emote and a model animation of the same name and
-     * length, because the skates are the vehicle's model and the feet are
-     * what moves. The addon's own verify-content.py checks the pairing from
-     * the plugin's side; this checks that the engine's loaders read both
-     * halves clean, which that script cannot.
+     * The rollerskates: the fifth addon, and the one where the rider WEARS
+     * the vehicle. Its model is hidden while occupied ({@code worn: true})
+     * and every rider emote carries the two skates as props on the shins,
+     * naming the addon's own items - two engine doors that opened for it.
+     * The addon's own verify-content.py checks the pairing from the plugin's
+     * side; this checks that the engine's loaders read all of it clean,
+     * which that script cannot.
      */
     @Test
-    void theRollerskatesContentLoadsClean() throws Exception {
+    void theRollerskatesContentLoadsClean() {
         Path content = ADDONS.resolve("rollerskates/src/main/resources/content");
         Assumptions.assumeTrue(Files.isDirectory(content), "no rpe-addons checkout beside the engine");
 
@@ -154,7 +155,7 @@ class AddonContentTest {
         }
         assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).isEmpty(), "content errors: " + report.diagnostics());
         assertEquals(1, report.packs().size());
-        assertEquals(1, report.definitions(ContentKind.ITEM).size());
+        assertEquals(3, report.definitions(ContentKind.ITEM).size(), "the pair and one skate each");
         assertEquals(1, report.definitions(ContentKind.VEHICLE).size());
 
         VehicleDefinitions.Result vehicles = VehicleDefinitions.parse(report);
@@ -163,28 +164,18 @@ class AddonContentTest {
         }
         assertEquals(1, vehicles.vehicles().size(), "the skates should parse: " + vehicles.diagnostics());
         assertTrue(vehicles.vehicles().values().iterator().next().jumps(), "space is a jump");
+        assertTrue(vehicles.vehicles().values().iterator().next().worn(), "the pair is worn, not ridden");
 
         AuthoredEmotes.Result emotes = AuthoredEmotes.parse(report);
         for (Diagnostic diagnostic : emotes.diagnostics()) {
             System.out.println("rollerskates emote: " + diagnostic);
         }
         assertTrue(emotes.diagnostics().isEmpty(), "emote problems: " + emotes.diagnostics());
-
-        // Every emote has a skate animation of the same name, same length.
-        JsonObject model;
-        try (var reader = Files.newBufferedReader(content.resolve("rollerskates/assets/models/rollerskates.json"), StandardCharsets.UTF_8)) {
-            model = JsonParser.parseReader(reader).getAsJsonObject();
-        }
-        java.util.Map<String, Double> lengths = new java.util.HashMap<>();
-        for (var element : model.getAsJsonArray("animations")) {
-            JsonObject animation = element.getAsJsonObject();
-            lengths.put(animation.get("name").getAsString(), animation.get("length").getAsDouble());
-        }
         Set<String> names = emotes.byNamespace().get("rollerskates").keySet();
         assertTrue(names.size() >= 17, "emotes: " + names);
-        for (String emote : names) {
-            String name = emote.substring("rollerskates_".length());
-            assertTrue(lengths.containsKey(name), "no skate animation for " + emote);
+        for (String wanted : new String[] {"rollerskates_stride", "rollerskates_sprint", "rollerskates_frontflip",
+                "rollerskates_backflip", "rollerskates_crossover_l", "rollerskates_duck"}) {
+            assertTrue(names.contains(wanted), "no emote " + wanted);
         }
     }
 

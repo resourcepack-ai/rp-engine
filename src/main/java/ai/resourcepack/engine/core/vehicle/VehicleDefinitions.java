@@ -144,6 +144,9 @@ public final class VehicleDefinitions {
         // See VehicleInfo.wallRide: a decision about what the vehicle is,
         // rather than a cost, which is why it is opt-in.
         boolean wallRide = body.bool("wall-ride").orElse(false);
+        // See VehicleInfo.worn: the model is not drawn while somebody is in
+        // it, because the seat's emotes carry it on the body instead.
+        boolean worn = body.bool("worn").orElse(false);
         // 0 means "the engine's own answer", which is what every vehicle
         // written before this had.
         double coast = body.decimal("coast").orElse(0.0);
@@ -304,6 +307,7 @@ public final class VehicleDefinitions {
                 .withTurnInPlace(turnInPlace)
                 .withAnimationFollowsSpeed(animationFollowsSpeed)
                 .withWallRide(wallRide)
+                .withWorn(worn)
                 .withCoast(coast)
                 .withBail(bail)
                 .withPermission(permission)

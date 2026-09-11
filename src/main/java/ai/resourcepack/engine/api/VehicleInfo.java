@@ -56,6 +56,7 @@ public final class VehicleInfo {
     private final boolean capes;
     private final boolean animationFollowsSpeed;
     private final boolean wallRide;
+    private final boolean worn;
     private final boolean speedometer;
     private final String permission;
     private final double coast;
@@ -67,13 +68,14 @@ public final class VehicleInfo {
                         Map<VehicleState, String> animations, List<VehicleEmitter> emitters,
                         double scale, boolean jumps, boolean turnInPlace,
                         Map<VehicleState, String> sounds, boolean capes,
-                        boolean animationFollowsSpeed, boolean wallRide, boolean speedometer,
+                        boolean animationFollowsSpeed, boolean wallRide, boolean worn, boolean speedometer,
                         double coast, VehicleBail bail, String permission) {
         this.permission = permission == null || permission.isBlank() ? null : permission;
         this.coast = Double.isFinite(coast) && coast >= 0 ? coast : 0;
         this.bail = bail;
         this.animationFollowsSpeed = animationFollowsSpeed;
         this.wallRide = wallRide;
+        this.worn = worn;
         this.speedometer = speedometer;
         this.id = id;
         this.model = model;
@@ -129,7 +131,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true, 0, null, null);
+                false, false, false, true, 0, null, null);
     }
 
     /**
@@ -166,7 +168,7 @@ public final class VehicleInfo {
                 seats == null ? List.of() : List.copyOf(seats),
                 copyAnimations(animations), copyEmitters(emitters), 1, false, false,
                 Collections.<VehicleState, String>emptyMap(), true,
-                false, false, true, 0, null, null);
+                false, false, false, true, 0, null, null);
     }
 
     /**
@@ -355,7 +357,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -372,7 +374,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -390,7 +392,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                copy, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -489,7 +491,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail,
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail,
                 permission);
     }
 
@@ -500,7 +502,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -522,7 +524,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, showing (or not) its driver's speed. See {@link #speedometer()}. */
@@ -532,7 +534,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
@@ -542,7 +544,36 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+    }
+
+    /**
+     * Whether this vehicle is WORN rather than ridden: its model is not drawn
+     * while anybody is in it.
+     *
+     * <p>A pair of rollerskates, a jetpack, a horse costume - a vehicle whose
+     * art belongs on the occupant's body rather than under it. The seat's
+     * emotes carry the art instead, as props attached to the rig's bones (see
+     * FORMAT.md, "Emotes"), so it moves with the legs the way the legs do and
+     * the vehicle's own model would only ever be a second copy standing on the
+     * floor. Empty, it is drawn as normal: a pair of skates left in the road is
+     * a thing you can see and step into.
+     *
+     * <p>Off by default, for the same reason {@link #wallRide()} is: it is a
+     * decision about what the vehicle is.
+     */
+    public boolean worn() {
+        return worn;
+    }
+
+    /** The same vehicle, worn (or not). See {@link #worn()}. */
+    public VehicleInfo withWorn(boolean worn) {
+        if (worn == this.worn) {
+            return this;
+        }
+        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
@@ -552,7 +583,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -562,7 +593,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -585,7 +616,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -612,7 +643,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
@@ -638,7 +669,7 @@ public final class VehicleInfo {
         }
         return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
     }
 
     /**
