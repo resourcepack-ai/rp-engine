@@ -623,17 +623,18 @@ hatchback:
     vehicle-status:
       enabled: true
       max-health: 100
-      damage-multiplier: 1
-      minimum-collision-severity: 3
-      disabled-health-percent: 20
+      damage-multiplier: 0.45
+      minimum-collision-severity: 3.5
+      disabled-health-percent: 0
       disable-at-threshold: true
-      detachable-parts: [hood, left_door]
-      part-detach-severity: 9
-      part-despawn-seconds: 20
+      detachable-parts: [hood, left_door, front_left_wheel]
+      wheel-parts: [front_left_wheel]
+      part-detach-severity: 12
+      part-despawn-seconds: 30
       crash-force-multiplier: 1
-      broken-part-lean-degrees: 12
+      broken-part-lean-degrees: 10
       status:
-        enabled: true
+        enabled: false
         interval-seconds: 1
         format: "&cHealth {health}/{max_health} &7({health_percent}%) {state}"
 ```
