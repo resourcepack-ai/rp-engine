@@ -631,6 +631,7 @@ hatchback:
       part-detach-severity: 9
       part-despawn-seconds: 20
       crash-force-multiplier: 1
+      broken-part-lean-degrees: 12
       status:
         enabled: true
         interval-seconds: 1

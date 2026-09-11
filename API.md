@@ -236,6 +236,21 @@ that fact on the chassis, gives its displays a temporary vanilla-physics host,
 and cleans both up after the supplied lifetime. `detachedParts()` is the
 persistent read side. A single-display model has no supported detachable parts.
 
+A display is filed under **every** bone in its lineage, so a grouping bone — a
+`hood` over a left and a right half — is a name `parts()` offers and
+`detachPart` accepts, taking everything beneath it. `partOffset(name)` says
+where a part sits on the body in blocks, in the vehicle's own frame (`x` right,
+`y` up, `z` forward), which is what lets an addon ask which part is nearest the
+corner that was hit rather than reading the answer out of the part's name. It
+keeps answering after that part has been detached.
+
+`setPosture(pitch, roll)` adds a standing lean to whatever attitude the physics
+computed, for showing that something structural has gone; it is drawn, not
+driven, so a leaning vehicle does not slide. `setHandling(speedFactor,
+turnFactor)` scales what the vehicle can do as fractions of its definition,
+applied through the same path as `setSpeedLimit`. Neither is persisted — an
+addon re-asserts them from whatever it does persist.
+
 Vehicle definitions can carry opaque `addons:` blocks. Read one with
 `vehicle.info().addon("my-addon")`; the engine transports it unchanged through
 authored YAML, Studio pushes and temporary edit round-trips but does not

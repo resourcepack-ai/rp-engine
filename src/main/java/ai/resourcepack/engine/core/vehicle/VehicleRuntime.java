@@ -1923,6 +1923,18 @@ public final class VehicleRuntime implements Listener {
         private double speedLimit = Double.NaN;
 
         /**
+         * A plugin's handling penalty and standing lean — {@link Vehicle#setHandling}
+         * and {@link Vehicle#setPosture}. Not persisted either: what caused
+         * them is, so whatever imposed them re-imposes them on the next tick
+         * after a reload rather than the engine remembering a number it cannot
+         * explain.
+         */
+        private double speedFactor = 1;
+        private double turnFactor = 1;
+        private double posturePitch;
+        private double postureRoll;
+
+        /**
          * A plugin's rate of descent, or NaN for none —
          * {@link Vehicle#setDescent}. Not persisted, for the same reason.
          */
@@ -2679,6 +2691,15 @@ public final class VehicleRuntime implements Listener {
             if (!Double.isNaN(speedLimit)) {
                 wanted = wanted.withSpeed(Math.min(speedLimit, info.speed()));
             }
+            // After the speed limit, so a damaged vehicle is a fraction of
+            // whatever it was allowed to do rather than of what its definition
+            // said — the two overrides compose instead of racing.
+            if (speedFactor < 1) {
+                wanted = wanted.withSpeed(wanted.speed() * speedFactor);
+            }
+            if (turnFactor < 1) {
+                wanted = wanted.withTurnSpeed(wanted.turnSpeed() * turnFactor);
+            }
             if (!Double.isNaN(descent)) {
                 wanted = wanted.withFlight(wanted.flight().withDescent(descent));
             }
@@ -2921,6 +2942,45 @@ public final class VehicleRuntime implements Listener {
                     horizontal[1] + delta.getZ(), spin);
             bumped = true;
             parked = false;
+        }
+
+        /**
+         * A bone's pivot as a body-frame offset in blocks.
+         *
+         * <p>The same conversion the seats and emitters use — x mirrored, y
+         * straight up, z forward from the model's centre — because a part and a
+         * seat are the same question asked about the same model, and a second
+         * derivation is a second chance to get the mirroring wrong on the axis
+         * nobody checks.
+         */
+        Vector partOffset(String name) {
+            float[] pivot = rig == null || name == null ? null : rig.pivotOf(name);
+            if (pivot == null || pivot.length < 3) return null;
+            for (float value : pivot) {
+                if (!Float.isFinite(value)) return null;
+            }
+            double scale = info.scale();
+            return new Vector(
+                    -(pivot[0] - 8) / 16.0 * scale,
+                    pivot[1] / 16.0 * scale,
+                    (pivot[2] - 8) / 16.0 * scale);
+        }
+
+        void setPosture(double pitch, double roll) {
+            // Bounded so a plugin cannot park a vehicle on its roof and strand
+            // whoever is sitting in it: the rider absorbs some of the body's
+            // lean, and past a right angle that stops meaning anything.
+            posturePitch = Double.isFinite(pitch) ? Math.max(-60, Math.min(60, pitch)) : 0;
+            postureRoll = Double.isFinite(roll) ? Math.max(-60, Math.min(60, roll)) : 0;
+        }
+
+        void setHandling(double speed, double turn) {
+            double wantedSpeed = Double.isFinite(speed) ? Math.max(0.05, Math.min(1, speed)) : 1;
+            double wantedTurn = Double.isFinite(turn) ? Math.max(0.05, Math.min(1, turn)) : 1;
+            if (wantedSpeed == speedFactor && wantedTurn == turnFactor) return;
+            speedFactor = wantedSpeed;
+            turnFactor = wantedTurn;
+            redrive();
         }
 
         Set<String> detachedParts() {
@@ -4743,7 +4803,11 @@ public final class VehicleRuntime implements Listener {
                 // and roll go into every part's matrix, ahead of its
                 // animation, so a spinning wheel spins on a tilted car.
                 rig.moveTo(modelAnchor(), modelYaw());
-                rig.tilt((float) state.pitch(), (float) state.roll());
+                // The standing lean is ADDED to the computed attitude rather
+                // than replacing it, so a vehicle resting on a broken axle
+                // still squats over bumps and leans into corners — around the
+                // angle it now sits at.
+                rig.tilt((float) (state.pitch() + posturePitch), (float) (state.roll() + postureRoll));
             }
 
             Entity model = modelId == null ? null : plugin.getServer().getEntity(modelId);
@@ -5100,6 +5164,24 @@ public final class VehicleRuntime implements Listener {
         public List<String> parts() {
             Ride ride = ride();
             return ride == null ? List.of() : List.copyOf(ride.supportedParts);
+        }
+
+        @Override
+        public Vector partOffset(String part) {
+            Ride ride = ride();
+            return ride == null ? null : ride.partOffset(part);
+        }
+
+        @Override
+        public void setPosture(double pitch, double roll) {
+            Ride ride = ride();
+            if (ride != null) ride.setPosture(pitch, roll);
+        }
+
+        @Override
+        public void setHandling(double speedFactor, double turnFactor) {
+            Ride ride = ride();
+            if (ride != null) ride.setHandling(speedFactor, turnFactor);
         }
 
         @Override

@@ -168,6 +168,20 @@ public final class VehicleInfo {
     }
 
     /**
+     * Carries this vehicle's addon blocks onto a rebuilt copy.
+     *
+     * <p>**Every {@code with*} below goes through this**, because the
+     * constructor they rebuild through cannot see the addon map and leaves it
+     * empty. Without it, the first {@link Vehicle#setSpeedLimit} on a vehicle
+     * silently emptied its addon configuration — the copy is what the physics
+     * then drives, so an addon reading its own block off that copy would find
+     * nothing and quietly stop working, with no error at either end.
+     */
+    private VehicleInfo keepAddons(VehicleInfo rebuilt) {
+        return addons.isEmpty() || rebuilt == this ? rebuilt : new VehicleInfo(rebuilt, addons);
+    }
+
+    /**
      * Engine internal; built by the vehicle loader.
      *
      * <p>The arity without a {@link VehicleFlight} flies the way every air
@@ -424,9 +438,9 @@ public final class VehicleInfo {
         if (!Double.isFinite(scale) || scale <= 0 || scale == this.scale) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -441,9 +455,9 @@ public final class VehicleInfo {
         if (turnInPlace == this.turnInPlace) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -459,9 +473,9 @@ public final class VehicleInfo {
         if (copy.equals(this.sounds)) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                copy, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                copy, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -558,10 +572,10 @@ public final class VehicleInfo {
         if (java.util.Objects.equals(permission, this.permission)) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
                 sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail,
-                permission);
+                permission));
     }
 
     /** The same vehicle, coasting like that. See {@link #coast()}. */
@@ -569,9 +583,9 @@ public final class VehicleInfo {
         if (coast == this.coast) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -591,9 +605,9 @@ public final class VehicleInfo {
         if (bail == this.bail) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /** The same vehicle, showing (or not) its driver's speed. See {@link #speedometer()}. */
@@ -601,9 +615,9 @@ public final class VehicleInfo {
         if (speedometer == this.speedometer) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /** The same vehicle, able (or not) to ride a wall. See {@link #wallRide()}. */
@@ -611,9 +625,9 @@ public final class VehicleInfo {
         if (wallRide == this.wallRide) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -640,9 +654,9 @@ public final class VehicleInfo {
         if (worn == this.worn) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /** The same vehicle, with its animation clock tied (or not) to its speed. */
@@ -650,9 +664,9 @@ public final class VehicleInfo {
         if (animationFollowsSpeed == this.animationFollowsSpeed) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /** The same vehicle, drawing (or not) its riders' capes. See {@link #capes()}. */
@@ -660,9 +674,9 @@ public final class VehicleInfo {
         if (capes == this.capes) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -683,9 +697,26 @@ public final class VehicleInfo {
         if (!Double.isFinite(speed) || speed <= 0 || speed == this.speed) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
+    }
+
+    /**
+     * The same vehicle, turning at a different rate.
+     *
+     * <p>The steering counterpart of {@link #withSpeed}, and what a plugin
+     * modelling damage applies: a car missing a front wheel should still reach
+     * its top speed downhill and should not answer the wheel properly. A rate
+     * that is not a positive finite number is ignored.
+     */
+    public VehicleInfo withTurnSpeed(double turnSpeed) {
+        if (!Double.isFinite(turnSpeed) || turnSpeed <= 0 || turnSpeed == this.turnSpeed) {
+            return this;
+        }
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+                turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -710,9 +741,9 @@ public final class VehicleInfo {
         if (jumps == this.jumps) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**
@@ -736,9 +767,9 @@ public final class VehicleInfo {
         if (flight == null || flight == this.flight) {
             return this;
         }
-        return new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
+        return keepAddons(new VehicleInfo(id, model, carrier, name, medium, weight, speed, acceleration,
                 turnSpeed, hitbox, flight, seats, animations, emitters, scale, jumps, turnInPlace,
-                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission);
+                sounds, capes, animationFollowsSpeed, wallRide, worn, speedometer, coast, bail, permission));
     }
 
     /**

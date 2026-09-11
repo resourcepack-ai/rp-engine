@@ -511,6 +511,19 @@ public interface Vehicle {
     Set<String> detachedParts();
 
     /**
+     * Where a named part sits on the body, in blocks, in the vehicle's own
+     * frame: {@code x} right, {@code y} up, {@code z} forward.
+     *
+     * <p>Scaled the way the vehicle is, so the numbers are the real distances
+     * from the chassis. What lets a localized system ask which part is nearest
+     * the corner that was hit instead of reading the answer out of the part's
+     * name — a model whose bones are called {@code bone7} has no name to read.
+     *
+     * @return null when the part is unknown or the model never said where it is
+     */
+    Vector partOffset(String part);
+
+    /**
      * Detaches one supported model part and lets it fall as temporary debris.
      *
      * <p>The display keeps the model part's current pose, receives the supplied
@@ -526,6 +539,37 @@ public interface Vehicle {
      * @return false when the part is unsupported, already detached or absent
      */
     boolean detachPart(String part, Vector velocity, double spin, long despawnTicks);
+
+    /**
+     * A standing lean added to however the body is already sitting, in degrees.
+     *
+     * <p>Pitch is nose-up, roll is right-side-down, and both are added to the
+     * attitude the physics computes rather than replacing it — so a vehicle
+     * dropped onto one corner still squats over bumps and still leans into its
+     * corners, around its new resting angle. It is drawn, not driven: the
+     * vehicle does not slide downhill because it is leaning.
+     *
+     * <p>This is how a plugin shows that something structural has gone — a
+     * missing wheel resting the axle on the floor. Values are clamped to a
+     * range that cannot put a vehicle on its roof.
+     *
+     * @param pitch degrees nose-up, 0 to sit level
+     * @param roll degrees right-side-down, 0 to sit level
+     */
+    void setPosture(double pitch, double roll);
+
+    /**
+     * Scales what the vehicle can do, as fractions of what its definition says.
+     *
+     * <p>1 and 1 is the vehicle as authored. Both are applied through the same
+     * path as {@link #setSpeedLimit}, so the physics derives braking, reversing
+     * and coasting from the reduced figures rather than having a throttle
+     * held down.
+     *
+     * @param speedFactor fraction of its top speed, clamped to (0, 1]
+     * @param turnFactor fraction of its turn rate, clamped to (0, 1]
+     */
+    void setHandling(double speedFactor, double turnFactor);
 
     /**
      * Shows one legacy-colour status line above every occupant's hotbar.
