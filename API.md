@@ -224,6 +224,24 @@ first. Each outcome carries the pre-impact velocity, actual velocity change,
 contact normal, closing speed, normal impulse, spin change and contacted body
 area. Resting overlap and contacts already moving apart do not fire.
 
+`contactOffset()` says **where on the vehicle** it landed, in that vehicle's own
+frame and in blocks (`x` right, `y` up, `z` forward) — the same frame and units
+as `partOffset`, so the two compare directly and `VehicleCorner.of(x, z)` names
+the corner. `area()` is which of four sides took it; this is where along that
+side, which is the difference between "the front" and "the front left".
+
+How exact it is depends on the cause, and a listener that treats the three
+alike will invent detail the engine does not have:
+
+| Cause | What the offset is |
+|---|---|
+| `VEHICLE` | The real contact point the impulse solver clipped out of the two boxes — the same point the spin was computed about |
+| `WORLD` | A **face**, not a point: block collision is resolved per world axis, so nothing knows where along the wing it touched |
+| `LANDING` | The corner that reached the ground first, or zero when it came down flat |
+
+A zero vector means "somewhere on it, and the engine cannot say where", not
+"dead centre".
+
 Use `applyImpulse(worldDeltaVelocity, spinDelta)` when an addon needs to alter
 the physical reaction. It accepts world blocks/second and degrees/second and
 passes through the engine's finite-value and magnitude bounds. `velocity()` is
@@ -252,6 +270,52 @@ driven, so a leaning vehicle does not slide. `setHandling(speedFactor,
 turnFactor)` scales what the vehicle can do as fractions of its definition,
 applied through the same path as `setSpeedLimit`. Neither is persisted — an
 addon re-asserts them from whatever it does persist.
+
+### Driving a damaged machine
+
+`setDamage(VehicleDamage)` tells the handling model what state the machine is
+in, and is the asymmetric counterpart to `setHandling`. That one scales what a
+vehicle may do and leaves it driving straight; this one describes a vehicle with
+a corner missing, and what follows is the ordinary physics reading the ordinary
+tyres rather than an effect drawn on top.
+
+```java
+vehicle.setDamage(VehicleDamage.builder()
+        .wheel(VehicleCorner.FRONT_LEFT, 0)     // torn off
+        .wheel(VehicleCorner.REAR_LEFT, 0.45)   // buckled
+        .enginePower(0.7)
+        .steeringPull(-3)                       // bent steering, pulling left
+        .build());
+```
+
+A wheel's condition runs from 1 (sound) to 0 (gone), and it is a number rather
+than a set of named states because where you draw the line between "damaged"
+and "critical" is yours to decide. Most of the effect arrives in the last
+quarter of a wheel's life: a soft tyre is not half a missing one.
+
+It reaches the handling model in six places and nowhere else — the steering,
+each axle's grip, the drive, the drag and the body's attitude. So a vehicle on
+three wheels leans onto the corner it lost, drags round toward it, understeers
+where the tyre is gone, and eventually has more drag than drive and stops. None
+of that is special-cased; it falls out of the same model every vehicle runs on,
+which is why a rider is thrown about by it, a slope still tilts it, and one that
+can no longer turn genuinely cannot.
+
+Two things it deliberately is not. It is **not health** — the engine has no
+opinion about how much punishment a vehicle takes or whether any of this is
+remembered; that is your model, and `data()` is where it goes. And it **never
+touches the art**: `detachPart` is that, and they are separate so a vehicle can
+limp with all four wheels bolted on (a bent axle) or throw one without the
+handling being told (a cosmetic one).
+
+Like `setSpeedLimit` and unlike `setEnabled` it is **not persisted**, so
+re-assert it when you adopt a vehicle — a rebuilt rig comes back sound. Calling
+it every tick with the same value is free.
+
+`VehicleDamage.NONE` is a vehicle exactly as its pack defines it, and is not
+merely "undamaged enough to ignore": the physics takes a different path for it,
+so a server running nothing that sets damage drives identically to one built
+before any of this existed.
 
 Vehicle definitions can carry opaque `addons:` blocks. Read one with
 `vehicle.info().addon("my-addon")`; the engine transports it unchanged through

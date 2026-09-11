@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.vehicle;
 
 import ai.resourcepack.engine.api.Vehicle;
+import ai.resourcepack.engine.api.VehicleDamage;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleInput;
@@ -546,7 +547,7 @@ public final class VehiclePhysics {
     }
 
     /**
-     * One tick.
+     * One tick of a vehicle with nothing wrong with it.
      *
      * @param info   the vehicle
      * @param state  where it is and what it is doing
@@ -555,6 +556,32 @@ public final class VehiclePhysics {
      * @param dt     seconds per tick
      */
     public static Step step(VehicleInfo info, State state, Demand demand, Surroundings around, double dt) {
+        return step(info, state, demand, around, dt, VehicleDamage.NONE);
+    }
+
+    /**
+     * One tick.
+     *
+     * <p><strong>{@code damage} reaches the handling model in six places and
+     * nowhere else</strong> — the steering, the two axles' grip, the drive, the
+     * drag and the body's attitude — because those are the six that already
+     * exist. There is no separate damaged-vehicle path and no second model: a
+     * vehicle on three wheels leans because its roll target moved and drags
+     * round because its rear grip is asymmetric, so everything downstream (the
+     * springs, the slip, the understeer bound, the way a rider sits in it)
+     * follows without being told anything.
+     *
+     * <p>With {@link VehicleDamage#NONE} every one of those six is skipped or
+     * multiplied by exactly one, so this is the method above. That is not a
+     * performance note — it is the guarantee that adding damage to the engine
+     * changed nothing for the vehicles already driving on it, and
+     * {@code PhysicsGoldenTest} is what keeps it true.
+     *
+     * @param damage what is mechanically wrong with it; never null
+     */
+    public static Step step(VehicleInfo info, State state, Demand demand, Surroundings around,
+                            double dt, VehicleDamage damage) {
+        DamageResponse harm = DamageResponse.of(damage);
         boolean air = info.medium() == VehicleMedium.AIR;
         boolean water = info.medium() == VehicleMedium.WATER;
         boolean flying = air && !around.supported();
@@ -596,11 +623,20 @@ public final class VehiclePhysics {
         if (!steers(info, state, around)) {
             steerInput = 0;
         }
-        double lock = STEERING_LOCK / (1 + STEERING_FADE * Math.min(1, Math.abs(state.speed()) / Math.max(top, 1e-6)));
+        double lock = STEERING_LOCK / (1 + STEERING_FADE * Math.min(1, Math.abs(state.speed()) / Math.max(top, 1e-6)))
+                * harm.steerLock();
         double wantedSteer = steerInput * lock;
+        if (harm.any()) {
+            // Bent steering and a dragging front corner, both of which the
+            // driver can hold against — at the cost of the lock they spend
+            // doing it, which is what makes a pull something you FIGHT rather
+            // than something that happens to you.
+            wantedSteer = clampMagnitude(wantedSteer + harm.steerBias(), STEERING_LOCK);
+        }
         boolean returning = Math.abs(wantedSteer) < Math.abs(state.steer());
         double steer = state.steer()
-                + (wantedSteer - state.steer()) * Math.min(1, (returning ? STEER_RETURN : STEER_RATE) * dt);
+                + (wantedSteer - state.steer())
+                * Math.min(1, (returning ? STEER_RETURN : STEER_RATE) * harm.steerRate() * dt);
 
         // --- steering: the body ---------------------------------------
 
@@ -629,7 +665,7 @@ public final class VehiclePhysics {
             // The front tyres can only pull the nose round so hard. Beyond
             // this they slide and the car goes wide — understeer, which is
             // what keeps a fast car from spinning every time it turns.
-            double frontLimit = Math.toDegrees(grip * (handbrake ? HANDBRAKE_TURN : 1)
+            double frontLimit = Math.toDegrees(grip * harm.frontGrip() * (handbrake ? HANDBRAKE_TURN : 1)
                     / Math.max(Math.abs(state.speed()), 0.5));
             kinematic = clampMagnitude(kinematic, frontLimit);
 
@@ -653,6 +689,17 @@ public final class VehiclePhysics {
                 // positive) is negative.
                 wantedYawRate -= DRIFT_YAW * state.slip();
                 wantedYawRate = clampMagnitude(wantedYawRate, 1.5 * info.turnSpeed());
+            }
+            if (harm.any()) {
+                // A rear corner scraping the road is a yaw the front wheels
+                // have no answer to — unlike a front one, which arrives as
+                // steering the driver can hold against. That asymmetry is the
+                // whole difference between a vehicle that wanders and one that
+                // spins, and it is why the two halves enter in different
+                // places. Bounded by the same figure a drift is, so a wreck
+                // cannot out-rotate a handbrake turn.
+                wantedYawRate = clampMagnitude(wantedYawRate + harm.yawPull(state.speed()),
+                        1.5 * info.turnSpeed());
             }
             boolean easing = Math.abs(wantedYawRate) < Math.abs(state.yawRate())
                     || Math.signum(wantedYawRate) != Math.signum(state.yawRate());
@@ -717,7 +764,9 @@ public final class VehiclePhysics {
         // escalator, and every engine anybody has driven pulls hardest low
         // down.
         double fraction = Math.min(1, Math.abs(speed) / Math.max(top, 1e-6));
-        double drive = accel * (1.25 - 0.75 * fraction);
+        // The drive and ONLY the drive: a damaged engine is not damaged brakes,
+        // and the braking rate below reads the undamaged figure deliberately.
+        double drive = accel * (1.25 - 0.75 * fraction) * harm.power();
         double rate = demand.braking() || stopping
                 ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER) * (handbrake && !stopping ? HANDBRAKE_BRAKING : 1)
                 : throttle == 0
@@ -775,11 +824,21 @@ public final class VehiclePhysics {
             speed = approach(speed, 0, SCRUB * Math.abs(slip) * dt);
         }
 
+        // And something bent, rubbing on something turning. On the ground only,
+        // for exactly the reason the scrub above is: a dragging corner needs a
+        // road to drag on, and a wreck thrown off a ramp falls like anything
+        // else. Enough of it stops a vehicle outright, which is what a car on
+        // three hubs should do and is left to arise rather than special-cased.
+        if (harm.any() && !air && !airborne && harm.drag() != 0) {
+            speed = approach(speed, 0, harm.drag() * dt);
+        }
+
         // --- across the heading -----------------------------------------
 
         if (!air) {
             double hold = airborne ? 0
-                    : grip * REAR_GRIP * (handbrake ? HANDBRAKE_GRIP : Math.abs(slip) > SLIDE_THRESHOLD ? SLIDING_GRIP : 1);
+                    : grip * harm.rearGrip() * REAR_GRIP
+                    * (handbrake ? HANDBRAKE_GRIP : Math.abs(slip) > SLIDE_THRESHOLD ? SLIDING_GRIP : 1);
             slip = approach(slip, 0, hold * dt);
         }
 
@@ -931,6 +990,19 @@ public final class VehiclePhysics {
                     : -clampMagnitude(lateral * BODY_ROLL, 14);
             rollTarget = clampMagnitude(around.groundRoll(track(info.hitbox())), MAX_TILT) + cornering;
             liftTarget = around.groundLift();
+            if (harm.any()) {
+                // A corner with nothing holding it up rests on the road, so the
+                // body's TARGET moves and the suspension settles onto it —
+                // which is why this is here rather than added to the attitude
+                // afterwards. It squats over bumps and leans into corners
+                // around its new resting angle, and a vehicle dropped onto a
+                // broken axle sags into it over a few ticks instead of
+                // snapping. Ground branch only: there is nothing to rest on in
+                // the air.
+                pitchTarget += harm.pitchBias();
+                rollTarget += harm.rollBias();
+                liftTarget -= harm.rideDrop();
+            }
         }
         if (!Double.isFinite(pitchTarget)) {
             pitchTarget = 0;
