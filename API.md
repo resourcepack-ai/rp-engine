@@ -121,6 +121,26 @@ points, **every tick** — a vehicle turns — and `null` to hand the rig back t
 their look. It only moves a rig that arrived through your `wear`, so somebody
 who was already mid-emote when they sat down keeps it.
 
+### A prop that turns because its wearer moved
+
+An emote can carry models (`props` in FORMAT.md), and a prop that names one
+of the model's animations plays it on the emote's clock. A wheel should not:
+it turns because the wearer moved, not because time passed. So a plugin may
+drive one prop's clock itself, by distance:
+
+```java
+clock += board.groundSpeed() / topSpeed * TURNS_AT_TOP / 20.0;   // seconds of a one-turn-a-second `roll`
+engine.emotes().seekProp(rider, "skate_right", clock);
+engine.emotes().seekProp(rider, "skate_left", clock);
+```
+
+`seekProp` moves that prop's animation to exactly that time every tick, loop
+wrap included, and holds it off the emote's clock from then on. It survives a
+swap to another emote carrying the same prop id, so the wheel does not jump
+because the wearer changed pose. It is `animation-follows-speed` for a thing
+that is worn rather than ridden, and the rollerskates are what it was written
+for.
+
 ## Sounds
 
 ```java

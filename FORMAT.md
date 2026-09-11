@@ -1334,7 +1334,10 @@ a model's carrier string. `offset` is where the model's centre sits, in px,
 measured from the rig's origin - which is a block above the feet, so a
 skate whose sole is on the ground under the right foot is at `[2, -16, 0]` -
 and moved by the bone it rides. `animator` is the prop's own motion on top of
-that, the same channels as a bone's. This is the shape Studio's emote editor
+that, the same channels as a bone's. `animation` names one of the prop
+model's OWN animations to play while it is carried - a lantern that swings,
+wheels that turn - on the emote's clock, or on a clock a plugin drives
+(`Emotes.seekProp` in API.md). This is the shape Studio's emote editor
 writes; the only difference for a hand-written one is that a model is reached
 through an item, because that is how an authored pack addresses its models.
 

@@ -292,6 +292,28 @@ public interface Emotes {
     void seek(Player player, double seconds);
 
     /**
+     * Where ONE carried model's animation is, by the prop's id, when the emote's
+     * own clock is not the one that matters for it.
+     *
+     * <p>A prop that names an animation plays it on the emote's clock, which is
+     * right for a lantern swinging in time with a walk and wrong for a wheel:
+     * a wheel turns because its wearer moved, not because time passed. Called
+     * every tick with a clock the caller advances by distance rolled - the
+     * same idea as a vehicle's {@code animation-follows-speed}, for a thing
+     * worn rather than ridden - this moves that prop's animation to exactly
+     * that time, loop wrap included, and holds it off the emote's clock from
+     * then on. A pair of rollerskates is the case it was written for.
+     *
+     * <p>Ignored for a player wearing nothing and for a prop id the worn emote
+     * does not carry. Survives a swap to another emote carrying the same prop
+     * id, so a wheel does not jump because its wearer changed pose.
+     *
+     * @param propId  the prop's {@code id} in the emote's {@code props}
+     * @param seconds where in the prop's animation it should be, in seconds
+     */
+    void seekProp(Player player, String propId, double seconds);
+
+    /**
      * Leans a worn rig over, pitch and roll in degrees, about the wearer's
      * feet - or {@code 0, 0} to stand them up again.
      *
