@@ -124,6 +124,7 @@ public final class VehicleInfo {
         this.capes = source.capes;
         this.animationFollowsSpeed = source.animationFollowsSpeed;
         this.wallRide = source.wallRide;
+        this.worn = source.worn;
         this.speedometer = source.speedometer;
         this.permission = source.permission;
         this.coast = source.coast;
