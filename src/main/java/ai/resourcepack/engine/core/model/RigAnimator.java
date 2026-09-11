@@ -44,10 +44,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * composed per program step, with the placement yaw baked in up front
  * (part displays spawn with entity yaw 0).
  *
- * Rig part displays are ordinary persistent entities - after a restart or
- * chunk load they're re-tracked via the world scan in {@link #start()} and
- * {@link EntitiesLoadEvent}, keyed off the part-index marker in their
- * persistent data.
+ * A PLACED rig's part displays are ordinary persistent entities - after a
+ * restart or chunk load they're re-tracked via the world scan in
+ * {@link #start()} and {@link EntitiesLoadEvent}, keyed off the part-index
+ * marker in their persistent data. A CARRIED one's are not: they belong to
+ * something that rebuilds them, so a part that arrives out of a chunk naming a
+ * yaw host is removed on the spot rather than tracked - see {@link #reaped}.
  */
 public final class RigAnimator implements Listener {
 
@@ -80,6 +82,9 @@ public final class RigAnimator implements Listener {
      * {@link #PERIOD_TICKS} ticks.
      *
      * <p>Written by {@code RigCarrier} and by nothing else.
+     *
+     * <p>Its presence on a part that has just come out of a CHUNK is also what
+     * makes that part garbage — see {@link #reaped}.
      */
     static final String YAW_HOST_KEY = "rig-yaw-host";
 
@@ -315,14 +320,20 @@ public final class RigAnimator implements Listener {
         taskId = Bukkit.getScheduler().runTaskTimer(host.plugin(), this::tick, 1, 1).getTaskId();
         // Pick up rigs already standing in loaded chunks (plugin reload,
         // server restart). Unloaded ones arrive via EntitiesLoadEvent.
+        int orphans = 0;
         for (World world : Bukkit.getWorlds()) {
             for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
+                if (reaped(display)) {
+                    orphans++;
+                    continue;
+                }
                 track(display);
             }
             for (Interaction hitbox : world.getEntitiesByClass(Interaction.class)) {
                 track(hitbox);
             }
         }
+        reportReaped(orphans);
     }
 
     public void stop() {
@@ -335,6 +346,66 @@ public final class RigAnimator implements Listener {
         driven.clear();
         posed.clear();
         carrierPoses.clear();
+    }
+
+    /**
+     * Takes out a carried rig part that has outlived whatever was carrying it,
+     * and says whether it did.
+     *
+     * <p>A part naming a yaw host is CARRIED — it belongs to a vehicle or to an
+     * emote prop, both of which rebuild their art from scratch every time they
+     * are adopted. The host {@code RigCarrier} spawns to anchor it has never
+     * been persistent, so a part that names one and arrives out of a chunk
+     * cannot be reunited with anything: the session that owned it has ended,
+     * and the owner has already spawned itself a fresh set. Nothing else in the
+     * engine would ever look at it again, and nothing would ever remove it.
+     *
+     * <p>That is not hypothetical. Carried parts were spawned persistent until
+     * 0.1.50, and each one that was saved stayed saved — a chunk unload, a
+     * {@code /rpe reload} and a restart each left another full set of displays
+     * standing in the same spot, invisible in the sense that nothing could find
+     * them but drawn, posed every tick and written back to disk for ever. One
+     * demo vehicle parked in a lobby reached fifty thousand of them and pushed
+     * its entity chunk past Paper's oversized-chunk limit.
+     *
+     * <p>Spawning them non-persistent is what stops it happening again; this is
+     * what clears up what a jar without that already wrote, and the reason it
+     * is a standing rule rather than a one-off migration is that the invariant
+     * it enforces — <em>a carried part out of a chunk is garbage</em> — is true
+     * whatever went wrong upstream to save one.
+     *
+     * <p>The host is still looked up rather than assumed gone, so a live rig is
+     * never eaten if the anchor is ever made to survive a restart.
+     */
+    private boolean reaped(Entity entity) {
+        if (!(entity instanceof ItemDisplay)) {
+            return false;
+        }
+        String anchor = entity.getPersistentDataContainer().get(yawHostKey, PersistentDataType.STRING);
+        if (anchor == null) {
+            return false;
+        }
+        Entity host;
+        try {
+            host = Bukkit.getEntity(UUID.fromString(anchor));
+        } catch (IllegalArgumentException e) {
+            // An id that is not one can never name anything, which makes this
+            // the same answer for a simpler reason.
+            host = null;
+        }
+        if (host != null) {
+            return false;
+        }
+        entity.remove();
+        return true;
+    }
+
+    /** Says what {@link #reaped} took out, once per sweep rather than once per part. */
+    private void reportReaped(int orphans) {
+        if (orphans > 0) {
+            host.logger().info("Removed " + orphans + " orphaned rig part"
+                    + (orphans == 1 ? "" : "s") + " left behind by an earlier session.");
+        }
     }
 
     /** Registers an entity if it's one of our moving rig part displays. */
@@ -531,9 +602,15 @@ public final class RigAnimator implements Listener {
 
     @EventHandler
     public void onEntitiesLoad(EntitiesLoadEvent event) {
+        int orphans = 0;
         for (Entity entity : event.getEntities()) {
+            if (reaped(entity)) {
+                orphans++;
+                continue;
+            }
             track(entity);
         }
+        reportReaped(orphans);
     }
 
     /**
