@@ -426,6 +426,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // survive a crash — and EmoteMessages' own doc says silence there
         // reads as a bug.
         emotes = new EmoteDirector(library, emoteStore, rigCarrier);
+        // A hand-authored emote may carry one of the pack's own items as a
+        // prop (a pair of skates on the shins); the director cannot make that
+        // stack itself because how a model is put on an item is the item
+        // service's version fork.
+        EmoteDirector.propItems(id -> ContentId.parse(id).flatMap(items::create).orElse(null));
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items);
         // emotes() is a fresh facade each call and holds no state of its own —

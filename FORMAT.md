@@ -963,6 +963,21 @@ rather than a crash, so only the sideways part of the range throws anybody.
 A plugin can veto any individual one - see `VehicleBailEvent` in `API.md` -
 which is how a server switch for it gets written without editing a pack.
 
+**A vehicle that is WORN** rather than ridden hides its model while anybody is
+in it:
+
+```yaml
+  worn: true
+```
+
+A pair of rollerskates, a jetpack, a horse costume: a vehicle whose art
+belongs on the occupant's body rather than under it. The seat's emotes carry
+the art instead - as props attached to the rig's bones, see "Emotes" below -
+so it moves with the legs exactly the way the legs do, and the vehicle's own
+model would only ever be a second copy standing on the floor. Empty, it is
+drawn as normal: a pair of skates left in the road is a thing you can see and
+step into. Off by default, because it is a decision about what the vehicle is.
+
 **Riding a wall** is off unless you ask, for the same reason bailing is:
 
 ```yaml
@@ -1291,6 +1306,42 @@ a vehicle seat's `animations:` and a plugin all name an emote by its bare
 name, so two packs both defining `wave` is an error rather than two emotes —
 prefix yours (`mypack_wave`) if you ship a pack other people will install
 beside theirs.
+
+### Carrying a model
+
+An emote can carry models - a chair to sit on, a sword to swing, a pair of
+skates on the feet - as `props`, beside `animators`:
+
+```json
+{
+  "rollerskates_glide": {
+    "length": 2.0, "loop": true,
+    "animators": { "...": "..." },
+    "props": [
+      { "id": "right", "modelId": "rollerskates:skate_right", "attach": "rightShin",
+        "offset": [2, -16, 0], "scale": 1,
+        "animator": { "rotation": [ { "time": 0, "value": [0, 0, 0] } ] } }
+    ]
+  }
+}
+```
+
+`attach` is a bone (the same names as above), `root` for the whole body, or
+`none` for a model that stands where it was put and does not follow the
+player at all. `modelId` names what is drawn: **one of your own items**
+(`namespace:path`, whatever wears the model you want) or, for a pushed pack,
+a model's carrier string. `offset` is where the model's centre sits, in px,
+measured from the rig's origin - which is a block above the feet, so a
+skate whose sole is on the ground under the right foot is at `[2, -16, 0]` -
+and moved by the bone it rides. `animator` is the prop's own motion on top of
+that, the same channels as a bone's. This is the shape Studio's emote editor
+writes; the only difference for a hand-written one is that a model is reached
+through an item, because that is how an authored pack addresses its models.
+
+A prop rides its bone the way the bone's own geometry does, interpolated on
+the same clock, which is what makes it the way to attach anything to a body.
+A vehicle with `worn: true` (above) is the other half of that: its own model
+is put away while somebody is in it, and the seat's emotes wear the art.
 
 ### The rig it plays on
 
