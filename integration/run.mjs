@@ -41,6 +41,10 @@ const SCENARIOS = [
   { name: "commands-off", scenario: "commands", config: { "player-commands": false } },
   { name: "events" },
   { name: "blocks" },
+  // A pair, like first-boot/painting and for the same reason: one writes a
+  // rig part to the chunk and the other checks what came back out of it.
+  { name: "orphan-rigs" },
+  { name: "orphan-rigs-reaped" },
 ];
 
 /**

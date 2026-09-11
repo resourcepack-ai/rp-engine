@@ -25,11 +25,14 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -44,6 +47,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Drives RP Engine against a real server, with no player and no client.
@@ -163,6 +167,12 @@ public final class Harness extends JavaPlugin implements Listener {
                     break;
                 case "blocks":
                     blocks();
+                    break;
+                case "orphan-rigs":
+                    orphanRigs();
+                    break;
+                case "orphan-rigs-reaped":
+                    orphanRigsReaped();
                     break;
                 default:
                     failed++;
@@ -711,6 +721,109 @@ public final class Harness extends JavaPlugin implements Listener {
             rig.remove(false);
             finish();
         }, 30L);
+    }
+
+    /** The model id on the part that names a yaw host, and so is garbage after a restart. */
+    private static final String CARRIED_MARK = "harness:orphan_carried";
+    /** The model id on the part that names none, and so is an ordinary placed statue. */
+    private static final String PLACED_MARK = "harness:orphan_placed";
+
+    /**
+     * Writes a carried rig part to disk, the way a jar before 0.1.50 did.
+     *
+     * <p>A part that names a yaw host belongs to a vehicle or an emote prop,
+     * and the anchor it names has never been saved — so one that comes back out
+     * of a chunk can never be reunited with anything, and nothing but this rule
+     * would ever remove it. They used to be spawned persistent, and every chunk
+     * unload, content reload and restart left another full set standing in the
+     * same spot: one parked demo vehicle reached fifty thousand displays and
+     * pushed its entity chunk past Paper's oversized limit.
+     *
+     * <p>Two of them, because the rule has to tell them apart: the carried one
+     * must go and the placed one — same keys, no yaw host — must not, or every
+     * statue on the server disappears on the next restart.
+     *
+     * <p>This boot only puts them there. Reaping is a LOAD-time rule, which
+     * nothing inside one JVM can fake, so the checks are in the scenario after.
+     */
+    private void orphanRigs() {
+        World world = Bukkit.getWorlds().get(0);
+        Location at = world.getSpawnLocation().add(0, 1, 0);
+
+        spawnPart(world, at, CARRIED_MARK, UUID.randomUUID().toString());
+        spawnPart(world, at, PLACED_MARK, null);
+
+        check("the carried part is in the world", partsMarked(CARRIED_MARK) == 1);
+        check("so is the placed one", partsMarked(PLACED_MARK) == 1);
+        check("and neither is taken away in the session that spawned them",
+                partsMarked(CARRIED_MARK) + partsMarked(PLACED_MARK) == 2);
+        note("both are persistent, so the shutdown below writes them to the chunk");
+    }
+
+    /** The run after that one: what came back out of the chunk, and what did not. */
+    private void orphanRigsReaped() {
+        World world = Bukkit.getWorlds().get(0);
+        // Loading it explicitly rather than trusting the spawn radius: if the
+        // chunk was already up, the engine's own enable-time sweep has been
+        // through it; if it was not, this is what fires EntitiesLoadEvent. The
+        // rule has to hold either way, which is the whole point of checking it
+        // from a second boot rather than from a unit test.
+        Location at = world.getSpawnLocation();
+        world.getChunkAt(at).load(true);
+
+        check("the placed part survived the restart", partsMarked(PLACED_MARK) == 1);
+        check("the carried part did not", partsMarked(CARRIED_MARK) == 0);
+        check("and nothing naming a yaw host is left in the world anywhere",
+                namingAYawHost() == 0);
+    }
+
+    /**
+     * One rig part display, marked so the boot after this one can find it.
+     *
+     * @param anchor the yaw host to name, or null for a placed part that names
+     *               none — the single difference the reaping rule turns on
+     */
+    private void spawnPart(World world, Location at, String mark, String anchor) {
+        world.spawn(at, ItemDisplay.class, display -> {
+            display.setPersistent(true);
+            PersistentDataContainer pdc = display.getPersistentDataContainer();
+            pdc.set(engineKey("model-id"), PersistentDataType.STRING, mark);
+            pdc.set(engineKey("part-index"), PersistentDataType.INTEGER, 0);
+            if (anchor != null) {
+                pdc.set(engineKey("rig-yaw-host"), PersistentDataType.STRING, anchor);
+            }
+        });
+    }
+
+    private int partsMarked(String mark) {
+        int found = 0;
+        for (World world : Bukkit.getWorlds()) {
+            for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
+                if (mark.equals(display.getPersistentDataContainer()
+                        .get(engineKey("model-id"), PersistentDataType.STRING))) {
+                    found++;
+                }
+            }
+        }
+        return found;
+    }
+
+    private int namingAYawHost() {
+        int found = 0;
+        for (World world : Bukkit.getWorlds()) {
+            for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
+                if (display.getPersistentDataContainer()
+                        .has(engineKey("rig-yaw-host"), PersistentDataType.STRING)) {
+                    found++;
+                }
+            }
+        }
+        return found;
+    }
+
+    /** A key in the ENGINE's namespace, which is where rig state lives. See Host. */
+    private NamespacedKey engineKey(String name) {
+        return new NamespacedKey(engine(), name);
     }
 
     // ---- plumbing --------------------------------------------------------
