@@ -1467,7 +1467,13 @@ public final class VehiclePhysics {
          * @param spin the new yaw rate, degrees per second
          */
         State impacted(double vx, double vz, double spin) {
-            if (!Double.isFinite(vx) || !Double.isFinite(vz) || !Double.isFinite(spin)) {
+            return impacted(vx, verticalSpeed, vz, spin);
+        }
+
+        /** The same impact, including a vertical velocity supplied by an API impulse. */
+        State impacted(double vx, double vy, double vz, double spin) {
+            if (!Double.isFinite(vx) || !Double.isFinite(vy)
+                    || !Double.isFinite(vz) || !Double.isFinite(spin)) {
                 return this;
             }
             double[] world = {vx, vz};
@@ -1479,7 +1485,7 @@ public final class VehiclePhysics {
             // from when it is the driver rather than another car doing it.
             double along = nextSpeed - speed;
             double across = nextSlip - slip;
-            return new State(yaw, nextSpeed, nextSlip, verticalSpeed, steer, spin,
+            return new State(yaw, nextSpeed, nextSlip, vy, steer, spin,
                     pitch, pitchRate + clampMagnitude(along * IMPACT_SQUAT, MAX_IMPACT_SPRING),
                     roll, rollRate - clampMagnitude(across * IMPACT_ROLL, MAX_IMPACT_SPRING),
                     lift, liftRate);

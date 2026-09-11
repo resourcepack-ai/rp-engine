@@ -6,6 +6,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.util.Vector;
 
 import java.util.List;
 import java.util.Optional;
@@ -475,6 +476,64 @@ public interface Vehicle {
 
     /** Speed over the ground in any direction, blocks per second — a drift is still moving. */
     double groundSpeed();
+
+    /**
+     * The vehicle's world velocity in blocks per second.
+     *
+     * <p>Unlike {@link #speed}, this includes sideways motion from a collision
+     * and the vertical component while airborne. The returned vector is a
+     * copy and may be changed freely.
+     */
+    Vector velocity();
+
+    /**
+     * Applies a world-space change in velocity and yaw rate.
+     *
+     * <p>This is the collision-sized counterpart of {@link #nudge} and
+     * {@link #spin}: the vector is in blocks per second rather than along the
+     * vehicle's heading. Non-finite values are ignored, and the engine applies
+     * its ordinary stability bounds before the next physics step.
+     *
+     * @param deltaVelocity velocity to add, in blocks per second
+     * @param spinDelta degrees per second to add, clockwise positive
+     */
+    void applyImpulse(Vector deltaVelocity, double spinDelta);
+
+    /**
+     * Named model bones this vehicle can detach independently.
+     *
+     * <p>The names come from the model's split rig, not from a universal list.
+     * A still single-display model therefore returns an empty list.
+     */
+    List<String> parts();
+
+    /** Named parts already detached from this chassis, remembered across reloads. */
+    Set<String> detachedParts();
+
+    /**
+     * Detaches one supported model part and lets it fall as temporary debris.
+     *
+     * <p>The display keeps the model part's current pose, receives the supplied
+     * world velocity, collides with ordinary world geometry through a small
+     * physics host, and is removed after {@code despawnTicks}. The detached
+     * name is remembered on the chassis so rebuilding the vehicle cannot put
+     * it back accidentally.
+     *
+     * @param part named entry from {@link #parts}
+     * @param velocity initial world velocity in blocks per second
+     * @param spin degrees per second around the vertical axis
+     * @param despawnTicks lifetime, clamped to a safe positive range
+     * @return false when the part is unsupported, already detached or absent
+     */
+    boolean detachPart(String part, Vector velocity, double spin, long despawnTicks);
+
+    /**
+     * Shows one legacy-colour status line above every occupant's hotbar.
+     *
+     * <p>Uses the vehicle's existing status surface and briefly yields its
+     * speedometer, so an addon does not race the engine for the action bar.
+     */
+    void showStatus(String legacyText);
 
     /** A key in your plugin's namespace, for use with {@link #data()}. */
     default NamespacedKey key(Plugin plugin, String name) {

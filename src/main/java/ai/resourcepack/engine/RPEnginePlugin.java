@@ -912,6 +912,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (vehicles != null) {
+            vehicles.stop();
+        }
         // The redraw loop goes with the plugin, and so does who was wearing
         // what: an overlay is held in memory rather than on the player, so
         // there is nothing to persist and nothing to leak.

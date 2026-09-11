@@ -124,6 +124,15 @@ final class VehicleYaml {
             }
         }
 
+        if (vehicle.addons != null && !vehicle.addons.isEmpty()) {
+            out.append(INDENT).append("addons:\n");
+            for (Map.Entry<String, Map<String, Object>> addon : vehicle.addons.entrySet()) {
+                if (addon.getKey() == null || addon.getValue() == null) continue;
+                out.append(INDENT).append(INDENT).append(addon.getKey()).append(":\n");
+                writeMap(out, addon.getValue(), 3);
+            }
+        }
+
         // The caller splices this between two lines of somebody's file, so it
         // ends where it ends rather than carrying a newline of its own.
         return out.length() > 0 && out.charAt(out.length() - 1) == '\n'
@@ -222,6 +231,36 @@ final class VehicleYaml {
         if (Boolean.FALSE.equals(emitter.enabled)) {
             out.append(pad).append("enabled: false\n");
         }
+    }
+
+    /** Writes the scalar/list/map shapes addon configuration is allowed to carry. */
+    @SuppressWarnings("unchecked")
+    private static void writeMap(StringBuilder out, Map<String, Object> values, int depth) {
+        String pad = INDENT.repeat(depth);
+        for (Map.Entry<String, Object> entry : values.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) continue;
+            Object value = entry.getValue();
+            if (value instanceof Map) {
+                out.append(pad).append(entry.getKey()).append(":\n");
+                writeMap(out, (Map<String, Object>) value, depth + 1);
+            } else if (value instanceof List) {
+                out.append(pad).append(entry.getKey()).append(": [");
+                List<?> list = (List<?>) value;
+                for (int i = 0; i < list.size(); i++) {
+                    if (i > 0) out.append(", ");
+                    out.append(scalar(list.get(i)));
+                }
+                out.append("]\n");
+            } else {
+                out.append(pad).append(entry.getKey()).append(": ").append(scalar(value)).append('\n');
+            }
+        }
+    }
+
+    private static String scalar(Object value) {
+        if (value instanceof Number) return number(((Number) value).doubleValue());
+        if (value instanceof Boolean) return value.toString();
+        return quote(value == null ? "" : value.toString());
     }
 
     /**

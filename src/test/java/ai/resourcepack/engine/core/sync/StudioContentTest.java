@@ -177,6 +177,25 @@ class StudioContentTest {
         assertEquals(3, car.capacity());
     }
 
+    @Test
+    void pushedAddonConfigurationSurvivesPersistence(@TempDir Path dir) {
+        StudioContent written = read(dir, """
+                {"packId":"p","vehicles":[{"id":"car","carrier":"car","medium":"land",
+                  "weight":10,"speed":12,"acceleration":6,"turnSpeed":120,
+                  "addons":{"vehicle-status":{"enabled":true,"max-health":175,
+                    "detachable-parts":["hood"]}},
+                  "seats":[{"role":"driver","pose":"sitting","x":0,"y":0,"z":0,"yaw":0}]}]}
+                """);
+        written.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+
+        var status = reloaded.vehicles().get(ContentId.parse("studio:car").orElseThrow())
+                .addon("vehicle-status").orElseThrow();
+        assertEquals(175.0, status.decimal("max-health").orElseThrow());
+        assertEquals(java.util.List.of("hood"), status.strings("detachable-parts"));
+    }
+
     /**
      * A pushed vehicle names its art with a carrier string, never an item id.
      * A studio pack is a zip with no plugin behind it, so its models borrow

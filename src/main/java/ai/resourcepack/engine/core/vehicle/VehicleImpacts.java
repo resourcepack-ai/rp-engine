@@ -220,6 +220,18 @@ public final class VehicleImpacts {
             return mass;
         }
 
+        public double yaw() {
+            return yaw;
+        }
+
+        public double vx() {
+            return vx;
+        }
+
+        public double vz() {
+            return vz;
+        }
+
         /** How far the box reaches from its centre, whichever way it is turned. */
         public double radius() {
             return Math.hypot(halfWidth, halfLength);
@@ -343,10 +355,14 @@ public final class VehicleImpacts {
 
         private final Impulse a;
         private final Impulse b;
+        private final double closingSpeed;
+        private final double normalImpulse;
 
-        Exchange(Impulse a, Impulse b) {
+        Exchange(Impulse a, Impulse b, double closingSpeed, double normalImpulse) {
             this.a = a;
             this.b = b;
+            this.closingSpeed = closingSpeed;
+            this.normalImpulse = normalImpulse;
         }
 
         public Impulse a() {
@@ -355,6 +371,16 @@ public final class VehicleImpacts {
 
         public Impulse b() {
             return b;
+        }
+
+        /** Closing speed at the contact point before the collision, blocks per second. */
+        public double closingSpeed() {
+            return closingSpeed;
+        }
+
+        /** Magnitude of the normal impulse exchanged by the pair. */
+        public double normalImpulse() {
+            return normalImpulse;
         }
     }
 
@@ -551,6 +577,7 @@ public final class VehicleImpacts {
         double dvbx = 0;
         double dvbz = 0;
         double dspb = 0;
+        double normalImpulse = 0;
 
         double[] relative = relative(a, b, rax, raz, rbx, rbz);
         double closing = relative[0] * nx + relative[1] * nz;
@@ -566,6 +593,7 @@ public final class VehicleImpacts {
             // No bounce out of a touch, only out of a hit. See RESTITUTION_SPEED.
             double bounce = -closing < RESTITUTION_SPEED ? 0 : RESTITUTION;
             double j = -(1 + bounce) * closing / share;
+            normalImpulse = j;
 
             dvax -= j * nx / a.mass;
             dvaz -= j * nz / a.mass;
@@ -610,7 +638,8 @@ public final class VehicleImpacts {
 
         return new Exchange(
                 new Impulse(finite(dvax), finite(dvaz), spin(dspa), -nx * shareA, -nz * shareA),
-                new Impulse(finite(dvbx), finite(dvbz), spin(dspb), nx * shareB, nz * shareB));
+                new Impulse(finite(dvbx), finite(dvbz), spin(dspb), nx * shareB, nz * shareB),
+                Math.max(0, -closing), finite(normalImpulse));
     }
 
     /** How fast the contact point on {@code b} is moving relative to the one on {@code a}. */

@@ -16,7 +16,9 @@ import org.bukkit.util.Transformation;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -88,6 +90,7 @@ public final class RigCarrier {
     private final ModelsImpl models;
     private final RigSpawn spawns;
     private final NamespacedKey modelKey;
+    private final NamespacedKey partKey;
     private final NamespacedKey displaysKey;
     private final NamespacedKey yawHostKey;
 
@@ -97,6 +100,7 @@ public final class RigCarrier {
         this.models = models;
         this.spawns = new RigSpawn(host, animator);
         this.modelKey = host.key("model-id");
+        this.partKey = host.key("part-index");
         this.displaysKey = host.key("display-uuids");
         this.yawHostKey = host.key(RigAnimator.YAW_HOST_KEY);
     }
@@ -113,13 +117,19 @@ public final class RigCarrier {
         return RigAnimations.anyPartAnimates(modelId == null ? null : rigs.get(modelId));
     }
 
+    /** Whether the model has separately spawned rig parts, moving or still. */
+    public boolean hasRig(String modelId) {
+        RigStore.Rig rig = modelId == null ? null : rigs.get(modelId);
+        return rig != null && rig.parts != null && !rig.parts.isEmpty();
+    }
+
     /**
      * Puts {@code modelId}'s rig at {@code anchor}, facing {@code yaw}.
      *
      * @param partItem what one part renders as, given the part's item name —
      *                 the one thing a studio pack and an authored one disagree
      *                 about, exactly as in {@link RigSpawn}
-     * @return the rig, or empty when this model does not animate
+     * @return the rig, or empty when this model has no separately spawned parts
      */
     public Optional<CarriedRig> carry(Location anchor, String modelId, float yaw,
                                       DisplayCarry glide, Function<String, ItemStack> partItem) {
@@ -142,7 +152,7 @@ public final class RigCarrier {
     public Optional<CarriedRig> carry(Location anchor, String modelId, float yaw,
                                       DisplayCarry glide, Function<String, ItemStack> partItem,
                                       float scale) {
-        if (anchor == null || anchor.getWorld() == null || !animates(modelId)) {
+        if (anchor == null || anchor.getWorld() == null || !hasRig(modelId)) {
             return Optional.empty();
         }
         RigStore.Rig rig = rigs.get(modelId);
@@ -180,6 +190,7 @@ public final class RigCarrier {
         // carrier tilts the body they have to be turned from here. See
         // CarriedRig.tilt.
         List<String> still = new ArrayList<>();
+        Map<String, List<String>> bones = new LinkedHashMap<>();
         for (ItemDisplay part : parts) {
             ids.add(part.getUniqueId().toString());
             // A carried rig is derived from its owner (vehicle or emote) and
@@ -187,6 +198,14 @@ public final class RigCarrier {
             part.setPersistent(false);
             if (!animator.animates(part)) {
                 still.add(part.getUniqueId().toString());
+            }
+            Integer index = part.getPersistentDataContainer().get(partKey, PersistentDataType.INTEGER);
+            if (index != null && index >= 0 && index < rig.parts.size()) {
+                RigStore.Part definition = rig.parts.get(index);
+                if (definition != null && definition.bone != null && !definition.bone.isBlank()) {
+                    bones.computeIfAbsent(definition.bone, ignored -> new ArrayList<>())
+                            .add(part.getUniqueId().toString());
+                }
             }
             part.getPersistentDataContainer()
                     .set(yawHostKey, PersistentDataType.STRING, yawHost.getUniqueId().toString());
@@ -209,7 +228,7 @@ public final class RigCarrier {
         // will accept — see RigAnimator.track's Interaction arm.
         animator.track(yawHost);
 
-        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, scale, parts.size());
+        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, bones, scale, parts.size());
         // **The heading goes on HERE, not left to the caller.** The parts are
         // spawned at yaw zero deliberately (see above), and a carried part's
         // matrix never carries a yaw either — RigAnimator.yawOf returns 0 for
@@ -234,16 +253,19 @@ public final class RigCarrier {
         private final UUID anchorId;
         private final List<String> partIds;
         private final List<String> stillIds;
+        private final Map<String, List<String>> boneIds;
         private final float scale;
         private final int size;
 
         /** The attitude last written to the still parts, so an unchanged one is not re-sent. */
         private Transformation stillPose;
 
-        private CarriedRig(UUID anchorId, List<String> partIds, List<String> stillIds, float scale, int size) {
+        private CarriedRig(UUID anchorId, List<String> partIds, List<String> stillIds,
+                           Map<String, List<String>> boneIds, float scale, int size) {
             this.anchorId = anchorId;
             this.partIds = partIds;
             this.stillIds = stillIds;
+            this.boneIds = boneIds;
             this.scale = scale;
             this.size = size;
         }
@@ -309,6 +331,47 @@ public final class RigCarrier {
         /** How many part displays it is made of. Zero is a rig that failed to spawn. */
         public int parts() {
             return size;
+        }
+
+        /** Model bone names that have their own display and can be detached. */
+        public List<String> bones() {
+            return List.copyOf(boneIds.keySet());
+        }
+
+        /**
+         * Removes one bone display from this rig without deleting the display.
+         * The caller becomes responsible for it and may turn it into debris.
+         */
+        public List<ItemDisplay> detach(String bone) {
+            List<String> ids = bone == null ? null : boneIds.remove(bone);
+            if (ids == null || ids.isEmpty()) return List.of();
+            List<ItemDisplay> detached = new ArrayList<>();
+            for (String id : ids) {
+                Entity entity = entity(id);
+                if (!(entity instanceof ItemDisplay)) continue;
+                ItemDisplay display = (ItemDisplay) entity;
+                partIds.remove(id);
+                stillIds.remove(id);
+                animator.bones().detach(display);
+                animator.untrack(display.getUniqueId());
+                display.getPersistentDataContainer().remove(modelKey);
+                display.getPersistentDataContainer().remove(partKey);
+                display.getPersistentDataContainer().remove(yawHostKey);
+                detached.add(display);
+            }
+            Entity yawHost = Bukkit.getEntity(anchorId);
+            if (yawHost != null) {
+                yawHost.getPersistentDataContainer().set(
+                        displaysKey, PersistentDataType.STRING, String.join(",", partIds));
+            }
+            return List.copyOf(detached);
+        }
+
+        /** Removes one named display entirely, for a part detached before this rig was rebuilt. */
+        public boolean hide(String bone) {
+            List<ItemDisplay> detached = detach(bone);
+            detached.forEach(Entity::remove);
+            return !detached.isEmpty();
         }
 
         /** Visits each live part display, for viewer-specific hiding. */

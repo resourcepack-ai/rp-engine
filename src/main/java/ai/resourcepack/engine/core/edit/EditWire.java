@@ -193,6 +193,8 @@ final class EditWire {
          */
         Map<String, String> sounds;
         List<Emitter> particles;
+        /** Addon id to its opaque configuration block. */
+        Map<String, Map<String, Object>> addons;
     }
 
     static final class Seat {

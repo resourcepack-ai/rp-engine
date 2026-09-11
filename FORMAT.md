@@ -619,7 +619,28 @@ hatchback:
       z: -1.5
       count: 2
       interval: 2
+  addons:                   # optional - configuration owned by installed addons
+    vehicle-status:
+      enabled: true
+      max-health: 100
+      damage-multiplier: 1
+      minimum-collision-severity: 3
+      disabled-health-percent: 20
+      disable-at-threshold: true
+      detachable-parts: [hood, left_door]
+      part-detach-severity: 9
+      part-despawn-seconds: 20
+      crash-force-multiplier: 1
+      status:
+        enabled: true
+        interval-seconds: 1
+        format: "&cHealth {health}/{max_health} &7({health_percent}%) {state}"
 ```
+
+`addons:` is deliberately opaque to RP Engine. Each child key belongs to that
+installed addon and is also carried through Studio pushes and `/rp edit`
+round-trips. An absent addon still means nothing: the engine does not fail a
+vehicle because a block names a plugin the server has not installed.
 
 **Right-click the body to get in** and you take the first free seat — the
 driver seat first, so whoever gets in first is driving. Right-click a

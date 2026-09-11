@@ -8,6 +8,7 @@ import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleInput;
+import ai.resourcepack.engine.api.VehicleImpactArea;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
@@ -18,6 +19,7 @@ import ai.resourcepack.engine.api.VehicleBail;
 import ai.resourcepack.engine.api.event.VehicleBailEvent;
 import ai.resourcepack.engine.api.event.VehicleExitEvent;
 import ai.resourcepack.engine.api.event.VehicleMoveEvent;
+import ai.resourcepack.engine.api.event.VehicleImpactEvent;
 import ai.resourcepack.engine.api.event.VehicleStateEvent;
 import ai.resourcepack.engine.core.Chat;
 import ai.resourcepack.engine.core.animation.RigMath;
@@ -64,6 +66,7 @@ import org.joml.Matrix4f;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -554,6 +557,12 @@ public final class VehicleRuntime implements Listener {
      */
     private final NamespacedKey disabledKey;
 
+    /** Names of rig bones removed from this persistent chassis. */
+    private final NamespacedKey detachedPartsKey;
+
+    /** Temporary physical hosts and displays created by detached bodywork. */
+    private final List<Debris> debris = new ArrayList<>();
+
     /**
      * Every derived entity, to the chassis it belongs to.
      *
@@ -728,6 +737,7 @@ public final class VehicleRuntime implements Listener {
         this.obstacles = new ModelObstacles.Sensor(plugin);
         this.idKey = new NamespacedKey(plugin, "vehicle");
         this.disabledKey = new NamespacedKey(plugin, "vehicle-disabled");
+        this.detachedPartsKey = new NamespacedKey(plugin, "vehicle-detached-parts");
     }
 
     /** The control arm, so the plugin can register it and report it. */
@@ -1468,6 +1478,14 @@ public final class VehicleRuntime implements Listener {
         plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
     }
 
+    /** Removes temporary debris immediately when the host plugin stops. */
+    public void stop() {
+        for (Debris part : List.copyOf(debris)) {
+            part.remove();
+        }
+        debris.clear();
+    }
+
     /**
      * One tick of every vehicle somebody is in.
      *
@@ -1512,6 +1530,78 @@ public final class VehicleRuntime implements Listener {
                 log.warning("Vehicle " + ride.info.id() + " failed to settle: " + e);
             }
         }
+        debris.removeIf(Debris::tick);
+    }
+
+    /** Lets one detached display follow a small vanilla-physics host until expiry. */
+    private final class Debris {
+        private final UUID hostId;
+        private final UUID displayId;
+        private double yaw;
+        private double spin;
+        private long remaining;
+
+        Debris(ArmorStand host, ItemDisplay display, double spin, long remaining) {
+            this.hostId = host.getUniqueId();
+            this.displayId = display.getUniqueId();
+            this.yaw = display.getLocation().getYaw();
+            this.spin = Math.max(-720, Math.min(720, Double.isFinite(spin) ? spin : 0));
+            this.remaining = Math.max(1, Math.min(20L * 60L * 10L, remaining));
+        }
+
+        /** @return true when this entry is finished and should leave the list */
+        boolean tick() {
+            Entity host = plugin.getServer().getEntity(hostId);
+            Entity part = plugin.getServer().getEntity(displayId);
+            if (!(host instanceof ArmorStand) || !(part instanceof ItemDisplay)
+                    || !host.isValid() || !part.isValid() || --remaining <= 0) {
+                remove();
+                return true;
+            }
+            yaw = VehiclePhysics.wrap360(yaw + spin * DT);
+            if (host.isOnGround()) {
+                spin *= 0.86;
+            }
+            Location at = host.getLocation();
+            at.setYaw((float) yaw);
+            at.setPitch(0);
+            part.teleport(at);
+            return false;
+        }
+
+        void remove() {
+            Entity host = plugin.getServer().getEntity(hostId);
+            Entity part = plugin.getServer().getEntity(displayId);
+            if (host != null) host.remove();
+            if (part != null) part.remove();
+        }
+    }
+
+    private void throwDebris(ItemDisplay display, Vector velocity, double spin, long despawnTicks) {
+        if (display == null || !display.isValid()) return;
+        Location at = display.getLocation();
+        ArmorStand host = at.getWorld().spawn(at, ArmorStand.class, stand -> {
+            stand.setVisible(false);
+            stand.setSmall(true);
+            stand.setBasePlate(false);
+            stand.setArms(false);
+            stand.setGravity(true);
+            stand.setInvulnerable(true);
+            stand.setSilent(true);
+            stand.setPersistent(false);
+        });
+        Vector perTick = velocity == null ? new Vector() : velocity.clone().multiply(DT);
+        if (!Double.isFinite(perTick.getX()) || !Double.isFinite(perTick.getY())
+                || !Double.isFinite(perTick.getZ())) {
+            perTick.zero();
+        }
+        double length = perTick.length();
+        if (length > 4) perTick.multiply(4 / length);
+        host.setVelocity(perTick);
+        display.setPersistent(false);
+        display.setInterpolationDelay(0);
+        display.setInterpolationDuration(1);
+        debris.add(new Debris(host, display, spin, despawnTicks));
     }
 
     /**
@@ -1634,6 +1724,7 @@ public final class VehicleRuntime implements Listener {
         // left invisible by a plugin that is no longer running has nothing at
         // all to put them back.
         concealed.clear();
+        stop();
     }
 
     // ------------------------------------------------------------------
@@ -1701,6 +1792,9 @@ public final class VehicleRuntime implements Listener {
          * its last keyframe goes quietly back to a single display.
          */
         private RigCarrier.CarriedRig rig;
+
+        /** Rig bone names before already-detached ones are hidden. */
+        private List<String> supportedParts = List.of();
 
         /**
          * What the rig is playing, so a state change is noticed rather than
@@ -2098,7 +2192,7 @@ public final class VehicleRuntime implements Listener {
         }
 
         /**
-         * Spawns the animated model, if this vehicle has one.
+         * Spawns the split model rig, if this vehicle has one.
          *
          * @return whether it did, so the caller knows not to spawn a still
          *         display as well — two models on one vehicle is one model
@@ -2106,11 +2200,17 @@ public final class VehicleRuntime implements Listener {
          */
         private boolean spawnRig() {
             String id = artId();
-            if (rigs == null || id == null || !rigs.animates(id)) {
+            if (rigs == null || id == null || !rigs.hasRig(id)) {
                 return false;
             }
             rig = rigs.carry(modelAnchor(), id, modelYaw(), carry, this::partStack,
                     (float) info.scale()).orElse(null);
+            if (rig != null) {
+                supportedParts = rig.bones();
+                for (String detached : detachedParts()) {
+                    rig.hide(detached);
+                }
+            }
             return rig != null;
         }
 
@@ -2798,6 +2898,61 @@ public final class VehicleRuntime implements Listener {
         void spin(double degreesPerSecond) {
             state = state.spun(degreesPerSecond);
             parked = false;
+        }
+
+        Vector velocity() {
+            double[] horizontal = VehiclePhysics.worldVelocity(state.yaw(), state.speed(), state.slip());
+            return new Vector(horizontal[0], state.verticalSpeed(), horizontal[1]);
+        }
+
+        void applyImpulse(Vector deltaVelocity, double spinDelta) {
+            if (deltaVelocity == null || !Double.isFinite(deltaVelocity.getX())
+                    || !Double.isFinite(deltaVelocity.getY()) || !Double.isFinite(deltaVelocity.getZ())
+                    || !Double.isFinite(spinDelta)) {
+                return;
+            }
+            Vector delta = deltaVelocity.clone();
+            double magnitude = delta.length();
+            if (magnitude > 40) delta.multiply(40 / magnitude);
+            double[] horizontal = VehiclePhysics.worldVelocity(state.yaw(), state.speed(), state.slip());
+            double spin = Math.max(-720, Math.min(720, state.yawRate() + spinDelta));
+            state = state.impacted(horizontal[0] + delta.getX(),
+                    Math.max(-40, Math.min(40, state.verticalSpeed() + delta.getY())),
+                    horizontal[1] + delta.getZ(), spin);
+            bumped = true;
+            parked = false;
+        }
+
+        Set<String> detachedParts() {
+            Entity chassis = chassis();
+            String encoded = chassis == null ? null : chassis.getPersistentDataContainer()
+                    .get(detachedPartsKey, PersistentDataType.STRING);
+            if (encoded == null || encoded.isBlank()) return Set.of();
+            Set<String> names = new LinkedHashSet<>();
+            for (String name : encoded.split("\\n")) {
+                if (!name.isBlank()) names.add(name);
+            }
+            return Set.copyOf(names);
+        }
+
+        boolean detachPart(String name, Vector velocity, double spin, long despawnTicks) {
+            if (name == null || name.isBlank() || name.indexOf('\n') >= 0 || rig == null
+                    || !supportedParts.contains(name) || detachedParts().contains(name)) {
+                return false;
+            }
+            List<ItemDisplay> displays = rig.detach(name);
+            if (displays.isEmpty()) return false;
+            Set<String> detached = new LinkedHashSet<>(detachedParts());
+            detached.add(name);
+            Entity chassis = chassis();
+            if (chassis != null) {
+                chassis.getPersistentDataContainer().set(detachedPartsKey, PersistentDataType.STRING,
+                        String.join("\n", detached));
+            }
+            for (ItemDisplay display : displays) {
+                throwDebris(display, velocity, spin, despawnTicks);
+            }
+            return true;
         }
 
         /** {@link Vehicle#dress}: forgotten with the seat, and re-dressed on the next tick. */
@@ -3777,6 +3932,9 @@ public final class VehicleRuntime implements Listener {
 
         /** Commits a step, refusing whatever the world will not allow. */
         private void apply(VehiclePhysics.Step step) {
+            VehiclePhysics.State beforeImpact = state;
+            Vector worldNormal = null;
+            boolean landedHard = false;
             VehicleHitbox box = info.hitbox();
             double nextY = at.getY() + step.dy();
             if (step.dy() < 0) {
@@ -3791,6 +3949,7 @@ public final class VehicleRuntime implements Listener {
                 double top = surfaceUnder(at.getX(), nextY, at.getZ(), box, nextY, at.getY());
                 if (!Double.isNaN(top)) {
                     nextY = top;
+                    landedHard = Math.abs(beforeImpact.verticalSpeed()) > 0.5;
                     state = state.landed();
                 }
             }
@@ -3850,13 +4009,17 @@ public final class VehicleRuntime implements Listener {
                         }
                         if (alongX) {
                             nextZ = at.getZ();
+                            worldNormal = new Vector(0, 0, Math.signum(step.dz()));
                             state = state.deflected(false, true);
                         } else if (alongZ) {
                             nextX = at.getX();
+                            worldNormal = new Vector(Math.signum(step.dx()), 0, 0);
                             state = state.deflected(true, false);
                         } else {
                             nextX = at.getX();
                             nextZ = at.getZ();
+                            worldNormal = new Vector(step.dx(), 0, step.dz());
+                            if (worldNormal.lengthSquared() > 1e-9) worldNormal.normalize();
                             state = state.stopped();
                         }
                     }
@@ -3867,6 +4030,36 @@ public final class VehicleRuntime implements Listener {
             }
 
             at = new Location(world, nextX, nextY, nextZ);
+            if (worldNormal != null) {
+                fireWorldImpact(beforeImpact, state, worldNormal, VehicleImpactEvent.Cause.WORLD,
+                        new Location(world, nextX, nextY + box.height() / 2, nextZ));
+            }
+            if (landedHard) {
+                fireWorldImpact(beforeImpact, state, new Vector(0, -1, 0),
+                        VehicleImpactEvent.Cause.LANDING, new Location(world, nextX, nextY, nextZ));
+            }
+        }
+
+        /** Publishes one authoritative world collision after the solver has changed the state. */
+        private void fireWorldImpact(VehiclePhysics.State before, VehiclePhysics.State after, Vector normal,
+                                     VehicleImpactEvent.Cause cause, Location point) {
+            double[] oldHorizontal = VehiclePhysics.worldVelocity(before.yaw(), before.speed(), before.slip());
+            double[] newHorizontal = VehiclePhysics.worldVelocity(after.yaw(), after.speed(), after.slip());
+            Vector oldVelocity = new Vector(oldHorizontal[0], before.verticalSpeed(), oldHorizontal[1]);
+            Vector newVelocity = new Vector(newHorizontal[0], after.verticalSpeed(), newHorizontal[1]);
+            Vector change = newVelocity.clone().subtract(oldVelocity);
+            double closing = Math.max(0, oldVelocity.dot(normal));
+            if (cause == VehicleImpactEvent.Cause.LANDING) closing = Math.abs(before.verticalSpeed());
+            if (closing <= 1e-6 && change.lengthSquared() <= 1e-6) return;
+            VehicleImpactArea area = cause == VehicleImpactEvent.Cause.LANDING
+                    ? VehicleImpactArea.UNDERSIDE
+                    : impactArea(body(), normal.getX(), normal.getZ());
+            VehicleImpactEvent.Outcome outcome = new VehicleImpactEvent.Outcome(
+                    handle(chassisId), oldVelocity, change, normal, closing,
+                    Math.max(0.1, info.weight()) * change.length(),
+                    after.yawRate() - before.yawRate(), area);
+            plugin.getServer().getPluginManager().callEvent(
+                    new VehicleImpactEvent(cause, point, outcome, null));
         }
 
         /**
@@ -4252,6 +4445,34 @@ public final class VehicleRuntime implements Listener {
             VehicleImpacts.Exchange exchange = VehicleImpacts.resolve(mine, theirs, contact);
             bump(exchange.a());
             other.bump(exchange.b());
+            if (exchange.closingSpeed() > 1e-6 && exchange.normalImpulse() > 0) {
+                Vector normal = new Vector(contact.nx(), 0, contact.nz());
+                Location point = new Location(world, contact.px(), base + (top - base) / 2, contact.pz());
+                VehicleImpactEvent.Outcome first = new VehicleImpactEvent.Outcome(
+                        handle(chassisId), new Vector(mine.vx(), 0, mine.vz()),
+                        new Vector(exchange.a().dvx(), 0, exchange.a().dvz()), normal,
+                        exchange.closingSpeed(), exchange.normalImpulse(), exchange.a().dspin(),
+                        impactArea(mine, contact.nx(), contact.nz()));
+                VehicleImpactEvent.Outcome second = new VehicleImpactEvent.Outcome(
+                        handle(other.chassisId), new Vector(theirs.vx(), 0, theirs.vz()),
+                        new Vector(exchange.b().dvx(), 0, exchange.b().dvz()), normal.clone().multiply(-1),
+                        exchange.closingSpeed(), exchange.normalImpulse(), exchange.b().dspin(),
+                        impactArea(theirs, -contact.nx(), -contact.nz()));
+                plugin.getServer().getPluginManager().callEvent(
+                        new VehicleImpactEvent(VehicleImpactEvent.Cause.VEHICLE, point, first, second));
+            }
+        }
+
+        /** Which side of {@code body} faces a world-space contact normal. */
+        private VehicleImpactArea impactArea(VehicleImpacts.Body body, double nx, double nz) {
+            double[] forward = VehiclePhysics.forward(body.yaw());
+            double along = nx * forward[0] + nz * forward[1];
+            if (Math.abs(along) >= 0.55) {
+                return along > 0 ? VehicleImpactArea.FRONT : VehicleImpactArea.REAR;
+            }
+            double[] right = VehiclePhysics.right(body.yaw());
+            double across = nx * right[0] + nz * right[1];
+            return across >= 0 ? VehicleImpactArea.RIGHT : VehicleImpactArea.LEFT;
         }
 
         /** This vehicle as the impulse solver wants it. See {@link VehicleImpacts.Body}. */
@@ -4347,6 +4568,15 @@ public final class VehicleRuntime implements Listener {
          */
         void hush() {
             hushUntil = age + HUSH_TICKS;
+        }
+
+        void showStatus(String text) {
+            if (text == null || text.isBlank()) return;
+            for (UUID id : occupants) {
+                Player player = id == null ? null : plugin.getServer().getPlayer(id);
+                if (player != null) overhead(player, text);
+            }
+            hush();
         }
 
         /**
@@ -4852,6 +5082,49 @@ public final class VehicleRuntime implements Listener {
         public double groundSpeed() {
             Ride ride = ride();
             return ride == null ? 0 : ride.state().groundSpeed();
+        }
+
+        @Override
+        public Vector velocity() {
+            Ride ride = ride();
+            return ride == null ? new Vector() : ride.velocity();
+        }
+
+        @Override
+        public void applyImpulse(Vector deltaVelocity, double spinDelta) {
+            Ride ride = ride();
+            if (ride != null) ride.applyImpulse(deltaVelocity, spinDelta);
+        }
+
+        @Override
+        public List<String> parts() {
+            Ride ride = ride();
+            return ride == null ? List.of() : List.copyOf(ride.supportedParts);
+        }
+
+        @Override
+        public Set<String> detachedParts() {
+            Ride ride = ride();
+            if (ride != null) return ride.detachedParts();
+            Entity chassis = chassisOrNull();
+            String encoded = chassis == null ? null : chassis.getPersistentDataContainer()
+                    .get(detachedPartsKey, PersistentDataType.STRING);
+            if (encoded == null || encoded.isBlank()) return Set.of();
+            Set<String> names = new LinkedHashSet<>();
+            for (String name : encoded.split("\\n")) if (!name.isBlank()) names.add(name);
+            return Set.copyOf(names);
+        }
+
+        @Override
+        public boolean detachPart(String part, Vector velocity, double spin, long despawnTicks) {
+            Ride ride = ride();
+            return ride != null && ride.detachPart(part, velocity, spin, despawnTicks);
+        }
+
+        @Override
+        public void showStatus(String legacyText) {
+            Ride ride = ride();
+            if (ride != null) ride.showStatus(legacyText);
         }
 
         @Override

@@ -61,6 +61,8 @@ public final class VehicleInfo {
     private final String permission;
     private final double coast;
     private final VehicleBail bail;
+    /** Configuration blocks owned by addons, keyed by addon id. */
+    private final Map<String, DefinitionNode> addons;
 
     private VehicleInfo(ContentId id, String model, String carrier, String name, VehicleMedium medium,
                         double weight, double speed, double acceleration, double turnSpeed,
@@ -96,6 +98,73 @@ public final class VehicleInfo {
         this.turnInPlace = turnInPlace;
         this.sounds = sounds;
         this.capes = capes;
+        this.addons = Collections.emptyMap();
+    }
+
+    /** Copy constructor used only when attaching addon-owned configuration. */
+    private VehicleInfo(VehicleInfo source, Map<String, DefinitionNode> addons) {
+        this.id = source.id;
+        this.model = source.model;
+        this.carrier = source.carrier;
+        this.name = source.name;
+        this.medium = source.medium;
+        this.weight = source.weight;
+        this.speed = source.speed;
+        this.acceleration = source.acceleration;
+        this.turnSpeed = source.turnSpeed;
+        this.hitbox = source.hitbox;
+        this.flight = source.flight;
+        this.seats = source.seats;
+        this.animations = source.animations;
+        this.emitters = source.emitters;
+        this.scale = source.scale;
+        this.jumps = source.jumps;
+        this.turnInPlace = source.turnInPlace;
+        this.sounds = source.sounds;
+        this.capes = source.capes;
+        this.animationFollowsSpeed = source.animationFollowsSpeed;
+        this.wallRide = source.wallRide;
+        this.speedometer = source.speedometer;
+        this.permission = source.permission;
+        this.coast = source.coast;
+        this.bail = source.bail;
+        this.addons = copyAddons(addons);
+    }
+
+    private static Map<String, DefinitionNode> copyAddons(Map<String, DefinitionNode> addons) {
+        if (addons == null || addons.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, DefinitionNode> copy = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, DefinitionNode> entry : addons.entrySet()) {
+            String key = entry.getKey() == null ? "" : entry.getKey().trim().toLowerCase(java.util.Locale.ROOT);
+            if (!key.isEmpty() && entry.getValue() != null) {
+                copy.put(key, entry.getValue());
+            }
+        }
+        return Collections.unmodifiableMap(copy);
+    }
+
+    /**
+     * Configuration a content pack supplied for an addon.
+     *
+     * <p>The engine transports this block but does not interpret it. That keeps
+     * an addon usable with authored, embedded and Studio content without making
+     * the engine own the addon's game rules. Keys are lowercase addon ids.
+     */
+    public Optional<DefinitionNode> addon(String id) {
+        return id == null ? Optional.empty() : Optional.ofNullable(addons.get(id.trim().toLowerCase(java.util.Locale.ROOT)));
+    }
+
+    /** Every addon block this vehicle carries, in source order. */
+    public Map<String, DefinitionNode> addons() {
+        return addons;
+    }
+
+    /** The same vehicle with addon-owned configuration attached. */
+    public VehicleInfo withAddons(Map<String, DefinitionNode> addons) {
+        Map<String, DefinitionNode> copy = copyAddons(addons);
+        return copy.equals(this.addons) ? this : new VehicleInfo(this, copy);
     }
 
     /**

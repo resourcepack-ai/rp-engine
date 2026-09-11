@@ -313,7 +313,25 @@ public final class VehicleDefinitions {
                 .withPermission(permission)
                 .withSpeedometer(speedometer)
                 .withSounds(sounds(body, origin, where, diagnostics))
-                .withCapes(capes));
+                .withCapes(capes)
+                .withAddons(addons(body)));
+    }
+
+    /**
+     * Addon-owned blocks under {@code addons:}. The engine deliberately keeps
+     * their values opaque; the addon that owns a key reads its typed values
+     * through {@link DefinitionNode}.
+     */
+    private static Map<String, DefinitionNode> addons(DefinitionNode body) {
+        Optional<DefinitionNode> declared = body.node("addons");
+        if (declared.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, DefinitionNode> addons = new LinkedHashMap<>();
+        for (String name : declared.get().keys()) {
+            declared.get().node(name).ifPresent(node -> addons.put(name, node));
+        }
+        return addons;
     }
 
     /**
