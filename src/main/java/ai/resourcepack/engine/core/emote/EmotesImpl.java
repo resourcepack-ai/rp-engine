@@ -141,6 +141,13 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public void seekProp(Player player, String propId, double seconds) {
+        Host.requireMainThread();
+        if (player == null || propId == null) return;
+        director.seekProp(player, propId, seconds);
+    }
+
+    @Override
     public void lean(Player wearer, float pitch, float roll) {
         Host.requireMainThread();
         // Told every tick by whatever is carrying them, exactly like seek, so

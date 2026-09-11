@@ -547,6 +547,12 @@ public final class EmoteDirector implements Listener {
         List<EmoteStore.Prop> propsSpawned;
         String propsPerformer;
         /**
+         * Where a carried model's animation has been told to be, by prop id,
+         * instead of the emote's own clock - see {@link #seekProp}. A wheel
+         * turned by distance rather than time.
+         */
+        final Map<String, Double> propClocks = new java.util.HashMap<>();
+        /**
          * The floating name over this participant's rig, or null.
          *
          * <p><b>Hiding the body hides the nametag with it</b>, which is the
@@ -1274,6 +1280,21 @@ public final class EmoteDirector implements Listener {
         if (session == null || !session.driven || session.emote == null) return;
         long want = player.getWorld().getGameTime() - Math.round(seconds * 20);
         if (session.startTick != want) session.startTick = want;
+    }
+
+    /**
+     * See {@link ai.resourcepack.engine.api.Emotes#seekProp}: one carried
+     * model's animation moved to {@code seconds}, and held off the emote's
+     * clock from then on. Kept on the session rather than the part, so a
+     * prop that is spawned again for the next emote picks its clock back up
+     * where the last one left it - a wheel does not jump because its wearer
+     * changed pose.
+     */
+    public void seekProp(Player player, String propId, double seconds) {
+        if (player == null || propId == null || !Double.isFinite(seconds) || seconds < 0) return;
+        Session session = active.get(player.getUniqueId());
+        if (session == null || session.emote == null) return;
+        session.propClocks.put(propId, seconds);
     }
 
     /**
@@ -2115,8 +2136,9 @@ public final class EmoteDirector implements Listener {
             }
             if (rigCarrier != null && prop.animation != null && !prop.animation.isEmpty()
                     && rigCarrier.animates(prop.modelId)) {
+                final String modelId = prop.modelId;
                 java.util.Optional<RigCarrier.CarriedRig> carriedRig = rigCarrier.carry(
-                        base, prop.modelId, session.yaw, displayCarry, EmoteDirector::boneItem);
+                        base, prop.modelId, session.yaw, displayCarry, part -> propItem(modelId, part));
                 if (carriedRig.isPresent()) {
                     RigCarrier.CarriedRig rig = carriedRig.get();
                     java.util.Optional<Placement> placement = rig.placement();
@@ -4034,7 +4056,10 @@ public final class EmoteDirector implements Listener {
                 Matrix4f parent = new Matrix4f().scale(PLAYER_SCALE).mul(m);
                 part.rig.pose(parent);
                 java.util.Optional<Placement> placement = part.rig.placement();
-                if (placement.isPresent()) placement.get().seek(t);
+                if (placement.isPresent()) {
+                    Double own = prop.id == null ? null : session.propClocks.get(prop.id);
+                    placement.get().seek(own != null ? own : t);
+                }
                 continue;
             }
 
@@ -4281,10 +4306,14 @@ public final class EmoteDirector implements Listener {
      * hand-authored emote may carry a model from its own content folder -
      * a pair of skates on the shins - by naming the item that wears it.
      */
-    private static volatile java.util.function.Function<String, ItemStack> propItems = id -> null;
+    private static volatile java.util.function.BiFunction<String, String, ItemStack> propItems = (id, part) -> null;
 
-    /** Set from the plugin once the item service exists. */
-    public static void propItems(java.util.function.Function<String, ItemStack> resolver) {
+    /**
+     * Set from the plugin once the item service exists. Called with the prop's
+     * model id and, for one part of an animated prop, that part's model id -
+     * null for a still prop, which is the whole model on one display.
+     */
+    public static void propItems(java.util.function.BiFunction<String, String, ItemStack> resolver) {
         if (resolver != null) {
             propItems = resolver;
         }
@@ -4292,14 +4321,19 @@ public final class EmoteDirector implements Listener {
 
     /** A prop's stack: the pack's own item if the id names one, else the carrier string. */
     private static ItemStack propItem(String modelId) {
+        return propItem(modelId, null);
+    }
+
+    /** One part of an animated prop, the same two ways. */
+    private static ItemStack propItem(String modelId, String partItem) {
         if (modelId != null && modelId.indexOf(':') > 0) {
-            ItemStack own = propItems.apply(modelId);
+            ItemStack own = propItems.apply(modelId, partItem);
             if (own != null) {
                 own.setAmount(1);
                 return own;
             }
         }
-        return boneItem(modelId);
+        return boneItem(partItem != null ? partItem : modelId);
     }
 
     /** How long a carried display is given to cover a move. */

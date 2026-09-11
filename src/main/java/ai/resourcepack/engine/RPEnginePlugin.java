@@ -117,6 +117,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
@@ -430,7 +431,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // prop (a pair of skates on the shins); the director cannot make that
         // stack itself because how a model is put on an item is the item
         // service's version fork.
-        EmoteDirector.propItems(id -> ContentId.parse(id).flatMap(items::create).orElse(null));
+        EmoteDirector.propItems((id, part) -> {
+            ItemStack stack = ContentId.parse(id).flatMap(items::create).orElse(null);
+            if (stack != null && part != null) {
+                // One part of an animated prop: the item wearing that part's
+                // model, the same way a vehicle's rig parts are made.
+                ContentId.parse(part).ifPresent(model -> items.wearModel(stack, model));
+            }
+            return stack;
+        });
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items);
         // emotes() is a fresh facade each call and holds no state of its own —
