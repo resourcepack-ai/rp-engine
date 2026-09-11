@@ -110,6 +110,8 @@ class VehicleImpactsTest {
         // Square on the nose: nothing to turn either of them.
         assertEquals(0, x.a().dspin(), 1e-9);
         assertEquals(0, x.b().dspin(), 1e-9);
+        assertEquals(20, x.closingSpeed(), 1e-9);
+        assertTrue(x.normalImpulse() > 0);
     }
 
     @Test

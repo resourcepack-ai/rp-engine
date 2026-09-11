@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentSource;
+import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
@@ -211,6 +212,8 @@ public final class StudioContent {
          */
         Map<String, String> sounds;
         List<Emitter> particles;
+        /** Opaque addon-owned configuration, transported without interpretation. */
+        Map<String, Map<String, Object>> addons;
     }
 
     /**
@@ -660,7 +663,21 @@ public final class StudioContent {
                 // Absent is TRUE here, unlike everything else on this path: a
                 // rider's cape is theirs, and a manifest that predates the
                 // field is not a manifest asking for it to be taken off.
-                .withCapes(!Boolean.FALSE.equals(vehicle.capes)));
+                .withCapes(!Boolean.FALSE.equals(vehicle.capes))
+                .withAddons(addons(vehicle.addons)));
+    }
+
+    private static Map<String, DefinitionNode> addons(Map<String, Map<String, Object>> declared) {
+        if (declared == null || declared.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, DefinitionNode> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, Object>> entry : declared.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                out.put(entry.getKey(), DefinitionNode.of(entry.getValue()));
+            }
+        }
+        return out;
     }
 
     /**
@@ -961,6 +978,12 @@ public final class StudioContent {
                 written.color = emitter.color().orElse(null);
                 written.size = emitter.size();
                 out.particles.add(written);
+            }
+        }
+        if (!info.addons().isEmpty()) {
+            out.addons = new LinkedHashMap<>();
+            for (Map.Entry<String, DefinitionNode> entry : info.addons().entrySet()) {
+                out.addons.put(entry.getKey(), entry.getValue().values());
             }
         }
         return out;

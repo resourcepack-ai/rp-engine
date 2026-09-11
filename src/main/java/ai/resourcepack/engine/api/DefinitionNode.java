@@ -204,6 +204,16 @@ public final class DefinitionNode {
         return key == null ? null : values.get(key);
     }
 
+    /**
+     * The read-only map behind this node.
+     *
+     * <p>For transporting an addon block across a JSON or YAML boundary. Code
+     * interpreting a known field should keep using the typed accessors above.
+     */
+    public Map<String, Object> values() {
+        return values;
+    }
+
     @Override
     public String toString() {
         return values.toString();

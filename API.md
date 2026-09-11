@@ -215,6 +215,32 @@ aircraft limited below its takeoff speed cannot take off. Deliberately not
 remembered — keep it in `data()` yourself if it should be. `stop()` is a
 wall: dead this tick, throttle reset, still answering its driver afterwards.
 
+### Collisions, impulses and detachable model parts
+
+`VehicleImpactEvent` fires once when the authoritative solver resolves a
+meaningful vehicle/vehicle, vehicle/world or landing impact. A vehicle pair is
+one event with `first()` and `second()` outcomes; world impacts have only the
+first. Each outcome carries the pre-impact velocity, actual velocity change,
+contact normal, closing speed, normal impulse, spin change and contacted body
+area. Resting overlap and contacts already moving apart do not fire.
+
+Use `applyImpulse(worldDeltaVelocity, spinDelta)` when an addon needs to alter
+the physical reaction. It accepts world blocks/second and degrees/second and
+passes through the engine's finite-value and magnitude bounds. `velocity()` is
+the matching read side. `showStatus(text)` uses the vehicle's action-bar status
+surface and yields the built-in speedometer briefly.
+
+An animated model is already split into named bone displays. `parts()` exposes
+those model-derived names; `detachPart` removes one whole named bone, remembers
+that fact on the chassis, gives its displays a temporary vanilla-physics host,
+and cleans both up after the supplied lifetime. `detachedParts()` is the
+persistent read side. A single-display model has no supported detachable parts.
+
+Vehicle definitions can carry opaque `addons:` blocks. Read one with
+`vehicle.info().addon("my-addon")`; the engine transports it unchanged through
+authored YAML, Studio pushes and temporary edit round-trips but does not
+interpret addon policy.
+
 ### Building a vehicle the engine does not have
 
 A skateboard is pushed rather than throttled, tucks for speed and flicks round

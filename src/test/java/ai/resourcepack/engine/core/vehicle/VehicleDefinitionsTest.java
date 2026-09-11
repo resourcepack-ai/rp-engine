@@ -100,6 +100,25 @@ class VehicleDefinitionsTest {
         assertEquals(0, cart.driverSeat().x());
     }
 
+    @Test
+    void transportsAddonConfigurationWithoutInterpretingIt() throws IOException {
+        write("mypack/vehicles/a.yml",
+                "car:\n"
+                        + "  seats: [{role: driver}]\n"
+                        + "  addons:\n"
+                        + "    vehicle-status:\n"
+                        + "      enabled: true\n"
+                        + "      max-health: 250\n"
+                        + "      detachable-parts: [hood, left_door]\n"
+                        + "      status: {interval-seconds: 2}\n");
+
+        var status = one("mypack:car").addon("vehicle-status").orElseThrow();
+        assertTrue(status.bool("enabled").orElseThrow());
+        assertEquals(250, status.decimal("max-health").orElseThrow());
+        assertEquals(java.util.List.of("hood", "left_door"), status.strings("detachable-parts"));
+        assertEquals(2, status.node("status").orElseThrow().decimal("interval-seconds").orElseThrow());
+    }
+
     /**
      * The rule the whole feature rests on, and the one studio's editor mirrors:
      * a vehicle nobody can steer is not a vehicle, so it does not load at all.

@@ -341,6 +341,12 @@ final class EditTargets {
             emitters.add(out2);
         }
         out.particles = emitters;
+        if (!info.addons().isEmpty()) {
+            out.addons = new LinkedHashMap<>();
+            for (Map.Entry<String, ai.resourcepack.engine.api.DefinitionNode> entry : info.addons().entrySet()) {
+                out.addons.put(entry.getKey(), entry.getValue().values());
+            }
+        }
         return out;
     }
 
