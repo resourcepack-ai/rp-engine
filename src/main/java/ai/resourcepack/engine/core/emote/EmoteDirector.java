@@ -2109,6 +2109,19 @@ public final class EmoteDirector implements Listener {
             // cycle has to be hidden from the wearer exactly as the bones were.
             if (session.hideFromOwnWearer()) hideFromWearer(player, display);
         }
+        // <b>The same glide window as the bones, whatever it is right now.</b>
+        // The bones are spawned once and moved onto the rider's window by
+        // carryAs when their wearer gets into a vehicle; a prop is respawned
+        // on EVERY swap of the worn emote, which on a vehicle whose plugin
+        // dresses its rider is many times a second - and carryAs only acts on
+        // the change, so a prop spawned mid-ride kept the standing window and
+        // trailed the feet it was attached to by the difference between the
+        // two. A pair of skates, on a skater, at speed: a boot a block behind
+        // each foot. So a freshly spawned prop asks which window the session
+        // is on rather than assuming the one it would have got at the start.
+        if (Boolean.TRUE.equals(session.carriedAsRider)) {
+            for (PropPart part : session.propParts) if (part != null) part.carryAs(riderCarry);
+        }
     }
 
     /**
