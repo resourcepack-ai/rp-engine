@@ -16,7 +16,9 @@ import org.bukkit.util.Transformation;
 import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -124,6 +126,28 @@ public final class RigCarrier {
     }
 
     /**
+     * Every bone name a part answers to, root first and its own name last.
+     *
+     * <p>Falls back to the part's own bone for a manifest written before the
+     * lineage was recorded, which is why an older pushed rig still detaches the
+     * bones it does name — it simply cannot detach a grouping name it never
+     * sent.
+     */
+    private static List<String> lineageOf(RigStore.Part definition) {
+        if (definition == null) return List.of();
+        List<String> names = new ArrayList<>();
+        if (definition.bones != null) {
+            for (String name : definition.bones) {
+                if (name != null && !name.isBlank()) names.add(name);
+            }
+        }
+        if (definition.bone != null && !definition.bone.isBlank()) {
+            names.add(definition.bone);
+        }
+        return List.copyOf(new LinkedHashSet<>(names));
+    }
+
+    /**
      * Puts {@code modelId}'s rig at {@code anchor}, facing {@code yaw}.
      *
      * @param partItem what one part renders as, given the part's item name —
@@ -191,6 +215,7 @@ public final class RigCarrier {
         // CarriedRig.tilt.
         List<String> still = new ArrayList<>();
         Map<String, List<String>> bones = new LinkedHashMap<>();
+        Map<String, float[]> pivots = new LinkedHashMap<>();
         for (ItemDisplay part : parts) {
             ids.add(part.getUniqueId().toString());
             // A carried rig is derived from its owner (vehicle or emote) and
@@ -202,9 +227,20 @@ public final class RigCarrier {
             Integer index = part.getPersistentDataContainer().get(partKey, PersistentDataType.INTEGER);
             if (index != null && index >= 0 && index < rig.parts.size()) {
                 RigStore.Part definition = rig.parts.get(index);
-                if (definition != null && definition.bone != null && !definition.bone.isBlank()) {
-                    bones.computeIfAbsent(definition.bone, ignored -> new ArrayList<>())
+                // A display is filed under its WHOLE lineage, not only the bone
+                // that owns it. A bone whose children are all bones owns no
+                // display of its own, so filing by the owner alone left every
+                // grouping name — the `hood` over a left and a right half — with
+                // no entry at all: invisible to bones() and impossible to
+                // detach, while its children were both. Detaching an ancestor
+                // therefore takes everything beneath it, which is what somebody
+                // ticking "hood" is asking for.
+                for (String name : lineageOf(definition)) {
+                    bones.computeIfAbsent(name, ignored -> new ArrayList<>())
                             .add(part.getUniqueId().toString());
+                    if (definition.pivot != null && definition.pivot.length >= 3) {
+                        pivots.putIfAbsent(name, definition.pivot.clone());
+                    }
                 }
             }
             part.getPersistentDataContainer()
@@ -228,7 +264,8 @@ public final class RigCarrier {
         // will accept — see RigAnimator.track's Interaction arm.
         animator.track(yawHost);
 
-        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, bones, scale, parts.size());
+        CarriedRig carried = new CarriedRig(yawHost.getUniqueId(), ids, still, bones, pivots,
+                scale, parts.size());
         // **The heading goes on HERE, not left to the caller.** The parts are
         // spawned at yaw zero deliberately (see above), and a carried part's
         // matrix never carries a yaw either — RigAnimator.yawOf returns 0 for
@@ -254,6 +291,7 @@ public final class RigCarrier {
         private final List<String> partIds;
         private final List<String> stillIds;
         private final Map<String, List<String>> boneIds;
+        private final Map<String, float[]> bonePivots;
         private final float scale;
         private final int size;
 
@@ -261,13 +299,28 @@ public final class RigCarrier {
         private Transformation stillPose;
 
         private CarriedRig(UUID anchorId, List<String> partIds, List<String> stillIds,
-                           Map<String, List<String>> boneIds, float scale, int size) {
+                           Map<String, List<String>> boneIds, Map<String, float[]> bonePivots,
+                           float scale, int size) {
             this.anchorId = anchorId;
             this.partIds = partIds;
             this.stillIds = stillIds;
             this.boneIds = boneIds;
+            this.bonePivots = bonePivots;
             this.scale = scale;
             this.size = size;
+        }
+
+        /**
+         * Where a named bone sits in the model, in model pixels, or null when
+         * the manifest did not say.
+         *
+         * <p>What makes a localized system able to ask "which part is nearest
+         * the corner that was hit" rather than reading the answer out of the
+         * bone's name.
+         */
+        public float[] pivotOf(String bone) {
+            float[] pivot = bone == null ? null : bonePivots.get(bone);
+            return pivot == null ? null : pivot.clone();
         }
 
         /**
@@ -345,6 +398,17 @@ public final class RigCarrier {
         public List<ItemDisplay> detach(String bone) {
             List<String> ids = bone == null ? null : boneIds.remove(bone);
             if (ids == null || ids.isEmpty()) return List.of();
+            // A display is filed under every name in its lineage, so taking a
+            // bone off has to clear it from its ancestors and its children too.
+            // Without this, detaching `hood` leaves `hood_left` still naming a
+            // display that is now debris, and the next detach hands the caller
+            // an entity it has already thrown.
+            for (Iterator<Map.Entry<String, List<String>>> it = boneIds.entrySet().iterator();
+                 it.hasNext(); ) {
+                Map.Entry<String, List<String>> entry = it.next();
+                entry.getValue().removeAll(ids);
+                if (entry.getValue().isEmpty()) it.remove();
+            }
             List<ItemDisplay> detached = new ArrayList<>();
             for (String id : ids) {
                 Entity entity = entity(id);
