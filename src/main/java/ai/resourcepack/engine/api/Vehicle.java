@@ -541,6 +541,14 @@ public interface Vehicle {
     boolean detachPart(String part, Vector velocity, double spin, long despawnTicks);
 
     /**
+     * Adds a persistent scrape to the collision shell (up to twelve marks).
+     * Coordinates are body-frame blocks, as for {@link #partOffset}; amount is
+     * 0..1. The shell should fit the model for the decal to touch the paint.
+     * Default no-op preserves compatibility with third-party vehicle handles.
+     */
+    default void scuff(VehicleImpactArea area, Vector contact, double amount) { }
+
+    /**
      * A standing lean added to however the body is already sitting, in degrees.
      *
      * <p>Pitch is nose-up, roll is right-side-down, and both are added to the

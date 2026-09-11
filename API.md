@@ -248,6 +248,13 @@ passes through the engine's finite-value and magnitude bounds. `velocity()` is
 the matching read side. `showStatus(text)` uses the vehicle's action-bar status
 surface and yields the built-in speedometer briefly.
 
+`scuff(area, contact, amount)` adds a persistent scrape decal to the collision
+shell, in body-frame blocks, with amount from 0 to 1. It keeps at most twelve
+marks (two narrow display strips each), follows suspension pitch and roll, and
+rebuilds them after chunk loads. Fit the hitbox to the bodywork: these are shell
+decals, not edits to the model's texture. Decals are hidden after part loss to
+avoid leaving paint marks floating across a missing panel.
+
 An animated model is already split into named bone displays. `parts()` exposes
 those model-derived names; `detachPart` removes one whole named bone, remembers
 that fact on the chassis, gives its displays a temporary vanilla-physics host,

@@ -572,6 +572,7 @@ public final class VehicleRuntime implements Listener {
 
     /** Names of rig bones removed from this persistent chassis. */
     private final NamespacedKey detachedPartsKey;
+    private final NamespacedKey scuffsKey;
 
     /** Temporary physical hosts and displays created by detached bodywork. */
     private final List<Debris> debris = new ArrayList<>();
@@ -751,6 +752,7 @@ public final class VehicleRuntime implements Listener {
         this.idKey = new NamespacedKey(plugin, "vehicle");
         this.disabledKey = new NamespacedKey(plugin, "vehicle-disabled");
         this.detachedPartsKey = new NamespacedKey(plugin, "vehicle-detached-parts");
+        this.scuffsKey = new NamespacedKey(plugin, "vehicle-scuffs");
     }
 
     /** The control arm, so the plugin can register it and report it. */
@@ -1539,6 +1541,10 @@ public final class VehicleRuntime implements Listener {
         for (Ride ride : live.values()) {
             try {
                 ride.settle();
+                Entity chassis = ride.chassis();
+                if (chassis != null) ride.scuffs.draw(chassis, scuffsKey, ride.at, ride.state.yaw(),
+                        ride.state.pitch() + ride.posturePitch, ride.state.roll() + ride.postureRoll,
+                        (ride.info.worn() && ride.occupied()) || !ride.detachedParts().isEmpty(), carry);
             } catch (RuntimeException e) {
                 log.warning("Vehicle " + ride.info.id() + " failed to settle: " + e);
             }
@@ -1552,6 +1558,8 @@ public final class VehicleRuntime implements Listener {
         private final UUID displayId;
         private double yaw;
         private double spin;
+        private double tumble;
+        private double pitch;
         private long remaining;
 
         Debris(ArmorStand host, ItemDisplay display, double spin, long remaining) {
@@ -1559,6 +1567,7 @@ public final class VehicleRuntime implements Listener {
             this.displayId = display.getUniqueId();
             this.yaw = display.getLocation().getYaw();
             this.spin = Math.max(-720, Math.min(720, Double.isFinite(spin) ? spin : 0));
+            this.tumble = 90 + Math.min(270, Math.abs(this.spin));
             this.remaining = Math.max(1, Math.min(20L * 60L * 10L, remaining));
         }
 
@@ -1574,7 +1583,9 @@ public final class VehicleRuntime implements Listener {
             yaw = VehiclePhysics.wrap360(yaw + spin * DT);
             if (host.isOnGround()) {
                 spin *= 0.86;
+                tumble *= 0.75;
             }
+            pitch = VehiclePhysics.wrap360(pitch + tumble * DT);
             // An item model is centred on its display entity. The vehicle rig
             // therefore rides half a block above its physical floor, but the
             // debris host is an armour stand whose location is its feet. Keep
@@ -1582,7 +1593,7 @@ public final class VehicleRuntime implements Listener {
             // panel settles inside the road.
             Location at = host.getLocation().add(0, MODEL_LIFT, 0);
             at.setYaw((float) yaw);
-            at.setPitch(0);
+            at.setPitch((float) pitch);
             part.teleport(at);
             return false;
         }
@@ -1814,6 +1825,7 @@ public final class VehicleRuntime implements Listener {
 
         /** Rig bone names before already-detached ones are hidden. */
         private List<String> supportedParts = List.of();
+        private final VehicleScuffs scuffs = new VehicleScuffs();
 
         /**
          * What the rig is playing, so a state change is noticed rather than
@@ -2474,6 +2486,7 @@ public final class VehicleRuntime implements Listener {
         }
 
         void despawnParts() {
+            scuffs.clearDisplays();
             for (UUID id : mounts) {
                 removeEntity(id);
             }
@@ -5349,6 +5362,13 @@ public final class VehicleRuntime implements Listener {
         public boolean detachPart(String part, Vector velocity, double spin, long despawnTicks) {
             Ride ride = ride();
             return ride != null && ride.detachPart(part, velocity, spin, despawnTicks);
+        }
+
+        @Override
+        public void scuff(VehicleImpactArea area, Vector contact, double amount) {
+            Ride ride = live.get(chassisId);
+            Entity chassis = ride == null ? null : ride.chassis();
+            if (chassis != null) ride.scuffs.add(chassis, scuffsKey, ride.info.hitbox(), area, contact, amount);
         }
 
         @Override
