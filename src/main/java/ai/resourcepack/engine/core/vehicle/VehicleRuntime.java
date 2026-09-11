@@ -1562,7 +1562,12 @@ public final class VehicleRuntime implements Listener {
             if (host.isOnGround()) {
                 spin *= 0.86;
             }
-            Location at = host.getLocation();
+            // An item model is centred on its display entity. The vehicle rig
+            // therefore rides half a block above its physical floor, but the
+            // debris host is an armour stand whose location is its feet. Keep
+            // those two origins distinct or the lower half of every loose
+            // panel settles inside the road.
+            Location at = host.getLocation().add(0, MODEL_LIFT, 0);
             at.setYaw((float) yaw);
             at.setPitch(0);
             part.teleport(at);
@@ -1580,7 +1585,8 @@ public final class VehicleRuntime implements Listener {
     private void throwDebris(ItemDisplay display, Vector velocity, double spin, long despawnTicks) {
         if (display == null || !display.isValid()) return;
         Location at = display.getLocation();
-        ArmorStand host = at.getWorld().spawn(at, ArmorStand.class, stand -> {
+        Location feet = at.clone().subtract(0, MODEL_LIFT, 0);
+        ArmorStand host = feet.getWorld().spawn(feet, ArmorStand.class, stand -> {
             stand.setVisible(false);
             stand.setSmall(true);
             stand.setBasePlate(false);

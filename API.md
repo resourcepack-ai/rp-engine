@@ -233,8 +233,10 @@ surface and yields the built-in speedometer briefly.
 An animated model is already split into named bone displays. `parts()` exposes
 those model-derived names; `detachPart` removes one whole named bone, remembers
 that fact on the chassis, gives its displays a temporary vanilla-physics host,
-and cleans both up after the supplied lifetime. `detachedParts()` is the
-persistent read side. A single-display model has no supported detachable parts.
+keeps their centred item-model origin above the host's feet so they rest on the
+surface, and cleans both up after the supplied lifetime. `detachedParts()` is
+the persistent read side. A single-display model has no supported detachable
+parts.
 
 A display is filed under **every** bone in its lineage, so a grouping bone — a
 `hood` over a left and a right half — is a name `parts()` offers and
