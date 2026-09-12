@@ -93,6 +93,31 @@ public interface Vehicle {
     double heading();
 
     /**
+     * Where a point on the body is in the world: {@code right} blocks to the
+     * vehicle's right, {@code up} blocks above its base, {@code forward} blocks
+     * toward its nose.
+     *
+     * <p>The same frame and the same units as {@link #partOffset} and
+     * {@code VehicleImpactEvent.Outcome.contactOffset()}, so a plugin that has
+     * worked out WHERE something happened on a vehicle can put a particle, a
+     * sound or an item there without deriving the heading basis for itself.
+     * Which is worth an API method because that derivation is the single
+     * easiest thing about a vehicle to get wrong — Minecraft's yaw runs
+     * clockwise from south, so the right-hand vector is {@code (-cos, -sin)}
+     * and getting the pair backwards puts everything on the wrong side of the
+     * vehicle with nothing to report it.
+     *
+     * <p>The body's own attitude is included: a point on a vehicle that is
+     * nose-up on a kerb or leaning into a corner moves with the bodywork, and
+     * the ride height is in it too, so this is where the ART is rather than
+     * where the position is. The returned location carries the vehicle's
+     * heading as its yaw and no pitch.
+     *
+     * <p>Null for a vehicle that has been removed, like {@link #location}.
+     */
+    Location pointOn(double right, double up, double forward);
+
+    /**
      * How fast it is going along its own heading, in blocks per second.
      *
      * <p>Negative is reversing. Zero for a vehicle nobody is driving once it
