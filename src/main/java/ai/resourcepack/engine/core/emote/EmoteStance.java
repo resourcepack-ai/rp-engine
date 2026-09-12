@@ -1,9 +1,12 @@
 package ai.resourcepack.engine.core.emote;
 
 import ai.resourcepack.engine.api.EmoteTrigger;
+import ai.resourcepack.engine.api.Keyframe;
+import ai.resourcepack.engine.core.animation.Sampler;
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -80,6 +83,240 @@ final class EmoteStance {
      * sequence.
      */
     static final double LEAD_DEAD_ZONE = 0.01;
+
+    // ---- the gait clock --------------------------------------------------
+    //
+    // A walk cycle is not a thing that happens over a second, it is a thing
+    // that happens over a STRIDE. Left to run at the animation's own rate it
+    // plays identically whether its wearer is wading through soul sand, on
+    // flat ground, or under Speed II — and the feet slide across the floor,
+    // which is the single most visible way an animation reads as fake.
+    //
+    // So a gait's playhead is advanced by how far its wearer TRAVELLED rather
+    // than by how long they took, exactly as a vehicle's wheels are (see the
+    // vehicle runtime's animationFollowsSpeed). The reference speeds below are
+    // what makes it a no-op at the ordinary pace: a cycle authored for walking
+    // and played by somebody walking runs at exactly the rate it was drawn at,
+    // which is what every stance built before this already did.
+
+    /**
+     * Walking, in blocks per tick — vanilla's 4.317 blocks a second.
+     *
+     * <p>The speed a {@link EmoteTrigger#WALK} cycle is ASSUMED to have been
+     * authored for, which is what makes the link invisible on flat ground and
+     * what makes it work everywhere else. Nobody sets this per emote and
+     * nobody should have to: an author draws a walk cycle by watching a player
+     * walk.
+     */
+    static final double WALK_SPEED = 4.317 / 20.0;
+
+    /** Sprinting, in blocks per tick — vanilla's 5.612 blocks a second. */
+    static final double SPRINT_SPEED = 5.612 / 20.0;
+
+    /** Crouch-walking, in blocks per tick — vanilla's 1.295 blocks a second. */
+    static final double SNEAK_SPEED = 1.295 / 20.0;
+
+    /**
+     * How fast the measured gait follows the real one, per pass.
+     *
+     * <p><b>Mojang's own 0.4</b>, and the same number {@link CapeSway} chases
+     * its bob with, because it is the same quantity: vanilla's
+     * {@code limbSwingAmount} is a one-pole filter over the step the player
+     * took, for the same reason this is. A player's position reaches the server
+     * in movement packets that arrive when they arrive, so the raw step is two
+     * ticks of travel and then a tick of nothing — read literally that is legs
+     * stuttering twenty times a second. A total over any window is unchanged by
+     * the filter; only the jitter inside it is.
+     */
+    static final double GAIT_CHASE = 0.4;
+
+    /**
+     * The fastest a gait may ever play, as a multiple of its authored rate.
+     *
+     * <p>Three, which covers Speed II and most of what a server's walk-speed
+     * attribute is set to. Beyond it the legs simply stop getting faster —
+     * a cycle at ten times its rate is a blur that reads as broken, and a
+     * player moving that fast is being carried rather than walking.
+     */
+    static final double MAX_GAIT_RATE = 3.0;
+
+    /**
+     * The biggest step one pass may contribute to the gait, in blocks.
+     *
+     * <p>A teleport, a knockback or an elytra launch is not a stride, and the
+     * filter above would spread one across the next half-second of leg
+     * movement. Capped rather than refused, for {@link #leadFor}'s reason: the
+     * body really is moving, and the next pass re-reads the truth. Three times
+     * a sprint stride, so nothing anybody can do on foot reaches it.
+     */
+    static final double MAX_GAIT_STEP = SPRINT_SPEED * MAX_GAIT_RATE;
+
+    /** Below this the gait is stopped, in blocks per tick. See LEAD_DEAD_ZONE. */
+    static final double GAIT_DEAD_ZONE = 0.002;
+
+    /**
+     * The most points of a cycle a join is allowed to look at. See
+     * {@link #nearestPhase}.
+     *
+     * <p>A gait cycle is a second or so, which is twenty ticks and under this
+     * either way. The cap is for the emote somebody authored thirty seconds
+     * long and dropped into a movement set: six hundred samples per bone on a
+     * state change, several times a second, for a join nobody would notice.
+     */
+    static final int MAX_JOIN_SAMPLES = 64;
+
+    /**
+     * The ground speed a state's cycle is authored for, or 0 for a state whose
+     * clock is time rather than distance.
+     *
+     * <p>Standing still, crouching in place and being off the ground are the
+     * three states that are not gaits — an idle breathes at its own rate, and
+     * a body in the air is on gravity's clock rather than its own, so neither
+     * has a stride to be in step with.
+     */
+    static double gaitSpeed(EmoteTrigger state) {
+        if (state == null) return 0;
+        switch (state) {
+            case WALK: return WALK_SPEED;
+            case SPRINT: return SPRINT_SPEED;
+            case SNEAK_MOVE: return SNEAK_SPEED;
+            default: return 0;
+        }
+    }
+
+    /**
+     * How fast this state's cycle plays, as a multiple of its authored rate.
+     *
+     * <p>One for a state that is not a gait, which is the whole of "nothing
+     * else changed". Zero for a gait whose wearer is not actually moving — the
+     * legs stop where they are rather than walking on the spot, which is what a
+     * body stopping dead does and what the ease into the idle member then has
+     * to hide.
+     *
+     * @param blocksPerTick the SMOOTHED horizontal step — see {@link #GAIT_CHASE}
+     */
+    static double gaitRate(EmoteTrigger state, double blocksPerTick) {
+        double reference = gaitSpeed(state);
+        if (reference <= 0) return 1;
+        if (!Double.isFinite(blocksPerTick) || blocksPerTick <= 0) return 0;
+        return Math.min(MAX_GAIT_RATE, blocksPerTick / reference);
+    }
+
+    /**
+     * The gait speed after this pass: the last one chased toward what was
+     * actually stepped, in blocks per tick.
+     *
+     * <p>It has to reach zero rather than approach it, for
+     * {@link #LEAD_DEAD_ZONE}'s reason one field over: a playhead creeping
+     * forward by a millionth of a second for ever is a rig whose transform
+     * differs from the last one on every tick, which is every bone re-sent to
+     * every viewer for as long as somebody stands still wearing a set.
+     */
+    static double chaseGait(double current, double stepped) {
+        double measured = !Double.isFinite(stepped) || stepped < 0 ? 0 : Math.min(stepped, MAX_GAIT_STEP);
+        double from = Double.isFinite(current) && current > 0 ? current : 0;
+        double next = from + (measured - from) * GAIT_CHASE;
+        return next < GAIT_DEAD_ZONE ? 0 : next;
+    }
+
+    /**
+     * How far one pass carried the player, horizontally, in blocks.
+     *
+     * <p>Zero across a world change and on the first pass, on the same terms
+     * as {@link #movedHorizontally} — and horizontal for its reason too, since
+     * falling down a shaft is not a stride however fast it happens.
+     */
+    static double stepBetween(Location previous, Location now) {
+        if (previous == null || now == null) return 0;
+        if (previous.getWorld() != now.getWorld()) return 0;
+        double dx = now.getX() - previous.getX();
+        double dz = now.getZ() - previous.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * Where in {@code next}'s cycle to join it so the body barely moves.
+     *
+     * <p><b>A movement set is several cycles of ONE body, and they are not
+     * unrelated animations.</b> Started from the top every time, a wearer
+     * breaking into a run had their walk's mid-stride legs asked for the run's
+     * frame zero: a whole stride to cross in five ticks, every time anybody
+     * crossed between two states, on a pair of legs that had nothing wrong with
+     * where they were. Joined at the point of the new cycle nearest the pose
+     * already on screen, there is almost nothing for the ease to do — which is
+     * the same fix the vehicle rigs got, for the same reason, and the reason a
+     * wheel there keeps its phase across a change of state.
+     *
+     * <p><b>Only a LOOP is joined mid-way.</b> A cycle is a thing with no
+     * beginning, so any point of it is a legitimate place to start; a one-shot
+     * joined in the middle is one that ends early, and a jump pose held for as
+     * long as somebody is in the air is the case that matters — it wants its
+     * own first frame.
+     *
+     * <p>Pure, and free of the plugin: given a pose and an emote it answers a
+     * number, which is what lets the join be tested rather than watched.
+     *
+     * @param shown  the nine values each bone is currently composed from,
+     *               index-aligned with {@code bones} — mid-ease included, since
+     *               what is ON SCREEN is what the join has to match rather than
+     *               what some cycle would sample to
+     * @return seconds into {@code next}, or 0 when there is nothing to match
+     */
+    static double nearestPhase(EmoteStore.Emote next, List<EmoteStore.Bone> bones, float[][] shown) {
+        if (next == null || !next.loop || next.length <= 0) return 0;
+        if (next.animators == null || next.animators.isEmpty()) return 0;
+        if (bones == null || bones.isEmpty() || shown == null) return 0;
+
+        // Only the bones the new cycle actually turns. A bone it says nothing
+        // about samples to the same rest pose at every point of it, so it adds
+        // the same cost everywhere and cannot move the answer — it would only
+        // be work.
+        int count = Math.min(bones.size(), shown.length);
+        float[][] leaving = new float[count][];
+        List<List<Keyframe>> tracks = new java.util.ArrayList<>(count);
+        int matched = 0;
+        for (int i = 0; i < count; i++) {
+            EmoteStore.Bone bone = bones.get(i);
+            Map<String, List<Keyframe>> animator = bone == null || bone.key == null
+                    ? null : next.animators.get(bone.key);
+            List<Keyframe> track = animator == null ? null : animator.get("rotation");
+            if (track == null || track.isEmpty() || shown[i] == null) {
+                tracks.add(null);
+                continue;
+            }
+            tracks.add(track);
+            leaving[i] = shown[i];
+            matched++;
+        }
+        if (matched == 0) return 0;
+
+        int samples = Math.min(MAX_JOIN_SAMPLES, Math.max(1, (int) Math.ceil(next.length * 20)));
+        double best = 0;
+        double bestCost = Double.MAX_VALUE;
+        for (int sample = 0; sample < samples; sample++) {
+            double t = next.length * sample / samples;
+            double cost = 0;
+            for (int i = 0; i < count; i++) {
+                List<Keyframe> track = tracks.get(i);
+                if (track == null) continue;
+                float[] here = Sampler.sample(track, t, NO_TURN);
+                for (int axis = 0; axis < 3; axis++) {
+                    // The short way round, so a bone at 350 degrees reads as
+                    // ten from one at 0 rather than three hundred and fifty.
+                    double d = here[axis] - leaving[i][axis];
+                    d -= 360 * Math.round(d / 360);
+                    cost += d * d;
+                }
+            }
+            if (cost < bestCost) {
+                bestCost = cost;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    private static final float[] NO_TURN = {0f, 0f, 0f};
 
     /**
      * What the wearer is doing, as the one state that decides playback.
