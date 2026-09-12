@@ -636,6 +636,12 @@ hatchback:
       wheel-detach-severity: 18
       mechanical-damage: 1
       region-damage-multiplier: 1
+      water-damage-per-second: 35   # water wrecks anything whose medium is not water
+      crash-effects: true           # sparks and a bang where the hit landed
+      damage-smoke: true            # smoke, then flame, from a wreck's worst corner
+      occupant-damage: 0.45         # per point of severity, to the people aboard
+      explode-when-destroyed: false # burns for a moment and then goes up
+      explosion-power: 2.5
       status:
         enabled: false
         interval-seconds: 1
@@ -830,8 +836,18 @@ would beach itself on the first shore and be stuck there for ever — the driver
 would have no way back to the water and nothing to do but log off. Crawling is
 slow enough to be unmistakably wrong and fast enough to get you off the sand.
 
-A `land` vehicle driven into deep water is unaffected by any of this. It falls
-in and drives along the bottom, which is what a car does.
+**And the other way round: a vehicle that is not a hull cannot drive in
+water.** Its engine floods and it wallows to a stop, more the deeper it is, and
+it sinks. Nothing happens in a ford — the edge of a river is drawn an eighth of
+a block deep, and a car that died in a puddle would be a car that died in the
+rain — but a lake is the end of the journey. It used to drive along the bottom,
+which is what a car does in no game anybody has played.
+
+Whether it is also WRECKED by that is a plugin's decision rather than the
+engine's, on the same footing as every other kind of damage: the engine has no
+opinion about how much punishment a vehicle takes. The `vehicle-status` addon's
+`water-damage-per-second` is that decision, and with it a car driven into deep
+water is scrap in about three seconds.
 
 ### Aeroplanes and helicopters
 
