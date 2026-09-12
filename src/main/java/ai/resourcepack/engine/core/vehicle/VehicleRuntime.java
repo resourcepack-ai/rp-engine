@@ -3135,6 +3135,29 @@ public final class VehicleRuntime implements Listener {
             }
         }
 
+        /**
+         * A point on the bodywork, in the world — {@link Vehicle#pointOn}.
+         *
+         * <p>On the BODY rather than on the position, exactly as a seat is and
+         * through the same call: the attitude and the ride height are what a
+         * plugin putting a particle where a wheel used to be needs, or the
+         * smoke comes out of the road under a vehicle that is leaning.
+         */
+        Location bodyPoint(double right, double up, double forward) {
+            if (!Double.isFinite(right) || !Double.isFinite(up) || !Double.isFinite(forward)) {
+                return position();
+            }
+            double[] offset = VehiclePhysics.bodyOffset(state.yaw(), state.pitch() + posturePitch,
+                    state.roll() + postureRoll, MODEL_LIFT, right, up, forward);
+            Location where = new Location(world,
+                    at.getX() + offset[0],
+                    at.getY() + state.lift() + offset[1],
+                    at.getZ() + offset[2]);
+            where.setYaw((float) state.yaw());
+            where.setPitch(0);
+            return where;
+        }
+
         /** Where it is, facing its heading — {@link Vehicle#location}. */
         Location position() {
             Location where = at.clone();
@@ -5150,6 +5173,16 @@ public final class VehicleRuntime implements Listener {
         public double submersion() {
             Ride ride = ride();
             return ride == null ? 0 : ride.submersion;
+        }
+
+        @Override
+        public Location pointOn(double right, double up, double forward) {
+            Ride ride = ride();
+            if (ride == null) {
+                Entity chassis = chassisOrNull();
+                return chassis == null ? null : chassis.getLocation();
+            }
+            return ride.bodyPoint(right, up, forward);
         }
 
         @Override
