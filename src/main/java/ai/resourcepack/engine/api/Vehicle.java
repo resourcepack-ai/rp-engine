@@ -104,6 +104,27 @@ public interface Vehicle {
     double verticalSpeed();
 
     /**
+     * How far the water's surface stands above the vehicle's base, in blocks,
+     * and zero for one that is not in water at all.
+     *
+     * <p>{@link VehicleState#SUBMERGED} says a vehicle is standing in water and
+     * this says how deep, which is a different question and usually the one
+     * that matters: the edge of a river is drawn an eighth of a block deep, so
+     * "in water" is also what a puddle on a road answers. A hull floats at
+     * about zero; anything above half a block is properly in it.
+     *
+     * <p>The engine already reads this every tick for the buoyancy, so it is a
+     * value rather than a fresh look at the world — as fresh as the last tick
+     * the vehicle took. For a vehicle that is NOT built for water, the handling
+     * model has its own opinion about it (the engine floods and it wallows to a
+     * stop); what that costs the machine is a plugin's decision, and this is
+     * what it decides on.
+     */
+    default double submersion() {
+        return 0;
+    }
+
+    /**
      * What it is doing right now — moving, turning, airborne, idle and so on,
      * several at once.
      *

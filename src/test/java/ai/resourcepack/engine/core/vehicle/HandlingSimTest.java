@@ -128,6 +128,110 @@ class HandlingSimTest {
         assertTrue(Math.abs(s.speed()) < 0.01, "should be stopped, at " + s.speed());
     }
 
+    /**
+     * The whole point of the weight transfer: the same corner, entered on the
+     * brakes, rotates the car more than entering it on the throttle.
+     *
+     * <p>Which is the difference between a car you aim and a car you set up.
+     * Braking loads the nose and takes the rear light — and it spends the rear
+     * tyres' budget as well, since the brakes are on all four wheels — so the
+     * back steps out. On the throttle the same corner understeers instead.
+     */
+    @Test
+    void brakingIntoACornerRotatesItMoreThanPoweringThrough() {
+        // Settled into the corner first, and identically, so what is compared
+        // is the brake and not where the two cars happen to be.
+        VehiclePhysics.State entry = new VehiclePhysics.State(0, 16, 0);
+        for (int tick = 0; tick < 10; tick++) {
+            entry = VehiclePhysics.step(car(), entry, keys(1, 1, false), FLAT, DT).state();
+        }
+        double braked = cornerSlip(entry, -1);
+        double powered = cornerSlip(entry, 1);
+        System.out.println("--- from slip " + entry.slip() + ": on the brakes " + braked
+                + ", on the throttle " + powered);
+        assertTrue(braked > powered * 1.15,
+                "braking into a corner should rotate it more, " + braked + " vs " + powered);
+    }
+
+    /**
+     * How far the back comes out over a quarter of a second of the same
+     * corner, from the same state, on {@code throttle}.
+     *
+     * <p>Short, and that is the whole of why: the FOOT brake here is the back
+     * key, which is a full stop rather than a trim, so a long window compares a
+     * cornering car against a stationary one — and a stationary car does not
+     * slide however light its rear is. A brake in this model is something you
+     * touch on the way in.
+     */
+    private static double cornerSlip(VehiclePhysics.State from, double throttle) {
+        VehiclePhysics.State s = from;
+        double peak = 0;
+        for (int tick = 0; tick < 5; tick++) {
+            s = VehiclePhysics.step(car(), s, keys(1, throttle, false), FLAT, DT).state();
+            peak = Math.max(peak, Math.abs(s.slip()));
+        }
+        return peak;
+    }
+
+    /**
+     * Air control: a steering key off a ramp brings the vehicle round, and
+     * cannot drag down a bigger rotation a plugin threw it into.
+     */
+    @Test
+    void steeringInMidAirTurnsTheVehicleAndNeverFightsATrick() {
+        VehicleInfo info = car();
+        VehiclePhysics.State s = new VehiclePhysics.State(0, 12, 6);
+        for (int tick = 0; tick < 20; tick++) {
+            s = VehiclePhysics.step(info, s, keys(1, 0, false), VehiclePhysics.Surroundings.falling(), DT)
+                    .state();
+        }
+        System.out.println("--- one second of air steering: yaw " + s.yaw() + " rate " + s.yawRate());
+        assertTrue(s.yawRate() > 10, "air control should be building a rotation, rate " + s.yawRate());
+
+        // A trick's spin, steered against — compared with the same spin left
+        // alone, because a mid-air rotation decays on its own
+        // (YAW_RESPONSE_AIRBORNE) and the question is only whether the KEY
+        // took anything off it.
+        double fought = airborneSpin(info, 400, -1);
+        double alone = airborneSpin(info, 400, 0);
+        System.out.println("--- a 400 deg/s trick: left alone " + alone + ", steered against " + fought);
+        assertTrue(fought == alone, "a key must not touch a trick's spin, " + fought + " vs " + alone);
+    }
+
+    /** What a second of mid-air leaves of a spin, with {@code steer} held. */
+    private static double airborneSpin(VehicleInfo info, double spin, double steer) {
+        VehiclePhysics.State s = new VehiclePhysics.State(0, 12, 6).spun(spin);
+        for (int tick = 0; tick < 20; tick++) {
+            s = VehiclePhysics.step(info, s, keys(steer, 0, false),
+                    VehiclePhysics.Surroundings.falling(), DT).state();
+        }
+        return s.yawRate();
+    }
+
+    /** A kerb costs nothing; coming down from a great height costs speed. */
+    @Test
+    void aHardLandingScrubsSpeedAndAKerbDoesNot() {
+        VehiclePhysics.State kerb = new VehiclePhysics.State(0, 14, -5).landed();
+        VehiclePhysics.State drop = new VehiclePhysics.State(0, 14, -28).landed();
+        System.out.println("--- landing at 5 keeps " + kerb.speed() + ", at 28 keeps " + drop.speed());
+        assertTrue(kerb.speed() == 14, "a hop off a kerb should be free, kept " + kerb.speed());
+        assertTrue(drop.speed() < 10 && drop.speed() > 4, "a big drop should hurt, kept " + drop.speed());
+    }
+
+    /** A car in water wallows to a stop, whatever its driver is asking for. */
+    @Test
+    void aLandVehicleInWaterStops() {
+        VehicleInfo info = car();
+        VehiclePhysics.State s = new VehiclePhysics.State(0, 16, 0);
+        VehiclePhysics.Surroundings lake =
+                new VehiclePhysics.Surroundings(true, true, 1, new double[] {0, 0, 0, 0});
+        for (int tick = 0; tick < 80; tick++) {
+            s = VehiclePhysics.step(info, s, keys(0, 1, false), lake, DT).state();
+        }
+        System.out.println("--- four seconds of flat out in a lake: " + s.speed());
+        assertTrue(s.speed() < 0.5, "a car cannot drive in water, at " + s.speed());
+    }
+
     @Test
     void lowSpeedFullLockTurnsTightlyWithoutSliding() {
         VehicleInfo info = car();

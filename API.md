@@ -215,6 +215,16 @@ aircraft limited below its takeoff speed cannot take off. Deliberately not
 remembered — keep it in `data()` yourself if it should be. `stop()` is a
 wall: dead this tick, throttle reset, still answering its driver afterwards.
 
+`submersion()` is how far the water's surface stands above the vehicle's base,
+in blocks, and zero out of water. It is a different question from
+`VehicleState.SUBMERGED`, which is only "standing in a water block" and is
+therefore also what a puddle on a road answers: the edge of a river is drawn an
+eighth of a block deep. **A vehicle whose `medium` is not `water` cannot drive
+in water** — its engine floods and it wallows to a stop, which is the handling
+model's half of that. Whether the machine survives it is yours: the engine has
+no opinion about how much punishment a vehicle takes, on exactly the argument
+that keeps health out of `setDamage`, and this is the number to decide on.
+
 ### Collisions, impulses and detachable model parts
 
 `VehicleImpactEvent` fires once when the authoritative solver resolves a
@@ -236,7 +246,7 @@ alike will invent detail the engine does not have:
 | Cause | What the offset is |
 |---|---|
 | `VEHICLE` | The real contact point the impulse solver clipped out of the two boxes — the same point the spin was computed about |
-| `WORLD` | A **face**, not a point: block collision is resolved per world axis, so nothing knows where along the wing it touched |
+| `WORLD` | A **face**, not a point: block collision is resolved per world axis, so nothing knows where along the wing it touched. The height is the middle of the panel, because a wall is as tall as the thing that hit it |
 | `LANDING` | The corner that reached the ground first, or zero when it came down flat |
 
 A zero vector means "somewhere on it, and the engine cannot say where", not
@@ -248,12 +258,23 @@ passes through the engine's finite-value and magnitude bounds. `velocity()` is
 the matching read side. `showStatus(text)` uses the vehicle's action-bar status
 surface and yields the built-in speedometer briefly.
 
-`scuff(area, contact, amount)` adds a persistent scrape decal to the collision
-shell, in body-frame blocks, with amount from 0 to 1. It keeps at most twelve
-marks (two narrow display strips each), follows suspension pitch and roll, and
-rebuilds them after chunk loads. Fit the hitbox to the bodywork: these are shell
-decals, not edits to the model's texture. Decals are hidden after part loss to
-avoid leaving paint marks floating across a missing panel.
+`scuff(area, contact, amount)` adds a persistent scrape to the bodywork, in
+body-frame blocks, with amount from 0 to 1. It keeps at most ten marks, one
+display each, drawn about the same pivot and at the same ride height as the
+model itself and rebuilt after a chunk load. A mark's length and its colour —
+bare metal through to a black gouge — come from `amount`, and **a second
+contact in the same place deepens the mark that is there** rather than spending
+another display on it, so a corner somebody keeps putting into a wall ends up
+visibly ruined.
+
+Two things to know. The `y` of the contact is measured **up from the vehicle's
+base**, so a zero means "the engine had no height to report" rather than "on
+the floor" — a mark with no height lands on the waistline. And these are shell
+decals, not edits to the model's texture: each reaches a couple of pixels into
+the collision shell and a hair outside it, which covers the ordinary gap between
+a hitbox stated in blocks and art drawn in pixels, but a hitbox that is a long
+way off the bodywork is a decal hanging in the air beside it. Marks are hidden
+after part loss, so nothing is left floating across a missing panel.
 
 An animated model is already split into named bone displays. `parts()` exposes
 those model-derived names; `detachPart` removes one whole named bone, remembers
