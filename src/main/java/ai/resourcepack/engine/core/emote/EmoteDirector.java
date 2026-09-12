@@ -487,6 +487,35 @@ public final class EmoteDirector implements Listener {
         List<ItemDisplay> parts = new ArrayList<>();
         List<EmoteStore.Bone> bones = Collections.emptyList();
         long startTick;
+        /**
+         * How far into its own animation a WORN set is, in seconds.
+         *
+         * <p><b>The clock a stance runs on, and it is not a clock.</b> A
+         * one-shot emote and a vehicle's rider both measure elapsed time from
+         * {@link #startTick}, which is right for them: a wave happens over a
+         * second and a rower rows at the rate they were drawn rowing. A gait
+         * does not happen over a second, it happens over a STRIDE — so this is
+         * advanced by how far its wearer travelled rather than by how long they
+         * took, and stands still while they do. See
+         * {@link EmoteStance#gaitRate}.
+         *
+         * <p>Seconds rather than ticks because a rate is a fraction: at two
+         * thirds of walking pace a pass is a thirtieth of a second of
+         * animation, and rounding that to a tick is a limp built out of nothing
+         * but arithmetic. {@link EmoteDirector#clock} is the one place either
+         * kind of session is asked what time it is, so the two readers of it
+         * cannot disagree — which is the property {@code startTick} was carrying
+         * alone before this.
+         */
+        double phase;
+        /**
+         * How fast the wearer is actually going, in blocks per tick, smoothed.
+         *
+         * <p>Chased toward the step they took each pass rather than set from
+         * it — see {@link EmoteStance#GAIT_CHASE}. Zero for anybody standing
+         * still, and it really reaches zero.
+         */
+        double gaitStep;
         float yaw;
         /**
          * A facing somebody else owns, or null to follow the wearer's look.
@@ -636,6 +665,44 @@ public final class EmoteDirector implements Listener {
         /** The tick the ease began, and how many ticks it takes. */
         long fadeStart;
         int fadeTicks;
+        /**
+         * The emote being eased OUT of, still playing, or null to ease out of
+         * the frozen {@link #fadeFrom} instead.
+         *
+         * <p><b>A crossfade from a snapshot is a crossfade from a body that
+         * stopped.</b> {@code fadeFrom} is the pose the rig was showing at the
+         * instant of the swap, and blending toward the new cycle from a value
+         * that never moves again means the leaving half of the picture is a
+         * still: the legs decelerate to nothing over the first ticks of the
+         * ease and pick the new cycle up from there. On a set where every
+         * member is a cycle of the same body — which is what a movement set IS
+         * — that hitch lands every time anybody breaks into a run.
+         *
+         * <p>So the emote is kept rather than its pose, and re-sampled each
+         * pass at {@link #fadePhase}: both halves of the blend are moving, the
+         * ease is between two animations rather than between an animation and a
+         * photograph, and {@link EmoteDirector#fadeProgress} can be eased at
+         * both ends because both ends now have a velocity worth matching.
+         *
+         * <p>Null is the case where there is nothing to keep playing — a rig
+         * coming back from being put away, or a leaving pose assembled from
+         * somewhere other than an emote — and it falls back to exactly what
+         * this did before.
+         */
+        EmoteStore.Emote fadeEmote;
+        /** The leaving emote's own bone tracks, from wherever they came from. */
+        Map<String, Map<String, List<Keyframe>>> fadeAnimators;
+        /** And its whole-body transform, on the same terms. */
+        Map<String, List<Keyframe>> fadeRoot;
+        /**
+         * Where the leaving emote's playhead is, in seconds.
+         *
+         * <p>Advanced by the pass that advances the arriving one, at the same
+         * rate: over an ease of five ticks the difference between a walk's
+         * clock and a run's is under a frame, and one number is one thing that
+         * cannot fall out of step with the other.
+         */
+        double fadePhase;
         /**
          * Where the displays were last put, or null if they need putting.
          *
@@ -1267,12 +1334,15 @@ public final class EmoteDirector implements Listener {
     /**
      * See {@link ai.resourcepack.engine.api.Emotes#seek}.
      *
-     * <p>The clock is {@code startTick}, everywhere a session is posed, so
-     * seeking is moving it: the start that would put {@code seconds} of
-     * elapsed time at now. Whole ticks, because that is the resolution every
-     * pass reads it at, and a change of less than one is left alone so a
-     * caller repeating a steady clock every tick does not jitter the rig.
-     * The same {@code driven} test as {@link #face}, for the same reason.
+     * <p>A driven session's clock is {@code startTick} — see {@link #clock},
+     * where the other kind is — so seeking is moving it: the start that would
+     * put {@code seconds} of elapsed time at now. Whole ticks, because that is
+     * the resolution every pass reads it at, and a change of less than one is
+     * left alone so a caller repeating a steady clock every tick does not
+     * jitter the rig. The same {@code driven} test as {@link #face}, for the
+     * same reason — and here it is load-bearing twice over, because a WORN set
+     * is not measured this way at all: its playhead is driven by how far its
+     * wearer walked, and writing a start tick would move nothing.
      */
     public void seek(Player player, double seconds) {
         if (player == null || !Double.isFinite(seconds) || seconds < 0) return;
@@ -1472,8 +1542,7 @@ public final class EmoteDirector implements Listener {
         // transition anybody authored, so that one snaps.
         if (wasHidden) {
             session.snap = true;
-            session.fadeFrom = null;
-            session.fadeTurns = null;
+            endFade(session);
         } else {
             startFade(session, leaving, now);
         }
@@ -3002,33 +3071,81 @@ public final class EmoteDirector implements Listener {
         float s = fadeProgress(session, now);
         if (s >= 1f) return null;
         int steps = boneCount(session) + 1;
-        return RigMath.lerpProgram(session.fadeFrom, samplePose(session, t), session.fadeTurns, steps, s);
+        return RigMath.lerpProgram(fadeSource(session), samplePose(session, t), session.fadeTurns, steps, s);
     }
 
     /** Every bone's values at {@code t} under the emote the session plays, root last. */
     private float[][] samplePose(Session session, double t) {
+        return samplePose(session, session.animators, session.root, t);
+    }
+
+    /**
+     * The same, against animators given rather than the session's own — which
+     * is how the emote being eased OUT of goes on playing underneath the ease.
+     */
+    private float[][] samplePose(
+            Session session,
+            Map<String, Map<String, List<Keyframe>>> animators,
+            Map<String, List<Keyframe>> root,
+            double t) {
         int last = boneCount(session);
         float[][] values = new float[last + 1][];
         for (int i = 0; i < last; i++) {
             EmoteStore.Bone bone = session.bones.get(i);
             if (bone == null || bone.key == null) continue;
             values[i] = RigMath.sampleStep(
-                    session.animators == null ? null : session.animators.get(bone.key), t, 1f);
+                    animators == null ? null : animators.get(bone.key), t, 1f);
         }
-        values[last] = session.root == null || session.root.isEmpty()
-                ? null : RigMath.sampleStep(session.root, t, 1f);
+        values[last] = root == null || root.isEmpty()
+                ? null : RigMath.sampleStep(root, t, 1f);
         return values;
     }
 
-    /** 0 at the moment an ease started, 1 when it is over or there is none; forgets one that is over. */
+    /**
+     * The half of a fade that is being LEFT, as it stands this pass.
+     *
+     * <p>The leaving emote sampled at its own playhead when one was kept —
+     * see {@link Session#fadeEmote} — and the frozen snapshot otherwise. Both
+     * answers are the nine values per bone the blend works in; only one of them
+     * is still moving.
+     */
+    private float[][] fadeSource(Session session) {
+        if (session.fadeEmote == null) return session.fadeFrom;
+        return samplePose(session, session.fadeAnimators, session.fadeRoot,
+                animationTime(session.fadeEmote, session.fadePhase));
+    }
+
+    /**
+     * How far through an ease this pass is: 0 at the moment it started, 1 when
+     * it is over or there is none. Forgets one that is over.
+     *
+     * <p><b>Eased rather than linear</b>, and that is only correct because both
+     * halves of the blend are now animations rather than one animation and a
+     * still. A straight ramp holds a constant blend speed throughout, so the
+     * bone's velocity jumps at both ends of the window — it was going at the
+     * old cycle's rate, spends five ticks going at the blend's, and arrives
+     * going at the new cycle's. Smoothstep starts and ends at zero blend
+     * speed, which means the rig leaves the old cycle at the old cycle's
+     * velocity and joins the new one at the new one's: no kink at either end,
+     * which is the whole of what "smoother" means here.
+     */
     private static float fadeProgress(Session session, long now) {
-        if (session.fadeFrom == null) return 1f;
+        if (session.fadeFrom == null && session.fadeEmote == null) return 1f;
         if (session.fadeTicks <= 0 || now - session.fadeStart >= session.fadeTicks) {
-            session.fadeFrom = null;
-            session.fadeTurns = null;
+            endFade(session);
             return 1f;
         }
-        return Math.max(0f, (now - session.fadeStart) / (float) session.fadeTicks);
+        float s = Math.max(0f, Math.min(1f, (now - session.fadeStart) / (float) session.fadeTicks));
+        return s * s * (3f - 2f * s);
+    }
+
+    /** Drops everything an ease was holding, including the emote it was leaving. */
+    private static void endFade(Session session) {
+        session.fadeFrom = null;
+        session.fadeTurns = null;
+        session.fadeEmote = null;
+        session.fadeAnimators = null;
+        session.fadeRoot = null;
     }
 
     /**
@@ -3038,24 +3155,82 @@ public final class EmoteDirector implements Listener {
      * to.
      */
     private float[][] leavingPose(Session session, long now) {
-        double t = session.emote == null
-                ? 0 : animationTime(session.emote, Math.max(0, now - session.startTick) / 20.0);
+        double t = session.emote == null ? 0 : animationTime(session.emote, clock(session, now));
         float[][] target = samplePose(session, t);
         float s = fadeProgress(session, now);
         return s < 1f
-                ? RigMath.lerpProgram(session.fadeFrom, target, session.fadeTurns, boneCount(session) + 1, s)
+                ? RigMath.lerpProgram(fadeSource(session), target, session.fadeTurns, boneCount(session) + 1, s)
                 : target;
     }
 
-    /** Starts easing from {@code from} into the emote the session now plays, from its top. */
-    private void startFade(Session session, float[][] from, long now) {
+    /**
+     * Starts easing from {@code from} into the emote the session now plays.
+     *
+     * <p>Into it at {@code joinAt} rather than at its top — which for a
+     * movement set is the point of the new cycle nearest the body's pose, and
+     * for everything else is still zero. See {@link EmoteStance#nearestPhase}.
+     *
+     * <p>{@code leaving} is the emote being left, still playing, or null to
+     * ease out of the frozen {@code from} instead. See {@link Session#fadeEmote}.
+     */
+    private void startFade(Session session, float[][] from, long now, double joinAt,
+                           EmoteStore.Emote leaving,
+                           Map<String, Map<String, List<Keyframe>>> leavingAnimators,
+                           Map<String, List<Keyframe>> leavingRoot,
+                           double leavingPhase) {
         int steps = boneCount(session) + 1;
-        float[][] to = samplePose(session, session.emote == null ? 0 : animationTime(session.emote, 0));
+        float[][] to = samplePose(session, session.emote == null ? 0 : animationTime(session.emote, joinAt));
         session.fadeFrom = from;
+        session.fadeEmote = leaving;
+        session.fadeAnimators = leavingAnimators;
+        session.fadeRoot = leavingRoot;
+        session.fadePhase = leavingPhase;
         session.fadeTurns = RigMath.turnsBetween(from, to, steps);
         session.fadeStart = now;
         session.fadeTicks = Math.max(SWAP_BLEND_TICKS,
                 RigMath.fadeTicks(from, to, steps, PERIOD_TICKS, FADE_DEGREES_PER_TICK));
+    }
+
+    /** The same, out of a pose that is not going anywhere. */
+    private void startFade(Session session, float[][] from, long now) {
+        startFade(session, from, now, 0, null, null, null, 0);
+    }
+
+    /**
+     * How far into its own animation this session is, in seconds.
+     *
+     * <p><b>Two clocks and one reader.</b> A one-shot emote and a vehicle's
+     * rider are measured from {@link Session#startTick} — wall time, whole
+     * ticks, which is what {@link ai.resourcepack.engine.api.Emotes#seek}
+     * writes and what an emote that must end after its own length needs. A WORN
+     * SET runs on {@link Session#phase} instead, because a gait's playhead is
+     * driven by distance rather than time; see there.
+     *
+     * <p>Everything that poses a session comes through here, so the two can no
+     * more disagree than the one field they replaced could.
+     */
+    private static double clock(Session session, long now) {
+        if (session.group != null || !session.triggers.isEmpty()) return Math.max(0, session.phase);
+        return Math.max(0, now - session.startTick) / 20.0;
+    }
+
+    /**
+     * How much animation one pass of a worn set plays, in seconds.
+     *
+     * <p>A pass of real time for a state that is not a gait, and a pass scaled
+     * by how fast the wearer is going for one that is. That scaling is the
+     * whole feature: at the ordinary pace it is exactly one, so a set built
+     * before this plays precisely as it always did, and every other pace — soul
+     * sand, ice, a speed potion, a server's own walk-speed attribute — moves
+     * the legs with the body instead of against it.
+     *
+     * <p>A passenger is left at real time, because their step belongs to
+     * whatever is carrying them. See the note in {@link #tickStance}.
+     */
+    private static double stanceAdvance(Session session, EmoteTrigger state, boolean carried) {
+        double seconds = PERIOD_TICKS / 20.0;
+        if (carried) return seconds;
+        return seconds * EmoteStance.gaitRate(state, session.gaitStep / PERIOD_TICKS);
     }
 
     private static int boneCount(Session session) {
@@ -3319,13 +3494,13 @@ public final class EmoteDirector implements Listener {
      * move away from — that is the whole difference between this and the
      * ordinary path in {@link #tick}.
      *
-     * <p><b>The clock is expressed by moving {@code startTick}, not by a second
-     * elapsed field.</b> While the wearer is not in a state this emote plays
-     * for, `startTick` is dragged along to now, so the elapsed time both this
-     * method and {@link #pose} compute independently is zero and the rig holds
-     * its first frame. The moment they enter one, `startTick` is left where it
-     * is and the same subtraction starts counting. One field, and no way for
-     * the two readers of it to disagree.
+     * <p><b>The clock is {@link Session#phase}, and it is advanced from here
+     * alone.</b> While the wearer is not in a state this set plays for, it is
+     * held at zero and the rig shows the first frame; the moment they enter one
+     * it starts moving — by how far they TRAVELLED when the state is a gait,
+     * and by the pass itself when it is not. {@link #clock} is the one place
+     * anything reads it, so the pose loop and this cannot disagree about what
+     * time it is, which is the property the old {@code startTick} carried.
      *
      * @return false when the stance cannot continue and has been ended.
      */
@@ -3357,13 +3532,27 @@ public final class EmoteDirector implements Listener {
             session.movingFor--;
         }
         boolean moving = session.movingFor > 0;
+        boolean carried = player.isInsideVehicle();
+        // How fast they are ACTUALLY going, which is what a gait's legs are
+        // paced by — see Session.phase. Chased rather than read, for the same
+        // reason the hold above exists: the raw step is lumpy, and a cycle
+        // driven straight off it stutters twenty times a second.
+        //
+        // A passenger's step is the VEHICLE's, so theirs is zeroed and the link
+        // below is skipped: putting a boat's speed through somebody's legs is
+        // a sprint cycle on a body that is sitting down. It chases back up from
+        // nothing when they get out, which is what starting to walk looks like
+        // anyway.
+        session.gaitStep = carried
+            ? 0
+            : EmoteStance.chaseGait(session.gaitStep, EmoteStance.stepBetween(session.previous, now));
         boolean sneaking = player.isSneaking();
         boolean airborne = airborne(player, now);
         // Whether the rig is judged against the world or against the seat its
         // wearer is sitting on. Both of the numbers below turn on it, and both
         // were the world's answer for a passenger until a vehicle seat started
         // putting rigs on people who were not walking anywhere.
-        carryAs(session, player.isInsideVehicle());
+        carryAs(session, carried);
         // Read before `previous` is overwritten, because it is the difference
         // between the two. See LEAD_PIPELINE_TICKS for what it is for.
         advanceLead(player, session, now);
@@ -3393,6 +3582,12 @@ public final class EmoteDirector implements Listener {
             // This arm exists so that a driven session does not fall into the
             // plain-stance branch below and have its clock restarted by a
             // movement state it does not have.
+            //
+            // Nor does its clock come from here: a driven session is measured
+            // from `startTick`, which is what `seek` writes — a vehicle rows at
+            // the rate it was drawn rowing, and the one thing that IS linked to
+            // its speed (the wheels) is the vehicle's own rig rather than its
+            // rider. See `clock`.
             session.memberState = null;
         } else if (session.group != null) {
             // A group resolves every state, the air included — see
@@ -3407,8 +3602,13 @@ public final class EmoteDirector implements Listener {
             if (member != session.memberEmote || session.memberState == null) {
                 // Read off the OLD emote before anything below replaces it:
                 // the pose the rig is showing, mid-fade included, is what the
-                // new one is eased from.
+                // new one is eased from. The emote itself is kept beside it,
+                // because the ease goes on sampling it — see Session.fadeEmote.
                 float[][] leaving = leavingPose(session, tick);
+                EmoteStore.Emote left = session.emote;
+                Map<String, Map<String, List<Keyframe>>> leftAnimators = session.animators;
+                Map<String, List<Keyframe>> leftRoot = session.root;
+                double leftPhase = clock(session, tick);
                 session.memberState = state;
                 session.memberEmote = member;
                 session.emote = member != null ? member : session.rest;
@@ -3416,11 +3616,15 @@ public final class EmoteDirector implements Listener {
                     ? member.animators
                     : Collections.<String, Map<String, List<Keyframe>>>emptyMap();
                 session.root = member != null ? member.root : null;
-                // From the top, every time. A walk cycle joined halfway through
-                // because the last state happened to have run for two seconds
-                // is a limp, and the emotes in a set have no reason to share a
-                // length for their phases to line up.
-                session.startTick = tick;
+                // <b>Joined where the BODY already is, not from the top.</b>
+                // The emotes in a set are cycles of one person, so the point of
+                // the new one nearest the pose on screen is the point that
+                // continues the movement rather than interrupting it: breaking
+                // into a run picks the run up mid-stride on the same leg. A
+                // member that does not loop — a jump pose, a one-shot — still
+                // starts at its own beginning, which is what makes this safe to
+                // do unconditionally. See EmoteStance.nearestPhase.
+                session.phase = EmoteStance.nearestPhase(member, session.bones, leaving);
                 // Props belong to the emote, not to the set, so the old one's
                 // models go away and the new one's stand up. Bones are shared
                 // and are never respawned.
@@ -3429,19 +3633,21 @@ public final class EmoteDirector implements Listener {
                 setRigHidden(player, session, member == null);
                 // The same ease a driven swap gets, in pose space — see
                 // SWAP_BLEND_TICKS: walking into a run is two cycles blending,
-                // which is what you want. Not where the rig was put away:
-                // easing out of that is an ease from whatever pose it happened
-                // to be holding when it went, which is not a transition
-                // anybody authored, so that one snaps.
+                // which is what you want, and both of them are still playing
+                // while it happens. Not where the rig was put away: easing out
+                // of that is an ease from whatever pose it happened to be
+                // holding when it went, which is not a transition anybody
+                // authored, so that one snaps.
                 if (wasHidden) {
                     session.snap = true;
-                    session.fadeFrom = null;
-                    session.fadeTurns = null;
+                    endFade(session);
                 } else {
-                    startFade(session, leaving, tick);
+                    startFade(session, leaving, tick, session.phase,
+                        left, leftAnimators, leftRoot, leftPhase);
                 }
             } else {
                 session.memberState = state;
+                session.phase += stanceAdvance(session, state, carried);
             }
         } else {
             // A plain stance names its own states, and one that never named
@@ -3451,7 +3657,17 @@ public final class EmoteDirector implements Listener {
             EmoteTrigger state = EmoteStance.stanceState(
                 sneaking, player.isSprinting(), moving,
                 airborne && session.triggers.contains(EmoteTrigger.JUMP));
-            if (!EmoteStance.plays(session.triggers, state)) session.startTick = tick;
+            if (!EmoteStance.plays(session.triggers, state)) {
+                session.phase = 0;
+            } else {
+                session.phase += stanceAdvance(session, state, carried);
+            }
+        }
+        // Both halves of an ease move together, so the animation being left
+        // goes on playing at the rate the body is going rather than at the one
+        // it happened to be going at when the swap landed.
+        if (session.fadeEmote != null) {
+            session.fadePhase += stanceAdvance(session, session.memberState, carried);
         }
         // Their facing, unrounded. `begin` rounds to whole degrees because an
         // emote is authored at one fixed yaw and a hundredth of a degree there
@@ -3791,7 +4007,7 @@ public final class EmoteDirector implements Listener {
             boolean moved = session.settling <= 0
                 && (!now.getWorld().equals(anchor.getWorld())
                     || now.distanceSquared(anchor) > MOVE_TOLERANCE * MOVE_TOLERANCE);
-            double elapsed = Math.max(0, player.getWorld().getGameTime() - session.startTick) / 20.0;
+            double elapsed = clock(session, player.getWorld().getGameTime());
             boolean finished = !session.emote.loop && elapsed > Math.max(0, session.emote.length);
             if (moved || finished) {
                 // `finished` is the same answer for everybody — one clock, one
@@ -3819,14 +4035,9 @@ public final class EmoteDirector implements Listener {
     }
 
     private void pose(UUID playerId, Session session, int ticks) {
-        double elapsed = 0;
         Player player = Bukkit.getPlayer(playerId);
-        long now = session.startTick;
-        if (player != null) {
-            now = player.getWorld().getGameTime();
-            elapsed = Math.max(0, now - session.startTick) / 20.0;
-        }
-        double t = animationTime(session.emote, elapsed);
+        long now = player != null ? player.getWorld().getGameTime() : session.startTick;
+        double t = animationTime(session.emote, clock(session, now));
 
         // How far through a swing this pose is, or 0 for a rig that is not
         // mid-swing. Read once rather than per bone: it is the same answer for

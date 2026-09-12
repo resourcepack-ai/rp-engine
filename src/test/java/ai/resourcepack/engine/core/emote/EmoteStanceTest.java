@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.emote;
 
 import ai.resourcepack.engine.api.EmoteTrigger;
+import ai.resourcepack.engine.api.Keyframe;
 
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
@@ -280,6 +281,169 @@ class EmoteStanceTest {
         // standing frozen inside its owner, for ever, with nothing on screen
         // saying the jar is simply older than the pack.
         assertTrue(EmoteStore.triggersOf(emote(Arrays.asList("swimming", "elytra"))).isEmpty());
+    }
+
+    // ---- the gait clock --------------------------------------------------
+    //
+    // A walk cycle is paced by the STRIDE rather than by the second, so these
+    // fix the two things that would be invisible until somebody watched a
+    // player on ice: that the ordinary pace is exactly the authored rate, and
+    // that a stopped wearer's legs really stop.
+
+    @Test
+    void walkingAtWalkingPacePlaysACycleAtTheRateItWasDrawnAt() {
+        // The whole of what makes this link safe to switch on for every set
+        // that already exists: on flat ground it changes nothing at all.
+        assertEquals(1.0,
+            EmoteStance.gaitRate(EmoteTrigger.WALK, EmoteStance.WALK_SPEED), 1e-9);
+        assertEquals(1.0,
+            EmoteStance.gaitRate(EmoteTrigger.SPRINT, EmoteStance.SPRINT_SPEED), 1e-9);
+        assertEquals(1.0,
+            EmoteStance.gaitRate(EmoteTrigger.SNEAK_MOVE, EmoteStance.SNEAK_SPEED), 1e-9);
+    }
+
+    @Test
+    void goingTwiceAsFastMovesTheLegsTwiceAsFast() {
+        assertEquals(2.0,
+            EmoteStance.gaitRate(EmoteTrigger.WALK, EmoteStance.WALK_SPEED * 2), 1e-9);
+        assertEquals(0.5,
+            EmoteStance.gaitRate(EmoteTrigger.WALK, EmoteStance.WALK_SPEED / 2), 1e-9);
+    }
+
+    @Test
+    void thereIsACeilingOnHowFastLegsMayGo() {
+        // Beyond it a cycle is a blur, and whoever is going that fast is being
+        // carried rather than walking.
+        assertEquals(EmoteStance.MAX_GAIT_RATE,
+            EmoteStance.gaitRate(EmoteTrigger.SPRINT, EmoteStance.SPRINT_SPEED * 40), 1e-9);
+    }
+
+    @Test
+    void aStateThatIsNotAGaitIgnoresHowFastAnybodyIsGoing() {
+        // An idle breathes at its own rate and a body in the air is on
+        // gravity's clock. Neither has a stride to be in step with.
+        for (EmoteTrigger state : new EmoteTrigger[] {
+                EmoteTrigger.IDLE, EmoteTrigger.SNEAK_IDLE, EmoteTrigger.JUMP }) {
+            assertEquals(1.0, EmoteStance.gaitRate(state, 0), 1e-9);
+            assertEquals(1.0, EmoteStance.gaitRate(state, 5), 1e-9);
+        }
+    }
+
+    @Test
+    void aGaitWhoseWearerIsNotMovingDoesNotPlay() {
+        // Not "plays slowly": stopped. The legs hold where they are and the
+        // ease into the idle member is what covers the rest.
+        assertEquals(0.0, EmoteStance.gaitRate(EmoteTrigger.WALK, 0), 1e-9);
+        assertEquals(0.0, EmoteStance.gaitRate(EmoteTrigger.WALK, -1), 1e-9);
+    }
+
+    @Test
+    void aStoppedWearerSGaitActuallyReachesZero() {
+        // LEAD_DEAD_ZONE's lesson, one field over: a playhead creeping forward
+        // for ever is every bone re-sent to every viewer for ever.
+        double gait = EmoteStance.WALK_SPEED;
+        for (int pass = 0; pass < 60; pass++) {
+            gait = EmoteStance.chaseGait(gait, 0);
+        }
+        assertEquals(0.0, gait, 0.0);
+    }
+
+    @Test
+    void aGapBetweenMovementPacketsIsNotAStop() {
+        // Two ticks of travel and a tick of nothing is what a walk over a real
+        // connection looks like from the server. Read literally it is a walk
+        // cycle stopping several times a second.
+        double gait = 0;
+        for (int pass = 0; pass < 30; pass++) {
+            gait = EmoteStance.chaseGait(gait, pass % 3 == 2 ? 0 : EmoteStance.WALK_SPEED * 1.5);
+        }
+        // Still plainly walking, rather than flickering between a stride and a
+        // standstill.
+        assertTrue(gait > EmoteStance.WALK_SPEED * 0.6, "gait collapsed to " + gait);
+    }
+
+    @Test
+    void aTeleportIsNotAStrideForTheGaitEither() {
+        // Capped rather than refused, exactly as the lead is: the body really
+        // did move, and the filter must not spread a blink across the next
+        // half second of leg movement.
+        assertEquals(EmoteStance.chaseGait(0, EmoteStance.MAX_GAIT_STEP),
+            EmoteStance.chaseGait(0, 500), 1e-9);
+    }
+
+    @Test
+    void stridesAreMeasuredFlatAndNeverAcrossWorlds() {
+        Location from = new Location(null, 0, 0, 0);
+        assertEquals(0.3, EmoteStance.stepBetween(from, new Location(null, 0.3, 0, 0)), 1e-9);
+        // Falling down a shaft is not a stride.
+        assertEquals(0.0, EmoteStance.stepBetween(from, new Location(null, 0, -4, 0)), 1e-9);
+        assertEquals(0.0, EmoteStance.stepBetween(null, from), 1e-9);
+    }
+
+    // ---- joining a cycle where the body already is -------------------------
+
+    @Test
+    void aCycleIsJoinedAtThePointNearestThePoseOnScreen() {
+        // A movement set is several cycles of ONE body. Started from the top,
+        // breaking into a run asks a pair of mid-stride legs for frame zero —
+        // a whole stride to cross in five ticks, every time anybody speeds up.
+        EmoteStore.Emote run = swingCycle(90f);
+        // The body is showing the left leg forward, which this cycle passes
+        // through a quarter of the way in.
+        float[][] shown = pose(90f);
+        assertEquals(0.25, EmoteStance.nearestPhase(run, legs(), shown), 1e-6);
+
+        // And the other way, so this is the match rather than a fixed answer.
+        assertEquals(0.75, EmoteStance.nearestPhase(run, legs(), pose(-90f)), 1e-6);
+    }
+
+    @Test
+    void aCycleThatDoesNotLoopStartsAtItsOwnBeginning() {
+        // A jump pose joined in the middle is a jump pose that ends early, and
+        // it is held for as long as somebody is in the air.
+        EmoteStore.Emote once = swingCycle(90f);
+        once.loop = false;
+        assertEquals(0.0, EmoteStance.nearestPhase(once, legs(), pose(90f)), 1e-9);
+    }
+
+    @Test
+    void thereIsNothingToJoinWithoutAnAnimationOrAPose() {
+        assertEquals(0.0, EmoteStance.nearestPhase(null, legs(), pose(90f)), 1e-9);
+        assertEquals(0.0, EmoteStance.nearestPhase(swingCycle(90f), legs(), null), 1e-9);
+        assertEquals(0.0,
+            EmoteStance.nearestPhase(swingCycle(90f), Collections.emptyList(), pose(90f)), 1e-9);
+    }
+
+    /** One bone, so a phase can be reasoned about by hand. */
+    private static java.util.List<EmoteStore.Bone> legs() {
+        EmoteStore.Bone leg = new EmoteStore.Bone();
+        leg.key = "leftLeg";
+        leg.pivot = new float[] {8f, 12f, 8f};
+        return Collections.singletonList(leg);
+    }
+
+    /** The nine values one bone is composed from, at {@code pitch} degrees. */
+    private static float[][] pose(float pitch) {
+        return new float[][] {{pitch, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f}, null};
+    }
+
+    /**
+     * A one-second loop swinging that bone through +swing, 0, -swing and back,
+     * so the quarter points are the extremes.
+     */
+    private static EmoteStore.Emote swingCycle(float swing) {
+        EmoteStore.Emote emote = new EmoteStore.Emote();
+        emote.name = "cycle";
+        emote.length = 1.0;
+        emote.loop = true;
+        emote.animators = Collections.singletonMap("leftLeg",
+            Collections.singletonMap("rotation", Arrays.asList(
+                new Keyframe(0.0, new float[] {0f, 0f, 0f}, "linear"),
+                new Keyframe(0.25, new float[] {swing, 0f, 0f}, "linear"),
+                new Keyframe(0.5, new float[] {0f, 0f, 0f}, "linear"),
+                new Keyframe(0.75, new float[] {-swing, 0f, 0f}, "linear"),
+                new Keyframe(1.0, new float[] {0f, 0f, 0f}, "linear"))));
+        return emote;
     }
 
     private static EmoteStore.Emote emote(java.util.List<String> triggers) {
