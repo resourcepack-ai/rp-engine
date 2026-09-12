@@ -99,6 +99,9 @@ final class VehicleScuffs {
     /** As much of the side it runs along as one mark may take. */
     private static final double LENGTH_SHARE = 0.55;
 
+    /** And as tall as a mark may be against its own length. See {@link Mark#height}. */
+    private static final double TALL_SHARE = 0.35;
+
     /**
      * The band of the bodywork a scrape may sit in, as fractions of the
      * hitbox's height.
@@ -142,8 +145,19 @@ final class VehicleScuffs {
             return depth >= SCUFFED ? Material.GRAY_CONCRETE : Material.LIGHT_GRAY_CONCRETE;
         }
 
+        /**
+         * How tall it is drawn, blocks: how bad it is, bounded by how long it
+         * is.
+         *
+         * <p>The bound is what keeps this right on a small vehicle. A mark's
+         * LENGTH is already capped at a share of the side it runs along, so a
+         * scrape on a skateboard is short — and a short mark as tall as a deep
+         * gouge on a lorry is a blob rather than a scrape. A scratch is a line,
+         * and on a small thing it is a short line.
+         */
         double height() {
-            return MIN_TALL + (MAX_TALL - MIN_TALL) * Math.max(0, Math.min(1, depth));
+            double deep = MIN_TALL + (MAX_TALL - MIN_TALL) * Math.max(0, Math.min(1, depth));
+            return Math.max(MIN_TALL * 0.6, Math.min(deep, length * TALL_SHARE));
         }
     }
 
