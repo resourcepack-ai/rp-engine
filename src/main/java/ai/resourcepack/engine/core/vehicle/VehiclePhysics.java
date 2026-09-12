@@ -64,6 +64,21 @@ import java.util.Set;
  *   collision box that decides whether it fits stays a plain box.</li>
  * </ul>
  *
+ * <p>A fourth thing joined them on 2026-09-12, and it is the one that makes a
+ * corner something a driver SETS UP rather than merely aims at: <strong>the
+ * weight moves, and the tyres have one budget.</strong> Braking pitches the
+ * load onto the nose and takes the rear light; the drive does the opposite and
+ * spends the driven axle's grip putting the power down. So the brakes turn the
+ * car in and step the back out, the throttle understeers and holds, and the
+ * transition between them is the whole of cornering — with none of it decided
+ * anywhere, exactly as the slide above is not. {@link #LOAD_TRANSFER},
+ * {@link #TYRE_SHARE}, {@link #LOAD_SENSITIVITY} and {@link #DRIVEN_AXLE} are
+ * the four numbers, and {@code HandlingSimTest} is where the shape is read.
+ * Three more arrived with it, each closing a case where the model had no
+ * answer at all: {@link #AIR_CONTROL} (a jump you can aim),
+ * {@link #LANDING_SCRUB} (a jump that costs something to land) and
+ * {@link #FLOOD_DRAG} (a car cannot drive in a lake).
+ *
  * <p>The one thing to hold in mind when changing a constant here: the driver
  * cannot feel any of it directly. Their throttle is a server tick behind
  * whatever they pressed, so what they judge the vehicle by is the CURVE, not
@@ -187,6 +202,34 @@ public final class VehiclePhysics {
     public static final double AIR_COAST_FRACTION = 0.15;
 
     /**
+     * How deep a vehicle that is not built for water has to be in it before its
+     * engine starts to drown, in blocks of submersion.
+     *
+     * <p>Above a puddle: the edge of a river is drawn an eighth of a block
+     * deep, and a car that died in a puddle would be a car that died on a
+     * rainy road. See {@link Surroundings#submersion()}, which is how far the
+     * water's surface stands above the vehicle's base.
+     */
+    public static final double FLOOD_DEPTH = 0.35;
+
+    /** And how deep before it has no drive left at all. */
+    public static final double FLOODED_DEPTH = 0.8;
+
+    /**
+     * How hard water holds back something that does not belong in it, blocks
+     * per second squared.
+     *
+     * <p><strong>A land vehicle cannot drive in water, and this is the half of
+     * that which belongs to the handling model.</strong> The engine floods, the
+     * wheels have nothing to push against, and the thing wallows to a stop and
+     * sinks. What that costs the MACHINE — whether it is wrecked, and how fast
+     * — is a listener's business rather than the engine's, on exactly the same
+     * argument that keeps health out of {@link VehicleDamage}: the engine has
+     * no opinion about how much punishment a vehicle takes.
+     */
+    public static final double FLOOD_DRAG = 6;
+
+    /**
      * How much of its top speed a hull does out of the water.
      *
      * <p>A seventh — a shade slower than walking. Not zero, deliberately: a
@@ -261,6 +304,88 @@ public final class VehiclePhysics {
      * and it comes back only as the slide slows.
      */
     public static final double SLIDING_GRIP = 0.9;
+
+    /**
+     * How much of one axle's load moves onto the other under acceleration, as
+     * a fraction, at the point where the drive or the brakes are asking for
+     * everything a tyre can hold.
+     *
+     * <p><strong>This is what makes braking into a corner different from
+     * coasting through one</strong>, and it is the single largest thing the
+     * handling model was missing. A car's weight pitches forward when it slows
+     * and back when it pulls: the loaded axle grips harder and the unloaded one
+     * lets go sooner. So the brakes bite, the rear goes light, and the back
+     * steps out — which is how every driving game since the nineties has made
+     * a corner something you set the car up for rather than merely aim it
+     * through.
+     *
+     * <p>Measured against {@link #GRIP} rather than against the vehicle's own
+     * acceleration, deliberately: a slow lorry braking as hard as it can is not
+     * transferring a sports car's worth of weight, and reading each vehicle's
+     * own figures would say it was.
+     */
+    public static final double LOAD_TRANSFER = 0.3;
+
+    /**
+     * How much of a tyre's grip the drive and the brakes may ever claim,
+     * leaving the rest for cornering.
+     *
+     * <p>The friction ellipse, bounded. A tyre has ONE budget and everything it
+     * does comes out of it — the whole of why you cannot brake and turn at the
+     * same time as hard as you can do either — so the sideways grip left is
+     * {@code sqrt(1 - used²)}. Unbounded that reaches zero, and a car under
+     * maximum braking with no lateral grip at all spins on the first hint of
+     * slip; at this it keeps about half, which is a car that is unmistakably
+     * unsettled and still catchable.
+     */
+    public static final double TYRE_SHARE = 0.85;
+
+    /**
+     * How grip answers load: the exponent on an axle's share of the weight.
+     *
+     * <p>Under one, because a tyre's grip is <em>sub-linear</em> in the load on
+     * it — press it twice as hard and it holds rather less than twice as much.
+     * Which is not a detail: it is the whole reason smooth is fast. With a
+     * straight proportion the two axles' gains and losses cancel exactly and
+     * weight transfer is free, so a car could be thrown from brake to throttle
+     * with nothing to pay. At this, every transfer costs the pair a little
+     * total grip, and the more violent the transfer the more it costs.
+     */
+    public static final double LOAD_SENSITIVITY = 0.85;
+
+    /**
+     * How many of the four tyres the drive comes out of, as a divisor of the
+     * whole.
+     *
+     * <p>Two, because the brakes are on every wheel and the drive is on one
+     * axle: a driven tyre therefore spends twice the average share of its
+     * budget for the same acceleration. This is the whole of why power-on
+     * oversteer exists and braking does not have a favourite end — and it is
+     * worth stating as a number rather than folding into the constant above,
+     * because it is a fact about cars rather than a calibration.
+     */
+    public static final double DRIVEN_AXLE = 2;
+
+    /**
+     * How much of the drive a spinning wheel still puts down.
+     *
+     * <p>Wheelspin <em>arises</em> here rather than being a state anything
+     * decides: an ordinary vehicle's drive is a quarter of what a tyre holds
+     * and never reaches the limit, and something absurdly powerful asks for
+     * more than the road can take and gets this much of the excess. Which is
+     * why a drag car is quick off the line rather than instantaneous.
+     */
+    public static final double WHEELSPIN_KEEP = 0.45;
+
+    /**
+     * How hard a spinning rear steps the back out: blocks per second of slip
+     * per second, per block per second squared of drive the road refused.
+     *
+     * <p>Toward the outside of whatever it is being steered into, so a standing
+     * burnout with the wheels straight goes straight — a burnout that span the
+     * car on its own would be a vehicle nobody could launch.
+     */
+    public static final double WHEELSPIN_SLIP = 0.5;
 
     /**
      * What the REAR tyres hold, as a fraction of {@link #GRIP}, while the
@@ -345,6 +470,27 @@ public final class VehiclePhysics {
     /** How a vehicle's spin decays in mid-air, per second. Nearly not at all. */
     public static final double YAW_RESPONSE_AIRBORNE = 0.6;
 
+    /**
+     * How much of its turn rate a vehicle may command with nothing under its
+     * wheels.
+     *
+     * <p>Air control: hold a steering key off a ramp and the vehicle comes
+     * round in the air. There is nothing physical about it — a car in mid-air
+     * has no yaw authority whatsoever — and every driving game has it anyway,
+     * because a jump you cannot aim is a jump you land backwards through no
+     * fault of your own.
+     *
+     * <p><strong>It only ever ADDS.</strong> See the airborne arm of
+     * {@link #step}: steering may build a rotation up to this authority and can
+     * never drag a bigger one down, so a trick a plugin threw into the air with
+     * {@link Vehicle#spin} is not quietly cancelled by a rider leaning on a
+     * key.
+     */
+    public static final double AIR_CONTROL = 0.5;
+
+    /** How quickly mid-air steering builds that rotation, per second. */
+    public static final double AIR_CONTROL_RESPONSE = 2.5;
+
     /** A hull's sideways grip. Water holds almost nothing, which is why a boat goes wide. */
     public static final double WATER_GRIP = 5;
 
@@ -382,6 +528,27 @@ public final class VehiclePhysics {
      * component along it keeps. Scraping a wall is not free.
      */
     public static final double WALL_SLIDE_KEEP = 0.85;
+
+    /**
+     * How much of a head-on comes back off the wall.
+     *
+     * <p>A square hit used to be a dead stop, which is honest about the energy
+     * and reads as the vehicle having been switched off: a car at speed into a
+     * building should recoil, drop its nose and sit there rocking. This is that
+     * recoil, and {@link State#bounced} is where the nose-dive comes from.
+     */
+    public static final double WALL_REBOUND = 0.15;
+
+    /**
+     * Below this closing speed, in blocks per second, a wall is a stop rather
+     * than a bounce.
+     *
+     * <p>{@link VehicleImpacts#RESTITUTION_SPEED}'s argument, one wall over: a
+     * vehicle held against a building by its own throttle arrives at it a hair
+     * at a time, and any rebound at all on a hair-sized arrival is a car that
+     * buzzes for as long as the key is held.
+     */
+    public static final double WALL_REBOUND_SPEED = 4;
 
     /**
      * How far the wheel angle reaches when steering by look, degrees of
@@ -510,6 +677,25 @@ public final class VehiclePhysics {
     public static final double LANDING_COMPRESSION = 0.35;
 
     /**
+     * How fast a vehicle may arrive at the ground for free, blocks per second.
+     *
+     * <p>A kerb, a slab, a hop off a fence: everything a vehicle does on an
+     * ordinary road comes down at less than this and costs nothing, which is
+     * what keeps the scrub below from being a tax on driving over a kerb.
+     */
+    public static final double LANDING_FREE = 8;
+
+    /**
+     * How much of the speed a harder landing costs, per block per second over
+     * {@link #LANDING_FREE}.
+     *
+     * <p>Because coming down flat from a great height and driving away at the
+     * same speed is the one thing about a jump that always looked wrong. A
+     * touchdown at thirty — terminal velocity — costs about the half of it.
+     */
+    public static final double LANDING_SCRUB = 0.022;
+
+    /**
      * Degrees per second of pitch a collision throws into the springs, per
      * block per second of speed it took off along the heading.
      *
@@ -617,6 +803,49 @@ public final class VehiclePhysics {
         double accel = info.acceleration() / heaviness;
         double top = beached(info, around) ? info.speed() * BEACHED_FRACTION : info.speed();
 
+        // --- in the wrong medium ----------------------------------------
+
+        // A vehicle that is not a boat, in water. Nought out of it, one once
+        // it is properly under. See FLOOD_DRAG for why the engine stops here
+        // and says nothing about whether the machine survived it.
+        double flooded = water || !around.inWater() ? 0
+                : clamp01((around.submersion() - FLOOD_DEPTH) / (FLOODED_DEPTH - FLOOD_DEPTH));
+
+        // --- weight transfer, and what the tyres have left ---------------
+
+        // <strong>Both axles' grip is decided here, before anything is
+        // steered</strong>, because the front tyres' cornering limit is part of
+        // the steering and cannot wait for this tick's speed to be known.
+        //
+        // So the transfer is read off what the driver is ASKING for rather than
+        // off what the vehicle then did. A tick of lag in the weight is a tick
+        // of lag in the one thing a driver feels most directly — the car
+        // settling as they get on the brakes — and the predictor is exact for
+        // every case but the one where the vehicle runs out of road mid-tick.
+        boolean pedalBrake = demand.braking()
+                || (throttle < 0 && state.speed() > REVERSE_THRESHOLD);
+        double reached = Math.min(1, Math.abs(state.speed()) / Math.max(top, 1e-6));
+        double longForce = pedalBrake
+                ? -Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER)
+                : throttle * accel * (1.25 - 0.75 * reached);
+        // Off the ground, in the air or afloat there is no weight to move and
+        // no tyre to spend: a hull's grip is the water's, and it does not
+        // pitch onto its bow under the brakes.
+        boolean tyres = !air && !water && !airborne;
+        double load = tyres ? clampMagnitude(longForce / GRIP, 1) : 0;
+        // Pulling squats the rear; braking pitches onto the nose. Sub-linear,
+        // so any transfer costs the pair a little — see LOAD_SENSITIVITY.
+        double frontLoad = loaded(1 - LOAD_TRANSFER * load);
+        double rearLoad = loaded(1 + LOAD_TRANSFER * load);
+        // What each axle has already spent lengthways. The brakes are on all
+        // four wheels; the drive is on one axle, and a driven tyre therefore
+        // spends twice the average for the same acceleration — DRIVEN_AXLE.
+        double braking = longForce < 0 ? -longForce / GRIP : 0;
+        double frontTyres = tyres ? frontLoad * ellipse(braking / frontLoad) : 1;
+        double rearTyres = tyres
+                ? rearLoad * ellipse((braking + Math.max(0, longForce) * DRIVEN_AXLE / GRIP) / rearLoad)
+                : 1;
+
         // --- steering: the wheels -------------------------------------
 
         double steerInput = steerInput(state, demand);
@@ -652,9 +881,16 @@ public final class VehiclePhysics {
             wantedYawRate = steerInput * info.turnSpeed();
             response = YAW_RESPONSE;
         } else if (airborne) {
-            // A jump keeps whatever spin it left the ground with.
-            wantedYawRate = 0;
-            response = YAW_RESPONSE_AIRBORNE;
+            // A jump keeps whatever spin it left the ground with, and the
+            // driver may ADD to it — see AIR_CONTROL. Never against it: a
+            // steering key may build a rotation up to its own authority and
+            // can never drag a bigger one down, so a trick thrown into the air
+            // by a plugin's own `spin` is not quietly cancelled by a rider
+            // leaning on a key.
+            double authority = steerInput * info.turnSpeed() * AIR_CONTROL;
+            boolean commanding = authority != 0 && Math.abs(state.yawRate()) < Math.abs(authority);
+            wantedYawRate = commanding ? authority : 0;
+            response = commanding ? AIR_CONTROL_RESPONSE : YAW_RESPONSE_AIRBORNE;
         } else {
             // The bicycle model: the front wheels at angle δ drag a body of
             // length L round at v tan δ / L. In degrees, and capped at the
@@ -665,7 +901,12 @@ public final class VehiclePhysics {
             // The front tyres can only pull the nose round so hard. Beyond
             // this they slide and the car goes wide — understeer, which is
             // what keeps a fast car from spinning every time it turns.
-            double frontLimit = Math.toDegrees(grip * harm.frontGrip() * (handbrake ? HANDBRAKE_TURN : 1)
+            //
+            // `frontTyres` is where braking into a corner shows up: the nose
+            // is loaded, so there is MORE limit here than there was coasting —
+            // and the rear pays for it below.
+            double frontLimit = Math.toDegrees(
+                    grip * harm.frontGrip() * frontTyres * (handbrake ? HANDBRAKE_TURN : 1)
                     / Math.max(Math.abs(state.speed()), 0.5));
             kinematic = clampMagnitude(kinematic, frontLimit);
 
@@ -766,7 +1007,22 @@ public final class VehiclePhysics {
         double fraction = Math.min(1, Math.abs(speed) / Math.max(top, 1e-6));
         // The drive and ONLY the drive: a damaged engine is not damaged brakes,
         // and the braking rate below reads the undamaged figure deliberately.
-        double drive = accel * (1.25 - 0.75 * fraction) * harm.power();
+        // A flooded engine is the same kind of fact and enters the same way.
+        double drive = accel * (1.25 - 0.75 * fraction) * harm.power() * (1 - flooded);
+
+        // Wheelspin, which ARISES rather than being decided: what the drive
+        // asks for beyond what the loaded rear tyres can put down is delivered
+        // at WHEELSPIN_KEEP and steps the back out below. An ordinary
+        // vehicle's drive is a quarter of a tyre's grip and never gets here.
+        double spilled = 0;
+        if (tyres && wall == null && drive > 0) {
+            double traction = grip * TYRE_SHARE * rearLoad;
+            if (drive > traction) {
+                spilled = drive - traction;
+                drive = traction + spilled * WHEELSPIN_KEEP;
+            }
+        }
+
         double rate = demand.braking() || stopping
                 ? Math.max(BRAKE_FLOOR, accel * BRAKE_MULTIPLIER) * (handbrake && !stopping ? HANDBRAKE_BRAKING : 1)
                 : throttle == 0
@@ -833,13 +1089,29 @@ public final class VehiclePhysics {
             speed = approach(speed, 0, harm.drag() * dt);
         }
 
+        // And water, on something with wheels. It wallows to a halt: see
+        // FLOOD_DRAG. Not on the airborne arm, because a car falling INTO a
+        // lake is still falling until it gets there.
+        if (flooded > 0 && !airborne) {
+            speed = approach(speed, 0, FLOOD_DRAG * flooded * dt);
+        }
+
         // --- across the heading -----------------------------------------
 
         if (!air) {
             double hold = airborne ? 0
-                    : grip * harm.rearGrip() * REAR_GRIP
+                    : grip * harm.rearGrip() * REAR_GRIP * rearTyres
                     * (handbrake ? HANDBRAKE_GRIP : Math.abs(slip) > SLIDE_THRESHOLD ? SLIDING_GRIP : 1);
             slip = approach(slip, 0, hold * dt);
+            // The spinning rear, toward the outside of whatever it is being
+            // steered into. Slip is positive when the velocity lies to the
+            // right of the nose, which is a car that has turned LEFT harder
+            // than it is travelling — so a left-hand steer steps the tail out
+            // positive. Applied after the tyres have had their say, because
+            // this is the tyre that has given up.
+            if (spilled > 0 && steer != 0) {
+                slip -= Math.signum(steer) * spilled * WHEELSPIN_SLIP * dt;
+            }
         }
 
         // --- up and down ------------------------------------------------
@@ -1277,6 +1549,27 @@ public final class VehiclePhysics {
         return a[0] * b[0] + a[1] * b[1];
     }
 
+    /**
+     * How much sideways grip a tyre has left, given that {@code used} of its
+     * budget is already going lengthways. See {@link #TYRE_SHARE}.
+     */
+    static double ellipse(double used) {
+        double spent = clamp01(used) * TYRE_SHARE;
+        return Math.sqrt(Math.max(0, 1 - spent * spent));
+    }
+
+    /** What a share {@code load} of the weight is worth as grip. See {@link #LOAD_SENSITIVITY}. */
+    static double loaded(double load) {
+        return Math.pow(Math.max(0, load), LOAD_SENSITIVITY);
+    }
+
+    private static double clamp01(double value) {
+        if (!Double.isFinite(value)) {
+            return 0;
+        }
+        return Math.max(0, Math.min(1, value));
+    }
+
     private static double fall(double vertical, double dt) {
         return Math.max(-TERMINAL_FALL, vertical - GRAVITY * dt);
     }
@@ -1453,10 +1746,18 @@ public final class VehiclePhysics {
         /**
          * On the ground after a fall. The vertical speed is spent; some of it
          * goes into the springs, which is the bounce of a landing.
+         *
+         * <p>And a HARD landing costs speed — see {@link #LANDING_SCRUB}. Free
+         * up to {@link #LANDING_FREE}, so a kerb, a slab and a hop off a fence
+         * are all exactly what they were; past it, coming down flat from a
+         * great height and driving away at the same speed was the one thing
+         * about a jump that always looked wrong.
          */
         public State landed() {
             double compression = Math.min(0, verticalSpeed) * LANDING_COMPRESSION;
-            return new State(yaw, speed, slip, 0, steer, yawRate,
+            double hard = Math.max(0, -verticalSpeed - LANDING_FREE);
+            double keep = Math.max(0, 1 - LANDING_SCRUB * hard);
+            return new State(yaw, speed * keep, slip * keep, 0, steer, yawRate,
                     pitch, pitchRate, roll, rollRate, lift, liftRate + compression);
         }
 
@@ -1560,6 +1861,42 @@ public final class VehiclePhysics {
             return new State(yaw, nextSpeed, nextSlip, vy, steer, spin,
                     pitch, pitchRate + clampMagnitude(along * IMPACT_SQUAT, MAX_IMPACT_SPRING),
                     roll, rollRate - clampMagnitude(across * IMPACT_ROLL, MAX_IMPACT_SPRING),
+                    lift, liftRate);
+        }
+
+        /**
+         * Square into a wall: stopped, with a little of it coming back and the
+         * nose dropping.
+         *
+         * <p>{@link #stopped()} is the dead version and is what this was, which
+         * read as the vehicle having been switched off at the moment of impact.
+         * A car into a building recoils and rocks, and both halves of that are
+         * here — the rebound out along the normal (see {@link #WALL_REBOUND})
+         * and the same spring kick a collision between two vehicles gets
+         * through {@link #impacted}, for the same reason: an impulse applied
+         * between two steps never appears as an acceleration within one.
+         *
+         * <p>Below {@link #WALL_REBOUND_SPEED} there is no bounce at all, only
+         * the stop. A vehicle held against a building by its own throttle
+         * arrives at it a hair at a time.
+         *
+         * @param nx,nz the world direction it was travelling, a unit vector
+         */
+        public State bounced(double nx, double nz) {
+            if (!Double.isFinite(nx) || !Double.isFinite(nz)) {
+                return stopped();
+            }
+            double[] v = worldVelocity(yaw, speed, slip);
+            double into = v[0] * nx + v[1] * nz;
+            if (!(into >= WALL_REBOUND_SPEED)) {
+                return stopped();
+            }
+            double[] world = {-nx * into * WALL_REBOUND, -nz * into * WALL_REBOUND};
+            double back = dot(world, forward(yaw));
+            double across = dot(world, right(yaw));
+            return new State(yaw, back, across, verticalSpeed, steer, 0,
+                    pitch, pitchRate + clampMagnitude((back - speed) * IMPACT_SQUAT, MAX_IMPACT_SPRING),
+                    roll, rollRate - clampMagnitude((across - slip) * IMPACT_ROLL, MAX_IMPACT_SPRING),
                     lift, liftRate);
         }
 

@@ -29,6 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * <p><strong>If you are here because this failed:</strong> the question is not
  * how to update the constants. It is which of the five moved and whether you
  * meant it. Re-record only once you have driven it.
+ *
+ * <p>It has been re-recorded once, on 2026-09-12, for the weight transfer and
+ * the tyre budget — and the useful half of that is which scenarios did NOT
+ * move: the standing start, the fall and the slope are bit-for-bit what they
+ * were, which is what says the change reached the tyres and nothing else.
  */
 class PhysicsGoldenTest {
 
@@ -86,21 +91,32 @@ class PhysicsGoldenTest {
                 run(car(), new VehiclePhysics.State(0, 0, 0), flat(), tick -> keys(0, 1, false), 100));
     }
 
+    /**
+     * Re-recorded 2026-09-12, when weight transfer and the tyres' budget
+     * arrived — deliberately, having looked at the trajectory. What moved:
+     * the car comes round further (187 to 202 degrees) and keeps more speed
+     * (9.6 to 13.3), because the drive now unloads the front as well as
+     * loading the rear, so power-on understeer takes some of the slide the old
+     * model spent entirely on scrub. It still slides (slip 4.4) and still
+     * scrubs a third of its speed off; what is new is that lifting or braking
+     * mid-corner now rotates it.
+     */
     @Test
     void aFullLockCornerIsUnchanged() {
         same("full lock corner",
-                new double[] {187.27824483670437, 9.631346898717313, 4.714354405254252,
-                        -97.08002539175574, -18.528715840131653, 0.6375673455022701,
-                        7.20376004731159, 0.0, 0.0, 21.394750113491682, 0.0, 9.70306447941501},
+                new double[] {201.66622432650624, 13.347657548321989, 4.405759667872671,
+                        -95.33310115649807, -15.775307605815168, 0.46341194085129617,
+                        9.364229375006344, 0.0, 0.0, 23.73569776535146, 0.0, 9.12642819964095},
                 run(car(), new VehiclePhysics.State(0, 16, 0), flat(), tick -> keys(-1, 1, false), 40));
     }
 
+    /** Re-recorded with the corner above, and for the same reason. */
     @Test
     void aHandbrakeTurnIsUnchanged() {
         same("handbrake turn",
-                new double[] {121.50263851624693, 5.736766547747743, 0.0, 5.333343007825215E-6,
-                        4.188432105795913E-9, 1.6631159291568598, -1.790802575705406E-4,
-                        0.0, 0.0, -3.1187177119156506, 0.0, 8.92002285807344},
+                new double[] {126.18875952846106, 5.188134663440727, 0.0, 5.959166597107957E-6,
+                        4.317430258935678E-9, 1.7007349316381062, -2.3060471469490518E-4,
+                        0.0, 0.0, -2.1034810661776495, 0.0, 9.335737157415899},
                 run(car(), new VehiclePhysics.State(0, 16, 0), flat(),
                         tick -> tick < 12 ? keys(1, 0, true) : keys(0, 1, false), 40));
     }

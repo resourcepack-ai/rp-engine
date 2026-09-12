@@ -203,8 +203,13 @@ public final class VehicleRuntime implements Listener {
      *
      * <p>Independent of how tall the model is: 0 is always half a block below
      * the display, so a three-block vehicle stands on the ground too.
+     *
+     * <p>Package-visible because {@link VehicleScuffs} draws decals about the
+     * same pivot the model is rotated around, and two copies of this number
+     * were two copies that could disagree — which they did, by the ride height,
+     * leaving every scrape floating a hair off the paint.
      */
-    private static final double MODEL_LIFT = 0.5;
+    static final double MODEL_LIFT = 0.5;
 
     /**
      * How far the model is turned from the way the vehicle is going.
@@ -382,6 +387,19 @@ public final class VehicleRuntime implements Listener {
      * impact. Roughly a wheel's worth. See {@code landingContact}.
      */
     private static final double LANDING_CORNER = 0.35;
+
+    /**
+     * Where up the bodywork a WALL impact is reported, as a fraction of the
+     * hitbox's height.
+     *
+     * <p>Slightly above the middle, which is where the paintwork on anything
+     * car-shaped is: a wall is tall and flat and takes the whole side, so the
+     * honest single point is the middle of the panel rather than the sill. It
+     * used to be zero — the base — because a horizontal normal has no y in it,
+     * and a listener comparing that against the model's own part offsets found
+     * the wheels nearest every wall it ever brushed.
+     */
+    private static final double FACE_CONTACT_HEIGHT = 0.55;
 
     /**
      * How far past itself a vehicle looks for placed models, in blocks.
@@ -1542,7 +1560,12 @@ public final class VehicleRuntime implements Listener {
             try {
                 ride.settle();
                 Entity chassis = ride.chassis();
-                if (chassis != null) ride.scuffs.draw(chassis, scuffsKey, ride.at, ride.state.yaw(),
+                // At the BODY's height, not the position's: the model sits at
+                // the mean of its wheels, sprung, and a decal drawn at the
+                // position instead hangs above the paint by the ride height on
+                // every vehicle and visibly floats off it over every bump.
+                if (chassis != null) ride.scuffs.draw(chassis, scuffsKey, ride.modelAnchor(),
+                        ride.state.yaw(),
                         ride.state.pitch() + ride.posturePitch, ride.state.roll() + ride.postureRoll,
                         (ride.info.worn() && ride.occupied()) || !ride.detachedParts().isEmpty(), carry);
             } catch (RuntimeException e) {
@@ -2070,6 +2093,18 @@ public final class VehicleRuntime implements Listener {
 
         /** Whether it was off the ground last tick, so a landing can be noticed. */
         private boolean wasAirborne;
+
+        /**
+         * How far the water's surface stood above its base last time the world
+         * was asked, in blocks, and zero out of water.
+         *
+         * <p>A field rather than a read, because {@link Vehicle#submersion} is
+         * asked by plugins on their OWN clock and the block reads behind it are
+         * this class's most expensive question. It is therefore as fresh as the
+         * last tick the vehicle took, which for a parked one is the tick it
+         * parked on — and a vehicle that parked in a lake is still in it.
+         */
+        private double submersion;
 
         /** Where it was last tick, for working out which way a landing was travelling. */
         private Location lastAt;
@@ -3964,6 +3999,7 @@ public final class VehicleRuntime implements Listener {
             // the bed under it is shaped, and an aircraft's wheels are up.
             double[] wheels = info.medium() == VehicleMedium.LAND && supported ? wheelHeights() : null;
             if (!water) {
+                submersion = 0;
                 return new VehiclePhysics.Surroundings(supported, false, 0, wheels, wall);
             }
             // Fully under is a full block of push; otherwise the hull settles
@@ -3978,8 +4014,9 @@ public final class VehicleRuntime implements Listener {
             // of levels (the surfing addon's wave pool) is the one that made
             // it matter, because there the whole surface is levels.
             boolean deep = here.getRelative(0, 1, 0).getType() == Material.WATER;
-            double submersion = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + waterTop(here)) - at.getY()));
-            return new VehiclePhysics.Surroundings(supported, true, submersion, wheels, wall);
+            double under = deep ? 1 : Math.max(-1, Math.min(1, (here.getY() + waterTop(here)) - at.getY()));
+            submersion = Math.max(0, under);
+            return new VehiclePhysics.Surroundings(supported, true, under, wheels, wall);
         }
 
         /**
@@ -4138,7 +4175,10 @@ public final class VehicleRuntime implements Listener {
                             nextZ = at.getZ();
                             worldNormal = new Vector(step.dx(), 0, step.dz());
                             if (worldNormal.lengthSquared() > 1e-9) worldNormal.normalize();
-                            state = state.stopped();
+                            // Recoil and drop the nose rather than switch off,
+                            // which is what a dead stop read as. Below
+                            // WALL_REBOUND_SPEED this IS the dead stop.
+                            state = state.bounced(worldNormal.getX(), worldNormal.getZ());
                         }
                     }
                     // Either nothing was in the way, or the vehicle is already
@@ -4201,9 +4241,16 @@ public final class VehicleRuntime implements Listener {
             double across = worldNormal.getX() * right[0] + worldNormal.getZ() * right[1];
             double along = worldNormal.getX() * forward[0] + worldNormal.getZ() * forward[1];
             VehicleHitbox box = info.hitbox();
-            return new Vector(across * box.width() / 2,
-                    worldNormal.getY() * box.height() / 2,
-                    along * box.length() / 2);
+            // The HEIGHT of a wall impact is the middle of the bodywork, not
+            // the floor. A horizontal normal has no y in it, so this used to
+            // report zero — the base of the vehicle — and a listener comparing
+            // that against the model's own part offsets found the wheels
+            // nearest every wall it ever brushed. A wall is as tall as the
+            // thing that hit it; the middle of the panel is the honest answer.
+            double up = worldNormal.getY() != 0
+                    ? (1 + worldNormal.getY()) * box.height() / 2
+                    : box.height() * FACE_CONTACT_HEIGHT;
+            return new Vector(across * box.width() / 2, up, along * box.length() / 2);
         }
 
         /**
@@ -5097,6 +5144,12 @@ public final class VehicleRuntime implements Listener {
         public double verticalSpeed() {
             Ride ride = ride();
             return ride == null ? 0 : ride.state().verticalSpeed();
+        }
+
+        @Override
+        public double submersion() {
+            Ride ride = ride();
+            return ride == null ? 0 : ride.submersion;
         }
 
         @Override
