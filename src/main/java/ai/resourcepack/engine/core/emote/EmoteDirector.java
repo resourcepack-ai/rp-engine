@@ -42,6 +42,7 @@ import org.joml.Matrix4f;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
@@ -3173,7 +3174,31 @@ public final class EmoteDirector implements Listener {
     private static double stanceAdvance(Session session, EmoteTrigger state, boolean carried) {
         double seconds = PERIOD_TICKS / 20.0;
         if (carried) return seconds;
-        return seconds * EmoteStance.gaitRate(state, session.gaitStep / PERIOD_TICKS);
+        double reference = EmoteStance.paceSpeed(state, answeredByWorn(session, state));
+        return seconds * EmoteStance.gaitRate(reference, session.gaitStep / PERIOD_TICKS);
+    }
+
+    /**
+     * Every state the animation currently worn is worn for.
+     *
+     * <p>What {@link EmoteStance#paceSpeed} needs to see that the tick's state
+     * alone cannot: one emote answering both crouching states is a crouch-WALK
+     * cycle in both of them, and must not change clock when its wearer stops.
+     *
+     * <p>A group is asked which of its members are this same emote — by
+     * identity, which is the same test the swap uses, so the two cannot
+     * disagree about what "the same member" is. A plain stance answers every
+     * state it names with its one animation, so that is the whole of its set.
+     */
+    private static Set<EmoteTrigger> answeredByWorn(Session session, EmoteTrigger state) {
+        if (session.group == null) return session.triggers;
+        if (session.memberEmote == null) return Collections.emptySet();
+        Set<EmoteTrigger> answered = EnumSet.noneOf(EmoteTrigger.class);
+        for (Map.Entry<EmoteTrigger, EmoteStore.Emote> entry : session.members.entrySet()) {
+            if (entry.getValue() == session.memberEmote) answered.add(entry.getKey());
+        }
+        if (state != null) answered.add(state);
+        return answered;
     }
 
     private static int boneCount(Session session) {
