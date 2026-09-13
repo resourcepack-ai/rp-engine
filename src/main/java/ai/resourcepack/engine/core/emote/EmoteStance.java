@@ -185,6 +185,48 @@ final class EmoteStance {
     }
 
     /**
+     * The speed an animation is paced against, given the state asking for it
+     * and every other state the SAME animation answers.
+     *
+     * <p><b>Pacing is a property of the animation's role in the set, not of
+     * this tick's state, and getting that backwards is what made crouching
+     * unusable.</b> Two states answered by one emote is an ordinary shape —
+     * it is the shape every set built before crouching was split has, and it
+     * is why {@link EmoteDirector}'s swap is keyed on the EMOTE rather than on
+     * the state. A rate keyed on the state broke that invariant from the other
+     * end: one crouch-walk cycle filling both crouching states was distance-
+     * paced while its wearer moved and then, the instant the movement hold ran
+     * out, played at full authored speed on a body standing still — a pair of
+     * legs walking on the spot, flickering in and out several times a second
+     * as movement packets arrived.
+     *
+     * <p>So an animation that answers ANY gait is a gait cycle in every state
+     * it answers. The crouch-walk above is then paced by distance throughout:
+     * it moves when its wearer moves and holds when they stop, which is what a
+     * crouch-walk cycle should do. An animation that answers no gait — a
+     * standing idle, a jump — runs on time, exactly as before.
+     *
+     * @param alsoAnswered every state this same animation is worn for, the
+     *                     one being asked about included; empty is fine
+     * @return blocks per tick to divide by, or 0 for an animation whose clock
+     *         is time
+     */
+    static double paceSpeed(EmoteTrigger state, Set<EmoteTrigger> alsoAnswered) {
+        double direct = gaitSpeed(state);
+        if (direct > 0) return direct;
+        if (alsoAnswered == null) return 0;
+        // The slowest gait it answers. Only one realistic set reaches here —
+        // the crouch pair — and picking the slowest is what keeps a cycle that
+        // answers a gait and a standstill paced by the gait it was drawn for.
+        double slowest = 0;
+        for (EmoteTrigger other : alsoAnswered) {
+            double speed = gaitSpeed(other);
+            if (speed > 0 && (slowest == 0 || speed < slowest)) slowest = speed;
+        }
+        return slowest;
+    }
+
+    /**
      * How fast this state's cycle plays, as a multiple of its authored rate.
      *
      * <p>One for a state that is not a gait, which is the whole of "nothing
@@ -196,7 +238,11 @@ final class EmoteStance {
      * @param blocksPerTick the SMOOTHED horizontal step — see {@link #GAIT_CHASE}
      */
     static double gaitRate(EmoteTrigger state, double blocksPerTick) {
-        double reference = gaitSpeed(state);
+        return gaitRate(paceSpeed(state, null), blocksPerTick);
+    }
+
+    /** As above, against a reference {@link #paceSpeed} already worked out. */
+    static double gaitRate(double reference, double blocksPerTick) {
         if (reference <= 0) return 1;
         if (!Double.isFinite(blocksPerTick) || blocksPerTick <= 0) return 0;
         return Math.min(MAX_GAIT_RATE, blocksPerTick / reference);

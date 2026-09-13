@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -316,6 +317,41 @@ class EmoteStanceTest {
         // carried rather than walking.
         assertEquals(EmoteStance.MAX_GAIT_RATE,
             EmoteStance.gaitRate(EmoteTrigger.SPRINT, EmoteStance.SPRINT_SPEED * 40), 1e-9);
+    }
+
+    @Test
+    void oneEmoteAnsweringBothCrouchStatesKeepsOneClock() {
+        // <b>The crouching bug.</b> A set that fills both crouching states
+        // with one crouch-walk cycle is the ordinary shape — it is what every
+        // set built before the split has, and it is why the swap is keyed on
+        // the emote rather than the state. Paced by the STATE, that one cycle
+        // was distance-driven while its wearer moved and then played at full
+        // authored speed the moment the movement hold ran out: legs walking on
+        // the spot, flickering several times a second as packets arrived.
+        Set<EmoteTrigger> both = EnumSet.of(EmoteTrigger.SNEAK_IDLE, EmoteTrigger.SNEAK_MOVE);
+        assertEquals(EmoteStance.SNEAK_SPEED, EmoteStance.paceSpeed(EmoteTrigger.SNEAK_MOVE, both), 1e-9);
+        assertEquals(EmoteStance.SNEAK_SPEED, EmoteStance.paceSpeed(EmoteTrigger.SNEAK_IDLE, both), 1e-9);
+
+        // And therefore: standing still crouched HOLDS the cycle rather than
+        // running it at full speed.
+        assertEquals(0.0, EmoteStance.gaitRate(EmoteStance.paceSpeed(EmoteTrigger.SNEAK_IDLE, both), 0), 1e-9);
+    }
+
+    @Test
+    void aCrouchedPoseOfItsOwnStillBreathesOnItsOwnClock() {
+        // A set that DOES separate the two gets the old answer for the idle
+        // half: it answers no gait, so it runs on time like any held pose.
+        Set<EmoteTrigger> justIdle = EnumSet.of(EmoteTrigger.SNEAK_IDLE);
+        assertEquals(0.0, EmoteStance.paceSpeed(EmoteTrigger.SNEAK_IDLE, justIdle), 1e-9);
+        assertEquals(1.0, EmoteStance.gaitRate(EmoteStance.paceSpeed(EmoteTrigger.SNEAK_IDLE, justIdle), 0), 1e-9);
+    }
+
+    @Test
+    void anIdleSharedWithAWalkIsPacedByTheWalk() {
+        // The same rule one state pair over, and the reason it is stated as
+        // "any gait it answers" rather than as a special case for crouching.
+        Set<EmoteTrigger> both = EnumSet.of(EmoteTrigger.IDLE, EmoteTrigger.WALK);
+        assertEquals(EmoteStance.WALK_SPEED, EmoteStance.paceSpeed(EmoteTrigger.IDLE, both), 1e-9);
     }
 
     @Test
