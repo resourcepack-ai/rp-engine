@@ -235,6 +235,30 @@ final class EmoteStance {
     }
 
     /**
+     * Whether a swap from {@code from} to {@code to} may join the new cycle
+     * mid-way rather than at its beginning.
+     *
+     * <p><b>Both have to be GAITS, and narrowing it to that was a bug fix
+     * rather than caution.</b> Two stride cycles of one person have no
+     * beginning between them, so joining in phase is the whole point — see
+     * {@link #nearestPhase}. Every other member of a set is a NARRATIVE: a jump
+     * launches, tucks and lands, an idle settles into itself. Joining one of
+     * those at the frame that happens to resemble the walk you arrived from
+     * skips the part that makes it read as what it is, which in game is a jump
+     * that "just doesn't work".
+     *
+     * <p>It was first gated on the arriving emote LOOPING, on the reasoning
+     * that a cycle has no beginning and a one-shot does. That is true and it is
+     * not the same question: whether an animation loops is a fact about how it
+     * ends, and whether it has a beginning worth seeing is a fact about what it
+     * is. The set on the test server had a three-second looping idle and a
+     * one-point-eight-second jump, and only the second was protected.
+     */
+    static boolean joinsInPhase(EmoteTrigger from, EmoteTrigger to) {
+        return gaitSpeed(from) > 0 && gaitSpeed(to) > 0;
+    }
+
+    /**
      * Where in {@code next}'s cycle to join it so the body barely moves.
      *
      * <p><b>A movement set is several cycles of ONE body, and they are not
@@ -247,11 +271,11 @@ final class EmoteStance {
      * the same fix the vehicle rigs got, for the same reason, and the reason a
      * wheel there keeps its phase across a change of state.
      *
-     * <p><b>Only a LOOP is joined mid-way.</b> A cycle is a thing with no
-     * beginning, so any point of it is a legitimate place to start; a one-shot
-     * joined in the middle is one that ends early, and a jump pose held for as
-     * long as somebody is in the air is the case that matters — it wants its
-     * own first frame.
+     * <p><b>Ask {@link #joinsInPhase} before calling this.</b> A non-looping
+     * animation is refused here as a backstop — joined in the middle it would
+     * end early — but that check is not the one that matters, and relying on it
+     * alone is what broke jumping: it is a fact about how an animation ends
+     * rather than about whether it has a beginning worth seeing.
      *
      * <p>Pure, and free of the plugin: given a pose and an emote it answers a
      * number, which is what lets the join be tested rather than watched.
