@@ -658,6 +658,29 @@ public final class EmoteDirector implements Listener {
          * The pose this session is easing OUT of, or null when it is not
          * easing: the nine values each bone was composed from, in the table's
          * order with the root last. See {@link #SWAP_BLEND_TICKS}.
+         *
+         * <p><b>A POSE, and it cannot become a reference to the emote that
+         * pose came from.</b> That was tried on 2026-09-12 and reverted the
+         * next day, so the argument is worth having written down: a crossfade
+         * out of a still does look worse than one out of a moving animation,
+         * and keeping the leaving emote so it could go on playing under the
+         * blend is the obvious way to get one. It does not work, because **what
+         * is being left is very often not an emote.** {@link
+         * EmoteDirector#leavingPose} returns a BLEND whenever a swap lands
+         * inside a running ease, and a movement set swaps that fast all the
+         * time — sprint-jumping is SPRINT for two ticks, JUMP for twelve, over
+         * and over, and {@link #SWAP_BLEND_TICKS} is five. Holding an emote
+         * reference instead of the values, every one of those swaps threw the
+         * blend away and snapped to the newer half of it on the next tick:
+         * most of a full pose, several times a second, which is what "the legs
+         * look completely broken when running" was.
+         *
+         * <p>Nine floats per bone can express any pose the rig can hold,
+         * including one that is half of two animations. An animation cannot
+         * express the pose it is halfway blended into. That is the whole of it.
+         * If the still ever needs fixing, the thing to keep is the
+         * representation: blend from a pose to a pose, and give the SOURCE its
+         * own velocity some other way.
          */
         float[][] fadeFrom;
         /** With it, the whole turns each rotation goes by. See RigMath.turnsBetween. */
@@ -665,44 +688,6 @@ public final class EmoteDirector implements Listener {
         /** The tick the ease began, and how many ticks it takes. */
         long fadeStart;
         int fadeTicks;
-        /**
-         * The emote being eased OUT of, still playing, or null to ease out of
-         * the frozen {@link #fadeFrom} instead.
-         *
-         * <p><b>A crossfade from a snapshot is a crossfade from a body that
-         * stopped.</b> {@code fadeFrom} is the pose the rig was showing at the
-         * instant of the swap, and blending toward the new cycle from a value
-         * that never moves again means the leaving half of the picture is a
-         * still: the legs decelerate to nothing over the first ticks of the
-         * ease and pick the new cycle up from there. On a set where every
-         * member is a cycle of the same body — which is what a movement set IS
-         * — that hitch lands every time anybody breaks into a run.
-         *
-         * <p>So the emote is kept rather than its pose, and re-sampled each
-         * pass at {@link #fadePhase}: both halves of the blend are moving, the
-         * ease is between two animations rather than between an animation and a
-         * photograph, and {@link EmoteDirector#fadeProgress} can be eased at
-         * both ends because both ends now have a velocity worth matching.
-         *
-         * <p>Null is the case where there is nothing to keep playing — a rig
-         * coming back from being put away, or a leaving pose assembled from
-         * somewhere other than an emote — and it falls back to exactly what
-         * this did before.
-         */
-        EmoteStore.Emote fadeEmote;
-        /** The leaving emote's own bone tracks, from wherever they came from. */
-        Map<String, Map<String, List<Keyframe>>> fadeAnimators;
-        /** And its whole-body transform, on the same terms. */
-        Map<String, List<Keyframe>> fadeRoot;
-        /**
-         * Where the leaving emote's playhead is, in seconds.
-         *
-         * <p>Advanced by the pass that advances the arriving one, at the same
-         * rate: over an ease of five ticks the difference between a walk's
-         * clock and a run's is under a frame, and one number is one thing that
-         * cannot fall out of step with the other.
-         */
-        double fadePhase;
         /**
          * Where the displays were last put, or null if they need putting.
          *
@@ -3071,81 +3056,49 @@ public final class EmoteDirector implements Listener {
         float s = fadeProgress(session, now);
         if (s >= 1f) return null;
         int steps = boneCount(session) + 1;
-        return RigMath.lerpProgram(fadeSource(session), samplePose(session, t), session.fadeTurns, steps, s);
+        return RigMath.lerpProgram(session.fadeFrom, samplePose(session, t), session.fadeTurns, steps, s);
     }
 
     /** Every bone's values at {@code t} under the emote the session plays, root last. */
     private float[][] samplePose(Session session, double t) {
-        return samplePose(session, session.animators, session.root, t);
-    }
-
-    /**
-     * The same, against animators given rather than the session's own — which
-     * is how the emote being eased OUT of goes on playing underneath the ease.
-     */
-    private float[][] samplePose(
-            Session session,
-            Map<String, Map<String, List<Keyframe>>> animators,
-            Map<String, List<Keyframe>> root,
-            double t) {
         int last = boneCount(session);
         float[][] values = new float[last + 1][];
         for (int i = 0; i < last; i++) {
             EmoteStore.Bone bone = session.bones.get(i);
             if (bone == null || bone.key == null) continue;
             values[i] = RigMath.sampleStep(
-                    animators == null ? null : animators.get(bone.key), t, 1f);
+                    session.animators == null ? null : session.animators.get(bone.key), t, 1f);
         }
-        values[last] = root == null || root.isEmpty()
-                ? null : RigMath.sampleStep(root, t, 1f);
+        values[last] = session.root == null || session.root.isEmpty()
+                ? null : RigMath.sampleStep(session.root, t, 1f);
         return values;
     }
 
     /**
-     * The half of a fade that is being LEFT, as it stands this pass.
+     * 0 at the moment an ease started, 1 when it is over or there is none;
+     * forgets one that is over.
      *
-     * <p>The leaving emote sampled at its own playhead when one was kept —
-     * see {@link Session#fadeEmote} — and the frozen snapshot otherwise. Both
-     * answers are the nine values per bone the blend works in; only one of them
-     * is still moving.
-     */
-    private float[][] fadeSource(Session session) {
-        if (session.fadeEmote == null) return session.fadeFrom;
-        return samplePose(session, session.fadeAnimators, session.fadeRoot,
-                animationTime(session.fadeEmote, session.fadePhase));
-    }
-
-    /**
-     * How far through an ease this pass is: 0 at the moment it started, 1 when
-     * it is over or there is none. Forgets one that is over.
-     *
-     * <p><b>Eased rather than linear</b>, and that is only correct because both
-     * halves of the blend are now animations rather than one animation and a
-     * still. A straight ramp holds a constant blend speed throughout, so the
-     * bone's velocity jumps at both ends of the window — it was going at the
-     * old cycle's rate, spends five ticks going at the blend's, and arrives
-     * going at the new cycle's. Smoothstep starts and ends at zero blend
-     * speed, which means the rig leaves the old cycle at the old cycle's
-     * velocity and joins the new one at the new one's: no kink at either end,
-     * which is the whole of what "smoother" means here.
+     * <p><b>Linear, and an attempt to ease it was reverted on 2026-09-13.</b>
+     * The argument for smoothstep is real — a straight ramp holds a constant
+     * blend speed, so a bone's velocity kinks at both ends of the window — but
+     * it only holds if BOTH halves of the blend are moving. {@link
+     * Session#fadeFrom} is a still, so easing in from zero blend speed means
+     * the rig sits on the pose it is leaving and then lunges. Linear is the
+     * right ramp out of a photograph. See `fadeFrom` for why it is one.
      */
     private static float fadeProgress(Session session, long now) {
-        if (session.fadeFrom == null && session.fadeEmote == null) return 1f;
+        if (session.fadeFrom == null) return 1f;
         if (session.fadeTicks <= 0 || now - session.fadeStart >= session.fadeTicks) {
             endFade(session);
             return 1f;
         }
-        float s = Math.max(0f, Math.min(1f, (now - session.fadeStart) / (float) session.fadeTicks));
-        return s * s * (3f - 2f * s);
+        return Math.max(0f, (now - session.fadeStart) / (float) session.fadeTicks);
     }
 
-    /** Drops everything an ease was holding, including the emote it was leaving. */
+    /** Drops everything an ease was holding. */
     private static void endFade(Session session) {
         session.fadeFrom = null;
         session.fadeTurns = null;
-        session.fadeEmote = null;
-        session.fadeAnimators = null;
-        session.fadeRoot = null;
     }
 
     /**
@@ -3159,41 +3112,31 @@ public final class EmoteDirector implements Listener {
         float[][] target = samplePose(session, t);
         float s = fadeProgress(session, now);
         return s < 1f
-                ? RigMath.lerpProgram(fadeSource(session), target, session.fadeTurns, boneCount(session) + 1, s)
+                ? RigMath.lerpProgram(session.fadeFrom, target, session.fadeTurns, boneCount(session) + 1, s)
                 : target;
     }
 
     /**
      * Starts easing from {@code from} into the emote the session now plays.
      *
-     * <p>Into it at {@code joinAt} rather than at its top — which for a
-     * movement set is the point of the new cycle nearest the body's pose, and
-     * for everything else is still zero. See {@link EmoteStance#nearestPhase}.
-     *
-     * <p>{@code leaving} is the emote being left, still playing, or null to
-     * ease out of the frozen {@code from} instead. See {@link Session#fadeEmote}.
+     * <p>Into it at {@code joinAt} rather than at its top — which for one gait
+     * succeeding another is the point of the new cycle nearest the body's pose,
+     * and for everything else is still zero. See
+     * {@link EmoteStance#nearestPhase}.
      */
-    private void startFade(Session session, float[][] from, long now, double joinAt,
-                           EmoteStore.Emote leaving,
-                           Map<String, Map<String, List<Keyframe>>> leavingAnimators,
-                           Map<String, List<Keyframe>> leavingRoot,
-                           double leavingPhase) {
+    private void startFade(Session session, float[][] from, long now, double joinAt) {
         int steps = boneCount(session) + 1;
         float[][] to = samplePose(session, session.emote == null ? 0 : animationTime(session.emote, joinAt));
         session.fadeFrom = from;
-        session.fadeEmote = leaving;
-        session.fadeAnimators = leavingAnimators;
-        session.fadeRoot = leavingRoot;
-        session.fadePhase = leavingPhase;
         session.fadeTurns = RigMath.turnsBetween(from, to, steps);
         session.fadeStart = now;
         session.fadeTicks = Math.max(SWAP_BLEND_TICKS,
                 RigMath.fadeTicks(from, to, steps, PERIOD_TICKS, FADE_DEGREES_PER_TICK));
     }
 
-    /** The same, out of a pose that is not going anywhere. */
+    /** The same, into the arriving emote's own first frame. */
     private void startFade(Session session, float[][] from, long now) {
-        startFade(session, from, now, 0, null, null, null, 0);
+        startFade(session, from, now, 0);
     }
 
     /**
@@ -3602,13 +3545,10 @@ public final class EmoteDirector implements Listener {
             if (member != session.memberEmote || session.memberState == null) {
                 // Read off the OLD emote before anything below replaces it:
                 // the pose the rig is showing, mid-fade included, is what the
-                // new one is eased from. The emote itself is kept beside it,
-                // because the ease goes on sampling it — see Session.fadeEmote.
+                // new one is eased from. A POSE, never the emote it came from
+                // — see Session.fadeFrom, which is where the reason lives.
                 float[][] leaving = leavingPose(session, tick);
-                EmoteStore.Emote left = session.emote;
-                Map<String, Map<String, List<Keyframe>>> leftAnimators = session.animators;
-                Map<String, List<Keyframe>> leftRoot = session.root;
-                double leftPhase = clock(session, tick);
+                EmoteTrigger leftState = session.memberState;
                 session.memberState = state;
                 session.memberEmote = member;
                 session.emote = member != null ? member : session.rest;
@@ -3616,15 +3556,18 @@ public final class EmoteDirector implements Listener {
                     ? member.animators
                     : Collections.<String, Map<String, List<Keyframe>>>emptyMap();
                 session.root = member != null ? member.root : null;
-                // <b>Joined where the BODY already is, not from the top.</b>
-                // The emotes in a set are cycles of one person, so the point of
-                // the new one nearest the pose on screen is the point that
-                // continues the movement rather than interrupting it: breaking
-                // into a run picks the run up mid-stride on the same leg. A
-                // member that does not loop — a jump pose, a one-shot — still
-                // starts at its own beginning, which is what makes this safe to
-                // do unconditionally. See EmoteStance.nearestPhase.
-                session.phase = EmoteStance.nearestPhase(member, session.bones, leaving);
+                // <b>One gait succeeding another is joined where the BODY
+                // already is; everything else starts at the top.</b> Two stride
+                // cycles of one person have no beginning between them, so the
+                // point of the new one nearest the pose on screen is the point
+                // that continues the movement: breaking into a run picks the
+                // run up mid-stride on the same leg. Anything else does have a
+                // beginning — a jump launches, an idle settles — and joining
+                // one of those in the middle skips the part that makes it read
+                // as what it is. See EmoteStance.joinsInPhase.
+                session.phase = EmoteStance.joinsInPhase(leftState, state)
+                    ? EmoteStance.nearestPhase(member, session.bones, leaving)
+                    : 0;
                 // Props belong to the emote, not to the set, so the old one's
                 // models go away and the new one's stand up. Bones are shared
                 // and are never respawned.
@@ -3633,17 +3576,16 @@ public final class EmoteDirector implements Listener {
                 setRigHidden(player, session, member == null);
                 // The same ease a driven swap gets, in pose space — see
                 // SWAP_BLEND_TICKS: walking into a run is two cycles blending,
-                // which is what you want, and both of them are still playing
-                // while it happens. Not where the rig was put away: easing out
-                // of that is an ease from whatever pose it happened to be
-                // holding when it went, which is not a transition anybody
-                // authored, so that one snaps.
+                // which is what you want, and joining the new one in phase is
+                // what leaves it almost nothing to do. Not where the rig was
+                // put away: easing out of that is an ease from whatever pose it
+                // happened to be holding when it went, which is not a
+                // transition anybody authored, so that one snaps.
                 if (wasHidden) {
                     session.snap = true;
                     endFade(session);
                 } else {
-                    startFade(session, leaving, tick, session.phase,
-                        left, leftAnimators, leftRoot, leftPhase);
+                    startFade(session, leaving, tick, session.phase);
                 }
             } else {
                 session.memberState = state;
@@ -3662,12 +3604,6 @@ public final class EmoteDirector implements Listener {
             } else {
                 session.phase += stanceAdvance(session, state, carried);
             }
-        }
-        // Both halves of an ease move together, so the animation being left
-        // goes on playing at the rate the body is going rather than at the one
-        // it happened to be going at when the swap landed.
-        if (session.fadeEmote != null) {
-            session.fadePhase += stanceAdvance(session, session.memberState, carried);
         }
         // Their facing, unrounded. `begin` rounds to whole degrees because an
         // emote is authored at one fixed yaw and a hundredth of a degree there

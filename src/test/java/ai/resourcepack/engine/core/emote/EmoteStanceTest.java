@@ -407,6 +407,49 @@ class EmoteStanceTest {
     }
 
     @Test
+    void onlyOneGaitSucceedingAnotherIsJoinedMidWay() {
+        // The three gaits are stride cycles of one body and have no beginning
+        // between them.
+        for (EmoteTrigger from : GAITS) {
+            for (EmoteTrigger to : GAITS) {
+                assertTrue(EmoteStance.joinsInPhase(from, to), from + " -> " + to);
+            }
+        }
+    }
+
+    @Test
+    void aNarrativeMemberIsNeverJoinedMidWay() {
+        // <b>This is the jumping bug.</b> A jump launches, tucks and lands; an
+        // idle settles. Joined at the frame that happens to resemble the walk
+        // you arrived from, the launch never plays and the jump reads as simply
+        // not working. Whether it LOOPS is a different question and does not
+        // protect it — the set this was found on had a three-second looping
+        // idle and its jump was the only narrative member that was safe.
+        for (EmoteTrigger other : new EmoteTrigger[] {
+                EmoteTrigger.IDLE, EmoteTrigger.SNEAK_IDLE, EmoteTrigger.JUMP }) {
+            for (EmoteTrigger gait : GAITS) {
+                assertFalse(EmoteStance.joinsInPhase(gait, other), gait + " -> " + other);
+                assertFalse(EmoteStance.joinsInPhase(other, gait), other + " -> " + gait);
+            }
+            assertFalse(EmoteStance.joinsInPhase(other, other), other + " -> " + other);
+        }
+    }
+
+    @Test
+    void theFirstMemberOfAllStartsAtItsBeginning() {
+        // Nothing is being left on the pass a set is put on, and `null` is what
+        // that reads as. A set whose first state is a walk should start walking
+        // from the top rather than from wherever an uninitialised pose matched.
+        for (EmoteTrigger gait : GAITS) {
+            assertFalse(EmoteStance.joinsInPhase(null, gait), "null -> " + gait);
+        }
+    }
+
+    private static final EmoteTrigger[] GAITS = {
+        EmoteTrigger.WALK, EmoteTrigger.SPRINT, EmoteTrigger.SNEAK_MOVE,
+    };
+
+    @Test
     void thereIsNothingToJoinWithoutAnAnimationOrAPose() {
         assertEquals(0.0, EmoteStance.nearestPhase(null, legs(), pose(90f)), 1e-9);
         assertEquals(0.0, EmoteStance.nearestPhase(swingCycle(90f), legs(), null), 1e-9);
