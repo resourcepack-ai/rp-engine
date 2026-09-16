@@ -843,6 +843,21 @@ public final class RigAnimator implements Listener {
             animationTransform.translate(part.anchor[0] / 16f, part.anchor[1] / 16f, part.anchor[2] / 16f);
         }
 
+        // Innermost of all, after the anchor: a cube turned past what a block
+        // model can hold. The pack drew it untilted and this is the turn.
+        //
+        // Outside the `values != null` branch above ON PURPOSE. A fixed step
+        // reads no keyframes, so it is not part of the pose an animation asks
+        // for — and a model may have no animations whatsoever and still have
+        // one of these, which is the whole point of it: the entity IS the
+        // rotation. It settles on the first tick and every tick after it
+        // returns early on an unchanged transform.
+        for (RigStore.Step step : part.program) {
+            if (step != null && step.target == null) {
+                RigMath.applyFixedRotation(animationTransform, step.pivot, step.rotate);
+            }
+        }
+
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
         // The carrier's body attitude, ahead of the animation and about the
