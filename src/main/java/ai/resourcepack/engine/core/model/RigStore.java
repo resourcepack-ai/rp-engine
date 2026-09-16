@@ -29,6 +29,18 @@ public final class RigStore {
     static final class Step {
         String target;
         float[] pivot;
+        /**
+         * Degrees about x, y and z, composed in that order about {@link #pivot}
+         * — a rotation the block model format cannot hold, so the pack draws
+         * the cube untilted and the display entity carries the turn.
+         *
+         * <p>Present only on a FIXED step, which has no {@link #target} and
+         * reads no keyframes: it is the cube's rest pose rather than something
+         * an animation moves, so it is composed every tick whether or not
+         * anything is playing. Absent on every rig written before this, which
+         * is why a null here means "no fixed rotation" rather than zero.
+         */
+        float[] rotate;
     }
 
     static final class Part {

@@ -97,6 +97,34 @@ public final class RigMath {
         composeStep(m, pivot, sampleStep(animator, t, weight));
     }
 
+    /**
+     * Composes a FIXED rotation into {@code m}, about {@code pivot}.
+     *
+     * <p>{@link #applyStep} with the keyframes taken out of it: the same
+     * pivot mapping and the same XYZ order, applied to angles the pack stated
+     * once rather than to anything sampled. That is what a cube turned past
+     * what a block model can say looks like from here — the model file holds
+     * it untilted and this is the turn, so it is composed whether or not
+     * anything is animating, and it never changes while the display lives.
+     *
+     * <p>It must be composed INNERMOST of a part's transform, because it is
+     * the cube's rest pose: an animation on the same cube then turns the
+     * already-tilted cube, exactly as it would a rotation baked into the
+     * geometry by the pack.
+     */
+    public static void applyFixedRotation(Matrix4f m, float[] pivot, float[] degrees) {
+        if (pivot == null || pivot.length != 3 || degrees == null || degrees.length != 3) return;
+        if (degrees[0] == 0f && degrees[1] == 0f && degrees[2] == 0f) return;
+        float px = (pivot[0] - 8f) / 16f;
+        float py = (pivot[1] - 8f) / 16f;
+        float pz = (pivot[2] - 8f) / 16f;
+        m.translate(px, py, pz);
+        m.rotateXYZ((float) Math.toRadians(degrees[0]),
+                (float) Math.toRadians(degrees[1]),
+                (float) Math.toRadians(degrees[2]));
+        m.translate(-px, -py, -pz);
+    }
+
     // ---- a pose as values ------------------------------------------------
     //
     // A step's pose kept as the nine numbers it is composed from — rotation

@@ -54,13 +54,34 @@ public final class ModelRigs {
 
         private final String target;
         private final float[] pivot;
+        private final float[] rotate;
 
         Step(String target, float[] pivot) {
-            this.target = target;
-            this.pivot = pivot;
+            this(target, pivot, null);
         }
 
-        /** The animator key this step reads: {@code g:<bone>} or an element index. */
+        Step(String target, float[] pivot, float[] rotate) {
+            this.target = target;
+            this.pivot = pivot;
+            this.rotate = rotate;
+        }
+
+        /**
+         * A step that turns a cube by a fixed amount and reads no keyframes.
+         *
+         * <p>What a cube rotated past the block model format's five legal
+         * angles, or on more than one axis, becomes: the pack draws it
+         * untilted and the display entity carries the turn. See
+         * {@link #rotate()}.
+         */
+        static Step fixed(float[] pivot, float[] degrees) {
+            return new Step(null, pivot, degrees);
+        }
+
+        /**
+         * The animator key this step reads: {@code g:<bone>} or an element
+         * index — or null on a fixed step, which reads none.
+         */
         public String target() {
             return target;
         }
@@ -68,6 +89,20 @@ public final class ModelRigs {
         /** The point it rotates and scales about, in model pixels. */
         public float[] pivot() {
             return pivot.clone();
+        }
+
+        /**
+         * Degrees about x, y and z about {@link #pivot()}, composed in that
+         * order — or null on an ordinary animated step.
+         *
+         * <p>Fixed rather than sampled, so the animator composes it every
+         * tick whether or not anything is playing: a model can have no
+         * animations at all and still need one of these, which is the point
+         * of them. It is always the innermost step of its part, being the
+         * cube's rest pose.
+         */
+        public float[] rotate() {
+            return rotate == null ? null : rotate.clone();
         }
     }
 
@@ -228,7 +263,13 @@ public final class ModelRigs {
         JsonArray animations = array(model, "animations");
 
         Set<String> animated = animatedTargets(animations);
-        if (animated.isEmpty()) {
+        // A cube turned past what the format can say needs a display of its
+        // own even in a model with no animation whatsoever — the entity IS the
+        // rotation — so it forces a rig on the same footing as a keyframe, and
+        // everything below treats the two alike. Studio's builder has the same
+        // rule and the two have to agree; see the class note.
+        Set<Integer> freelyRotated = freelyRotated(elements);
+        if (animated.isEmpty() && freelyRotated.isEmpty()) {
             return Optional.empty();
         }
 
@@ -268,10 +309,9 @@ public final class ModelRigs {
                 if (index < 0 || index >= elements.size() || !claimed.add(index)) {
                     continue;
                 }
-                if (animated.contains(String.valueOf(index))) {
-                    List<Step> own = new ArrayList<>(chain);
-                    own.add(new Step(String.valueOf(index), pivotOf(elements, index)));
-                    parts.add(part(modelId, parts.size(), List.of(index), own,
+                if (animated.contains(String.valueOf(index)) || freelyRotated.contains(index)) {
+                    parts.add(part(modelId, parts.size(), List.of(index),
+                            ownProgram(elements, index, chain, animated, freelyRotated),
                             nameOf(group), behaviours.get(g), originOf(group), elements,
                             lineageOf(groups, g)));
                 } else {
@@ -285,15 +325,15 @@ public final class ModelRigs {
             }
         }
 
-        // Cubes animated on their own, including ones sitting in a bone that
-        // is not itself animated.
+        // Cubes that move or are tilted on their own, including ones sitting
+        // in a bone that is not itself animated.
         for (int i = 0; i < elements.size(); i++) {
-            if (claimed.contains(i) || !animated.contains(String.valueOf(i))) {
+            if (claimed.contains(i) || !(animated.contains(String.valueOf(i)) || freelyRotated.contains(i))) {
                 continue;
             }
             claimed.add(i);
             parts.add(part(modelId, parts.size(), List.of(i),
-                    List.of(new Step(String.valueOf(i), pivotOf(elements, i))),
+                    ownProgram(elements, i, List.of(), animated, freelyRotated),
                     "", BoneBehaviour.NONE, pivotOf(elements, i), elements, List.of()));
         }
 
@@ -330,9 +370,10 @@ public final class ModelRigs {
         for (int index : part.elements()) {
             if (index >= 0 && index < elements.size()) {
                 // Re-centred on its own pivot where it can be - see anchor().
-                mine.add(part.anchor == null || !elements.get(index).isJsonObject()
+                JsonElement one = part.anchor == null || !elements.get(index).isJsonObject()
                         ? elements.get(index)
-                        : shifted(elements.get(index).getAsJsonObject(), part.anchor));
+                        : shifted(elements.get(index).getAsJsonObject(), part.anchor);
+                mine.add(untilted(one, freeAngles(elements, index) != null));
             }
         }
 
@@ -465,12 +506,25 @@ public final class ModelRigs {
                 JsonArray program = new JsonArray();
                 for (Step step : part.program()) {
                     JsonObject one = new JsonObject();
-                    one.addProperty("target", step.target());
+                    // A fixed step has no target, and the absence is what says
+                    // so at the far end: writing a null would deserialize to
+                    // the same thing, but an explicit null in a manifest reads
+                    // as a mistake rather than as a kind of step.
+                    if (step.target() != null) {
+                        one.addProperty("target", step.target());
+                    }
                     JsonArray pivot = new JsonArray();
                     for (float value : step.pivot()) {
                         pivot.add(value);
                     }
                     one.add("pivot", pivot);
+                    if (step.rotate() != null) {
+                        JsonArray rotate = new JsonArray();
+                        for (float value : step.rotate()) {
+                            rotate.add(value);
+                        }
+                        one.add("rotate", rotate);
+                    }
                     program.add(one);
                 }
                 JsonObject out = new JsonObject();
@@ -812,11 +866,83 @@ public final class ModelRigs {
      * because a cube with no rotation has never been asked where its pivot is,
      * and its centre is the only answer that does not translate it.
      */
+    /**
+     * A freely rotated cube with its rotation taken off, for the part model.
+     *
+     * <p>Both keys go: the real angles because no block model can state them,
+     * and the legal {@code rotation} stand-in because the display is about to
+     * apply the real turn to this geometry — leaving an approximation of the
+     * same turn in the file applies it twice. Anything else is returned
+     * untouched.
+     */
+    private static JsonElement untilted(JsonElement element, boolean free) {
+        if (!free || !element.isJsonObject()) {
+            return element;
+        }
+        JsonObject copy = element.getAsJsonObject().deepCopy();
+        copy.remove("rotation");
+        copy.remove("free_rotation");
+        return copy;
+    }
+
+    /**
+     * The cubes carrying a rotation the block model format cannot hold.
+     *
+     * <p>{@code free_rotation} is not vanilla and not something Blockbench
+     * writes — it is an extension both Studio and a hand-authored model may
+     * carry, and a client ignores it entirely. What makes it work is the
+     * display entity this cube is given; the {@code rotation} beside it is
+     * only the nearest legal angle, for anyone reading the pack without the
+     * plugin.
+     */
+    private static Set<Integer> freelyRotated(JsonArray elements) {
+        Set<Integer> out = new HashSet<>();
+        for (int i = 0; i < elements.size(); i++) {
+            if (freeAngles(elements, i) != null) {
+                out.add(i);
+            }
+        }
+        return out;
+    }
+
+    /** This cube's free angles, or null if it has none worth applying. */
+    private static float[] freeAngles(JsonArray elements, int index) {
+        if (index < 0 || index >= elements.size() || !elements.get(index).isJsonObject()) {
+            return null;
+        }
+        JsonObject free = object(elements.get(index).getAsJsonObject(), "free_rotation");
+        if (free == null) {
+            return null;
+        }
+        float[] angles = vec3(free, "angles", new float[]{0f, 0f, 0f});
+        return angles[0] == 0f && angles[1] == 0f && angles[2] == 0f ? null : angles;
+    }
+
+    /**
+     * What one cube's own part composes: its animator step if it has one, and
+     * its fixed rotation innermost if it is tilted past the format.
+     */
+    private static List<Step> ownProgram(JsonArray elements, int index, List<Step> chain,
+                                         Set<String> animated, Set<Integer> freelyRotated) {
+        List<Step> own = new ArrayList<>(chain);
+        if (animated.contains(String.valueOf(index))) {
+            own.add(new Step(String.valueOf(index), pivotOf(elements, index)));
+        }
+        if (freelyRotated.contains(index)) {
+            own.add(Step.fixed(pivotOf(elements, index), freeAngles(elements, index)));
+        }
+        return own;
+    }
+
     private static float[] pivotOf(JsonArray elements, int index) {
         if (!elements.get(index).isJsonObject()) {
             return new float[]{8f, 8f, 8f};
         }
         JsonObject element = elements.get(index).getAsJsonObject();
+        JsonObject free = object(element, "free_rotation");
+        if (free != null) {
+            return vec3(free, "origin", new float[]{8f, 8f, 8f});
+        }
         JsonObject rotation = object(element, "rotation");
         if (rotation != null) {
             return vec3(rotation, "origin", new float[]{8f, 8f, 8f});
