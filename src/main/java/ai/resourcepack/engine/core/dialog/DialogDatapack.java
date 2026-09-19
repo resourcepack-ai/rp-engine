@@ -2,11 +2,11 @@ package ai.resourcepack.engine.core.dialog;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
+import ai.resourcepack.engine.core.pack.DataPackFolder;
 import ai.resourcepack.engine.core.pack.DataPackMeta;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -105,16 +105,17 @@ public final class DialogDatapack {
     /**
      * Writes one file per dialog into the main world's datapack folder.
      *
-     * <p>Into the FIRST world's folder because that is where the server reads
+     * <p>Into the FIRST world's level because that is where the server reads
      * datapacks from, whatever else is loaded — a datapack is per-level and the
-     * level is the first world.
+     * level is the first world's. Which directory that is is
+     * {@link DataPackFolder}'s question, and not the same as the world folder.
      */
     public void write(Collection<DialogInfo> dialogs) {
         List<World> worlds = Bukkit.getWorlds();
         if (worlds.isEmpty()) {
             return;
         }
-        Path root = new File(worlds.get(0).getWorldFolder(), "datapacks/" + PACK).toPath();
+        Path root = DataPackFolder.of(worlds.get(0), PACK);
         Path data = root.resolve("data");
         boolean changed;
         try {
