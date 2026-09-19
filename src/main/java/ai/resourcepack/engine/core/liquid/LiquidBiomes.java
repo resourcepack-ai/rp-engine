@@ -2,13 +2,13 @@ package ai.resourcepack.engine.core.liquid;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LiquidInfo;
+import ai.resourcepack.engine.core.pack.DataPackFolder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.World;
 import org.bukkit.block.Biome;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -87,9 +87,10 @@ public final class LiquidBiomes {
     /**
      * Writes one biome per tinted liquid into the world's datapack folder.
      *
-     * <p>Into the main world's folder because that is where the server reads
+     * <p>Into the main world's level because that is where the server reads
      * datapacks from, whatever else is loaded — a datapack is per-level and
-     * the level is the first world.
+     * the level is the first world's. Which directory that is is
+     * {@link DataPackFolder}'s question, and not the same as the world folder.
      *
      * <p>Rewritten wholesale rather than patched: this directory is ours, its
      * contents are derived from the content folder, and a colour somebody
@@ -100,7 +101,7 @@ public final class LiquidBiomes {
         if (worlds.isEmpty()) {
             return;
         }
-        Path root = new File(worlds.get(0).getWorldFolder(), "datapacks/" + PACK).toPath();
+        Path root = DataPackFolder.of(worlds.get(0), PACK);
         Path biomes = root.resolve("data/" + NAMESPACE + "/worldgen/biome");
         Set<String> wanted = new LinkedHashSet<>();
         boolean changed = false;
