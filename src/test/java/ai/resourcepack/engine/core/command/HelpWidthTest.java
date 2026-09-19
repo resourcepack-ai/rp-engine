@@ -29,7 +29,7 @@ class HelpWidthTest {
         List<Area> areas = List.of(
                 new ContentCommands(null, null, null, null, null, null, null),
                 new ModelCommands(null, null, null, null, null, null),
-                new InterfaceCommands(null, null, null, null),
+                new InterfaceCommands(null, null, null, null, null),
                 new EmoteCommands(null, null),
                 new SyncCommands(null, null, null, null, null, null),
                 new LiquidCommands(null, null, null, null));

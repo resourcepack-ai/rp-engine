@@ -80,6 +80,27 @@ public final class StudioContent {
         List<Overlay> huds;
         List<Vehicle> vehicles;
         List<Model> models;
+        List<Dialog> dialogs;
+    }
+
+    /**
+     * A pushed dialog — the whole {@code minecraft:dialog} object.
+     *
+     * <p>The one entry here that is neither a NAME for something in the zip nor
+     * a FACT about something in it, but a file. A dialog is registry data and a
+     * resource pack cannot carry one, so Studio sends the object and the engine
+     * writes it into a datapack unread. The picture it draws IS in the zip — a
+     * font glyph like any overlay's — and the characters that place it are
+     * already inside this JSON, put there by the build that allocated them.
+     *
+     * <p>{@code json} is held as a parsed tree only so gson will accept it;
+     * {@link com.google.gson.JsonElement#toString()} is what gets written, which
+     * is the same object Studio sent. Nothing here reads a field of it.
+     */
+    static final class Dialog {
+        String id;
+        String name;
+        com.google.gson.JsonElement json;
     }
 
     /**
@@ -440,6 +461,7 @@ public final class StudioContent {
      * the pack to say so. See {@link #modelStopsVehicles}.
      */
     private volatile Set<String> vehiclePassable = Set.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -469,6 +491,11 @@ public final class StudioContent {
         return vehicles;
     }
 
+    /** The pushed dialogs, keyed by id. */
+    public Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs() {
+        return dialogs;
+    }
+
     /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
@@ -486,7 +513,7 @@ public final class StudioContent {
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty();
+                && vehiclePassable.isEmpty() && dialogs.isEmpty();
     }
 
     /**
@@ -576,14 +603,24 @@ public final class StudioContent {
             }
         }
 
+        Map<ContentId, ai.resourcepack.engine.api.DialogInfo> readDialogs = new LinkedHashMap<>();
+        for (Dialog dialog : manifest.dialogs == null ? List.<Dialog>of() : manifest.dialogs) {
+            if (dialog == null || dialog.json == null || !dialog.json.isJsonObject()) {
+                continue;
+            }
+            id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
+                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name)));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         huds = Map.copyOf(readHuds);
         vehicles = Map.copyOf(readVehicles);
         vehiclePassable = Set.copyOf(readPassable);
+        dialogs = Map.copyOf(readDialogs);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
-                sounds.size() + screens.size() + huds.size() + vehicles.size());
+                sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size());
     }
 
     /**
@@ -789,6 +826,9 @@ public final class StudioContent {
         }
         for (ContentId id : vehicles.keySet()) {
             claimed.define(ContentKind.VEHICLE, id.path());
+        }
+        for (ContentId id : dialogs.keySet()) {
+            claimed.define(ContentKind.DIALOG, id.path());
         }
     }
 

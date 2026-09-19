@@ -182,6 +182,23 @@ public enum Feature {
      * is the driver's look on every version, so a vehicle handles the same
      * either way and is merely driven with a different finger.
      */
+    /**
+     * Dialogs — the screens a server opens on a client as data.
+     *
+     * <p>A floor with no degradation worth the name, which is why it is here
+     * rather than being quietly checked somewhere: below 1.21.6 the game has
+     * no dialog registry, no {@code /dialog} command and nothing a plugin can
+     * substitute for one. The engine still loads the definitions and still
+     * lists them, so a server owner sees the content they wrote and is told
+     * why it does nothing, rather than watching a command fail.
+     */
+    DIALOGS(
+            McVersion.of(1, 21, 6),
+            "Dialogs",
+            "Dialogs do not open. The game has no dialog screen before this version and there "
+                    + "is nothing to stand in for one — a container wearing a picture (a screen) "
+                    + "is the older way to do the same job, and works everywhere."),
+
     PLAYER_INPUT(
             McVersion.of(1, 21, 4),
             "Reading a driver's movement keys",

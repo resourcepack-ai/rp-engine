@@ -557,6 +557,47 @@ caller updating six values in a row costs one redraw rather than six. The loop
 picks them up within about a second and a half. `show`, `hide` and `hideAll`
 draw, so those are main thread only.
 
+## Dialogs
+
+A dialog is the screen a server opens on a player — Minecraft 1.21.6 and newer.
+Server owners declare them (in a `dialogs/` folder, or in Studio); your job is
+deciding when one appears.
+
+```java
+engine.dialogs().show(player, "mypack:welcome");
+engine.dialogs().close(player);
+engine.dialogs().ids();                    // what this server has
+engine.dialogs().info(id);                 // what a pack said one is
+```
+
+`show` returns false rather than throwing, and there are three reasons it might:
+
+```java
+if (!engine.dialogs().supported()) {
+    // Older than 1.21.6. The game has no dialog screen at all and there is
+    // nothing to substitute — use an overlay or a screen instead.
+}
+if (engine.dialogs().pending()) {
+    // The definitions are on disk and the running server has not read them.
+    // Dialogs are datapack data and a datapack is read before plugins start,
+    // so a dialog added this session opens after the next data reload.
+}
+```
+
+**The content of a dialog is not API.** `DialogInfo.json()` is the game's own
+`minecraft:dialog` object as text, transported rather than modelled — the engine
+does not parse a field of it, and neither should you beyond reading it. There is
+no builder here for the same reason there is no schema: the format is Mojang's
+and moves with the game, and an addon that wants a dialog of its own ships the
+JSON in its content folder (see `FORMAT.md`) rather than assembling one in Java.
+
+**A dialog drawn in Studio needs its pack.** The picture on it is a font glyph
+that exists only in the pack that was pushed, so `show` answers false for a
+player who is not holding it — the same rule an overlay follows, and for the
+same reason.
+
+Main thread only.
+
 ## Icons in your own text
 
 ```java

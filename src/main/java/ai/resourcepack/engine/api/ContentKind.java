@@ -43,6 +43,15 @@ public enum ContentKind {
     /** A HUD overlay, including meters with fill steps. */
     HUD,
 
+    /**
+     * A dialog — the data-driven screen added in Minecraft 1.21.6.
+     *
+     * <p>Unlike every other kind here, what a pack ships is not something the
+     * engine composes: it is the game's own JSON, transported. See
+     * {@link DialogInfo}.
+     */
+    DIALOG,
+
     /** A crafting, cooking or stonecutting recipe. */
     RECIPE,
 
