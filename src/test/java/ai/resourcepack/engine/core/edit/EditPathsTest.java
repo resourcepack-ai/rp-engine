@@ -80,10 +80,16 @@ class EditPathsTest {
     }
 
     @Test
-    void resolveLandsInsideThePack() {
+    void resolveLandsInsideThePack() throws IOException {
         Path resolved = EditPaths.resolve(pack, "assets/models/chair.json");
         assertNotNull(resolved);
-        assertTrue(resolved.startsWith(pack.toAbsolutePath().normalize()));
+        // Against the CANONICAL root, which is what resolve builds on — the
+        // whole point of that call is that two spellings of one folder compare
+        // equal. Comparing against toAbsolutePath here passed on Linux and
+        // Windows and failed on macOS, where a temp dir is /var/folders/… and
+        // its real path is /private/var/folders/…: the test was asserting the
+        // spelling the code exists to normalise away.
+        assertTrue(resolved.startsWith(pack.toRealPath()));
         assertEquals("chair.json", resolved.getFileName().toString());
     }
 
