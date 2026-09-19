@@ -118,8 +118,8 @@ public final class DialogsImpl implements Dialogs {
         // read what was written — nothing can ask the registry directly. So it
         // is what clears the flag, and without this `pending()` stayed true for
         // the life of the process: once anything had ever been written, every
-        // later failure of any kind was reported as "run /minecraft:reload",
-        // including to somebody who just had.
+        // later failure of any kind was reported as a restart the server had
+        // already had.
         if (shown) {
             datapack.read();
         }
@@ -145,11 +145,11 @@ public final class DialogsImpl implements Dialogs {
      * whoever typed {@code /rp dialog} as "an internal error occurred while
      * attempting to perform this command". That is the single most likely thing
      * to happen the first time somebody opens a dialog, and it read as the
-     * plugin being broken rather than as the reload it actually needs.
+     * plugin being broken rather than as the restart it actually needs.
      *
      * <p>So a failure comes back as {@code false} and the caller explains it:
      * {@link ai.resourcepack.engine.core.command.InterfaceCommands} already has
-     * the three answers that matter (a version, a reload, or a name). The real
+     * the three answers that matter (a version, a restart, or a name). The real
      * reason still reaches the log, once, because a case none of those three
      * cover should not vanish silently.
      */
@@ -161,8 +161,9 @@ public final class DialogsImpl implements Dialogs {
      * sender the way it would if a player had typed the command — Bukkit wraps
      * whatever escaped in a CommandException reading "Unhandled exception
      * executing …". So the single most common state this feature is in (written
-     * this load, not reloaded yet) presented as a stack trace, which reads as
-     * the plugin being broken rather than as the reload it is asking for.
+     * this load, not read by a start yet) presented as a stack trace, which
+     * reads as the plugin being broken rather than as the restart it is asking
+     * for.
      *
      * <p>Matched on the class NAME rather than by catching the type, because
      * Brigadier is the server's and this engine compiles against an API that
@@ -191,13 +192,14 @@ public final class DialogsImpl implements Dialogs {
             if (isUnknownToTheRegistry(root)) {
                 // Not a fault: the file is on disk and the server has not read
                 // it. One line, no stack, and the flag goes back up so the
-                // command asks for a reload instead of guessing.
+                // command asks for a restart instead of guessing.
                 datapack.unread();
                 Bukkit.getLogger().info("[RPEngine] " + (id == null ? "a dialog" : id.toString())
-                        + " is written but not in the server's registry yet — run /minecraft:reload. "
-                        + "If you already have, the pack is in this world's DISABLED list (a server that once "
-                        + "read it as incompatible puts it there, and /reload skips those): run "
-                        + DialogDatapack.enableCommand() + " once.");
+                        + " is written but not in the server's registry yet — RESTART the server. A dialog is "
+                        + "registry data built when the world loads, so /minecraft:reload cannot add one, "
+                        + "however many times it is run. If a restart has not done it either, the pack is in "
+                        + "this world's DISABLED list (a server that once read it as incompatible puts it "
+                        + "there): run " + DialogDatapack.enableCommand() + " once, then restart.");
                 return false;
             }
             Bukkit.getLogger().log(java.util.logging.Level.WARNING,
