@@ -93,7 +93,7 @@ public final class DialogsImpl implements Dialogs {
     }
 
     @Override
-    public boolean show(Player viewer, ContentId id) {
+    public boolean canShow(Player viewer, ContentId id) {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return false;
         }
@@ -101,13 +101,28 @@ public final class DialogsImpl implements Dialogs {
         if (found.isEmpty()) {
             return false;
         }
-        if (found.get().fromPushedPack() && !pushedAudience.test(viewer)) {
+        return !found.get().fromPushedPack() || pushedAudience.test(viewer);
+    }
+
+    @Override
+    public boolean show(Player viewer, ContentId id) {
+        if (!canShow(viewer, id)) {
             return false;
         }
         // Quoted as a selector rather than a name: a player whose name has
         // changed between login and now is still exactly one UUID, and the
         // command takes an entity selector wherever it takes a player.
-        return dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path());
+        boolean shown = dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path());
+        // A show that worked is the only proof available that the server has
+        // read what was written — nothing can ask the registry directly. So it
+        // is what clears the flag, and without this `pending()` stayed true for
+        // the life of the process: once anything had ever been written, every
+        // later failure of any kind was reported as "run /minecraft:reload",
+        // including to somebody who just had.
+        if (shown) {
+            datapack.read();
+        }
+        return shown;
     }
 
     @Override

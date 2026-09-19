@@ -226,8 +226,22 @@ public final class InterfaceCommands implements Area {
         }
         Reply.heading(sender, "Dialogs", Reply.plural(dialogs.ids().size(), "dialog")
                 + ", /rp dialog <id> to open one");
+        // Whether the sender could be shown each one, when the sender is
+        // somebody who could be. It is the question that is otherwise only
+        // answerable by trying: a pushed dialog belongs to one pack, and a
+        // listing that does not say so reads as a menu of screens that all
+        // work.
+        org.bukkit.entity.Player self = sender instanceof org.bukkit.entity.Player
+                ? (org.bukkit.entity.Player) sender
+                : null;
         for (ContentId id : dialogs.ids()) {
-            Reply.row(sender, id.toString(), dialogs.info(id).map(d -> d.name()).orElse(""));
+            String name = dialogs.info(id).map(d -> d.name()).orElse("");
+            boolean pushed = dialogs.info(id).map(d -> d.fromPushedPack()).orElse(Boolean.FALSE);
+            String note = !pushed ? name
+                    : self == null ? (name.isEmpty() ? "pushed" : name + " (pushed)")
+                    : dialogs.canShow(self, id) ? (name.isEmpty() ? "pushed, you hold it" : name + " (pushed, you hold it)")
+                    : (name.isEmpty() ? "pushed, you are NOT holding it" : name + " (pushed, you are NOT holding it)");
+            Reply.row(sender, id.toString(), note);
         }
         // Both of these are things somebody would otherwise find out by a
         // command doing nothing, which is the failure this whole listing
@@ -251,23 +265,28 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "Name a player: /rpengine dialog <id> <player>");
             return true;
         }
-        boolean shown = ContentId.parse(args[1]).map(id -> dialogs.show(target, id)).orElse(Boolean.FALSE);
-        if (shown) {
+        java.util.Optional<ContentId> parsed = ContentId.parse(args[1]);
+        if (parsed.map(id -> dialogs.show(target, id)).orElse(Boolean.FALSE)) {
             return true;
         }
-        // Three ways to fail and they want different answers — a version, a
-        // reload, or a name. Saying "no dialog called that" to somebody on
-        // 1.21.5 sends them looking for a typo that is not there.
+        // FOUR ways to fail and they want different answers — a version, a
+        // name, a pack, or a reload. Saying "no dialog called that" to
+        // somebody on 1.21.5 sends them looking for a typo that is not there,
+        // and saying "reload" to somebody whose player is simply wearing the
+        // wrong pack sends them reloading for ever. That last pair used to be
+        // one answer: `pending()` was true from the first write until the
+        // process ended, so it swallowed every other reason.
         if (!dialogs.supported()) {
             Reply.to(sender, "Dialogs need Minecraft 1.21.6. Use a screen instead: /rp screens.");
-        } else if (ContentId.parse(args[1]).flatMap(dialogs::info).isEmpty()) {
+        } else if (parsed.flatMap(dialogs::info).isEmpty()) {
             Reply.to(sender, "No dialog called " + args[1] + ".");
-        } else if (dialogs.pending()) {
-            Reply.to(sender, "That dialog is on disk but not yet loaded. "
-                    + "Run /minecraft:reload (or restart) and try again.");
+        } else if (!parsed.map(id -> dialogs.canShow(target, id)).orElse(Boolean.FALSE)) {
+            Reply.to(sender, target.getName() + " is not holding the pack " + args[1] + "'s picture is in, "
+                    + "so it would open as a screen of missing-glyph boxes. Push the pack to them and try again.");
         } else {
-            Reply.to(sender, "Couldn't open " + args[1] + " for " + target.getName()
-                    + ". A pushed dialog only opens for the player holding that pack.");
+            Reply.to(sender, "The server has not read " + args[1] + " yet. Dialogs are datapack data, so run "
+                    + "/minecraft:reload (or restart) and try again. If you already have, the console says "
+                    + "what the game refused.");
         }
         return true;
     }

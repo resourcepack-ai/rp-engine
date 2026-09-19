@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.dialog;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
+import ai.resourcepack.engine.core.pack.DataPackMeta;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 
@@ -63,6 +64,19 @@ public final class DialogDatapack {
     }
 
     /**
+     * Says the server has read what is on disk.
+     *
+     * <p>There is no asking the registry whether a dialog is in it, so the
+     * only evidence available is a dialog that opened — which is what calls
+     * this. Without it the flag was set once and never cleared, and "run
+     * /minecraft:reload" became the answer to every later failure of any kind,
+     * given to people who had already reloaded twice.
+     */
+    public void read() {
+        reloadWanted = false;
+    }
+
+    /**
      * Writes one file per dialog into the main world's datapack folder.
      *
      * <p>Into the FIRST world's folder because that is where the server reads
@@ -95,10 +109,9 @@ public final class DialogDatapack {
             return;
         }
 
-        // Only ever set, never cleared — the same rule the liquid pack uses:
-        // once this run has written something the server has not read, that
-        // stays true until somebody reloads, and a later write that happened
-        // to change nothing does not undo it.
+        // Set by a write that CHANGED something — a later write that happened
+        // to change nothing does not undo it. Cleared only by {@link #read},
+        // which is a dialog that actually opened.
         if (changed) {
             reloadWanted = true;
             log.info("Dialogs were written to " + root + ". Run /minecraft:reload (or restart) "
@@ -133,17 +146,17 @@ public final class DialogDatapack {
     }
 
     /**
-     * A range rather than one number, so a server on a later Minecraft does not
-     * get told its own generated pack is out of date. 71 is 1.21.6, which is
-     * the first version that has dialogs at all.
+     * The data-pack format of 1.21.6, the first version that has dialogs at
+     * all — so the pack says "80 and up" and nothing here has to know what the
+     * running server is.
+     *
+     * <p><b>It was 71, which is 1.21.5</b>, under a comment claiming 71 was
+     * 1.21.6. Harmless for as long as {@code supported_formats} was read, and
+     * fatal the moment it was not — see {@link DataPackMeta}.
      */
+    private static final int DIALOG_PACK_FORMAT = 80;
+
     private static String mcmeta() {
-        return "{\n"
-                + "  \"pack\": {\n"
-                + "    \"description\": \"RP Engine dialogs. Generated \\u2014 edits are overwritten.\",\n"
-                + "    \"pack_format\": 71,\n"
-                + "    \"supported_formats\": { \"min_inclusive\": 71, \"max_inclusive\": 9999 }\n"
-                + "  }\n"
-                + "}\n";
+        return DataPackMeta.mcmeta("RP Engine dialogs. Generated \u2014 edits are overwritten.", DIALOG_PACK_FORMAT);
     }
 }
