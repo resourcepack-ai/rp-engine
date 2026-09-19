@@ -45,10 +45,28 @@ public interface Dialogs {
     boolean pending();
 
     /**
+     * Whether {@link #show} would get as far as the client.
+     *
+     * <p>Answers the half of a failure this engine knows for certain: the
+     * version, whether the dialog exists, whether the player is online, and
+     * whether they are holding the pack its art is in. It deliberately does not
+     * answer whether the SERVER has read the dialog yet — nothing can ask the
+     * registry that without reaching past Bukkit, which is why {@link #pending}
+     * exists and why it is a warning rather than an answer.
+     *
+     * <p>It is here because the alternative is guessing. {@code show} returning
+     * false used to be all a caller had, so "the player is wearing the server's
+     * own pack" and "the server has not reloaded" were one answer, and the
+     * message an owner got named whichever the caller happened to check first.
+     */
+    boolean canShow(Player viewer, ContentId id);
+
+    /**
      * Opens a dialog on a player's screen.
      *
-     * @return false if there is no such dialog, the server is too old, or the
-     *         player is holding no pack the dialog's art is in
+     * @return false if there is no such dialog, the server is too old, the
+     *         player is holding no pack the dialog's art is in, or the server
+     *         has not read the dialog yet (see {@link #pending})
      */
     boolean show(Player viewer, ContentId id);
 

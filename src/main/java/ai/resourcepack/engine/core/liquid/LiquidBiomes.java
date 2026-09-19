@@ -259,18 +259,12 @@ public final class LiquidBiomes {
         return !gone.isEmpty();
     }
 
-    /**
-     * A range rather than one number, so a server on a later Minecraft does
-     * not get told its own generated pack is out of date.
-     */
+    /** 1.21.4's data-pack format — the oldest this pack's biomes make sense on. */
+    private static final int LIQUID_PACK_FORMAT = 61;
+
     private static String mcmeta() {
-        return "{\n"
-                + "  \"pack\": {\n"
-                + "    \"description\": \"RP Engine liquid colours. Generated — edits are overwritten.\",\n"
-                + "    \"pack_format\": 61,\n"
-                + "    \"supported_formats\": { \"min_inclusive\": 61, \"max_inclusive\": 9999 }\n"
-                + "  }\n"
-                + "}\n";
+        return ai.resourcepack.engine.core.pack.DataPackMeta.mcmeta(
+                "RP Engine liquid colours. Generated — edits are overwritten.", LIQUID_PACK_FORMAT);
     }
 
     /**
