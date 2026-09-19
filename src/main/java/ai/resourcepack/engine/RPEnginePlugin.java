@@ -296,6 +296,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
     private final Overlays overlays = new Overlays();
+
+    /**
+     * The dialogs, and the datapack they live in.
+     *
+     * <p>Built lazily against {@link #compatibility} rather than as a field
+     * initialiser, because whether dialogs work at all is a version question
+     * and the version is not known until {@code onEnable}.
+     */
+    private ai.resourcepack.engine.core.dialog.DialogsImpl dialogs;
+    private Map<ContentId, ai.resourcepack.engine.api.DialogInfo> authoredDialogs = Map.of();
     /**
      * Who is wearing which overlay, and the loop that keeps it on screen.
      *
@@ -433,6 +443,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // last one after a restart.
         pushed = new StudioContent(getDataFolder());
         pushed.load(getLogger());
+        // Dialogs need 1.21.6. Below it the definitions still load and still
+        // list — a server owner should see the content they wrote and be told
+        // why it does nothing, rather than watch a command fail.
+        dialogs = new ai.resourcepack.engine.core.dialog.DialogsImpl(
+                new ai.resourcepack.engine.core.dialog.DialogDatapack(getLogger()),
+                compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS));
         // The rig carrier, so anything whose model animates wears the rig
         // rather than one still display: a vehicle, and an emote carrying a
         // model only part of which moves. ONE of them, built here rather than
@@ -617,8 +633,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // not: it sends its own pack straight to every joining player, which
         // is the "the server publishes it for everyone" case, and there the
         // client's own SUCCESSFULLY_LOADED is the record.
-        overlays.audience(player -> sessions.holds(player.getUniqueId(), StudioPush.BUNDLE)
-                || distribution.serving(player.getUniqueId()));
+        java.util.function.Predicate<org.bukkit.entity.Player> holdsPushed =
+                player -> sessions.holds(player.getUniqueId(), StudioPush.BUNDLE)
+                        || distribution.serving(player.getUniqueId());
+        overlays.audience(holdsPushed);
+        // A pushed dialog's picture is a glyph in the pushed pack, so the same
+        // gate applies one screen further on.
+        dialogs.audience(holdsPushed);
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
@@ -659,7 +680,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
                 new ModelCommands(placements, creatures, boundModels, items, blocks, blockStates),
-                new InterfaceCommands(sounds, icons, overlays, overlayRuntime),
+                new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
                         this::announceMembers, this::unpush),
@@ -740,6 +761,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         allHuds.putAll(pushed.huds());
         overlays.replace(allScreens, allHuds);
 
+        Map<ContentId, ai.resourcepack.engine.api.DialogInfo> allDialogs =
+                new LinkedHashMap<>(authoredDialogs);
+        allDialogs.putAll(pushed.dialogs());
+        // Rewrites the datapack with both halves, which is the only way a
+        // pushed dialog can exist at all — see DialogDatapack.
+        dialogs.replace(allDialogs);
+
         Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> allVehicles =
                 new LinkedHashMap<>(authoredVehicles);
         allVehicles.putAll(pushed.vehicles());
@@ -749,6 +777,28 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Without this, re-syncing leaves a chassis in the world that the
         // catalogue no longer knows how to dress until its chunk reloads.
         vehicles.adoptLoaded();
+    }
+
+    /**
+     * One file out of the content folder, as text, or null.
+     *
+     * <p>For the {@code json:} door on a dialog — the escape hatch that lets
+     * somebody ship a dialog this engine has never heard the fields of. The
+     * path is resolved inside the content root and checked to still be inside
+     * it, because it comes out of a YAML file somebody wrote and {@code ../}
+     * is a thing people type.
+     */
+    private static String readContentFile(Path content, String name) {
+        try {
+            Path root = content.toRealPath();
+            Path file = root.resolve(name).normalize();
+            if (!file.startsWith(root) || !java.nio.file.Files.isRegularFile(file)) {
+                return null;
+            }
+            return new String(java.nio.file.Files.readAllBytes(file), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -1039,6 +1089,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return overlayApi;
     }
 
+    /**
+     * The dialogs this server holds, and how to open one.
+     *
+     * <p>See {@link ai.resourcepack.engine.api.Dialogs} — in particular that a
+     * dialog needs Minecraft 1.21.6, and that one written this load is not in
+     * the server's registry until the next data reload.
+     */
+    public ai.resourcepack.engine.api.Dialogs dialogs() {
+        return dialogs;
+    }
+
     /** The custom sounds this server holds. */
     public Sounds sounds() {
         return sounds;
@@ -1185,6 +1246,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredScreens = parsedScreens.overlays();
         authoredHuds = parsedHuds.overlays();
         overlays.replace(authoredScreens, authoredHuds);
+
+        // A dialog naming a `json:` file reads it out of the same content
+        // folder the definition came from — the loader keeps the bytes, so
+        // this is a lookup rather than a second walk of the disk.
+        ai.resourcepack.engine.core.dialog.DialogDefinitions.Result parsedDialogs =
+                ai.resourcepack.engine.core.dialog.DialogDefinitions.parse(loaded, name -> readContentFile(content, name));
+        report(to, "dialogs", parsedDialogs.diagnostics());
+        authoredDialogs = parsedDialogs.dialogs();
+        dialogs.replace(authoredDialogs);
 
         // The allocator only on the versions that address models by number;
         // null tells the writer this server names them instead.

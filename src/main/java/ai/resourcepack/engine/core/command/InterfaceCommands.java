@@ -27,20 +27,23 @@ import java.util.Locale;
  */
 public final class InterfaceCommands implements Area {
 
-    /** The three that draw something on one client, and so take a player. */
-    private static final List<String> DRAWS = List.of("sound", "screen", "hud");
+    /** The ones that draw something on one client, and so take a player. */
+    private static final List<String> DRAWS = List.of("sound", "screen", "hud", "dialog");
 
     private final SoundsImpl sounds;
     private final IconsImpl icons;
     private final Overlays overlays;
+    private final ai.resourcepack.engine.api.Dialogs dialogs;
     private final ai.resourcepack.engine.core.font.OverlayRuntime runtime;
 
     public InterfaceCommands(SoundsImpl sounds, IconsImpl icons, Overlays overlays,
-                             ai.resourcepack.engine.core.font.OverlayRuntime runtime) {
+                             ai.resourcepack.engine.core.font.OverlayRuntime runtime,
+                             ai.resourcepack.engine.api.Dialogs dialogs) {
         this.sounds = sounds;
         this.icons = icons;
         this.overlays = overlays;
         this.runtime = runtime;
+        this.dialogs = dialogs;
     }
 
     @Override
@@ -57,7 +60,9 @@ public final class InterfaceCommands implements Area {
                 Help.of("say", "<text>", "text with :pack:icon: in it"),
                 Help.of("screens", "list the screens and HUDs"),
                 Help.of("screen", "<id> [player]", "open a screen"),
-                Help.of("hud", "<id|clear> [player]", "show or clear one"));
+                Help.of("hud", "<id|clear> [player]", "show or clear one"),
+                Help.of("dialogs", "list the dialogs"),
+                Help.of("dialog", "<id> [player]", "open one (1.21.6+)"));
     }
 
     @Override
@@ -75,6 +80,10 @@ public final class InterfaceCommands implements Area {
                 return screens(sender);
             case "screen":
                 return screen(sender, args);
+            case "dialogs":
+                return dialogs(sender);
+            case "dialog":
+                return dialog(sender, args);
             default:
                 return hud(sender, args);
         }
@@ -97,6 +106,8 @@ public final class InterfaceCommands implements Area {
                 return Completions.matchingIds(args[1], sounds.ids());
             case "screen":
                 return Completions.matchingIds(args[1], overlays.screenIds());
+            case "dialog":
+                return Completions.matchingIds(args[1], dialogs.ids());
             case "hud": {
                 List<String> options = new ArrayList<>(Completions.matchingIds(args[1], overlays.hudIds()));
                 options.addAll(Completions.matching(args[1], "clear"));
@@ -204,6 +215,59 @@ public final class InterfaceCommands implements Area {
         }
         if (ContentId.parse(args[1]).flatMap(id -> overlays.open(target, id)).isEmpty()) {
             Reply.to(sender, "No screen called " + args[1] + ".");
+        }
+        return true;
+    }
+
+    private boolean dialogs(CommandSender sender) {
+        if (dialogs.ids().isEmpty()) {
+            Reply.to(sender, "No dialogs loaded. A pack declares them in dialogs/.");
+            return true;
+        }
+        Reply.heading(sender, "Dialogs", Reply.plural(dialogs.ids().size(), "dialog")
+                + ", /rp dialog <id> to open one");
+        for (ContentId id : dialogs.ids()) {
+            Reply.row(sender, id.toString(), dialogs.info(id).map(d -> d.name()).orElse(""));
+        }
+        // Both of these are things somebody would otherwise find out by a
+        // command doing nothing, which is the failure this whole listing
+        // exists to prevent.
+        if (!dialogs.supported()) {
+            Reply.to(sender, "This server is older than 1.21.6, so none of these will open.");
+        } else if (dialogs.pending()) {
+            Reply.to(sender, "Run /minecraft:reload (or restart) — dialogs are datapack data "
+                    + "and the server reads it before plugins start.");
+        }
+        return true;
+    }
+
+    private boolean dialog(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine dialog <id> [player]");
+            return true;
+        }
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine dialog <id> <player>");
+            return true;
+        }
+        boolean shown = ContentId.parse(args[1]).map(id -> dialogs.show(target, id)).orElse(Boolean.FALSE);
+        if (shown) {
+            return true;
+        }
+        // Three ways to fail and they want different answers — a version, a
+        // reload, or a name. Saying "no dialog called that" to somebody on
+        // 1.21.5 sends them looking for a typo that is not there.
+        if (!dialogs.supported()) {
+            Reply.to(sender, "Dialogs need Minecraft 1.21.6. Use a screen instead: /rp screens.");
+        } else if (ContentId.parse(args[1]).flatMap(dialogs::info).isEmpty()) {
+            Reply.to(sender, "No dialog called " + args[1] + ".");
+        } else if (dialogs.pending()) {
+            Reply.to(sender, "That dialog is on disk but not yet loaded. "
+                    + "Run /minecraft:reload (or restart) and try again.");
+        } else {
+            Reply.to(sender, "Couldn't open " + args[1] + " for " + target.getName()
+                    + ". A pushed dialog only opens for the player holding that pack.");
         }
         return true;
     }

@@ -1824,6 +1824,83 @@ The `offset:` is negative space, built from powers of two, so any shift is at
 most nine characters rather than one per pixel. Without it a backdrop starts
 where the title text starts, which is not where the window is.
 
+## Dialogs
+
+A dialog is the screen a server opens on a player — 1.21.6 and newer. Unlike a
+screen above, it is not a container wearing a picture: it is a real menu the
+client draws, with real buttons that run real commands.
+
+```yaml
+# dialogs/menus.yml
+welcome:
+  title: Welcome                   # drawn at the top
+  body:                            # lines under it
+    - Glad you made it.
+    - Pick somewhere to start.
+  columns: 2                       # how many buttons sit side by side
+  can_close_with_escape: true
+  pause: true
+  after: close                     # close | none | wait_for_response
+  buttons:
+    - label: Spawn
+      command: spawn               # the PLAYER runs it, with their permissions
+      tooltip: Back to the middle
+      width: 150
+    - label: The wiki
+      url: https://example.com
+```
+
+`/rp dialogs` lists them and `/rp dialog mypack:welcome` opens one.
+
+**One button is a notice, two are a yes/no, three or more are a grid.** You do
+not choose which; the count does, because those are the only three shapes the
+game has and they differ in nothing else.
+
+A button does exactly one thing, and it is named by the key rather than by an
+`action:` beside a `value:` — `command:`, `suggest:`, `url:`, `copy:` or
+`dialog:` (another dialog's id). A button with none of them still closes the
+screen, which is what an Ok button is.
+
+**A dialog needs Minecraft 1.21.6.** Below it the definitions still load and
+`/rp dialogs` still lists them, and it says why nothing opens. A screen —
+a container wearing a picture, above — is the older way to do the same job and
+works everywhere.
+
+**A dialog is datapack data, and that has one consequence worth knowing before
+you write one.** The engine writes your dialogs into a generated datapack in
+the world folder; the server reads its datapacks when it loads the world, which
+is before any plugin starts. So a dialog you have just added opens after the
+next `/minecraft:reload` or restart, and the engine says so in the log and in
+`/rp dialogs` rather than letting the command quietly do nothing. Nothing
+reloads on your behalf: a data reload rebuilds every recipe on the server, which
+is not something a plugin should do to you because one screen changed.
+
+### Anything this format does not have
+
+Minecraft's dialog format is bigger than the keys above — inputs, item bodies,
+five types, more every release — and re-declaring all of it here would be a
+second copy of somebody else's schema, out of date on the first snapshot. So
+there is a door out:
+
+```yaml
+# dialogs/menus.yml
+future:
+  json: mypack/dialogs/raw.json    # a path inside the content folder
+```
+
+The file is the `minecraft:dialog` object, written as the game documents it,
+and the engine transports it without reading a field of it. Use it for anything
+the keys above cannot say.
+
+### Drawing one
+
+The buttons are the game's own widgets and the pack cannot move them — but a
+dialog's title, its body lines and every button's label are TEXT, and text can
+be a font glyph. So a pack can put a full picture in the body and a piece of
+drawn art in each button's label, and what comes back is a screen that looks
+nothing like Minecraft with buttons that still work. That is what a dialog built
+in Studio is: the picture rides the resource pack, the JSON rides here.
+
 ## Recipes
 
 ```yaml

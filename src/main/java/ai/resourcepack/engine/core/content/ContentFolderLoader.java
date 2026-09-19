@@ -110,6 +110,7 @@ public final class ContentFolderLoader {
         map.put("fonts", ContentKind.FONT);
         map.put("screens", ContentKind.SCREEN);
         map.put("huds", ContentKind.HUD);
+        map.put("dialogs", ContentKind.DIALOG);
         map.put("recipes", ContentKind.RECIPE);
         map.put("entities", ContentKind.ENTITY);
         map.put("liquids", ContentKind.LIQUID);
