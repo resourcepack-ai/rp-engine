@@ -156,7 +156,22 @@ public final class DialogsImpl implements Dialogs {
         try {
             return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
         } catch (RuntimeException e) {
-            Bukkit.getLogger().warning("[RPEngine] " + command + " failed: " + e.getMessage());
+            // The CAUSE, not the message. Bukkit wraps whatever escaped in a
+            // CommandException reading "Unhandled exception executing '<the
+            // command>' in VanillaCommandWrapper(minecraft:dialog)", which
+            // names the command we already know and nothing about the fault —
+            // logging only that cost a round trip of guessing. The chain is
+            // walked because the useful frame is usually two down, and the
+            // whole throwable goes to the log so the stack names the class
+            // inside the game that actually threw.
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            Bukkit.getLogger().log(java.util.logging.Level.WARNING,
+                    "[RPEngine] " + command + " failed: " + root.getClass().getName()
+                            + (root.getMessage() == null ? "" : ": " + root.getMessage()),
+                    e);
             return false;
         }
     }
