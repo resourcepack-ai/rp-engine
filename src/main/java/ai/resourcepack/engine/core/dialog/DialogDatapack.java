@@ -77,6 +77,32 @@ public final class DialogDatapack {
     }
 
     /**
+     * Says the server has NOT read what is on disk, after all.
+     *
+     * <p>The other half of {@link #read}, and the more reliable of the two: a
+     * dialog the registry cannot find is proof of it, whatever this thought
+     * before. Without it a pack that was written before a restart — so nothing
+     * this run "changed" — reported as loaded and then failed to open.
+     */
+    public void unread() {
+        reloadWanted = true;
+    }
+
+    /**
+     * The command that puts this pack back in the world's enabled list.
+     *
+     * <p>Worth printing rather than describing, because the case it is for is
+     * one this engine caused: a pack the server once read as INCOMPATIBLE goes
+     * into the world's disabled list and stays there, and {@code /reload} only
+     * picks up packs that are not on it. So correcting the pack.mcmeta is not
+     * enough on a world that has already seen the bad one — somebody has to
+     * say this once, and it reloads on its way through.
+     */
+    public static String enableCommand() {
+        return "/datapack enable \"file/" + PACK + "\"";
+    }
+
+    /**
      * Writes one file per dialog into the main world's datapack folder.
      *
      * <p>Into the FIRST world's folder because that is where the server reads

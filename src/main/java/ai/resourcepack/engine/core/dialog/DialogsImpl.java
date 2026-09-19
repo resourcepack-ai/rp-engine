@@ -112,7 +112,8 @@ public final class DialogsImpl implements Dialogs {
         // Quoted as a selector rather than a name: a player whose name has
         // changed between login and now is still exactly one UUID, and the
         // command takes an entity selector wherever it takes a player.
-        boolean shown = dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path());
+        boolean shown = dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path(),
+                id);
         // A show that worked is the only proof available that the server has
         // read what was written — nothing can ask the registry directly. So it
         // is what clears the flag, and without this `pending()` stayed true for
@@ -130,7 +131,7 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }
-        dispatch("minecraft:dialog clear " + viewer.getName());
+        dispatch("minecraft:dialog clear " + viewer.getName(), null);
     }
 
     /**
@@ -152,7 +153,26 @@ public final class DialogsImpl implements Dialogs {
      * reason still reaches the log, once, because a case none of those three
      * cover should not vanish silently.
      */
-    private boolean dispatch(String command) {
+    /**
+     * The one failure that is ORDINARY, and it arrives looking like a crash.
+     *
+     * <p>A dialog the registry has not read is a Brigadier parse error, and a
+     * parse error inside {@link Bukkit#dispatchCommand} does not reach the
+     * sender the way it would if a player had typed the command — Bukkit wraps
+     * whatever escaped in a CommandException reading "Unhandled exception
+     * executing …". So the single most common state this feature is in (written
+     * this load, not reloaded yet) presented as a stack trace, which reads as
+     * the plugin being broken rather than as the reload it is asking for.
+     *
+     * <p>Matched on the class NAME rather than by catching the type, because
+     * Brigadier is the server's and this engine compiles against an API that
+     * does not promise it.
+     */
+    private static boolean isUnknownToTheRegistry(Throwable root) {
+        return root.getClass().getName().endsWith("CommandSyntaxException");
+    }
+
+    private boolean dispatch(String command, ContentId id) {
         try {
             return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
         } catch (RuntimeException e) {
@@ -167,6 +187,18 @@ public final class DialogsImpl implements Dialogs {
             Throwable root = e;
             while (root.getCause() != null && root.getCause() != root) {
                 root = root.getCause();
+            }
+            if (isUnknownToTheRegistry(root)) {
+                // Not a fault: the file is on disk and the server has not read
+                // it. One line, no stack, and the flag goes back up so the
+                // command asks for a reload instead of guessing.
+                datapack.unread();
+                Bukkit.getLogger().info("[RPEngine] " + (id == null ? "a dialog" : id.toString())
+                        + " is written but not in the server's registry yet — run /minecraft:reload. "
+                        + "If you already have, the pack is in this world's DISABLED list (a server that once "
+                        + "read it as incompatible puts it there, and /reload skips those): run "
+                        + DialogDatapack.enableCommand() + " once.");
+                return false;
             }
             Bukkit.getLogger().log(java.util.logging.Level.WARNING,
                     "[RPEngine] " + command + " failed: " + root.getClass().getName()
