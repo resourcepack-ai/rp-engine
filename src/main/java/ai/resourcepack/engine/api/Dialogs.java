@@ -16,13 +16,15 @@ import java.util.Optional;
  * still loads the definitions and still lists them, so an addon can say "this
  * server is too old for that" rather than finding out from a stack trace.
  *
- * <p><b>And it needs a datapack reload to have appeared.</b> Dialogs are
- * registry data: the server reads them when it loads its datapacks, which is
+ * <p><b>And it needs a server restart to have appeared.</b> Dialogs are
+ * registry data: the server reads them when it loads its world, which is
  * before any plugin is enabled. So a dialog written by this load is openable
- * after the next {@code /minecraft:reload} or restart, and {@link #pending()}
- * says when that is outstanding. Nothing here reloads on its own — a data
- * reload rebuilds every recipe on the server, which is not a thing a plugin
- * should do to somebody's server because one screen changed.
+ * after the next RESTART — not after a {@code /minecraft:reload}, which
+ * rebuilds recipes and advancements and leaves this registry exactly as the
+ * world load left it — and {@link #pending()} says when that is outstanding.
+ * Nothing here reloads on its own: a data reload rebuilds every recipe on the
+ * server, which is not a thing a plugin should do to somebody's server because
+ * one screen changed, and it would not make the dialog openable anyway.
  */
 public interface Dialogs {
 
@@ -39,8 +41,8 @@ public interface Dialogs {
      * Whether a dialog on disk is not yet in the server's registry.
      *
      * <p>True from the moment a load writes something the running server has
-     * not read, until the server is reloaded or restarted. Worth telling an
-     * owner about; not worth failing anything over.
+     * not read, until the server is restarted. Worth telling an owner about;
+     * not worth failing anything over.
      */
     boolean pending();
 
@@ -56,7 +58,7 @@ public interface Dialogs {
      *
      * <p>It is here because the alternative is guessing. {@code show} returning
      * false used to be all a caller had, so "the player is wearing the server's
-     * own pack" and "the server has not reloaded" were one answer, and the
+     * own pack" and "the server has not restarted" were one answer, and the
      * message an owner got named whichever the caller happened to check first.
      */
     boolean canShow(Player viewer, ContentId id);

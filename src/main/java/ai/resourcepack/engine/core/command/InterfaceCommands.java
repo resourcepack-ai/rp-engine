@@ -249,8 +249,8 @@ public final class InterfaceCommands implements Area {
         if (!dialogs.supported()) {
             Reply.to(sender, "This server is older than 1.21.6, so none of these will open.");
         } else if (dialogs.pending()) {
-            Reply.to(sender, "Run /minecraft:reload (or restart) — dialogs are datapack data "
-                    + "and the server reads it before plugins start.");
+            Reply.to(sender, "Restart the server — dialogs are registry data, read when the world "
+                    + "loads and before plugins start. /minecraft:reload cannot add one.");
         }
         return true;
     }
@@ -284,9 +284,9 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, target.getName() + " is not holding the pack " + args[1] + "'s picture is in, "
                     + "so it would open as a screen of missing-glyph boxes. Push the pack to them and try again.");
         } else {
-            Reply.to(sender, "The server has not read " + args[1] + " yet. Dialogs are datapack data, so run "
-                    + "/minecraft:reload (or restart) and try again. If you already have, the console says "
-                    + "what the game refused.");
+            Reply.to(sender, "The server has not read " + args[1] + " yet. Dialogs are registry data, read "
+                    + "when the world loads, so RESTART the server and try again — /minecraft:reload cannot "
+                    + "add one. If you already have restarted, the console says what the game refused.");
         }
         return true;
     }

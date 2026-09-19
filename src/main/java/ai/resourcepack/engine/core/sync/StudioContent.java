@@ -916,6 +916,26 @@ public final class StudioContent {
             model.vehicleCollision = Boolean.FALSE;
             manifest.models.add(model);
         }
+        // The one entry on this list a restart cannot do without, and it was
+        // the only one missing. A dialog is registry data the server reads
+        // when it LOADS THE WORLD — before any plugin starts and long before a
+        // push can arrive — so the file a push writes is read by the next
+        // startup or by nothing. Dropping the dialogs here meant that startup
+        // found them, built its registry, and then watched this plugin enable
+        // with an empty catalogue and delete the very files it had just read:
+        // one more restart and the dialogs were gone, with nothing in the log
+        // and a /rp dialog answering "no dialog called that" about an id the
+        // running server's registry was holding.
+        manifest.dialogs = new ArrayList<>();
+        for (Map.Entry<ContentId, ai.resourcepack.engine.api.DialogInfo> entry : dialogs.entrySet()) {
+            Dialog dialog = new Dialog();
+            dialog.id = entry.getKey().path();
+            dialog.name = entry.getValue().name();
+            // Back to a tree so gson writes the object rather than a string
+            // holding one. Still unread: parsing is not looking.
+            dialog.json = com.google.gson.JsonParser.parseString(entry.getValue().json());
+            manifest.dialogs.add(dialog);
+        }
         try {
             Files.createDirectories(file.getParentFile().toPath());
             Files.write(file.toPath(), gson.toJson(manifest).getBytes(StandardCharsets.UTF_8));
