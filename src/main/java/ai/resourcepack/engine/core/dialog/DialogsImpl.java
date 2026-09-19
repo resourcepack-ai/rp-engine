@@ -107,8 +107,7 @@ public final class DialogsImpl implements Dialogs {
         // Quoted as a selector rather than a name: a player whose name has
         // changed between login and now is still exactly one UUID, and the
         // command takes an entity selector wherever it takes a player.
-        return Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-                "minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path());
+        return dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path());
     }
 
     @Override
@@ -116,6 +115,34 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "minecraft:dialog clear " + viewer.getName());
+        dispatch("minecraft:dialog clear " + viewer.getName());
+    }
+
+    /**
+     * Runs a vanilla command from the console and answers whether it worked.
+     *
+     * <p><b>The try/catch is the whole point of this method.</b> A dialog is
+     * registry data the server reads before plugins start, so the ordinary case
+     * of "written this load, not loaded yet" is a {@code /dialog show} naming an
+     * id the registry has never heard of — and Brigadier answers that by
+     * throwing, which Bukkit wraps in a {@code CommandException} and reports to
+     * whoever typed {@code /rp dialog} as "an internal error occurred while
+     * attempting to perform this command". That is the single most likely thing
+     * to happen the first time somebody opens a dialog, and it read as the
+     * plugin being broken rather than as the reload it actually needs.
+     *
+     * <p>So a failure comes back as {@code false} and the caller explains it:
+     * {@link ai.resourcepack.engine.core.command.InterfaceCommands} already has
+     * the three answers that matter (a version, a reload, or a name). The real
+     * reason still reaches the log, once, because a case none of those three
+     * cover should not vanish silently.
+     */
+    private boolean dispatch(String command) {
+        try {
+            return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+        } catch (RuntimeException e) {
+            Bukkit.getLogger().warning("[RPEngine] " + command + " failed: " + e.getMessage());
+            return false;
+        }
     }
 }
