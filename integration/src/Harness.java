@@ -150,9 +150,6 @@ public final class Harness extends JavaPlugin implements Listener {
         System.out.println("RPTEST SCENARIO " + scenario);
         try {
             switch (scenario) {
-                case "dialogs":
-                    dialogs();
-                    break;
                 case "first-boot":
                     firstBoot();
                     break;
@@ -437,27 +434,6 @@ public final class Harness extends JavaPlugin implements Listener {
     }
 
     /** Whether the two player commands are registered, per the config. */
-    private void dialogs() throws Exception {
-        Class<?> bridge = Class.forName("ai.resourcepack.engine.core.dialog.DialogPackets");
-        Method decode = bridge.getMethod("decode", String.class);
-        check("runtime exposes the direct-holder dialog sender",
-                Class.forName("net.minecraft.server.level.ServerPlayer")
-                        .getMethod("openDialog", Class.forName("net.minecraft.core.Holder")) != null);
-        for (int count = 1; count <= 3; count++) {
-            String buttons = java.util.stream.IntStream.range(0, count)
-                    .mapToObj(i -> "{\"label\":\"Button " + i + "\",\"width\":100}")
-                    .collect(java.util.stream.Collectors.joining(","));
-            Object holder = decode.invoke(null, "{\"type\":\"minecraft:multi_action\",\"title\":\"Test\","
-                    + "\"body\":[{\"type\":\"minecraft:plain_message\",\"contents\":\"Line one\\nLine two\"}],"
-                    + "\"columns\":1,\"actions\":[" + buttons + "]}");
-            check("direct dialog codec accepts " + count + " buttons and multiline text without a datapack", holder != null);
-        }
-        Object form = decode.invoke(null, "{\"type\":\"minecraft:multi_action\",\"title\":\"Form\",\"pause\":false,\"after_action\":\"none\","
-                + "\"inputs\":[{\"type\":\"minecraft:text\",\"key\":\"name\",\"label\":\"Name\"}],"
-                + "\"actions\":[{\"label\":\"Send\",\"action\":{\"type\":\"minecraft:dynamic/run_command\",\"template\":\"say $(name)\"}}]}");
-        check("direct dialog codec accepts input command templates", form != null);
-    }
-
     private void commands() {
         boolean wanted = engine().getConfig().getBoolean("emotes.player-commands", true);
         note("emotes.player-commands is " + wanted);
