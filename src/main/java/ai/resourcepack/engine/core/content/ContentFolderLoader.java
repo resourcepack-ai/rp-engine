@@ -108,9 +108,6 @@ public final class ContentFolderLoader {
         map.put("blocks", ContentKind.BLOCK);
         map.put("sounds", ContentKind.SOUND);
         map.put("fonts", ContentKind.FONT);
-        // Nexo and Oraxen call bitmap font definitions glyphs. The loader
-        // recognises their distinct shape before translating them below.
-        map.put("glyphs", ContentKind.FONT);
         map.put("screens", ContentKind.SCREEN);
         map.put("huds", ContentKind.HUD);
         map.put("dialogs", ContentKind.DIALOG);
@@ -169,16 +166,14 @@ public final class ContentFolderLoader {
 
         Path packFile = folder.resolve(PACK_FILE);
         boolean itemsAdder = !Files.isRegularFile(packFile) && holdsItemsAdderConfig(folder, diagnostics, origin);
-        boolean nexoOraxen = !Files.isRegularFile(packFile) && !itemsAdder
-                && holdsNexoOraxenConfig(folder, diagnostics, origin);
-        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen) {
+        if (!Files.isRegularFile(packFile) && !itemsAdder) {
             diagnostics.add(Diagnostic.error(origin,
                     "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
             return;
         }
 
         DefinitionNode packNode;
-        if (itemsAdder || nexoOraxen) {
+        if (itemsAdder) {
             // An ItemsAdder pack folder is their contents/<namespace>/, which
             // has no pack.yml in it. Everything pack.yml would have said has a
             // sensible default, so one is not demanded of somebody whose only
@@ -229,7 +224,6 @@ public final class ContentFolderLoader {
         // packs too: dropping one of their files into a pack of yours works,
         // which is the whole point.
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
-        loadNexoOraxenConfigs(root, folder, claimed, definitions, diagnostics);
         loadBlueprints(root, folder, claimed, definitions, diagnostics);
     }
 
@@ -306,16 +300,6 @@ public final class ContentFolderLoader {
         return false;
     }
 
-    /** Nexo/Oraxen's current item YAML: top-level ids with a capitalised Pack block. */
-    private boolean holdsNexoOraxenConfig(Path folder, List<Diagnostic> diagnostics, String origin) {
-        for (Path child : nexoOraxenConfigFiles(folder, diagnostics, origin)) {
-            if (readMap(child, relative(folder, child), new ArrayList<>()).map(NexoOraxen::looksLikeOne).orElse(false)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Reads every ItemsAdder config in a pack folder as definitions of ours.
      *
@@ -354,27 +338,6 @@ public final class ContentFolderLoader {
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin,
                             unregisteredSeen, definitions, diagnostics);
-                }
-            }
-        }
-    }
-
-    /** Reads Nexo and Oraxen item configs beside an authored pack or by themselves. */
-    private void loadNexoOraxenConfigs(Path root, Path folder, Namespace namespace,
-                                       List<ContentDefinition> definitions,
-                                       List<Diagnostic> diagnostics) {
-        Set<ContentId> seen = new HashSet<>();
-        for (Path file : nexoOraxenConfigFiles(folder, diagnostics, relative(root, folder))) {
-            String origin = relative(root, file);
-            Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
-            if (document.isEmpty() || !NexoOraxen.looksLikeOne(document.get())) {
-                continue;
-            }
-            for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : NexoOraxen.translate(document.get(), namespace.name(), origin, diagnostics).entrySet()) {
-                DefinitionNode translated = DefinitionNode.of(kind.getValue());
-                for (String path : translated.keys()) {
-                    define(kind.getKey(), namespace, translated, path, origin, seen, definitions, diagnostics);
                 }
             }
         }
@@ -419,48 +382,11 @@ public final class ContentFolderLoader {
             if (document.isEmpty()) {
                 continue;
             }
-            // Nexo/Oraxen keep their item files under items/ too. They are
-            // loaded by the dedicated translator after categories, rather
-            // than first being mistaken for native RP Engine items.
-            if (kind == ContentKind.ITEM && NexoOraxen.looksLikeOne(document.get())) {
-                continue;
-            }
-            if (kind == ContentKind.RECIPE && NexoOraxenRecipe.looksLikeOne(document.get())) {
-                DefinitionNode translated = DefinitionNode.of(NexoOraxenRecipe.translate(document.get(), namespace.name(),
-                        file.getFileName().toString(), origin, diagnostics));
-                for (String path : translated.keys()) {
-                    define(kind, namespace, translated, path, origin, unregisteredSeen, definitions, diagnostics);
-                }
-                continue;
-            }
-            if (kind == ContentKind.FONT && NexoOraxenGlyph.looksLikeOne(document.get())) {
-                DefinitionNode translated = DefinitionNode.of(NexoOraxenGlyph.translate(document.get(), namespace.name(),
-                        origin, diagnostics));
-                for (String path : translated.keys()) {
-                    define(kind, namespace, translated, path, origin, unregisteredSeen, definitions, diagnostics);
-                }
-                continue;
-            }
             for (String path : document.get().keys()) {
                 define(kind, namespace, document.get(), path, origin,
                         unregisteredSeen, definitions, diagnostics);
             }
         }
-    }
-
-    /** Nexo/Oraxen accept either loose item files or their normal items/ tree. */
-    private List<Path> nexoOraxenConfigFiles(Path folder, List<Diagnostic> diagnostics, String origin) {
-        List<Path> files = new ArrayList<>();
-        for (Path child : list(folder, diagnostics, origin, path -> true)) {
-            if (!Files.isDirectory(child) && isDefinitionFile(child)) {
-                files.add(child);
-            }
-        }
-        Path items = folder.resolve("items");
-        if (Files.isDirectory(items)) {
-            files.addAll(sortedDefinitionFiles(items, diagnostics, origin, false));
-        }
-        return files;
     }
 
     private void define(ContentKind kind, Namespace namespace, DefinitionNode document,
