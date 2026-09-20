@@ -16,15 +16,13 @@ import java.util.Optional;
  * still loads the definitions and still lists them, so an addon can say "this
  * server is too old for that" rather than finding out from a stack trace.
  *
- * <p><b>And it needs a server restart to have appeared.</b> Dialogs are
- * registry data: the server reads them when it loads its world, which is
- * before any plugin is enabled. So a dialog written by this load is openable
- * after the next RESTART — not after a {@code /minecraft:reload}, which
- * rebuilds recipes and advancements and leaves this registry exactly as the
- * world load left it — and {@link #pending()} says when that is outstanding.
- * Nothing here reloads on its own: a data reload rebuilds every recipe on the
- * server, which is not a thing a plugin should do to somebody's server because
- * one screen changed, and it would not make the dialog openable anyway.
+ * <p><b>It does not need a restart.</b> A dialog is registry data, and the
+ * server builds that registry when it loads its world, before any plugin is
+ * enabled — so for a while a dialog written by this load could not be opened
+ * until the next start. It no longer works that way: the engine sends the
+ * whole dialog inside {@code /dialog show}, which has accepted one written out
+ * in full since the version this feature needs. A dialog loaded, pushed or
+ * edited a moment ago opens now.
  */
 public interface Dialogs {
 
@@ -41,8 +39,14 @@ public interface Dialogs {
      * Whether a dialog on disk is not yet in the server's registry.
      *
      * <p>True from the moment a load writes something the running server has
-     * not read, until the server is restarted. Worth telling an owner about;
-     * not worth failing anything over.
+     * not read, until the server is restarted.
+     *
+     * <p><b>This no longer gates anything.</b> It once meant "these will not
+     * open yet"; it now means only that the ids are not addressable from
+     * OUTSIDE the engine — from somebody's own datapack, a command block, or a
+     * hand-written {@code minecraft:show_dialog} — because that is the one
+     * thing a registry entry is still needed for. {@link #show} works either
+     * way, so do not check this before calling it.
      */
     boolean pending();
 
@@ -51,10 +55,9 @@ public interface Dialogs {
      *
      * <p>Answers the half of a failure this engine knows for certain: the
      * version, whether the dialog exists, whether the player is online, and
-     * whether they are holding the pack its art is in. It deliberately does not
-     * answer whether the SERVER has read the dialog yet — nothing can ask the
-     * registry that without reaching past Bukkit, which is why {@link #pending}
-     * exists and why it is a warning rather than an answer.
+     * whether they are holding the pack its art is in. What it cannot promise
+     * is that the game will accept the dialog — that is the game's own codec
+     * reading somebody's JSON, and the only way to find out is to send it.
      *
      * <p>It is here because the alternative is guessing. {@code show} returning
      * false used to be all a caller had, so "the player is wearing the server's
@@ -67,8 +70,9 @@ public interface Dialogs {
      * Opens a dialog on a player's screen.
      *
      * @return false if there is no such dialog, the server is too old, the
-     *         player is holding no pack the dialog's art is in, or the server
-     *         has not read the dialog yet (see {@link #pending})
+     *         player is holding no pack the dialog's art is in, or the game
+     *         refused the dialog itself — which is a fault in its JSON, and is
+     *         reported to the console with what the game made of it
      */
     boolean show(Player viewer, ContentId id);
 

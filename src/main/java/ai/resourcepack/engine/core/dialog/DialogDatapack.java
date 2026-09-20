@@ -19,37 +19,32 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Where a dialog actually lives.
+ * Where a dialog also lives, and the route that needs a restart.
  *
  * <p>A dialog is not resource-pack art, it is <em>registry data</em>: the
  * server reads {@code data/<namespace>/dialog/<name>.json} out of its
- * datapacks, syncs the lot to each client, and {@code /dialog show} names one
- * of them. There is no packet a plugin can send to invent one, and no Bukkit
- * API that registers one — so the only way for a plugin to have a dialog is to
- * write a datapack and be read.
+ * datapacks at world load and syncs the lot to each client. This writes those
+ * files.
  *
- * <p>This is the same shape as the liquid-colour datapack and carries the same
- * cost, stated in the same way: <strong>a datapack is read when the server
- * loads its worlds, which is before any plugin is enabled.</strong> So a
- * dialog written by this load is not in the registry until the server is
- * RESTARTED, and {@code pending()} on the API is how the engine says so rather
- * than quietly opening nothing.
+ * <p><strong>Opening a dialog no longer goes through here.</strong> The engine
+ * hands the whole dialog to {@code /dialog show} in SNBT instead, so the
+ * ordinary path needs no registry entry and therefore no restart - see
+ * {@link DialogsImpl} and {@link DialogSnbt}. What this still buys is worth
+ * having and is why it was kept: the files make each dialog a real
+ * {@code namespace:id} the moment the server next starts, which is what lets a
+ * server owner name one from their own datapack, from a command block, or from
+ * a {@code minecraft:show_dialog} click event written by hand. It is also the
+ * fallback for the one dialog SNBT cannot carry.
  *
- * <p><strong>A reload does not do it, and saying it did sent people reloading
- * for ever.</strong> {@code /minecraft:reload} rebuilds the reloadable half of
- * a datapack — recipes, advancements, loot, tags — and the dialog registry is
- * not in that half: it is built with the world, beside the liquid colours'
- * biomes, which the twin of this file has always said the same thing about. A
- * dialog written into a pack the server has already read and ENABLED is still
- * missing after a reload; the game answers {@code /dialog show} with "Can't
- * find element in registry 'minecraft:dialog'" until the next start.
- *
- * <p><b>Nothing here reloads on its own, and it would not help if it did.</b>
- * {@code Server#reloadData} rebuilds every recipe and loot table on the
- * server, including other plugins' — a real surprise to hand somebody because
- * one screen changed — and it would still not put this dialog in the registry,
- * for the reason above. There is no call that would. So this writes and
- * reports, and the owner restarts when it suits them.
+ * <p>That is the whole of the old cost, stated once and no longer in anybody's
+ * way: <strong>a datapack is read when the server loads its worlds, which is
+ * before any plugin is enabled</strong>, so a file written this load is in the
+ * registry after the next start and not before. {@code /minecraft:reload}
+ * rebuilds the reloadable half of a datapack - recipes, advancements, loot,
+ * tags - and the dialog registry is not in that half: it is built with the
+ * world, beside the liquid colours' biomes, which the twin of this file has
+ * always said the same thing about. {@link #reloadWanted()} is how that state
+ * is reported, and it now describes the id rather than the dialog.
  *
  * <p>The directory is ours and is rewritten wholesale: a dialog somebody
  * deleted from their content folder should stop existing, not linger as a
@@ -69,6 +64,13 @@ public final class DialogDatapack {
         this.log = log;
     }
 
+    /**
+     * Whether the files on disk are ahead of the registry the server built.
+     *
+     * <p>Says nothing about whether a dialog will OPEN, and has not since the
+     * engine started sending the dialog itself. True here means the ids are not
+     * addressable from outside the engine yet, which a restart fixes.
+     */
     public boolean reloadWanted() {
         return reloadWanted;
     }
@@ -153,9 +155,13 @@ public final class DialogDatapack {
         // which is a dialog that actually opened.
         if (changed) {
             reloadWanted = true;
-            log.info("Dialogs were written to " + root + ". RESTART the server for them to "
-                    + "open: dialogs are registry data, read when the world loads and before "
-                    + "plugins start, and /minecraft:reload cannot add one.");
+            // Deliberately not an instruction. These open right now, in the
+            // command, and telling somebody to restart for something that
+            // already works is how a restart became the answer to every later
+            // problem. The only thing the restart buys is the id.
+            log.info("Dialogs were written to " + root + ". They open now — /rp dialogs lists them. "
+                    + "After the next restart each one is also a registry id other datapacks and "
+                    + "command blocks can name.");
         }
     }
 

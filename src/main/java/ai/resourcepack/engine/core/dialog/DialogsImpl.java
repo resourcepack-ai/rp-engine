@@ -19,7 +19,7 @@ import java.util.function.Predicate;
  * <p>Two things happen here and they are a long way apart in time. The
  * catalogue is replaced whenever content loads, and the datapack is rewritten
  * with it ({@link DialogDatapack}); showing one is a command dispatched from
- * the console, later, once the server has read that datapack.
+ * the console, later.
  *
  * <p><b>A command rather than an API call</b> — {@code /dialog show} — because
  * Bukkit has no dialog API at all and Paper's is Paper's. The engine compiles
@@ -27,6 +27,19 @@ import java.util.function.Predicate;
  * since the feature did works the same on every server that has the feature.
  * The cost is that opening one is a console dispatch; the benefit is that
  * nothing here has to be written twice.
+ *
+ * <p><b>The dialog travels IN the command, which is why none of this needs a
+ * restart.</b> {@code /dialog show} takes either a registry id or a whole
+ * dialog written out in SNBT, and it has taken both since the first snapshot
+ * that had dialogs at all — the same version this engine requires for them. So
+ * the ordinary route hands the game the dialog itself ({@link DialogSnbt}) and
+ * the registry is not consulted: a dialog that arrived in a push thirty
+ * seconds ago opens now, and one edited in Studio opens as edited rather than
+ * as the copy some earlier start happened to read.
+ *
+ * <p>Naming the id is still the fallback, for the narrow case of a dialog SNBT
+ * cannot carry — a control character inside a string is the realistic one. That
+ * route does need the restart, and is the only thing left that does.
  */
 public final class DialogsImpl implements Dialogs {
 
@@ -109,21 +122,58 @@ public final class DialogsImpl implements Dialogs {
         if (!canShow(viewer, id)) {
             return false;
         }
-        // Quoted as a selector rather than a name: a player whose name has
-        // changed between login and now is still exactly one UUID, and the
-        // command takes an entity selector wherever it takes a player.
-        boolean shown = dispatch("minecraft:dialog show " + viewer.getName() + " " + id.namespace() + ":" + id.path(),
-                id);
-        // A show that worked is the only proof available that the server has
-        // read what was written — nothing can ask the registry directly. So it
-        // is what clears the flag, and without this `pending()` stayed true for
-        // the life of the process: once anything had ever been written, every
-        // later failure of any kind was reported as a restart the server had
-        // already had.
-        if (shown) {
-            datapack.read();
+        DialogInfo info = dialogs.get(id);
+        if (info == null) {
+            return false;
         }
-        return shown;
+        String named = id.namespace() + ":" + id.path();
+
+        // The dialog itself, in the command. Nothing needs to be in the
+        // registry for this, so nothing needs a restart — see the class note.
+        Optional<String> inline = DialogSnbt.of(info.json());
+        if (inline.isPresent() && dispatch("minecraft:dialog show " + viewer.getName() + " " + inline.get(),
+                named, false) == Outcome.SHOWN) {
+            return true;
+        }
+
+        // The old route, kept for the dialog the line above could not carry.
+        // Reached in two cases and they want telling apart: SNBT had no
+        // spelling for something in the JSON, or the game refused what was
+        // written. Either way the registry is worth trying, because a server
+        // that has been restarted since the last content load has the dialog
+        // in it and this still works.
+        Outcome byName = dispatch("minecraft:dialog show " + viewer.getName() + " " + named, named, true);
+        if (byName == Outcome.SHOWN) {
+            // A show that worked is the only proof available that the server
+            // has read what was written — nothing can ask the registry
+            // directly. So it is what clears the flag, and without this
+            // `pending()` stayed true for the life of the process.
+            datapack.read();
+            return true;
+        }
+        if (byName == Outcome.REFUSED) {
+            datapack.unread();
+            // Both routes are out. Say WHICH, once: "the file is on disk and
+            // unread" and "this dialog is not something a command can carry"
+            // are different problems with different fixes, and reporting the
+            // first for the second would send somebody restarting over a stray
+            // newline in a string.
+            if (inline.isEmpty()) {
+                Bukkit.getLogger().warning("[RPEngine] " + named + " could not be opened as itself: its JSON "
+                        + "holds something a command cannot carry, and a line break inside one string is how "
+                        + "that usually happens. Split the line in two, or write it as two body lines. Until "
+                        + "then this one dialog needs the server RESTARTED, because the registry is the only "
+                        + "other way in — and if a restart has not done it either, the pack is in this world's "
+                        + "DISABLED list (a server that once read it as incompatible puts it there): run "
+                        + DialogDatapack.enableCommand() + " once, then restart.");
+            } else {
+                Bukkit.getLogger().info("[RPEngine] " + named + " was refused both as itself and by name — so "
+                        + "this is the dialog rather than the registry. The line above is what the game made "
+                        + "of it; a complaint about a field usually means it is written for a newer Minecraft "
+                        + "than this server runs.");
+            }
+        }
+        return false;
     }
 
     @Override
@@ -131,56 +181,67 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }
-        dispatch("minecraft:dialog clear " + viewer.getName(), null);
+        dispatch("minecraft:dialog clear " + viewer.getName(), null, true);
     }
 
     /**
-     * Runs a vanilla command from the console and answers whether it worked.
+     * What the game made of a command.
      *
-     * <p><b>The try/catch is the whole point of this method.</b> A dialog is
-     * registry data the server reads before plugins start, so the ordinary case
-     * of "written this load, not loaded yet" is a {@code /dialog show} naming an
-     * id the registry has never heard of — and Brigadier answers that by
-     * throwing, which Bukkit wraps in a {@code CommandException} and reports to
-     * whoever typed {@code /rp dialog} as "an internal error occurred while
-     * attempting to perform this command". That is the single most likely thing
-     * to happen the first time somebody opens a dialog, and it read as the
-     * plugin being broken rather than as the restart it actually needs.
-     *
-     * <p>So a failure comes back as {@code false} and the caller explains it:
-     * {@link ai.resourcepack.engine.core.command.InterfaceCommands} already has
-     * the three answers that matter (a version, a restart, or a name). The real
-     * reason still reaches the log, once, because a case none of those three
-     * cover should not vanish silently.
+     * <p>Three answers rather than a boolean, because the caller has two
+     * routes to try and they fail for different reasons. REFUSED is the game
+     * declining what it was handed - a dialog that is not in the registry, or
+     * one whose JSON its own codec will not read - and is the ordinary case
+     * rather than a fault. FAILED is anything else, and is logged with its
+     * stack because nothing else will explain it.
      */
+    private enum Outcome {
+        SHOWN,
+        REFUSED,
+        FAILED
+    }
+
     /**
      * The one failure that is ORDINARY, and it arrives looking like a crash.
      *
-     * <p>A dialog the registry has not read is a Brigadier parse error, and a
+     * <p>A dialog the game will not take is a Brigadier parse error, and a
      * parse error inside {@link Bukkit#dispatchCommand} does not reach the
-     * sender the way it would if a player had typed the command — Bukkit wraps
+     * sender the way it would if a player had typed the command - Bukkit wraps
      * whatever escaped in a CommandException reading "Unhandled exception
-     * executing …". So the single most common state this feature is in (written
-     * this load, not read by a start yet) presented as a stack trace, which
-     * reads as the plugin being broken rather than as the restart it is asking
-     * for.
+     * executing ...". So the most common way this feature says no presented as
+     * a stack trace, which reads as the plugin being broken rather than as the
+     * ordinary thing it is.
      *
      * <p>Matched on the class NAME rather than by catching the type, because
      * Brigadier is the server's and this engine compiles against an API that
      * does not promise it.
      */
-    private static boolean isUnknownToTheRegistry(Throwable root) {
+    private static boolean isRefusal(Throwable root) {
         return root.getClass().getName().endsWith("CommandSyntaxException");
     }
 
-    private boolean dispatch(String command, ContentId id) {
+    /**
+     * Runs a vanilla command from the console and says what came of it.
+     *
+     * <p><b>The try/catch is the whole point of this method</b>, for the
+     * reason on {@link #isRefusal}. A refusal comes back as a value and the
+     * caller decides what it means; only the cases nothing can explain reach
+     * the log from here.
+     *
+     * @param explain whether a refusal is worth a line in the log. False for
+     *                the inline attempt: that one has a fallback behind it, and
+     *                a refusal there is the ordinary prelude to trying the
+     *                registry rather than news. The caller reports it if BOTH
+     *                routes are out, which is the only point at which anybody
+     *                needs to hear about it.
+     */
+    private Outcome dispatch(String command, String named, boolean explain) {
         try {
-            return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+            return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command) ? Outcome.SHOWN : Outcome.FAILED;
         } catch (RuntimeException e) {
             // The CAUSE, not the message. Bukkit wraps whatever escaped in a
             // CommandException reading "Unhandled exception executing '<the
             // command>' in VanillaCommandWrapper(minecraft:dialog)", which
-            // names the command we already know and nothing about the fault —
+            // names the command we already know and nothing about the fault -
             // logging only that cost a round trip of guessing. The chain is
             // walked because the useful frame is usually two down, and the
             // whole throwable goes to the log so the stack names the class
@@ -189,24 +250,19 @@ public final class DialogsImpl implements Dialogs {
             while (root.getCause() != null && root.getCause() != root) {
                 root = root.getCause();
             }
-            if (isUnknownToTheRegistry(root)) {
-                // Not a fault: the file is on disk and the server has not read
-                // it. One line, no stack, and the flag goes back up so the
-                // command asks for a restart instead of guessing.
-                datapack.unread();
-                Bukkit.getLogger().info("[RPEngine] " + (id == null ? "a dialog" : id.toString())
-                        + " is written but not in the server's registry yet — RESTART the server. A dialog is "
-                        + "registry data built when the world loads, so /minecraft:reload cannot add one, "
-                        + "however many times it is run. If a restart has not done it either, the pack is in "
-                        + "this world's DISABLED list (a server that once read it as incompatible puts it "
-                        + "there): run " + DialogDatapack.enableCommand() + " once, then restart.");
-                return false;
+            if (isRefusal(root)) {
+                if (explain) {
+                    Bukkit.getLogger().info("[RPEngine] the game would not take "
+                            + (named == null ? "that dialog" : named) + ": "
+                            + (root.getMessage() == null ? root.getClass().getName() : root.getMessage()));
+                }
+                return Outcome.REFUSED;
             }
             Bukkit.getLogger().log(java.util.logging.Level.WARNING,
                     "[RPEngine] " + command + " failed: " + root.getClass().getName()
                             + (root.getMessage() == null ? "" : ": " + root.getMessage()),
                     e);
-            return false;
+            return Outcome.FAILED;
         }
     }
 }

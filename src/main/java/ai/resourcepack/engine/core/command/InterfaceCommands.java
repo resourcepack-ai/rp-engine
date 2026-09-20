@@ -248,9 +248,6 @@ public final class InterfaceCommands implements Area {
         // exists to prevent.
         if (!dialogs.supported()) {
             Reply.to(sender, "This server is older than 1.21.6, so none of these will open.");
-        } else if (dialogs.pending()) {
-            Reply.to(sender, "Restart the server — dialogs are registry data, read when the world "
-                    + "loads and before plugins start. /minecraft:reload cannot add one.");
         }
         return true;
     }
@@ -270,12 +267,16 @@ public final class InterfaceCommands implements Area {
             return true;
         }
         // FOUR ways to fail and they want different answers — a version, a
-        // name, a pack, or a reload. Saying "no dialog called that" to
-        // somebody on 1.21.5 sends them looking for a typo that is not there,
-        // and saying "reload" to somebody whose player is simply wearing the
-        // wrong pack sends them reloading for ever. That last pair used to be
-        // one answer: `pending()` was true from the first write until the
-        // process ended, so it swallowed every other reason.
+        // name, a pack, or the dialog itself. Saying "no dialog called that"
+        // to somebody on 1.21.5 sends them looking for a typo that is not
+        // there, and saying anything about the pack to somebody whose JSON is
+        // malformed sends them re-pushing for ever.
+        //
+        // The fourth used to be "restart the server", which was the single
+        // most common answer this command gave and is now never the right one:
+        // a dialog travels inside the command that opens it, so reaching here
+        // means the GAME would not take it. That is a fault in the dialog, and
+        // the console has the game's own words for it.
         if (!dialogs.supported()) {
             Reply.to(sender, "Dialogs need Minecraft 1.21.6. Use a screen instead: /rp screens.");
         } else if (parsed.flatMap(dialogs::info).isEmpty()) {
@@ -284,9 +285,9 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, target.getName() + " is not holding the pack " + args[1] + "'s picture is in, "
                     + "so it would open as a screen of missing-glyph boxes. Push the pack to them and try again.");
         } else {
-            Reply.to(sender, "The server has not read " + args[1] + " yet. Dialogs are registry data, read "
-                    + "when the world loads, so RESTART the server and try again — /minecraft:reload cannot "
-                    + "add one. If you already have restarted, the console says what the game refused.");
+            Reply.to(sender, "The game would not open " + args[1] + ". The console says what it made of it — "
+                    + "usually a field this Minecraft version does not have, or a line break inside one of "
+                    + "the strings.");
         }
         return true;
     }
