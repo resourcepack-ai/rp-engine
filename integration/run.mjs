@@ -34,6 +34,7 @@ const MINECRAFT = "1.21.8";
  * the point: a restart is the only way a biome becomes real.
  */
 const SCENARIOS = [
+  { name: "dialogs" },
   { name: "first-boot", fresh: true },
   { name: "painting", pools: "old" },
   { name: "buckets" },
