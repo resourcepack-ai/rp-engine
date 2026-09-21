@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class NexoOraxenPackTest {
     }
 
     @Test
-    void aPluginMechanicIsNamedRatherThanPretendedToWork() throws IOException {
+    void furnitureBecomesAPlacedModel() throws IOException {
         write("oraxen_pack/items.yml", """
                 chair:
                   itemname: Chair
@@ -67,7 +68,8 @@ class NexoOraxenPackTest {
 
         LoadReport report = load();
         assertTrue(ItemDefinitions.parse(report).items().containsKey(ContentId.parse("oraxen_pack:chair").orElseThrow()));
-        assertTrue(report.diagnostics().stream().anyMatch(d -> d.message().contains("furniture")));
+        assertTrue(report.definitions().stream().anyMatch(d -> d.id().toString().equals("oraxen_pack:chair")
+                && d.body().node("place").isPresent()));
     }
 
     @Test
@@ -79,5 +81,51 @@ class NexoOraxenPackTest {
                     model: somebody_else:item/thing
                 """);
         assertTrue(load().diagnostics().stream().anyMatch(d -> d.message().contains("outside this pack's namespace")));
+    }
+
+    @Test
+    void componentOnlyNexoItemsAndFurnitureUseTheEngineForms() throws IOException {
+        write("pack/items.yml", """
+                modern:
+                  itemname: Modern
+                  material: PAPER
+                  Components:
+                    item_model: pack:item/modern
+                chair:
+                  material: PAPER
+                  Pack:
+                    model: pack:item/chair
+                  Mechanics:
+                    furniture:
+                      barriers:
+                        - 0,0,0
+                      seat: 0.6
+                """);
+        LoadReport report = load();
+        ItemInfo modern = ItemDefinitions.parse(report).items().get(ContentId.parse("pack:modern").orElseThrow());
+        assertEquals("item/modern", modern.model().orElseThrow());
+        assertTrue(report.definitions().stream().anyMatch(d -> d.id().toString().equals("pack:chair")
+                && d.body().node("place").isPresent()));
+    }
+
+    @Test
+    void customBlocksBecomeRpEngineBlocksInsteadOfASecondItemId() throws IOException {
+        write("pack/blocks.yml", """
+                ruby_ore:
+                  material: PAPER
+                  Pack:
+                    model: pack:ruby_ore
+                  Mechanics:
+                    custom_block:
+                      type: NOTEBLOCK
+                      model: pack:ruby_ore
+                      hardness: 3
+                      drop:
+                        best_tool: PICKAXE
+                """);
+        var block = BlockDefinitions.parse(load()).blocks().get(ContentId.parse("pack:ruby_ore").orElseThrow());
+        assertEquals("ruby_ore", block.model());
+        assertEquals(3f, block.hardness());
+        assertEquals("pickaxe", block.tool().orElseThrow());
     }
 }
