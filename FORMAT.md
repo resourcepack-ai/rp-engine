@@ -1866,14 +1866,16 @@ screen, which is what an Ok button is.
 a container wearing a picture, above — is the older way to do the same job and
 works everywhere.
 
-**A dialog is registry data, and that has one consequence worth knowing before
-you write one.** The engine writes your dialogs into a generated datapack in
-the level folder; the server reads its datapacks when it loads the world, which
-is before any plugin starts. So a dialog you have just added opens **after the
-next restart**, and the engine says so in the log and in `/rp dialogs` rather
-than letting the command quietly do nothing.
+**Opening a dialog does not normally need a restart.** On supported
+Mojang-mapped servers the engine decodes the JSON with the game's own codec and
+sends a direct dialog, including multiline text. Other servers use an inline
+command, with a registered id as a last fallback for content that cannot be
+carried inline. `/rp reload` reads edited definitions before you open them.
 
-`/minecraft:reload` does not do it. A reload rebuilds the reloadable half of a
+The engine also writes a datapack in the level folder. A restart registers its
+ids for references from other datapacks and `show_dialog` actions by name.
+
+`/minecraft:reload` does not register these ids. A reload rebuilds the reloadable half of a
 datapack — recipes, advancements, loot tables, tags — and the dialog registry
 is not in that half; it is built with the world, like biomes. A dialog added to
 a pack the server has already read and enabled is still missing after a reload,
