@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,20 @@ final class NexoOraxen {
         item.string("itemname").or(() -> item.string("displayname"))
                 .or(() -> item.string("display_name"))
                 .ifPresent(name -> out.put("name", name));
+        if (!item.strings("lore").isEmpty()) out.put("lore", item.strings("lore"));
+        List<Object> attributes = new ArrayList<>();
+        for (DefinitionNode modifier : item.nodes("AttributeModifiers")) {
+            String attribute = modifier.string("attribute").orElse(null);
+            if (attribute == null) continue;
+            modifier.decimal("amount").ifPresent(amount -> {
+                Map<String, Object> translated = new LinkedHashMap<>();
+                translated.put(attribute.toLowerCase(), amount);
+                modifier.string("operation").ifPresent(operation -> translated.put("operation", operation));
+                modifier.string("slot").ifPresent(slot -> translated.put("slot", slot));
+                attributes.add(translated);
+            });
+        }
+        if (!attributes.isEmpty()) out.put("attributes", attributes);
 
         DefinitionNode pack = item.node("Pack").orElse(DefinitionNode.empty());
         pack.string("model").flatMap(model -> localPath(model, namespace, id, origin, diagnostics, "model"))
@@ -113,8 +128,12 @@ final class NexoOraxen {
                 .ifPresent(hardness -> out.put("hardness", hardness));
         mechanic.node("drop").flatMap(drop -> drop.string("best_tool"))
                 .ifPresent(tool -> out.put("tool", tool.toLowerCase()));
-        mechanic.string("sound").or(() -> mechanic.node("block_sounds").flatMap(sounds -> sounds.string("place_sound")))
+        mechanic.string("sound").or(() -> mechanic.node("block_sounds").flatMap(sounds -> sounds.string("place_sound")
+                        .or(() -> sounds.node("place").flatMap(place -> place.string("name")))))
                 .ifPresent(sound -> out.put("sound", sound));
+        mechanic.node("drop").flatMap(drop -> drop.string("nexo_item").or(() -> drop.string("oraxen_item"))
+                        .or(() -> firstLoot(drop)))
+                .ifPresent(drop -> out.put("drop", qualified(drop, namespace)));
         String type = mechanic.string("type").orElse("").toLowerCase();
         if (type.contains("mushroom")) out.put("base", "mushroom_stem");
         for (String name : mechanic.keys()) {
@@ -133,10 +152,28 @@ final class NexoOraxen {
                 || furniture.raw("barriers") != null) place.put("solid", true);
         furniture.string("seat").or(() -> furniture.string("seat_height"))
                 .ifPresent(seat -> place.put("seat", seat));
+        if (!place.containsKey("seat") && !furniture.strings("seats").isEmpty()) {
+            String[] point = furniture.strings("seats").get(0).split(",");
+            if (point.length >= 2) place.put("seat", point[1].trim());
+        }
         furniture.string("rotation").ifPresent(rotation -> place.put("facing", "free"));
-        furniture.node("drop").flatMap(drop -> drop.string("nexo_item").or(() -> drop.string("oraxen_item")))
-                .ifPresent(drop -> place.put("drop", drop.contains(":") ? drop : namespace + ":" + drop));
+        furniture.node("drop").flatMap(drop -> drop.string("nexo_item").or(() -> drop.string("oraxen_item"))
+                        .or(() -> firstLoot(drop)))
+                .ifPresent(drop -> place.put("drop", qualified(drop, namespace)));
         return place;
+    }
+
+    /** The usual Nexo/Oraxen drop is a one-entry loots list. Randomness remains plugin behaviour. */
+    private static java.util.Optional<String> firstLoot(DefinitionNode drop) {
+        for (DefinitionNode loot : drop.nodes("loots")) {
+            java.util.Optional<String> item = loot.string("nexo_item").or(() -> loot.string("oraxen_item"));
+            if (item.isPresent()) return item;
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static String qualified(String id, String namespace) {
+        return id.contains(":") ? id : namespace + ":" + id;
     }
 
     /** A resource location is a path after its own namespace; foreign art is not ours to copy. */
