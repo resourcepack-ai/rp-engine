@@ -4,8 +4,10 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
+import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -127,5 +129,88 @@ class NexoOraxenPackTest {
         assertEquals("ruby_ore", block.model());
         assertEquals(3f, block.hardness());
         assertEquals("pickaxe", block.tool().orElseThrow());
+    }
+
+    @Test
+    void pluginRecipeFoldersAreTranslatedRatherThanTreatedAsNativeYaml() throws IOException {
+        write("pack/items.yml", """
+                ruby:
+                  material: PAPER
+                  Pack: { model: pack:ruby }
+                """);
+        write("pack/recipes/shaped.yml", """
+                ruby_pick:
+                  result: { nexo_item: ruby }
+                  ingredients:
+                    A: { minecraft_type: DIAMOND }
+                    B: { minecraft_type: STICK }
+                  shape: ["AAA", " B ", " B "]
+                """);
+        write("pack/recipes/furnace.yml", """
+                baked_ruby:
+                  result: { minecraft_type: DIAMOND, amount: 2 }
+                  input: { oraxen_item: ruby }
+                  cookingTime: 80
+                  experience: 1.5
+                """);
+
+        var recipes = RecipeDefinitions.parse(load()).recipes();
+        var shaped = recipes.get(ContentId.parse("pack:ruby_pick").orElseThrow());
+        var furnace = recipes.get(ContentId.parse("pack:baked_ruby").orElseThrow());
+        assertEquals("pack:ruby", shaped.result());
+        assertEquals("DIAMOND", shaped.keys().get("A"));
+        assertEquals("pack:ruby", furnace.ingredients().get(0));
+        assertEquals(2, furnace.amount());
+        assertEquals(80, furnace.cookingTime());
+    }
+
+    @Test
+    void staticGlyphsBecomeIconsAndAnimatedOrMultiBitmapGlyphsExplainThemselves() throws IOException {
+        write("pack/items.yml", """
+                ruby:
+                  material: PAPER
+                  Pack: { model: pack:ruby }
+                """);
+        write("pack/glyphs/icons.yml", """
+                ruby:
+                  texture: pack:ui/ruby.png
+                  ascent: 9
+                  height: 11
+                animated:
+                  gif: pack:gifs/animated.gif
+                grid:
+                  texture: pack:ui/grid
+                  rows: 2
+                  columns: 2
+                """);
+
+        var icons = IconDefinitions.parse(load()).icons();
+        var ruby = icons.get(ContentId.parse("pack:ruby").orElseThrow());
+        assertEquals("ui/ruby", ruby.file());
+        assertEquals(11, ruby.height());
+        assertEquals(9, ruby.ascent());
+        assertEquals(1, icons.size());
+        assertTrue(load().diagnostics().stream().anyMatch(d -> d.message().contains("Animated GIF glyphs")));
+        assertTrue(load().diagnostics().stream().anyMatch(d -> d.message().contains("Multi-bitmap glyphs")));
+    }
+
+    @Test
+    void normalNestedNexoItemsFolderIsReadThroughTheTranslator() throws IOException {
+        write("pack/items/tools/ruby.yml", """
+                ruby_sword:
+                  itemname: Ruby Sword
+                  material: DIAMOND_SWORD
+                  Pack: { model: pack:item/ruby_sword }
+                  AttributeModifiers:
+                    - attribute: ATTACK_DAMAGE
+                      amount: 7.5
+                      operation: ADD_NUMBER
+                      slot: MAINHAND
+                """);
+
+        var sword = ItemDefinitions.parse(load()).items().get(ContentId.parse("pack:ruby_sword").orElseThrow());
+        assertEquals("Ruby Sword", sword.name().orElseThrow());
+        assertEquals(1, sword.stats().modifiers().size());
+        assertEquals("attack_damage", sword.stats().modifiers().get(0).attribute());
     }
 }
