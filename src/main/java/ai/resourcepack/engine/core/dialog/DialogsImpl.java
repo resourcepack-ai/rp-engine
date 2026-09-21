@@ -128,6 +128,10 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
 
+        // Decode JSON directly so multiline text and other values need not
+        // pass through the command parser or wait for the datapack registry.
+        if (DialogPackets.show(viewer, info.json())) return true;
+
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
         Optional<String> inline = DialogSnbt.of(info.json());
