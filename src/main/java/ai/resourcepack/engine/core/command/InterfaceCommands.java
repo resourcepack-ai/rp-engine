@@ -15,7 +15,7 @@ import java.util.Locale;
 /**
  * What a player hears and sees that is not the world: {@code sounds},
  * {@code sound}, {@code icons}, {@code say}, {@code screens}, {@code screen},
- * {@code hud}.
+ * {@code hud}, {@code shaders}, {@code shader}.
  *
  * <p>The listing halves are here rather than beside the content commands
  * because they exist to be used with the playing halves — you run
@@ -28,7 +28,7 @@ import java.util.Locale;
 public final class InterfaceCommands implements Area {
 
     /** The ones that draw something on one client, and so take a player. */
-    private static final List<String> DRAWS = List.of("sound", "screen", "hud", "dialog");
+    private static final List<String> DRAWS = List.of("sound", "screen", "hud", "shader", "dialog");
 
     private final SoundsImpl sounds;
     private final IconsImpl icons;
@@ -61,6 +61,8 @@ public final class InterfaceCommands implements Area {
                 Help.of("screens", "list the screens and HUDs"),
                 Help.of("screen", "<id> [player]", "open a screen"),
                 Help.of("hud", "<id|clear> [player]", "show or clear one"),
+                Help.of("shaders", "list the shader objects"),
+                Help.of("shader", "<id|clear> [player]", "show one"),
                 Help.of("dialogs", "list the dialogs"),
                 Help.of("dialog", "<id> [player]", "open one (1.21.6+)"));
     }
@@ -84,6 +86,10 @@ public final class InterfaceCommands implements Area {
                 return dialogs(sender);
             case "dialog":
                 return dialog(sender, args);
+            case "shaders":
+                return shaders(sender);
+            case "shader":
+                return shader(sender, args);
             default:
                 return hud(sender, args);
         }
@@ -109,7 +115,12 @@ public final class InterfaceCommands implements Area {
             case "dialog":
                 return Completions.matchingIds(args[1], dialogs.ids());
             case "hud": {
-                List<String> options = new ArrayList<>(Completions.matchingIds(args[1], overlays.hudIds()));
+                List<String> options = new ArrayList<>(Completions.matchingIds(args[1], plainHudIds()));
+                options.addAll(Completions.matching(args[1], "clear"));
+                return options;
+            }
+            case "shader": {
+                List<String> options = new ArrayList<>(Completions.matchingIds(args[1], overlays.shaderIds()));
                 options.addAll(Completions.matching(args[1], "clear"));
                 return options;
             }
@@ -193,13 +204,91 @@ public final class InterfaceCommands implements Area {
         for (ContentId id : overlays.screenIds()) {
             Reply.to(sender, id + "  " + overlays.screen(id).map(o -> o.container()).orElse("?"));
         }
-        for (ContentId id : overlays.hudIds()) {
+        for (ContentId id : plainHudIds()) {
             Reply.to(sender, id + "  "
                     + overlays.hud(id).map(o -> o.slot().name().toLowerCase(Locale.ROOT)).orElse("?"));
         }
-        if (overlays.screenIds().isEmpty() && overlays.hudIds().isEmpty()) {
+        if (overlays.screenIds().isEmpty() && plainHudIds().isEmpty()) {
             Reply.to(sender, "No screens or HUDs loaded.");
         }
+        return true;
+    }
+
+    /**
+     * The HUDs that are not shader objects.
+     *
+     * <p>A shader object is a HUD to the runtime and not to the person typing:
+     * they made it in Studio's shader editor, and finding it under
+     * {@code /rp hud} is finding it under a name they never used. So each
+     * command lists only its own.
+     */
+    private List<ContentId> plainHudIds() {
+        List<ContentId> ids = new ArrayList<>(overlays.hudIds());
+        ids.removeAll(overlays.shaderIds());
+        return ids;
+    }
+
+    private boolean isShader(ContentId id) {
+        return overlays.hud(id).map(o -> o.isShader()).orElse(Boolean.FALSE);
+    }
+
+    private boolean shaders(CommandSender sender) {
+        java.util.Collection<ContentId> ids = overlays.shaderIds();
+        if (ids.isEmpty()) {
+            Reply.to(sender, "No shader objects loaded. Make one in Studio and press Sync.");
+            return true;
+        }
+        Reply.heading(sender, "Shaders", Reply.plural(ids.size(), "shader object")
+                + ", /rp shader <id> to show one");
+        // Whether the sender would see each one, for the same reason /rp
+        // dialogs says it: a shader's picture is in one pushed pack, and
+        // somebody not holding it gets a success and a blank screen.
+        Player self = sender instanceof Player ? (Player) sender : null;
+        for (ContentId id : ids) {
+            String slot = overlays.hud(id).map(o -> o.slot() == ai.resourcepack.engine.api.OverlayInfo.Slot.BOSS_BAR
+                    ? "boss bar" : "action bar").orElse("?");
+            String note = self == null ? slot
+                    : runtime.isShowing(self, id) ? slot + ", showing"
+                    : overlays.canShow(self, id) ? slot
+                    : slot + ", you are NOT holding its pack";
+            Reply.row(sender, id.toString(), note);
+        }
+        return true;
+    }
+
+    private boolean shader(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine shader <id|clear> [player]");
+            return true;
+        }
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine shader <id|clear> <player>");
+            return true;
+        }
+        if (args[1].equalsIgnoreCase("clear")) {
+            // Only the shaders. A plain HUD somebody else put up is not this
+            // command's to take down; /rp hud clear is the one that clears all.
+            for (ContentId id : overlays.shaderIds()) {
+                runtime.hide(target, id);
+            }
+            Reply.to(sender, "Cleared.");
+            return true;
+        }
+        java.util.Optional<ContentId> parsed = ContentId.parse(args[1]).filter(this::isShader);
+        if (parsed.isEmpty()) {
+            boolean isHud = ContentId.parse(args[1]).flatMap(overlays::hud).isPresent();
+            Reply.to(sender, isHud
+                    ? args[1] + " is a HUD, not a shader: /rp hud " + args[1] + "."
+                    : "No shader called " + args[1] + ". /rp shaders lists them.");
+            return true;
+        }
+        if (!overlays.canShow(target, parsed.get())) {
+            Reply.to(sender, target.getName() + " is not holding the pack " + args[1] + " is in, "
+                    + "so there is nothing on their screen to draw. Push the pack to them and try again.");
+            return true;
+        }
+        runtime.show(target, parsed.get());
         return true;
     }
 
@@ -315,6 +404,9 @@ public final class InterfaceCommands implements Area {
         // what this command used to do, against an enum whose javadoc has
         // always said an overlay is "redrawn while shown". `clear` is how it
         // comes off.
+        // A shader id still draws here although nothing lists or completes it:
+        // Studio relayed `/rp hud <shader>` before `/rp shader` existed, and a
+        // Studio talking to an engine that predates it still has to.
         boolean drawn = ContentId.parse(args[1]).map(id -> runtime.show(target, id))
                 .orElse(Boolean.FALSE);
         if (!drawn) {
