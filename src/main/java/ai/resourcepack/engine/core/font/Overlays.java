@@ -77,9 +77,29 @@ public final class Overlays {
         return sorted(screens);
     }
 
-    /** Every HUD id, sorted. */
+    /** Every HUD id, sorted. Shader objects included — see {@link #shaderIds()}. */
     public Collection<ContentId> hudIds() {
         return sorted(huds);
+    }
+
+    /**
+     * The HUDs that are Studio shader objects, sorted. A subset of
+     * {@link #hudIds()}, which the runtime still walks whole: to the engine a
+     * shader object IS a HUD, and only the commands tell them apart.
+     */
+    public Collection<ContentId> shaderIds() {
+        return hudIds().stream().filter(id -> huds.get(id).isShader()).toList();
+    }
+
+    /**
+     * Whether this player would actually see this HUD if it were shown.
+     *
+     * <p>False for a pushed one they are not holding the pack of. Showing it
+     * anyway is not an error — it is recorded and drawn nowhere — so a command
+     * that wants to tell somebody why nothing appeared has to ask first.
+     */
+    public boolean canShow(Player viewer, ContentId id) {
+        return viewer != null && hud(id).map(info -> visible(viewer, info)).orElse(Boolean.FALSE);
     }
 
     private static Collection<ContentId> sorted(Map<ContentId, OverlayInfo> from) {

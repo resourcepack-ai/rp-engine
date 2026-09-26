@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -45,6 +45,8 @@ permissions:
       rpengine.screens: true
       rpengine.screen: true
       rpengine.hud: true
+      rpengine.shaders: true
+      rpengine.shader: true
       rpengine.recipes: true
       rpengine.emote: true
       rpengine.emotes: true
@@ -105,6 +107,12 @@ permissions:
     default: op
   rpengine.hud:
     description: Draw a HUD overlay on yourself.
+    default: op
+  rpengine.shaders:
+    description: List the Studio shader objects.
+    default: op
+  rpengine.shader:
+    description: Show a Studio shader object on yourself.
     default: op
   rpengine.recipes:
     description: List the recipes.

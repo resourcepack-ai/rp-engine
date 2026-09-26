@@ -478,6 +478,20 @@ public final class OverlayInfo {
     }
 
     /**
+     * Whether this is a Studio shader object rather than a plain HUD picture.
+     *
+     * <p>Both arrive the same way and are drawn the same way — one line of text
+     * on the action bar or boss bar — so the engine needs no separate path for
+     * one. What marks a shader object is {@link #color()}: its run is an
+     * address the pack's core shader moves to wherever the author placed it,
+     * and nothing else sets that. It is kept apart for the PEOPLE using it,
+     * who made it in a shader editor and look for it under that name.
+     */
+    public boolean isShader() {
+        return pushed && !color.isEmpty();
+    }
+
+    /**
      * The characters that draw it, when they did not come from this engine.
      *
      * <p>Empty for our own content, where {@link #offset()} and
