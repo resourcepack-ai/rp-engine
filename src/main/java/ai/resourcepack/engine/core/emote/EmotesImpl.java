@@ -186,6 +186,18 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public double rigOriginOffset() {
+        return EmoteDirector.rigOriginOffset();
+    }
+
+    @Override
+    public int[] passengerEntityIds(Player player) {
+        Host.requireMainThread();
+        if (player == null) return new int[0];
+        return director.passengerEntityIds(player.getUniqueId());
+    }
+
+    @Override
     public boolean stop(Player player) {
         Host.requireMainThread();
         if (player == null) return false;
