@@ -64,7 +64,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("shaders", "list the shader objects"),
                 Help.of("shader", "<id|clear> [player]", "show one"),
                 Help.of("dialogs", "list the dialogs"),
-                Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"));
+                Help.of("dialog", "<id> [player]", "open one (1.21.6+)"));
     }
 
     @Override
@@ -97,15 +97,6 @@ public final class InterfaceCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
-        // A dialog's values: the one nearly every dialog about somebody wants,
-        // offered for every player online.
-        if (sub.equals("dialog") && args.length >= 4) {
-            List<String> targets = new ArrayList<>();
-            for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
-                targets.add("target=" + player.getName());
-            }
-            return Completions.matching(args[args.length - 1], targets);
-        }
         if (args.length == 3 && DRAWS.contains(sub)) {
             List<String> online = new ArrayList<>();
             for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
@@ -352,28 +343,16 @@ public final class InterfaceCommands implements Area {
 
     private boolean dialog(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine dialog <id> [player] [name=value...]");
+            Reply.to(sender, "/rpengine dialog <id> [player]");
             return true;
         }
-        // The player is optional, so a first word with "=" in it is already a
-        // value: "/rp dialog punish target=Steve" opens it for whoever typed it.
-        boolean named = args.length > 2 && !args[2].contains("=");
-        Player target = Targets.of(sender, named ? args[2] : null);
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine dialog <id> <player> [name=value...]");
+            Reply.to(sender, "Name a player: /rpengine dialog <id> <player>");
             return true;
-        }
-        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
-        for (int i = named ? 3 : 2; i < args.length; i++) {
-            int eq = args[i].indexOf('=');
-            if (eq <= 0) {
-                Reply.to(sender, "\"" + args[i] + "\" is not name=value. A dialog's values look like target=Steve.");
-                return true;
-            }
-            values.put(args[i].substring(0, eq), args[i].substring(eq + 1));
         }
         java.util.Optional<ContentId> parsed = ContentId.parse(args[1]);
-        if (parsed.map(id -> dialogs.show(target, id, values)).orElse(Boolean.FALSE)) {
+        if (parsed.map(id -> dialogs.show(target, id)).orElse(Boolean.FALSE)) {
             return true;
         }
         // FOUR ways to fail and they want different answers — a version, a
