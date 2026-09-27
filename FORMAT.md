@@ -1852,29 +1852,6 @@ welcome:
 
 `/rp dialogs` lists them and `/rp dialog mypack:welcome` opens one.
 
-**A dialog can be about somebody.** Write `{target}` — or any name — anywhere a
-dialog has words or a command, and say what it is when you open it:
-
-```yaml
-punish:
-  title: Punish {target}
-  buttons:
-    - label: Mute 1h
-      command: mute {target} 1h
-      tooltip: Mute {target} for an hour
-```
-
-```
-/rp dialog mypack:punish Admin target=Steve
-```
-
-opens it for Admin, titled "Punish Steve", with a button that runs
-`mute Steve 1h`. Leave the player out and it opens for whoever typed it:
-`/rp dialog mypack:punish target=Steve`. A name the command did not give is
-filled the way an overlay's is — `{player}` and the other built-ins describe
-the player the dialog is SHOWN to, and PlaceholderAPI answers the rest when it
-is installed. A name nothing knows is left as written.
-
 **One button is a notice, two are a yes/no, three or more are a grid.** You do
 not choose which; the count does, because those are the only three shapes the
 game has and they differ in nothing else.

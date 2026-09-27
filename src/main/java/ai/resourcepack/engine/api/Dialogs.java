@@ -3,7 +3,6 @@ package ai.resourcepack.engine.api;
 import org.bukkit.entity.Player;
 
 import java.util.Collection;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -76,31 +75,6 @@ public interface Dialogs {
      *         reported to the console with what the game made of it
      */
     boolean show(Player viewer, ContentId id);
-
-    /**
-     * Opens a dialog on a player's screen, with its <code>{placeholders}</code>
-     * filled from {@code values} first.
-     *
-     * <p>A dialog may say <code>{target}</code> anywhere a string goes — its
-     * title, a tooltip, a button's label, the command a click runs — and this is
-     * how it is told what that is: a punish menu opened with
-     * {@code Map.of("target", "Steve")} is titled "Punish Steve" and its reasons
-     * run {@code mute Steve 1h}. A name not in {@code values} is asked of the
-     * same built-ins an overlay's are (<code>{player}</code>, <code>{ping}</code>,
-     * <code>{world}</code>…, all about the VIEWER) and then of PlaceholderAPI;
-     * one that nothing answers is left as written. Names are matched without
-     * regard to case. {@link #show(Player, ContentId)} is this with no values.
-     *
-     * <p>Words drawn INTO a Studio dialog's picture are pixels, and stay as they
-     * were drawn. So does a dialog opened by its registry id rather than as
-     * itself — the fallback for one the command line cannot carry — because the
-     * registry holds it unfilled.
-     *
-     * @return what {@link #show(Player, ContentId)} returns
-     */
-    default boolean show(Player viewer, ContentId id, Map<String, String> values) {
-        return show(viewer, id);
-    }
 
     /** Closes whatever dialog a player has open. */
     void close(Player viewer);
