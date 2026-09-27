@@ -141,6 +141,49 @@ because the wearer changed pose. It is `animation-follows-speed` for a thing
 that is worn rather than ridden, and the rollerskates are what it was written
 for.
 
+### Carrying a rig on a seat of your own
+
+A worn rig follows its wearer by being teleported every tick, which the client
+glides toward. For a rider moving fast on something the engine does not own —
+a ride, a vehicle of your own — that glide is a rig trailing its seat. The
+alternative is to mount the rig's displays on the seat, so the client draws
+them wherever the seat is:
+
+```java
+int[] ids = engine.emotes().passengerEntityIds(rider);   // bones, carried models, hands
+double lift = engine.emotes().rigOriginOffset();         // blocks above the feet
+```
+
+Every one of those displays is anchored at one point, `rigOriginOffset()`
+above the rider's feet, so put your seat's passenger position there. Read the
+number rather than copying it: it follows the size the engine draws a player
+at, and a copy is a rider who floats or sinks after an update.
+
+**Mount them with a passengers packet, not `addPassenger`.** The engine goes
+on teleporting every display every tick, and a Bukkit teleport of a passenger
+dismounts it first. A client-side mount is unaffected: a client that got the
+packet draws the rig on the seat, and one that did not sees it where the
+engine put it. A passengers packet is the vehicle's WHOLE list, so include
+whoever really sits there, send it again when the server sends its own
+(somebody getting on or off), and send it to a player who starts seeing the
+seat. A client skips an id it does not have, so one list is safe for
+everybody — the wearer is never sent their own hands.
+
+**The list changes.** Putting a rig on spawns every display, and a swap to an
+emote carrying different models spawns those again. `EmoteRigSpawnEvent` fires
+each time, once the change is complete, with the new ids:
+
+```java
+@EventHandler
+public void onRig(EmoteRigSpawnEvent event) {
+    Seat seat = seats.of(event.getPlayer());
+    if (seat != null) seat.mount(event.getPassengerEntityIds());
+}
+```
+
+It fires for every rig, not only the ones you put on, so check the player is
+yours. When the rig comes off, `EmoteEndEvent` fires and the displays are gone.
+
 ## Sounds
 
 ```java
@@ -631,6 +674,7 @@ All cancellable unless the row says otherwise.
 | `PlayerLiquidEvent` | Somebody went into one of your liquids, or came out. Fires on the crossing, not every second. Not cancellable |
 | `EmoteStartEvent` | An emote is about to start |
 | `EmoteEndEvent` | An emote ended. Carries why — finished, stopped, moved, damaged, quit, shutdown |
+| `EmoteRigSpawnEvent` | A rig's displays were spawned — it was put on, or a swap replaced its carried models. Carries the new entity ids, for re-mounting them. Not cancellable |
 
 **The engine decides whether something can physically happen, never whether it
 is allowed to.** Region protection, plot ownership, an event world where

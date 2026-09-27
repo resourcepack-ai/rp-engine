@@ -364,6 +364,85 @@ public interface Emotes {
     }
 
     /**
+     * How far above its wearer's feet a rig's displays stand, in blocks.
+     *
+     * <p>Every display a rig is drawn with — each bone, each model it carries,
+     * both hands — sits at ONE point: this far above the feet, on the wearer's
+     * own centre line, with everything else about the pose carried in its
+     * transformation. The feet are wherever {@link #anchor} last put them, or
+     * the wearer's own position when nothing has. So a plugin that carries a
+     * rig on something of its own ({@link #passengerEntityIds}) has to put
+     * that point here, and this is the number to put it there with.
+     *
+     * <p><strong>Read it rather than copying it.</strong> It is one block of
+     * the skeleton's own space scaled by the size vanilla draws a player at,
+     * and both halves of that are the engine's to change: a copy of today's
+     * value is a rig that floats or sinks by the difference after an update
+     * nobody connected to it.
+     *
+     * <p>Vertical only — the anchor is on the centre line by construction.
+     * Today the same for every player and every emote. Safe from any thread.
+     */
+    default double rigOriginOffset() {
+        // The engine overrides this. A default keeps an implementation compiled
+        // against an older RP Engine API binary-compatible, and this is the
+        // number the engine of that API drew its rigs at.
+        return 0.9375;
+    }
+
+    /**
+     * The entity ids of every display a player's rig is drawn with, for
+     * mounting them on something of your own.
+     *
+     * <p><strong>What it is for.</strong> A rig follows its wearer by being
+     * teleported every tick, and a teleport is a point the client glides
+     * toward; a passenger is drawn wherever its vehicle is, on the client's
+     * own frame. Something carrying a rider at speed — a ride, a seat on a
+     * vehicle the engine does not have — gets a rig that sits IN the seat,
+     * rather than one gliding a tick behind it, by mounting these on the seat
+     * with a passengers packet and putting the seat's passenger position at
+     * {@link #rigOriginOffset} above the rider's feet.
+     *
+     * <p>The bones, the models the worn emote carries, and the two hands:
+     * every display anchored at that one point. Not the shadow, which lies at
+     * the feet, and not the floating name, which is at head height and drops
+     * with a crouch — carried from the rig's anchor, both would be in the
+     * wrong place.
+     *
+     * <p><strong>Ids, because the mount has to be a packet.</strong> The
+     * engine goes on teleporting every display every tick exactly as before,
+     * and a Bukkit teleport of a server-side passenger dismounts it first — so
+     * a mount made with {@code addPassenger} would come undone on the next
+     * tick. Mounted client-side, a display is drawn on the seat by every client
+     * the packet reached and where the engine put it by every client it did
+     * not, which is also the right answer for a viewer who has not been sent
+     * the mount yet.
+     *
+     * <p><strong>They change, so mount on the event rather than once.</strong>
+     * Every one of them is new when a rig is put on, and the carried models
+     * are spawned again whenever the worn emote changes to one carrying
+     * different ones. {@link ai.resourcepack.engine.api.event.EmoteRigSpawnEvent}
+     * fires each time, with the new list.
+     *
+     * <p>A rig that is put away — a state its emote leaves to the player's own
+     * body — keeps its displays, holding nothing, so they stay in this list and
+     * are already on the seat when it comes back. Some viewers never have some
+     * of them: the hands are never sent to their own wearer, and neither is a
+     * worn movement set's rig. A client skips a passenger id it does not have,
+     * so the same list is safe to send to everybody.
+     *
+     * <p>Main thread only.
+     *
+     * @return a new array on every call, in no meaningful order, and empty for
+     *         a player wearing nothing
+     */
+    default int[] passengerEntityIds(Player player) {
+        // A default for the reason cape's is: the engine overrides it, and an
+        // implementation that knows no rigs has none to report.
+        return new int[0];
+    }
+
+    /**
      * Stops this player's emote, and everybody else's in the same troupe.
      *
      * @return whether they were emoting.

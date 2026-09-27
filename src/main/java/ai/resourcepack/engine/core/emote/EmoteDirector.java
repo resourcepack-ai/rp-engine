@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.EmoteTrigger;
 import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.EmoteEndEvent;
+import ai.resourcepack.engine.api.event.EmoteRigSpawnEvent;
 import ai.resourcepack.engine.api.event.EmoteStartEvent;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.animation.RigMath;
@@ -291,6 +292,11 @@ public final class EmoteDirector implements Listener {
      * a fixed block above the feet would lift the feet a pixel off the floor,
      * so the emote would hover — the exact opposite of what shrinking it to
      * vanilla size is for.
+     *
+     * <p><b>Published</b>, as {@code Emotes#rigOriginOffset}: a plugin that
+     * mounts a rig's displays on a seat of its own puts the seat's passenger
+     * point here, so this number moving moves their riders too. They read it
+     * rather than copy it, which is what lets it move at all.
      */
     private static final double RIG_BASE_Y = PLAYER_SCALE;
 
@@ -576,6 +582,16 @@ public final class EmoteDirector implements Listener {
          */
         List<EmoteStore.Prop> propsSpawned;
         String propsPerformer;
+        /**
+         * Whether this rig's displays have been spawned since the last
+         * {@link EmoteRigSpawnEvent}. See {@link #announceRigs}.
+         *
+         * <p>A flag rather than the event itself, because the places that
+         * spawn are in the middle of a swap: a listener handed control there,
+         * that put something else on the same player, would have the swap it
+         * interrupted finish over the top of its own.
+         */
+        boolean rigChanged;
         /**
          * Where a carried model's animation has been told to be, by prop id,
          * instead of the emote's own clock - see {@link #seekProp}. A wheel
@@ -1041,6 +1057,79 @@ public final class EmoteDirector implements Listener {
         return session != null && session.showSelf && session.stance();
     }
 
+    /** {@link ai.resourcepack.engine.api.Emotes#rigOriginOffset}. See {@link #RIG_BASE_Y}. */
+    public static double rigOriginOffset() {
+        return RIG_BASE_Y;
+    }
+
+    /**
+     * {@link ai.resourcepack.engine.api.Emotes#passengerEntityIds}, or an empty
+     * array for a player wearing nothing.
+     */
+    public int[] passengerEntityIds(UUID playerId) {
+        Session session = playerId == null ? null : active.get(playerId);
+        return session == null ? new int[0] : passengerIds(session);
+    }
+
+    /**
+     * Every display anchored at the rig's base: the bones, the carried models
+     * and the hands.
+     *
+     * <p>Exactly the displays {@link #follow} moves to {@code base}, and that is
+     * the definition rather than a coincidence — they are the ones a seat can
+     * carry from one point. The shadow and the name are moved to the feet, so
+     * they are not in it. A carried model that is a rig of its own contributes
+     * its part displays and not its yaw host, which is an Interaction the
+     * animator reads a heading off and no client draws.
+     */
+    private static int[] passengerIds(Session session) {
+        List<ItemDisplay> displays = new ArrayList<>(session.parts);
+        for (PropPart part : session.propParts) {
+            if (part == null) continue;
+            if (part.display != null) displays.add(part.display);
+            if (part.rig != null) part.rig.forEachPart(displays::add);
+        }
+        displays.add(session.mainHand);
+        displays.add(session.offHand);
+        return displays.stream()
+            .filter(display -> display != null && display.isValid())
+            .mapToInt(ItemDisplay::getEntityId)
+            .toArray();
+    }
+
+    /**
+     * Fires {@link EmoteRigSpawnEvent} for every rig whose displays were
+     * spawned since this last ran.
+     *
+     * <p>Called at the END of each thing that can spawn them — starting an
+     * emote, putting on or swapping a worn one, the tick pass that swaps a
+     * movement set's member — rather than where they are spawned, so a
+     * listener is handed a finished rig and a director that is not halfway
+     * through anything. See {@link Session#rigChanged}.
+     *
+     * <p>Every flag is cleared before the first event goes out, and each
+     * session is looked up again as its turn comes: a listener may end or
+     * change somebody else's rig, and one ended by then has nothing to mount.
+     * A listener that respawns a rig itself goes through one of the callers of
+     * this, which announces that change on its own way out.
+     */
+    private void announceRigs() {
+        List<UUID> changed = null;
+        for (Map.Entry<UUID, Session> entry : active.entrySet()) {
+            if (!entry.getValue().rigChanged) continue;
+            entry.getValue().rigChanged = false;
+            if (changed == null) changed = new ArrayList<>();
+            changed.add(entry.getKey());
+        }
+        if (changed == null) return;
+        for (UUID id : changed) {
+            Session session = active.get(id);
+            Player player = Bukkit.getPlayer(id);
+            if (session == null || player == null) continue;
+            Bukkit.getPluginManager().callEvent(new EmoteRigSpawnEvent(player, passengerIds(session)));
+        }
+    }
+
     /** Every emote held, in manifest order. An emote's id is its name. */
     public List<String> ids() {
         return emotes.names();
@@ -1289,6 +1378,7 @@ public final class EmoteDirector implements Listener {
         }
 
         swapWorn(player, session, over(builtIn(under), wanted));
+        announceRigs();
         return EmoteResult.started(wanted != null ? wanted.name : "", false);
     }
 
@@ -1704,6 +1794,7 @@ public final class EmoteDirector implements Listener {
         // for one pass — visible, and exactly what a swap is meant to avoid.
         setRigHidden(player, session, true);
         if (tickStance(player, session)) pose(player.getUniqueId(), session, 0);
+        announceRigs();
         return EmoteResult.started(group.name, borrowed);
     }
 
@@ -1851,6 +1942,7 @@ public final class EmoteDirector implements Listener {
             Session session = active.get(id);
             if (session != null) pose(id, session, 0);
         }
+        announceRigs();
 
         // Said once, when it happens, rather than refusing: they are emoting,
         // just not as themselves, and the fix is a re-sync they can choose to
@@ -2138,6 +2230,9 @@ public final class EmoteDirector implements Listener {
         // above — the same guarantee the game-mode swap had.
         conceal(player, session);
         if (!isLead) player.teleport(session.origin);
+        // Every display is new. Said by whoever called this, once what they
+        // were doing is finished — see announceRigs.
+        session.rigChanged = true;
         active.put(player.getUniqueId(), session);
         return session;
     }
@@ -2182,6 +2277,10 @@ public final class EmoteDirector implements Listener {
         session.propParts = new ArrayList<>();
         session.propsSpawned = wanted;
         session.propsPerformer = performerId;
+        // Past the early return, so a swap that kept its models says nothing.
+        // Set even when the new list is empty: displays a plugin mounted have
+        // just been removed, and "there are fewer now" is still a new list.
+        session.rigChanged = true;
         for (EmoteStore.Prop prop : emote.props == null
                 ? java.util.Collections.<EmoteStore.Prop>emptyList()
                 : emote.props) {
@@ -3981,6 +4080,9 @@ public final class EmoteDirector implements Listener {
             follow(player, session, animationTime(session.emote, elapsed));
             pose(entry.getKey(), session, INTERPOLATION_TICKS);
         }
+        // A movement set swapping to a member that carries other models
+        // respawns them in the pass above.
+        announceRigs();
     }
 
     /**
