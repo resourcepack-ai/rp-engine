@@ -42,6 +42,37 @@ class ShaderPlacementTest {
         }
     }
 
+    /**
+     * A label pinned to the right of the screen ends on its point, one pinned to
+     * the middle centres on it, whatever its placeholder filled in with — and
+     * the line still ends where it began, or the action bar would recentre.
+     */
+    @Test void alignedLabelsLineUpOnTheirInkAndKeepTheOrigin() {
+        for (double align : List.of(0.0, 0.5, 1.0)) {
+            for (String value : List.of("1", "123456789", "Wide text")) {
+                OverlayInfo info = OverlayInfo.pushed(ContentId.parse("test:full").orElseThrow(), "canvas", "",
+                        OverlayInfo.Slot.ACTION_BAR, "#fe0001", "minecraft:default", "", List.of(),
+                        List.of(new OverlayInfo.OverlayRun("", 0, "{value}", "", "#fd0002", 0, Map.of(), null, align)))
+                        .withCursor(9, plus, minus);
+                BaseComponent[] parts = Overlays.compose(info, Map.of("value", value));
+                int cursor = 9;
+                int start = Integer.MIN_VALUE;
+                for (int i = 1; i < parts.length; i++) {
+                    TextComponent part = (TextComponent) parts[i];
+                    if (part.getColorRaw() == null) {
+                        cursor += shiftWidth(part.getText());
+                    } else {
+                        start = cursor;
+                        cursor += TextWidth.of(part.getText());
+                    }
+                }
+                int ink = TextWidth.of(value) - 1;
+                assertEquals(-(int) Math.round(align * ink), start, "align " + align + " on \"" + value + "\"");
+                assertEquals(9, cursor, "the line must still end at the canvas advance");
+            }
+        }
+    }
+
     @Test void shiftsBeyondOneAlphabetAreNotClamped() {
         for (int offset : List.of(-2048, -1024, 0, 1024, 4096)) {
             assertEquals(offset, shiftWidth(Overlays.shiftTo(overlay(), offset)));

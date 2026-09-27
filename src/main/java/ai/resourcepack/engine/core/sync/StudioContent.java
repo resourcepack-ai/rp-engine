@@ -357,6 +357,13 @@ public final class StudioContent {
         String shift;
         /** Where this run starts, in pixels from the picture's left edge. */
         int x;
+        /**
+         * How the drawn words line up on {@link #x}: 0 starts them there, 0.5
+         * centres them, 1 ends them there. Absent reads as 0, which is every
+         * run written before a label could be pinned to the right of the screen.
+         * See {@link OverlayInfo.OverlayRun#align()}.
+         */
+        double align;
         String text;
         String font;
         String color;
@@ -1071,6 +1078,7 @@ public final class StudioContent {
                 Run written = new Run();
                 written.shift = run.shift();
                 written.x = run.x();
+                written.align = run.align();
                 written.text = run.text();
                 written.font = run.font();
                 written.color = run.color();
@@ -1116,7 +1124,8 @@ public final class StudioContent {
                 continue;
             }
             out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color,
-                    run.advance, run.players == null ? Map.of() : Map.copyOf(run.players), bar(run.bar)));
+                    run.advance, run.players == null ? Map.of() : Map.copyOf(run.players), bar(run.bar),
+                    run.align));
         }
         return List.copyOf(out);
     }
