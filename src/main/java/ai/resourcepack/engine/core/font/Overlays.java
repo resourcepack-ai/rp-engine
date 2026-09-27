@@ -245,7 +245,8 @@ public final class Overlays {
             if (drawn.text().isEmpty()) {
                 continue;
             }
-            out.append(placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift());
+            int start = startOf(run, drawn.advance());
+            out.append(placeOurselves ? shiftTo(info, start - cursor) : run.shift());
             // A bar's fill can name its own colour — the mark for whichever
             // threshold the value fell under — and it wins over the run's,
             // which is the mark for the bar's base colour. Everything else
@@ -255,7 +256,7 @@ public final class Overlays {
                     ? ChatColor.WHITE.toString()
                     : net.md_5.bungee.api.ChatColor.of(tint).toString());
             out.append(drawn.text());
-            cursor = run.x() + drawn.advance();
+            cursor = start + drawn.advance();
         }
         if (info.runs().isEmpty()) {
             String plain = OverlayRuntime.fill(info.text(), filled, viewer);
@@ -506,7 +507,8 @@ public final class Overlays {
                 // their advances are declared — so it is its own component. Put
                 // them in the text's font and they are glyphs that font has
                 // never heard of.
-                String moveBy = placeOurselves ? shiftTo(info, run.x() - cursor) : run.shift();
+                int start = startOf(run, drawn.advance());
+                String moveBy = placeOurselves ? shiftTo(info, start - cursor) : run.shift();
                 if (!moveBy.isEmpty()) {
                     TextComponent shift = new TextComponent(moveBy);
                     shift.setFont(info.font().isEmpty() ? null : info.font());
@@ -522,7 +524,7 @@ public final class Overlays {
                         ? net.md_5.bungee.api.ChatColor.WHITE
                         : net.md_5.bungee.api.ChatColor.of(tint));
                 parts.add(body);
-                cursor = run.x() + drawn.advance();
+                cursor = start + drawn.advance();
             }
             // The action bar centres the FINAL advance, not the picture.
             // Restore the canvas width so labels and changing values cannot
@@ -539,6 +541,23 @@ public final class Overlays {
             }
         }
         return parts.toArray(new BaseComponent[0]);
+    }
+
+    /**
+     * Where a run's drawn words start: its {@code x}, less however much of its
+     * width its alignment puts to the left of that point.
+     *
+     * <p>Measured on the INK, not the advance: a drawn string moves the cursor
+     * one pixel past its last glyph (the gap the font renderer leaves after
+     * every one), and aligning on that would leave a right-pinned label a pixel
+     * short of its point. Zero alignment is the run's own {@code x}, which is
+     * every run that is not a label on a full-screen shader object.
+     */
+    static int startOf(OverlayInfo.OverlayRun run, int advance) {
+        if (run.align() <= 0) {
+            return run.x();
+        }
+        return run.x() - (int) Math.round(run.align() * Math.max(0, advance - 1));
     }
 
     /** Powers of two, repeating the largest step when a move exceeds 1023 pixels. */

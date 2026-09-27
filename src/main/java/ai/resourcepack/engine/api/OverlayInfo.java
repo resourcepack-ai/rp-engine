@@ -68,6 +68,7 @@ public final class OverlayInfo {
         private final int advance;
         private final java.util.Map<String, String> players;
         private final Bar bar;
+        private final double align;
 
         /**
          * How to build a run whose LENGTH depends on a number.
@@ -198,6 +199,19 @@ public final class OverlayInfo {
 
         public OverlayRun(String shift, int x, String text, String font, String color,
                           int advance, java.util.Map<String, String> players, Bar bar) {
+            this(shift, x, text, font, color, advance, players, bar, 0);
+        }
+
+        /**
+         * A run whose words line up on {@code x} rather than start at it.
+         *
+         * @param align 0 starts the run at {@code x}, 0.5 centres it there and 1
+         *              ends it there; anything between is that fraction of its
+         *              width. Clamped to 0..1. See {@link #align()}.
+         */
+        public OverlayRun(String shift, int x, String text, String font, String color,
+                          int advance, java.util.Map<String, String> players, Bar bar, double align) {
+            this.align = Double.isFinite(align) ? Math.max(0, Math.min(1, align)) : 0;
             this.bar = bar;
             this.shift = shift == null ? "" : shift;
             this.x = x;
@@ -264,6 +278,18 @@ public final class OverlayInfo {
         /** Where this run starts, in pixels from the picture's left edge. */
         public int x() {
             return x;
+        }
+
+        /**
+         * How the drawn words line up on {@link #x()}: 0 starts them there, 0.5
+         * centres them on it, 1 ends them there.
+         *
+         * <p>What a label pinned to the right or the middle of the screen
+         * needs, and only the engine can do it: how wide a run is depends on
+         * what its placeholders filled in with, a tick before it is sent.
+         */
+        public double align() {
+            return align;
         }
 
         /** The text, with {@code {name}} placeholders still in it. */
