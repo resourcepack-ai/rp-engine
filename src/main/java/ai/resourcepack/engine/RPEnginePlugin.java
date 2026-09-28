@@ -183,6 +183,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private SyncClient sync;
     private StudioRelay studio;
     private StudioContent pushed;
+    /** 3D armour: the pieces, and the displays on whoever has them on. See core/armor3d. */
+    private ai.resourcepack.engine.core.armor3d.Armor3dItems armor3dItems;
+    private ai.resourcepack.engine.core.armor3d.WornArmour wornArmour;
 
     /**
      * What a PUSHED model is shaped like, read out of the pack on disk.
@@ -550,6 +553,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vehicles.registerDismount(this);
         vehicles.start();
         liquids.start();
+        // 3D armour. Only where a pushed pack can name its art (a string
+        // custom_model_data, 1.21.4) — below that the loop never starts and
+        // the command says why, rather than dressing people in blank paper.
+        armor3dItems = new ai.resourcepack.engine.core.armor3d.Armor3dItems(this, compatibility);
+        wornArmour = new ai.resourcepack.engine.core.armor3d.WornArmour(this, compatibility, armor3dItems,
+                pushed::armor3d, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS));
+        getServer().getPluginManager().registerEvents(wornArmour, this);
+        wornArmour.start();
         getServer().getPluginManager().registerEvents(
                 new ItemListener(this, items, new ActionRunner(items, sounds),
                         new LiquidBuckets(liquids, pools, liquidBiomes, getLogger())), this);
@@ -686,7 +697,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         this::announceMembers, this::unpush),
                 liquidCommands,
                 new VehicleCommands(vehicles),
-                new EditCommands(edits, registry, items, vehicles, editing));
+                new EditCommands(edits, registry, items, vehicles, editing),
+                new ai.resourcepack.engine.core.command.Armor3dCommands(pushed::armor3d, armor3dItems,
+                        wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
+                                ? null
+                                : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
+                                        + "custom_model_data, which older servers cannot carry."));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1007,6 +1023,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
+        }
+        if (wornArmour != null) {
+            // Every display off every body. None of them is persistent, so a
+            // crash leaves nothing behind either; this is so a /reload does not
+            // leave a second suit standing beside the first for a tick.
+            wornArmour.stop();
         }
         if (pushed != null) {
             pushed.save(getLogger());

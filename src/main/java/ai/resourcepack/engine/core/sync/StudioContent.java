@@ -17,6 +17,7 @@ import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.api.VehicleMedium;
 import ai.resourcepack.engine.api.VehicleSeat;
 import ai.resourcepack.engine.api.VehicleState;
+import ai.resourcepack.engine.core.armor3d.Armor3dSet;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -81,6 +82,47 @@ public final class StudioContent {
         List<Vehicle> vehicles;
         List<Model> models;
         List<Dialog> dialogs;
+        List<Armor3d> armor3d;
+    }
+
+    /**
+     * A 3D armour set: which item each piece is, and the displays it puts on
+     * the body.
+     *
+     * <p>Here for the same reason a vehicle is. The art is in the zip — one
+     * block model per display and one per piece, dispatched off paper by
+     * string — but a zip has no way to say that a model is the left pauldron
+     * of a set, that it rides the left arm, or where on the arm it sits. See
+     * {@link Armor3dSet} for why the helmet has no parts.
+     */
+    static final class Armor3d {
+        String id;
+        String name;
+        List<Armor3dPiece> pieces;
+    }
+
+    static final class Armor3dPiece {
+        /** {@code helmet}, {@code chestplate}, {@code leggings} or {@code boots}. */
+        String piece;
+        /** The piece item's own {@code custom_model_data} string. */
+        String item;
+        List<Armor3dPart> parts;
+    }
+
+    /**
+     * One display. {@code anchor} is in PIXELS in the wearer's frame — see
+     * {@link Armor3dSet.Part} — because that is the frame the set was built
+     * in and the frame the pose is worked out in; nothing on either side
+     * converts it.
+     */
+    static final class Armor3dPart {
+        String bone;
+        String model;
+        float[] anchor;
+        /** Absent for a part the model holds square. */
+        float[] rotation;
+        /** Boxed: absent is 1, and gson's zero would be a part drawn at no size. */
+        Float scale;
     }
 
     /**
@@ -469,6 +511,7 @@ public final class StudioContent {
      */
     private volatile Set<String> vehiclePassable = Set.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
+    private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -504,6 +547,18 @@ public final class StudioContent {
     }
 
     /**
+     * The pushed 3D armour sets, keyed by their bare id.
+     *
+     * <p>Not registry content, and that is a known gap rather than a choice:
+     * nothing but a push can define one yet, so there is no second source for
+     * the registry to hold an opinion about. A hand-authored set (a
+     * {@code .bbmodel} with MythicArmors' bone names) is the missing half.
+     */
+    public Map<String, Armor3dSet> armor3d() {
+        return armor3d;
+    }
+
+    /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
      *
@@ -520,7 +575,7 @@ public final class StudioContent {
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty() && dialogs.isEmpty();
+                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty();
     }
 
     /**
@@ -619,15 +674,91 @@ public final class StudioContent {
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name)));
         }
 
+        Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
+        for (Armor3d set : manifest.armor3d == null ? List.<Armor3d>of() : manifest.armor3d) {
+            Armor3dSet read = armor3dOf(set, log);
+            if (read != null) {
+                readArmor.put(read.id(), read);
+            }
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         huds = Map.copyOf(readHuds);
         vehicles = Map.copyOf(readVehicles);
         vehiclePassable = Set.copyOf(readPassable);
         dialogs = Map.copyOf(readDialogs);
+        armor3d = Map.copyOf(readArmor);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
-                sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size());
+                sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
+                        + armor3d.size());
+    }
+
+    /**
+     * One armour set off the manifest, or null if there is nothing to wear.
+     *
+     * <p>A piece or a part it cannot read is left out and said, rather than
+     * refusing the set: a set missing a pauldron is still a set, and the log
+     * line is the only place anybody will find out why.
+     */
+    private static Armor3dSet armor3dOf(Armor3d set, Logger log) {
+        if (set == null || set.id == null || !set.id.matches("[a-z0-9_.-]+")) {
+            if (log != null && set != null) {
+                log.warning("Skipped a 3D armour set with an unusable id: " + set.id);
+            }
+            return null;
+        }
+        Map<Armor3dSet.Piece, Armor3dSet.Worn> pieces = new EnumMap<>(Armor3dSet.Piece.class);
+        for (Armor3dPiece piece : set.pieces == null ? List.<Armor3dPiece>of() : set.pieces) {
+            if (piece == null || piece.item == null || piece.item.isEmpty()) {
+                continue;
+            }
+            Armor3dSet.Piece which = Armor3dSet.Piece.of(piece.piece).orElse(null);
+            if (which == null) {
+                if (log != null) {
+                    log.warning("3D armour set " + set.id + " has a piece called " + piece.piece
+                            + ", which is not helmet, chestplate, leggings or boots.");
+                }
+                continue;
+            }
+            List<Armor3dSet.Part> parts = new ArrayList<>();
+            for (Armor3dPart part : piece.parts == null ? List.<Armor3dPart>of() : piece.parts) {
+                if (part == null || part.model == null || part.anchor == null || part.anchor.length != 3) {
+                    continue;
+                }
+                parts.add(new Armor3dSet.Part(part.bone, part.model, part.anchor,
+                        part.rotation != null && part.rotation.length == 3 ? part.rotation : null,
+                        part.scale == null || part.scale <= 0 ? 1f : part.scale));
+            }
+            pieces.put(which, new Armor3dSet.Worn(which, piece.item, List.copyOf(parts)));
+        }
+        return pieces.isEmpty() ? null : new Armor3dSet(set.id, set.name, pieces);
+    }
+
+    /** A set back out, in the shape it arrived in — a restart reads nothing else. */
+    private static Armor3d armor3dOut(Armor3dSet set) {
+        Armor3d out = new Armor3d();
+        out.id = set.id();
+        out.name = set.name();
+        out.pieces = new ArrayList<>();
+        for (Armor3dSet.Worn worn : set.pieces().values()) {
+            Armor3dPiece piece = new Armor3dPiece();
+            piece.piece = worn.piece().wire();
+            piece.item = worn.item();
+            piece.parts = new ArrayList<>();
+            for (Armor3dSet.Part part : worn.parts()) {
+                Armor3dPart written = new Armor3dPart();
+                written.bone = part.bone();
+                written.model = part.model();
+                written.anchor = part.anchor();
+                written.rotation = part.rotation();
+                written.scale = part.scale() == 1f ? null : part.scale();
+                piece.parts.add(written);
+            }
+            out.pieces.add(piece);
+        }
+        return out;
     }
 
     /**
@@ -942,6 +1073,10 @@ public final class StudioContent {
             // holding one. Still unread: parsing is not looking.
             dialog.json = com.google.gson.JsonParser.parseString(entry.getValue().json());
             manifest.dialogs.add(dialog);
+        }
+        manifest.armor3d = new ArrayList<>();
+        for (Armor3dSet set : armor3d.values()) {
+            manifest.armor3d.add(armor3dOut(set));
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());
