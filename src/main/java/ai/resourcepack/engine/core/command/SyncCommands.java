@@ -386,14 +386,29 @@ public final class SyncCommands implements Area {
             Reply.to(player, "Could not reach studio. Check sync.url in config.yml.");
             return true;
         }
-        group.claim(code, player.getName());
+        // Anybody already on this player's sync comes across to the new code
+        // (see SyncGroup.claim). The code it replaced is taken down at the far
+        // end, since nothing here routes a push on it any more; a uuid ref is
+        // not unlinkable, so its roster is emptied instead.
+        group.claim(code, player.getName()).ifPresent(old -> {
+            if (SyncCodes.isUuid(old)) {
+                announce.accept(old);
+            } else {
+                sync.unlink(old);
+            }
+        });
         announce.accept(code);
         // "Waiting", not "synced". Nothing here can tell whether a well-formed
         // code was ever issued — the far end silently ignores one it does not
         // know and sends nothing back — so the most that can honestly be said
         // is that we are listening.
-        Reply.to(player, "Waiting for a push on " + code
-                + ". Hit sync in the panel. /rp sync add <player> to share it.");
+        List<String> others = group.recipients(code).stream()
+                .filter(name -> !name.equalsIgnoreCase(player.getName()))
+                .toList();
+        Reply.to(player, "Waiting for a push on " + code + ". Hit sync in the panel. "
+                + (others.isEmpty()
+                        ? "/rp sync add <player> to share it."
+                        : "Still sharing with " + String.join(", ", others) + "."));
         return true;
     }
 }

@@ -265,4 +265,47 @@ class SyncGroupTest {
 
         assertEquals(SyncGroup.Result.ALREADY, group.invite("Notch", "Steve"));
     }
+
+    @Test
+    void claimingANewCodeCarriesTheSyncAcross() {
+        // The studio socket reconnecting kills a code, so the owner types a
+        // fresh one with their friends still on the dead one. It used to stay
+        // here beside the new one, and every later add invited people onto it.
+        join("Steve");
+        group.invite("Notch", "Alex");
+
+        assertEquals("48213097", group.claim("56597961", "Notch").orElseThrow());
+
+        assertEquals("56597961", group.codeOf("Notch").orElseThrow());
+        assertEquals(List.of("Notch", "Steve"), group.recipients("56597961"));
+        assertEquals(List.of(), group.recipients("48213097"));
+        assertEquals("56597961", group.accept("Alex").orElseThrow());
+        assertEquals(List.of("Notch", "Steve", "Alex"), group.recipients("56597961"));
+    }
+
+    @Test
+    void anAddAfterReclaimingLandsOnTheNewCode() {
+        group.claim("56597961", "Notch");
+        group.invite("Notch", "Steve");
+
+        assertEquals("56597961", group.accept("Steve").orElseThrow());
+        assertEquals(List.of("Notch", "Steve"), group.recipients("56597961"));
+    }
+
+    @Test
+    void reclaimingTheSameCodeReplacesNothing() {
+        join("Steve");
+
+        assertTrue(group.claim("48213097", "Notch").isEmpty());
+        assertEquals(List.of("Notch", "Steve"), group.recipients("48213097"));
+    }
+
+    @Test
+    void quittingAfterReclaimingLeavesNothingBehind() {
+        group.claim("56597961", "Notch");
+        group.forget("Notch");
+
+        assertTrue(group.codes().isEmpty());
+        assertTrue(group.codeOf("Notch").isEmpty());
+    }
 }
