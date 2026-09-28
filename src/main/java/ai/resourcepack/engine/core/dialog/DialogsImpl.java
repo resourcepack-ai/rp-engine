@@ -119,6 +119,11 @@ public final class DialogsImpl implements Dialogs {
 
     @Override
     public boolean show(Player viewer, ContentId id) {
+        return show(viewer, id, Map.of());
+    }
+
+    @Override
+    public boolean show(Player viewer, ContentId id, Map<String, String> values) {
         if (!canShow(viewer, id)) {
             return false;
         }
@@ -127,14 +132,15 @@ public final class DialogsImpl implements Dialogs {
             return false;
         }
         String named = id.namespace() + ":" + id.path();
+        String json = filled(viewer, info.json(), values);
 
         // Decode JSON directly so multiline text and other values need not
         // pass through the command parser or wait for the datapack registry.
-        if (DialogPackets.show(viewer, info.json())) return true;
+        if (DialogPackets.show(viewer, json)) return true;
 
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
-        Optional<String> inline = DialogSnbt.of(info.json());
+        Optional<String> inline = DialogSnbt.of(json);
         if (inline.isPresent() && dispatch("minecraft:dialog show " + viewer.getName() + " " + inline.get(),
                 named, false) == Outcome.SHOWN) {
             return true;
@@ -178,6 +184,31 @@ public final class DialogsImpl implements Dialogs {
             }
         }
         return false;
+    }
+
+    /**
+     * The dialog's JSON with its placeholders filled for this viewer — see
+     * {@link DialogPlaceholders}. What a caller handed over wins, matched
+     * without regard to case; then the built-ins and PlaceholderAPI.
+     */
+    private static String filled(Player viewer, String json, Map<String, String> values) {
+        if (!DialogPlaceholders.any(json)) {
+            return json;
+        }
+        Map<String, String> given = new java.util.HashMap<>();
+        if (values != null) {
+            values.forEach((k, v) -> {
+                if (k != null && v != null) {
+                    given.put(k.toLowerCase(java.util.Locale.ROOT), v);
+                }
+            });
+        }
+        return DialogPlaceholders.fill(json, name -> {
+            String mine = given.get(name.toLowerCase(java.util.Locale.ROOT));
+            return mine != null
+                    ? Optional.of(mine)
+                    : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, null);
+        });
     }
 
     @Override

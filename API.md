@@ -613,6 +613,25 @@ engine.dialogs().ids();                    // what this server has
 engine.dialogs().info(id);                 // what a pack said one is
 ```
 
+**A dialog about somebody** says so with a placeholder — `{target}` in its
+title, a tooltip, a button's label or the command a click runs — and you say
+who, as you open it:
+
+```java
+engine.dialogs().show(staff, "mypack:punish", Map.of("target", suspect.getName()));
+// "Punish {target}" opens as "Punish Steve", and a reason that runs
+// "mute {target} 1h" runs "mute Steve 1h".
+```
+
+A name you did not hand over is asked of the same built-ins an overlay's are
+(`{player}`, `{ping}`, `{world}`… — all about the player it is shown to), then
+of PlaceholderAPI if it is installed. A name nothing answers is left as it was
+written, so a dialog that happens to say `{VIP}` is not rewritten. Names match
+without regard to case, formatting codes are taken out of a value (a command
+carrying one is refused by the game, and takes its whole dialog with it), and a
+value is inserted once and never read again. Words drawn into a Studio dialog's
+PICTURE are pixels and stay as they were drawn.
+
 `show` returns false rather than throwing, and there are three reasons it might:
 
 ```java
