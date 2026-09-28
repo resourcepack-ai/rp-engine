@@ -128,6 +128,11 @@ public final class WornArmour implements Listener {
     private final DisplayCarry snap;
     private final boolean available;
 
+    /** A player's client protocol — see {@link Armor3dSet#drawnBy}. */
+    private final java.util.function.ToIntFunction<Player> protocolOf;
+    /** Looked up once per session: a connection does not change version. */
+    private final Map<UUID, Integer> protocols = new HashMap<>();
+
     private final Map<UUID, Wearer> wearers = new HashMap<>();
     /** Who asked to see their own. Session-only, and kept when they take it off and put it back on. */
     private final Set<UUID> showingSelf = new HashSet<>();
@@ -135,8 +140,10 @@ public final class WornArmour implements Listener {
     private int taskId = -1;
 
     public WornArmour(Plugin plugin, Compatibility compatibility, Armor3dItems items,
-                      Supplier<Map<String, Armor3dSet>> sets, boolean available) {
+                      Supplier<Map<String, Armor3dSet>> sets, boolean available,
+                      java.util.function.ToIntFunction<Player> protocolOf) {
         this.plugin = plugin;
+        this.protocolOf = protocolOf;
         this.items = items;
         this.sets = sets;
         this.glide = DisplayCarry.forServer(compatibility, DisplayLatency.TRACKED_ENTITY_TICKS);
@@ -179,6 +186,11 @@ public final class WornArmour implements Listener {
         return showingSelf.contains(player.getUniqueId());
     }
 
+    /** Whether {@code player}'s own client draws {@code set} — see {@link Armor3dSet#drawnBy}. */
+    public boolean drawsItself(Player player, Armor3dSet set) {
+        return set.drawnBy(protocol(player));
+    }
+
     // ---- the loop -------------------------------------------------------------
 
     private void tick() {
@@ -190,7 +202,7 @@ public final class WornArmour implements Listener {
         for (Player player : Bukkit.getOnlinePlayers()) {
             Wearer wearer = wearers.get(player.getUniqueId());
             if (readEquipment) {
-                Map<String, Armor3dSet.Part> wanted = wanted(player, known);
+                Map<String, Placed> wanted = wanted(player, known);
                 if (wanted.isEmpty()) {
                     if (wearer != null) {
                         wearer.clear();
@@ -209,12 +221,22 @@ public final class WornArmour implements Listener {
             }
             wearer.step(player);
             wearer.shared.sync(player, wearer.wanted, feet(player), false);
-            boolean own = showingSelf.contains(player.getUniqueId());
+            // Their own copy is only the parts their client does not already
+            // draw: a set their shaders draw is on their body with no lag at
+            // all, and nothing here could improve on that.
+            Map<String, Placed> ownWanted = new LinkedHashMap<>();
+            int ownProtocol = protocol(player);
+            for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
+                if (!entry.getValue().set().drawnBy(ownProtocol)) {
+                    ownWanted.put(entry.getKey(), entry.getValue());
+                }
+            }
+            boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
             if (own) {
                 if (wearer.own == null) {
                     wearer.own = new Copy(true);
                 }
-                wearer.own.sync(player, wearer.wanted, feet(player).add(wearer.lead), wearer.jumped);
+                wearer.own.sync(player, ownWanted, feet(player).add(wearer.lead), wearer.jumped);
             } else if (wearer.own != null) {
                 wearer.own.clear();
                 wearer.own = null;
@@ -246,7 +268,7 @@ public final class WornArmour implements Listener {
      * <p>Empty for anybody dead or in spectator: the game draws neither of them
      * with armour on.
      */
-    private Map<String, Armor3dSet.Part> wanted(Player player, Map<String, Armor3dSet> known) {
+    private Map<String, Placed> wanted(Player player, Map<String, Armor3dSet> known) {
         if (known.isEmpty() || player.isDead() || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
             return Map.of();
         }
@@ -254,7 +276,7 @@ public final class WornArmour implements Listener {
         if (equipment == null) {
             return Map.of();
         }
-        Map<String, Armor3dSet.Part> wanted = new LinkedHashMap<>();
+        Map<String, Placed> wanted = new LinkedHashMap<>();
         for (Armor3dSet.Piece piece : Armor3dSet.Piece.values()) {
             ItemStack stack = equipment.getItem(piece.slot());
             if (stack == null || stack.getType() == Material.AIR) {
@@ -269,7 +291,8 @@ public final class WornArmour implements Listener {
                     .ifPresent(entry -> {
                         List<Armor3dSet.Part> parts = entry.getValue().parts();
                         for (int i = 0; i < parts.size(); i++) {
-                            wanted.put(entry.getKey().id() + "/" + piece.wire() + "/" + i, parts.get(i));
+                            wanted.put(entry.getKey().id() + "/" + piece.wire() + "/" + i,
+                                    new Placed(entry.getKey(), parts.get(i)));
                         }
                     });
         }
@@ -312,9 +335,24 @@ public final class WornArmour implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player joiner = event.getPlayer();
         for (Wearer wearer : wearers.values()) {
-            if (wearer.own != null && !wearer.id.equals(joiner.getUniqueId())) {
+            if (wearer.id.equals(joiner.getUniqueId())) {
+                continue;
+            }
+            if (wearer.own != null) {
                 for (ItemDisplay display : wearer.own.displays.values()) {
                     joiner.hideEntity(plugin, display);
+                }
+            }
+            // And the shared copy by the ordinary rule, now rather than at the
+            // next visibility pass: a joiner whose client draws the set must
+            // not see a second suit for half a second.
+            Player worn = Bukkit.getPlayer(wearer.id);
+            if (worn != null) {
+                for (Map.Entry<String, ItemDisplay> entry : wearer.shared.displays.entrySet()) {
+                    Placed placed = wearer.shared.shown.get(entry.getKey());
+                    if (placed != null) {
+                        wearer.apply(joiner, worn, entry.getValue(), placed.set());
+                    }
                 }
             }
         }
@@ -327,6 +365,7 @@ public final class WornArmour implements Listener {
             wearer.clear();
         }
         showingSelf.remove(event.getPlayer().getUniqueId());
+        protocols.remove(event.getPlayer().getUniqueId());
     }
 
     // ---- one wearer -----------------------------------------------------------
@@ -334,13 +373,13 @@ public final class WornArmour implements Listener {
     private final class Wearer {
 
         final UUID id;
-        Map<String, Armor3dSet.Part> wanted = Map.of();
+        Map<String, Placed> wanted = Map.of();
         /** What everybody else sees. Never shown to the wearer. */
         final Copy shared = new Copy(false);
         /** What the wearer sees of themselves, when they asked to. Only ever shown to them. */
         Copy own;
-        /** Who the shared copy is currently hidden from because they cannot see the wearer. */
-        final Set<UUID> hiddenFrom = new HashSet<>();
+        /** "viewer|display" for every shared display currently hidden from a viewer. */
+        final Set<String> hidden = new HashSet<>();
 
         /** {@code {position, speed}} — see {@link WornPose#walk}. */
         final float[] walk = new float[2];
@@ -497,37 +536,38 @@ public final class WornArmour implements Listener {
         }
 
         /**
-         * Hides the shared copy from anybody who cannot see the person wearing
-         * it.
+         * Who sees which of the shared displays, brought up to date.
          *
-         * <p>A vanished moderator in 3D armour would otherwise be a suit
-         * walking round on its own — and so would anybody an emote has
-         * swapped for a rig, which hides them the same way.
+         * <p>Two reasons to hide one from a viewer, both per viewer: they cannot
+         * see the wearer (a vanished moderator in 3D armour would otherwise be a
+         * suit walking round on its own, and so would anybody an emote has
+         * swapped for a rig), or their client draws the set itself — see
+         * {@link Armor3dSet#drawnBy}.
          */
         void mirrorVisibility(Player wearer) {
             for (Player viewer : Bukkit.getOnlinePlayers()) {
                 if (viewer.equals(wearer)) {
                     continue;
                 }
-                boolean sees = viewer.canSee(wearer);
-                boolean hidden = hiddenFrom.contains(viewer.getUniqueId());
-                if (sees == !hidden) {
-                    continue;
-                }
-                for (ItemDisplay display : shared.displays.values()) {
-                    if (sees) {
-                        viewer.showEntity(plugin, display);
-                    } else {
-                        viewer.hideEntity(plugin, display);
+                for (Map.Entry<String, ItemDisplay> entry : shared.displays.entrySet()) {
+                    Placed placed = shared.shown.get(entry.getKey());
+                    if (placed != null) {
+                        apply(viewer, wearer, entry.getValue(), placed.set());
                     }
                 }
-                if (sees) {
-                    hiddenFrom.remove(viewer.getUniqueId());
-                } else {
-                    hiddenFrom.add(viewer.getUniqueId());
-                }
             }
-            hiddenFrom.removeIf(viewer -> Bukkit.getPlayer(viewer) == null);
+            hidden.removeIf(key -> Bukkit.getPlayer(UUID.fromString(key.substring(0, key.indexOf('|')))) == null);
+        }
+
+        /** One viewer, one display: shown or hidden as {@link #shows} says. */
+        void apply(Player viewer, Player wearer, ItemDisplay display, Armor3dSet set) {
+            String key = viewer.getUniqueId() + "|" + display.getUniqueId();
+            boolean show = shows(viewer, wearer, set);
+            if (show && hidden.remove(key)) {
+                viewer.showEntity(plugin, display);
+            } else if (!show && hidden.add(key)) {
+                viewer.hideEntity(plugin, display);
+            }
         }
 
         void clear() {
@@ -544,7 +584,7 @@ public final class WornArmour implements Listener {
 
         final boolean own;
         final Map<String, ItemDisplay> displays = new HashMap<>();
-        final Map<String, Armor3dSet.Part> shown = new HashMap<>();
+        final Map<String, Placed> shown = new HashMap<>();
         boolean fresh;
 
         Copy(boolean own) {
@@ -552,20 +592,20 @@ public final class WornArmour implements Listener {
         }
 
         /** Spawns what is missing, removes what is no longer worn, and carries the rest to {@code at}. */
-        void sync(Player player, Map<String, Armor3dSet.Part> wanted, Location at, boolean jumped) {
+        void sync(Player player, Map<String, Placed> wanted, Location at, boolean jumped) {
             World world = player.getWorld();
             boolean moved = jumped;
             for (Map.Entry<String, ItemDisplay> entry : List.copyOf(displays.entrySet())) {
                 ItemDisplay display = entry.getValue();
-                Armor3dSet.Part part = wanted.get(entry.getKey());
+                Placed part = wanted.get(entry.getKey());
                 if (part == null || !display.isValid() || display.getWorld() != world
-                        || !part.model().equals(shown.get(entry.getKey()).model())) {
+                        || !part.part().model().equals(shown.get(entry.getKey()).part().model())) {
                     display.remove();
                     displays.remove(entry.getKey());
                     shown.remove(entry.getKey());
                 }
             }
-            for (Map.Entry<String, Armor3dSet.Part> entry : wanted.entrySet()) {
+            for (Map.Entry<String, Placed> entry : wanted.entrySet()) {
                 if (displays.containsKey(entry.getKey())) {
                     continue;
                 }
@@ -585,7 +625,8 @@ public final class WornArmour implements Listener {
             }
         }
 
-        private ItemDisplay spawn(Player player, Location at, Armor3dSet.Part part) {
+        private ItemDisplay spawn(Player player, Location at, Placed placed) {
+            Armor3dSet.Part part = placed.part();
             ItemDisplay display = at.getWorld().spawn(at, ItemDisplay.class, d -> {
                 d.setItemStack(items.art(part.model()));
                 // NONE: the model is built in its own frame, not an item's.
@@ -613,10 +654,9 @@ public final class WornArmour implements Listener {
                 player.hideEntity(plugin, display);
                 Wearer wearer = wearers.get(player.getUniqueId());
                 if (wearer != null) {
-                    for (UUID viewer : wearer.hiddenFrom) {
-                        Player other = Bukkit.getPlayer(viewer);
-                        if (other != null) {
-                            other.hideEntity(plugin, display);
+                    for (Player viewer : Bukkit.getOnlinePlayers()) {
+                        if (!viewer.equals(player)) {
+                            wearer.apply(viewer, player, display, placed.set());
                         }
                     }
                 }
@@ -630,7 +670,8 @@ public final class WornArmour implements Listener {
             }
             WornPose.Pose pose = WornPose.pose(state);
             for (Map.Entry<String, ItemDisplay> entry : displays.entrySet()) {
-                Armor3dSet.Part part = shown.get(entry.getKey());
+                Placed placed = shown.get(entry.getKey());
+                Armor3dSet.Part part = placed == null ? null : placed.part();
                 WornPose.Limb limb = part == null ? null : WornPose.limbOf(part.bone());
                 Transformation next;
                 if (limb == null || hidden) {
@@ -679,6 +720,25 @@ public final class WornArmour implements Listener {
         float tiny = 0.0001f;
         return new Transformation(new Vector3f(0f, 1f, 0f), new Quaternionf(),
                 new Vector3f(tiny, tiny, tiny), new Quaternionf());
+    }
+
+    /** One display's part, and the set it is a part of. */
+    private record Placed(Armor3dSet set, Armor3dSet.Part part) {
+    }
+
+    /** {@code player}'s protocol, cached for the session. */
+    private int protocol(Player player) {
+        return protocols.computeIfAbsent(player.getUniqueId(), id -> protocolOf.applyAsInt(player));
+    }
+
+    /**
+     * Whether {@code viewer} should see a display of {@code set} on
+     * {@code wearer}: not if they cannot see the wearer at all, and not if
+     * their own client draws the set — then the displays would be a second
+     * suit standing in the first.
+     */
+    private boolean shows(Player viewer, Player wearer, Armor3dSet set) {
+        return viewer.canSee(wearer) && !set.drawnBy(protocol(viewer));
     }
 
     /** The ids of every set a player could be given, for the commands. */

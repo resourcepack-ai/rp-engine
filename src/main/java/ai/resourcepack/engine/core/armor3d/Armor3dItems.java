@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiConsumer;
 
 /**
  * The stacks 3D armour is made of: the four pieces a player holds and wears,
@@ -36,7 +35,12 @@ public final class Armor3dItems {
 
     private final NamespacedKey pieceKey;
     private final RigTags tags;
-    private final BiConsumer<ItemMeta, EquipmentSlot> equipping;
+    /** Puts the slot, and the asset where there is one, on a piece. */
+    private interface Equipper {
+        void wear(ItemMeta meta, EquipmentSlot slot, String asset);
+    }
+
+    private final Equipper equipping;
     private final Map<String, ItemStack> art = new ConcurrentHashMap<>();
 
     public Armor3dItems(Plugin plugin, Compatibility compatibility) {
@@ -44,9 +48,10 @@ public final class Armor3dItems {
         this.tags = RigTags.forServer(compatibility, plugin);
         // A method reference to the newer class, so this one never names the
         // API itself — see version-arms.txt.
+        boolean withArt = compatibility.has(Feature.ARMOUR_ART);
         this.equipping = compatibility.has(Feature.EQUIPPABLE_ITEMS)
-                ? PieceEquipping::wearable
-                : (meta, slot) -> { };
+                ? (meta, slot, asset) -> PieceEquipping.wearable(meta, slot, asset, withArt)
+                : (meta, slot, asset) -> { };
     }
 
     /** One piece of a set, as an item somebody can hold and put on. */
@@ -61,7 +66,7 @@ public final class Armor3dItems {
                 set.id() + "/" + worn.piece().wire());
         meta.setDisplayName(ChatColor.RESET + set.name() + " " + worn.piece().label());
         meta.setLore(List.of(ChatColor.GRAY + "3D armour"));
-        equipping.accept(meta, worn.piece().slot());
+        equipping.wear(meta, worn.piece().slot(), worn.asset());
         stack.setItemMeta(meta);
         return stack;
     }

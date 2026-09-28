@@ -99,6 +99,12 @@ public final class StudioContent {
         String id;
         String name;
         List<Armor3dPiece> pieces;
+        /**
+         * Inclusive protocol ranges whose clients draw the set themselves,
+         * through the pack's shader overlay — see {@link Armor3dSet#drawnBy}.
+         * Absent on a manifest older than the overlay, which is nobody.
+         */
+        List<int[]> shaderProtocols;
     }
 
     static final class Armor3dPiece {
@@ -107,6 +113,8 @@ public final class StudioContent {
         /** The piece item's own {@code custom_model_data} string. */
         String item;
         List<Armor3dPart> parts;
+        /** The equipment asset the item wears, e.g. {@code minecraft:rpai_x_chestplate}, or absent. */
+        String asset;
     }
 
     /**
@@ -731,9 +739,16 @@ public final class StudioContent {
                         part.rotation != null && part.rotation.length == 3 ? part.rotation : null,
                         part.scale == null || part.scale <= 0 ? 1f : part.scale));
             }
-            pieces.put(which, new Armor3dSet.Worn(which, piece.item, List.copyOf(parts)));
+            pieces.put(which, new Armor3dSet.Worn(which, piece.item, List.copyOf(parts),
+                    piece.asset == null || piece.asset.isEmpty() ? null : piece.asset));
         }
-        return pieces.isEmpty() ? null : new Armor3dSet(set.id, set.name, pieces);
+        List<int[]> ranges = new ArrayList<>();
+        for (int[] range : set.shaderProtocols == null ? List.<int[]>of() : set.shaderProtocols) {
+            if (range != null && range.length == 2) {
+                ranges.add(range.clone());
+            }
+        }
+        return pieces.isEmpty() ? null : new Armor3dSet(set.id, set.name, pieces, ranges);
     }
 
     /** A set back out, in the shape it arrived in — a restart reads nothing else. */
@@ -741,11 +756,13 @@ public final class StudioContent {
         Armor3d out = new Armor3d();
         out.id = set.id();
         out.name = set.name();
+        out.shaderProtocols = new ArrayList<>(set.shaderProtocols());
         out.pieces = new ArrayList<>();
         for (Armor3dSet.Worn worn : set.pieces().values()) {
             Armor3dPiece piece = new Armor3dPiece();
             piece.piece = worn.piece().wire();
             piece.item = worn.item();
+            piece.asset = worn.asset();
             piece.parts = new ArrayList<>();
             for (Armor3dSet.Part part : worn.parts()) {
                 Armor3dPart written = new Armor3dPart();

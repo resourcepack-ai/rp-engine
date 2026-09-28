@@ -558,7 +558,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the command says why, rather than dressing people in blank paper.
         armor3dItems = new ai.resourcepack.engine.core.armor3d.Armor3dItems(this, compatibility);
         wornArmour = new ai.resourcepack.engine.core.armor3d.WornArmour(this, compatibility, armor3dItems,
-                pushed::armor3d, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS));
+                pushed::armor3d, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
+                ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
