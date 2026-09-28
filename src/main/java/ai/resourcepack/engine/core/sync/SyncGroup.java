@@ -62,7 +62,7 @@ public final class SyncGroup {
      * still waiting included, and drops the old ref. That is the common case
      * rather than an edge: a code dies whenever the studio socket reconnects,
      * so the panel hands out a fresh one and the owner types it while their
-     * friends are still on the dead one. Until 0.1.59 the old code stayed
+     * friends are still on the dead one. Until 0.1.61 the old code stayed
      * here beside the new one, {@link #codeOf} kept answering with the OLDER,
      * and every {@code /rp sync add} from then on invited people onto a code
      * studio had stopped looking at - they accepted, and nothing reached them.
