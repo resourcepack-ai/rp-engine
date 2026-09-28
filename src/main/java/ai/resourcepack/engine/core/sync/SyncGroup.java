@@ -54,13 +54,39 @@ public final class SyncGroup {
     /** Invitee -> the code they were invited to. One at a time, so accept takes no argument. */
     private final Map<String, String> invites = new LinkedHashMap<>();
 
-    /** Records that {@code owner} claimed {@code code}. */
-    public void claim(String code, String owner) {
+    /**
+     * Records that {@code owner} claimed {@code code}.
+     *
+     * <p><strong>A player owns one sync.</strong> Claiming a new code while
+     * holding another carries everybody on the old one across, invitations
+     * still waiting included, and drops the old ref. That is the common case
+     * rather than an edge: a code dies whenever the studio socket reconnects,
+     * so the panel hands out a fresh one and the owner types it while their
+     * friends are still on the dead one. Until 0.1.59 the old code stayed
+     * here beside the new one, {@link #codeOf} kept answering with the OLDER,
+     * and every {@code /rp sync add} from then on invited people onto a code
+     * studio had stopped looking at - they accepted, and nothing reached them.
+     *
+     * @return the ref this replaced, so the caller can take it down at the far
+     *         end and correct whatever roster it last reported
+     */
+    public Optional<String> claim(String code, String owner) {
         if (code == null || owner == null) {
-            return;
+            return Optional.empty();
         }
+        Optional<String> previous = codeOf(owner).filter(ref -> !ref.equals(code));
+        Set<String> carried = new LinkedHashSet<>();
+        previous.ifPresent(old -> {
+            owners.remove(old);
+            Set<String> was = members.remove(old);
+            if (was != null) {
+                carried.addAll(was);
+            }
+            invites.replaceAll((invitee, ref) -> ref.equals(old) ? code : ref);
+        });
         owners.put(code, owner);
-        members.computeIfAbsent(code, key -> new LinkedHashSet<>());
+        members.computeIfAbsent(code, key -> new LinkedHashSet<>()).addAll(carried);
+        return previous;
     }
 
     /** The code {@code player} claimed, if any. */
