@@ -69,18 +69,36 @@ public final class Placeholders {
      * @param set what a plugin published for this player, which wins outright
      */
     public static String resolve(Player viewer, String name, Map<String, String> set) {
+        return lookup(viewer, name, set).orElse("");
+    }
+
+    /**
+     * The value of one placeholder, or EMPTY when none of the three sources
+     * answers it — which {@link #resolve} cannot say, because its blank means
+     * both "the value is blank" and "nobody knows this name".
+     *
+     * <p>An overlay wants the blank either way (a leftover brace reads as a
+     * broken pack). A dialog does not: its placeholders are filled in text
+     * somebody wrote by hand, where "{VIP}" may simply be the words, and
+     * eating every brace it does not recognise would rewrite dialogs that
+     * never asked for any of this.
+     *
+     * @param set what a plugin (or a command) published for this player, which
+     *            wins outright
+     */
+    public static Optional<String> lookup(Player viewer, String name, Map<String, String> set) {
         String published = set == null ? null : set.get(name);
         if (published != null) {
-            return published;
+            return Optional.of(published);
         }
         if (viewer == null) {
-            return "";
+            return Optional.empty();
         }
         String built = builtIn(viewer, name.toLowerCase(Locale.ROOT));
         if (built != null) {
-            return built;
+            return Optional.of(built);
         }
-        return papiValue(viewer, name);
+        return papiLookup(viewer, name);
     }
 
     /**
@@ -192,18 +210,18 @@ public final class Placeholders {
      * must not pass on, because a percent-wrapped word on somebody's HUD reads
      * as a broken pack exactly the way a brace-wrapped one did.
      */
-    private static String papiValue(Player viewer, String name) {
+    private static Optional<String> papiLookup(Player viewer, String name) {
         Method method = papiMethod();
         if (method == null) {
-            return "";
+            return Optional.empty();
         }
         try {
             String wrapped = "%" + name + "%";
             Object value = method.invoke(null, viewer, wrapped);
             String text = value == null ? "" : value.toString();
-            return text.equals(wrapped) ? "" : text;
+            return text.equals(wrapped) ? Optional.empty() : Optional.of(text);
         } catch (ReflectiveOperationException | RuntimeException e) {
-            return "";
+            return Optional.empty();
         }
     }
 
