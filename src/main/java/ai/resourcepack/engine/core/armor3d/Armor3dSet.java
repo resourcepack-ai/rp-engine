@@ -101,20 +101,33 @@ public final class Armor3dSet {
      * One piece of the set.
      *
      * @param item  the {@code custom_model_data} string of the item itself —
-     *              its inventory icon and, for a helmet, what the game draws
-     *              on the head
-     * @param parts the displays it puts on the body; empty for a helmet,
-     *              which the game draws
+     *              its inventory icon and, for a helmet with no {@code asset},
+     *              what the game draws on the head
+     * @param parts the displays it puts on the body, for anybody whose client
+     *              does not draw the piece itself; empty for a helmet with no
+     *              {@code asset}, which the game draws
+     * @param asset the equipment asset the item wears, or null — see
+     *              {@link Armor3dSet#drawnBy(int)}
      */
-    public record Worn(Piece piece, String item, List<Part> parts) {
+    public record Worn(Piece piece, String item, List<Part> parts, String asset) {
     }
 
     private final String id;
     private final String name;
     private final Map<Piece, Worn> pieces;
+    private final List<int[]> shaderProtocols;
 
     public Armor3dSet(String id, String name, Map<Piece, Worn> pieces) {
+        this(id, name, pieces, List.of());
+    }
+
+    /**
+     * @param shaderProtocols inclusive protocol ranges whose clients draw the
+     *                        set THEMSELVES — see {@link #drawnBy(int)}
+     */
+    public Armor3dSet(String id, String name, Map<Piece, Worn> pieces, List<int[]> shaderProtocols) {
         this.id = id;
+        this.shaderProtocols = List.copyOf(shaderProtocols);
         this.name = name == null || name.isEmpty() ? id : name;
         Map<Piece, Worn> copy = new EnumMap<>(Piece.class);
         copy.putAll(pieces);
@@ -135,5 +148,31 @@ public final class Armor3dSet {
 
     public Optional<Worn> piece(Piece piece) {
         return Optional.ofNullable(pieces.get(piece));
+    }
+
+    /**
+     * Whether a client speaking {@code protocol} draws this set by itself.
+     *
+     * <p><strong>The better of the two ways a set is shown, where it is
+     * available.</strong> Studio's pack carries, in a version overlay, core
+     * shaders that turn the pieces' equipment layers into the set's real
+     * geometry on the player's own limbs — drawn by the client as part of the
+     * body, so it never lags, not even for its wearer. Only clients whose
+     * shaders have been ported get the overlay; everybody else is shown the
+     * displays. So this is asked per VIEWER, not per wearer: two people looking
+     * at the same player may be looking at two different renderings of the same
+     * armour.
+     */
+    public boolean drawnBy(int protocol) {
+        for (int[] range : shaderProtocols) {
+            if (range.length == 2 && protocol >= range[0] && protocol <= range[1]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public List<int[]> shaderProtocols() {
+        return shaderProtocols;
     }
 }

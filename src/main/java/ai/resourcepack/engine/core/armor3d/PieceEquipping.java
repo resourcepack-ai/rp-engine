@@ -20,9 +20,22 @@ final class PieceEquipping {
     private PieceEquipping() {
     }
 
-    static void wearable(ItemMeta meta, EquipmentSlot slot) {
+    /**
+     * @param asset the equipment asset to wear, or null for none. Only set
+     *              where the server can name one (1.21.4) — see
+     *              {@link Armor3dSet#drawnBy}: the asset is the set drawn by
+     *              the client's own shaders, and a client whose pack has no
+     *              such asset simply draws nothing for it.
+     */
+    static void wearable(ItemMeta meta, EquipmentSlot slot, String asset, boolean withArt) {
         EquippableComponent equippable = meta.getEquippable();
         equippable.setSlot(slot);
+        if (asset != null && withArt) {
+            org.bukkit.NamespacedKey key = org.bukkit.NamespacedKey.fromString(asset);
+            if (key != null) {
+                equippable.setModel(key);
+            }
+        }
         meta.setEquippable(equippable);
     }
 }

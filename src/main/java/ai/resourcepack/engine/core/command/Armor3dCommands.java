@@ -151,7 +151,7 @@ public final class Armor3dCommands implements Area {
         }
         if (wear) {
             Reply.to(player, "You're wearing " + Reply.accent(set.name()) + ".");
-            if (!worn.showsSelf(player)) {
+            if (!worn.showsSelf(player) && !worn.drawsItself(player, set)) {
                 Reply.note(player, "Everyone else sees the whole set; you see the helmet. "
                         + "/rp armor self shows you the rest, in F5.");
             }
