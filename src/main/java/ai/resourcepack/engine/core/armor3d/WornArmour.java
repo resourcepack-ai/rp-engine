@@ -19,12 +19,14 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerAnimationEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MainHand;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.util.Transformation;
+import org.bukkit.util.Vector;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -45,32 +47,36 @@ import java.util.function.Supplier;
  * their feet and posed onto the limb it belongs to. The helmet is not here —
  * the game draws it (see {@link Armor3dSet}).
  *
- * <h2>Three decisions, each of which is a way this could have been wrong</h2>
+ * <h2>Two copies, because there are two audiences with opposite clocks</h2>
  *
- * <p><b>The displays are not passengers of the player.</b> A passenger would
- * be carried by the client at exactly the player's drawn position, which is
- * what anything glued to a body wants — and CraftBukkit refuses to teleport an
- * entity that is being ridden. That would be every other plugin's
- * {@code /spawn}, {@code /home} and warp failing, silently, for anybody wearing
- * a chestplate. So they are teleported every tick instead, and given the same
- * three ticks to glide over that a client gives the player they are glued to
+ * <p><b>Everybody else</b> sees the player at positions the server relayed,
+ * lerped over three ticks. The SHARED copy is teleported to the same positions
+ * and given the same three ticks to glide over
  * ({@link DisplayLatency#TRACKED_ENTITY_TICKS}): behind by the same amount is
- * together.
+ * together. Its pose is sampled now, sent every {@link #POSE_PERIOD} ticks and
+ * tweened over exactly that — a longer tween restarted every tick low-passes the
+ * walk cycle and a quarter of every arm swing disappears.
  *
- * <p><b>The pose is sent every {@link #POSE_PERIOD} ticks and interpolated over
- * exactly that.</b> Re-sent every tick with a longer glide, the client starts
- * each tween from wherever the last one had got to, which is a low-pass filter
- * on the walk cycle: a quarter of every arm swing disappears and the rest is
- * late. Sampled at a fixed period and tweened over the same period, the swing
- * arrives whole and exactly one period late — which is about how late the
- * watching client draws the body itself, off positions it lerps over three.
+ * <p><b>The wearer</b> sees their own body where their client PREDICTS it,
+ * the instant they press a key. Anything the server moves reaches them a whole
+ * round trip later, plus its glide: at walking pace that was most of a block
+ * behind, which is the lag people saw in F5. So the wearer is never shown the
+ * shared copy. When they ask to see their own ({@code /rp armor self}) they get
+ * a second, OWN copy that only they can see, placed and posed as far AHEAD as
+ * their ping says they are — position extrapolated along their velocity, the
+ * stride advanced by its speed, the body turn run forward — so it arrives where
+ * their body is by then. Starting, stopping and turning are where a prediction
+ * is wrong, and it is wrong there for about a round trip and then settles.
  *
- * <p><b>The wearer does not see their own.</b> In first person the game draws
- * none of your body, and a torso of armour floating under the camera — with
- * pauldrons at head height — is the whole of what they would get. The emote
- * system reached the same conclusion for the same reason ({@code
- * hideFromWearer}). {@code /rp armor self} turns it back on for the session,
- * which is how anybody checks their own set in F5.
+ * <p><b>Why not passengers of the player</b>, which a client would carry at
+ * exactly its own drawn position with no lag at all: Paper refuses to teleport
+ * a player who has passengers to another world, before any event a plugin could
+ * answer, so every cross-world {@code /spawn} and portal-plugin warp would fail
+ * for anybody wearing a chestplate. Spigot refuses same-world teleports too.
+ *
+ * <p>The own copy is off by default, for {@code hideFromWearer}'s reason: in
+ * first person the game draws none of your body, so it would be a torso of
+ * armour under the camera and nothing else.
  */
 public final class WornArmour implements Listener {
 
@@ -87,16 +93,27 @@ public final class WornArmour implements Listener {
     private static final float SWING_TICKS = 6f;
 
     /**
-     * How far ahead a swing is sampled, in ticks.
+     * How far ahead the SHARED copy samples a swing, in ticks.
      *
-     * <p>The watching client starts the swing the moment the packet lands;
-     * everything this sends arrives a period late. Sampling the swing that
-     * far ahead puts the pauldron where the arm is when the pose is shown,
-     * which is {@code ArmSwing.progress}'s {@code +1} for the same reason.
+     * <p>A watching client starts the swing the moment the packet lands;
+     * everything this sends arrives a period late. {@code ArmSwing.progress}'s
+     * {@code +1}, for the same reason.
      */
     private static final float SWING_LEAD = POSE_PERIOD;
 
-    /** Past this in one tick, a move is a teleport and is not glided. */
+    /** How long the own copy glides over a move. Short: it is led, not trailed. */
+    private static final int OWN_GLIDE_TICKS = 2;
+
+    /** The most the own copy is ever placed ahead of the body, in blocks. */
+    private static final double MAX_LEAD = 1.5;
+
+    /** The most a round trip is believed, in ticks — a lag spike is not a velocity. */
+    private static final double MAX_PING_TICKS = 8;
+
+    /** How much of the way to the new lead each tick moves: {@code EmoteStance.LEAD_SMOOTHING}. */
+    private static final double LEAD_SMOOTHING = 0.5;
+
+    /** Past this in one tick, a move is a teleport and is not glided or led. */
     private static final double SNAP_DISTANCE = 8;
 
     /** The culling box a display is given: a player and their reach, from the feet up. */
@@ -107,6 +124,7 @@ public final class WornArmour implements Listener {
     private final Armor3dItems items;
     private final Supplier<Map<String, Armor3dSet>> sets;
     private final DisplayCarry glide;
+    private final DisplayCarry ownGlide;
     private final DisplayCarry snap;
     private final boolean available;
 
@@ -122,6 +140,7 @@ public final class WornArmour implements Listener {
         this.items = items;
         this.sets = sets;
         this.glide = DisplayCarry.forServer(compatibility, DisplayLatency.TRACKED_ENTITY_TICKS);
+        this.ownGlide = DisplayCarry.forServer(compatibility, OWN_GLIDE_TICKS);
         this.snap = DisplayCarry.forServer(compatibility, 0);
         this.available = available;
     }
@@ -146,23 +165,14 @@ public final class WornArmour implements Listener {
     }
 
     /**
-     * Toggles whether {@code player} sees their own 3D armour.
+     * Toggles whether {@code player} sees their own 3D armour. The next tick
+     * builds or takes down their own copy.
      *
      * @return whether they now do
      */
     public boolean toggleSelf(Player player) {
-        boolean now = showingSelf.add(player.getUniqueId()) || !showingSelf.remove(player.getUniqueId());
-        Wearer wearer = wearers.get(player.getUniqueId());
-        if (wearer != null) {
-            for (ItemDisplay display : wearer.displays.values()) {
-                if (now) {
-                    player.showEntity(plugin, display);
-                } else {
-                    player.hideEntity(plugin, display);
-                }
-            }
-        }
-        return now;
+        UUID id = player.getUniqueId();
+        return showingSelf.add(id) || !showingSelf.remove(id);
     }
 
     public boolean showsSelf(Player player) {
@@ -198,9 +208,19 @@ public final class WornArmour implements Listener {
                 continue;
             }
             wearer.step(player);
-            wearer.sync(player);
+            wearer.shared.sync(player, wearer.wanted, feet(player), false);
+            boolean own = showingSelf.contains(player.getUniqueId());
+            if (own) {
+                if (wearer.own == null) {
+                    wearer.own = new Copy(true);
+                }
+                wearer.own.sync(player, wearer.wanted, feet(player).add(wearer.lead), wearer.jumped);
+            } else if (wearer.own != null) {
+                wearer.own.clear();
+                wearer.own = null;
+            }
             if (pose || wearer.poseNow) {
-                wearer.pose(player, false);
+                wearer.pose(player);
             }
             if (visibility) {
                 wearer.mirrorVisibility(player);
@@ -280,7 +300,24 @@ public final class WornArmour implements Listener {
         boolean mainLeft = event.getPlayer().getMainHand() == MainHand.LEFT;
         wearer.swingStart = tick;
         wearer.swingLeft = mainLeft != offHand;
-        wearer.pose(event.getPlayer(), true);
+        wearer.pose(event.getPlayer());
+    }
+
+    /**
+     * Somebody new: nobody's own copy is theirs to see. A display is visible
+     * by default, so the hide made when it spawned covered only the players
+     * online then.
+     */
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        Player joiner = event.getPlayer();
+        for (Wearer wearer : wearers.values()) {
+            if (wearer.own != null && !wearer.id.equals(joiner.getUniqueId())) {
+                for (ItemDisplay display : wearer.own.displays.values()) {
+                    joiner.hideEntity(plugin, display);
+                }
+            }
+        }
     }
 
     @EventHandler
@@ -298,18 +335,24 @@ public final class WornArmour implements Listener {
 
         final UUID id;
         Map<String, Armor3dSet.Part> wanted = Map.of();
-        final Map<String, ItemDisplay> displays = new HashMap<>();
-        final Map<String, Armor3dSet.Part> shown = new HashMap<>();
-        /** Who this wearer's displays are currently hidden from because they cannot see the wearer. */
+        /** What everybody else sees. Never shown to the wearer. */
+        final Copy shared = new Copy(false);
+        /** What the wearer sees of themselves, when they asked to. Only ever shown to them. */
+        Copy own;
+        /** Who the shared copy is currently hidden from because they cannot see the wearer. */
         final Set<UUID> hiddenFrom = new HashSet<>();
 
         /** {@code {position, speed}} — see {@link WornPose#walk}. */
         final float[] walk = new float[2];
         float bodyYaw;
-        double lastX;
-        double lastZ;
-        Location lastPlaced;
-        boolean started;
+        Location last;
+        /** Last tick's movement, which the own copy's body turn is run forward on. */
+        double dx;
+        double dz;
+        /** How far ahead of the body the own copy stands, blocks — see the class note. */
+        Vector lead = new Vector();
+        /** Whether this tick's move was a teleport, which nothing may glide across. */
+        boolean jumped = true;
         long swingStart = Long.MIN_VALUE / 2;
         boolean swingLeft;
         boolean poseNow = true;
@@ -322,165 +365,107 @@ public final class WornArmour implements Listener {
         /** The client's own bookkeeping for this player, one tick on. */
         void step(Player player) {
             Location at = player.getLocation();
-            if (!started) {
-                lastX = at.getX();
-                lastZ = at.getZ();
-                started = true;
-            }
-            double dx = at.getX() - lastX;
-            double dz = at.getZ() - lastZ;
-            lastX = at.getX();
-            lastZ = at.getZ();
-            if (dx * dx + dz * dz > SNAP_DISTANCE * SNAP_DISTANCE) {
-                // Teleported: no stride, and the body faces where they look.
-                dx = 0;
-                dz = 0;
+            jumped = last == null || last.getWorld() != at.getWorld()
+                    || last.distanceSquared(at) > SNAP_DISTANCE * SNAP_DISTANCE;
+            Vector moved = jumped ? new Vector() : at.toVector().subtract(last.toVector());
+            last = at;
+            dx = moved.getX();
+            dz = moved.getZ();
+            if (jumped) {
+                // Teleported: no stride, the body faces where they look, and
+                // nothing is predicted across the jump.
                 bodyYaw = at.getYaw();
+                lead = new Vector();
             }
             Entity vehicle = player.getVehicle();
             if (vehicle != null) {
                 // A rider's legs belong to the seat and their body to what they
                 // sit in: a boat or a horse sets both on the client.
                 WornPose.walk(walk, 0);
-                if (vehicle instanceof Boat || vehicle instanceof LivingEntity) {
-                    bodyYaw = vehicle.getLocation().getYaw();
-                } else {
-                    bodyYaw = WornPose.bodyYaw(bodyYaw, at.getYaw(), 0, 0, swinging());
-                }
-                return;
+                bodyYaw = vehicle instanceof Boat || vehicle instanceof LivingEntity
+                        ? vehicle.getLocation().getYaw()
+                        : WornPose.bodyYaw(bodyYaw, at.getYaw(), 0, 0, swinging(0));
+                dx = 0;
+                dz = 0;
+            } else {
+                WornPose.walk(walk, Math.sqrt(dx * dx + dz * dz));
+                bodyYaw = WornPose.bodyYaw(bodyYaw, at.getYaw(), dx, dz, swinging(0));
             }
-            WornPose.walk(walk, Math.sqrt(dx * dx + dz * dz));
-            bodyYaw = WornPose.bodyYaw(bodyYaw, at.getYaw(), dx, dz, swinging());
+            if (!jumped) {
+                // The own copy's lead: where this body will be one round trip
+                // and one glide from now, chased so a single late movement
+                // packet is not a lunge. EmoteStance.leadFor's shape.
+                Vector wanted = moved.clone().multiply(ownLeadTicks(player));
+                if (wanted.length() > MAX_LEAD) {
+                    wanted.multiply(MAX_LEAD / wanted.length());
+                }
+                lead.add(wanted.subtract(lead).multiply(LEAD_SMOOTHING));
+                if (lead.lengthSquared() < 1e-4) {
+                    lead = new Vector();
+                }
+            }
         }
 
-        boolean swinging() {
-            return tick - swingStart < SWING_TICKS;
-        }
-
-        /** Spawns what is missing, removes what is no longer worn, and carries the rest. */
-        void sync(Player player) {
-            World world = player.getWorld();
-            for (Map.Entry<String, ItemDisplay> entry : List.copyOf(displays.entrySet())) {
-                ItemDisplay display = entry.getValue();
-                Armor3dSet.Part part = wanted.get(entry.getKey());
-                if (part == null || !display.isValid() || display.getWorld() != world
-                        || !part.model().equals(shown.get(entry.getKey()).model())) {
-                    display.remove();
-                    displays.remove(entry.getKey());
-                    shown.remove(entry.getKey());
-                }
-            }
-            Location feet = feet(player);
-            boolean jumped = lastPlaced == null || lastPlaced.getWorld() != world
-                    || lastPlaced.distanceSquared(feet) > SNAP_DISTANCE * SNAP_DISTANCE;
-            for (Map.Entry<String, Armor3dSet.Part> entry : wanted.entrySet()) {
-                if (displays.containsKey(entry.getKey())) {
-                    continue;
-                }
-                displays.put(entry.getKey(), spawn(player, feet, entry.getValue()));
-                shown.put(entry.getKey(), entry.getValue());
-                poseNow = true;
-            }
-            for (ItemDisplay display : displays.values()) {
-                if (jumped) {
-                    snap.carry(display);
-                    display.teleport(feet);
-                    glide.carry(display);
-                } else {
-                    display.teleport(feet);
-                }
-            }
-            lastPlaced = feet;
-        }
-
-        private ItemDisplay spawn(Player player, Location feet, Armor3dSet.Part part) {
-            ItemDisplay display = feet.getWorld().spawn(feet, ItemDisplay.class, d -> {
-                d.setItemStack(items.art(part.model()));
-                // NONE: the model is built in its own frame, not an item's.
-                d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
-                d.setBillboard(Display.Billboard.FIXED);
-                d.setPersistent(false);
-                // A display is culled by a box at its position, and this one
-                // stands at the feet: without a box the size of a player, the
-                // armour vanishes whenever the feet leave the screen.
-                d.setDisplayWidth(CULL_WIDTH);
-                d.setDisplayHeight(CULL_HEIGHT);
-                // Nothing until the first pose lands, rather than a chestplate
-                // at the feet for a tick.
-                d.setTransformation(collapsed());
-            });
-            glide.carry(display);
-            if (!showingSelf.contains(player.getUniqueId())) {
-                player.hideEntity(plugin, display);
-            }
-            for (UUID viewer : hiddenFrom) {
-                Player other = Bukkit.getPlayer(viewer);
-                if (other != null) {
-                    other.hideEntity(plugin, display);
-                }
-            }
-            return display;
+        /** Whether an arm is mid-swing {@code ahead} ticks from now. */
+        boolean swinging(double ahead) {
+            return tick + ahead - swingStart < SWING_TICKS;
         }
 
         /**
-         * Sends every part's pose.
-         *
-         * @param immediate a swing: tween over the whole period from the pose
-         *                  on screen, rather than waiting for the period
+         * How far ahead the own copy is placed, in ticks: the round trip, plus
+         * the glide it is given, less the half tick a frame is interpolated
+         * behind. {@code getPing} is the round trip already.
          */
-        void pose(Player player, boolean immediate) {
+        double ownLeadTicks(Player player) {
+            return Math.min(MAX_PING_TICKS, Math.max(0, player.getPing()) / 50.0) + OWN_GLIDE_TICKS - 0.5;
+        }
+
+        /** Sends every part's pose, to both copies. */
+        void pose(Player player) {
             poseNow = false;
-            if (displays.isEmpty()) {
-                return;
-            }
+            org.bukkit.entity.Pose stance = player.getPose();
             // The poses the game turns the whole body for, and the armour is
             // simply put away for: swimming, crawling, gliding, sleeping, a
             // riptide spin. Chasing them is a second model of the renderer for
             // moments nobody stands still in.
-            org.bukkit.entity.Pose stance = player.getPose();
             boolean hidden = stance != Pose.STANDING && stance != Pose.SNEAKING;
+            shared.pose(player, state(player, stance, 0, SWING_LEAD), bodyYaw, hidden);
+            if (own != null) {
+                double ahead = Math.min(MAX_PING_TICKS, Math.max(0, player.getPing()) / 50.0) + POSE_PERIOD;
+                // The body turn, run forward on the movement it is making now:
+                // the wearer's client has already turned it.
+                float yaw = bodyYaw;
+                if (player.getVehicle() == null) {
+                    for (int i = 0; i < Math.round(ahead); i++) {
+                        yaw = WornPose.bodyYaw(yaw, player.getLocation().getYaw(), dx, dz, swinging(i));
+                    }
+                }
+                own.pose(player, state(player, stance, (float) ahead, (float) ahead), yaw, hidden);
+            }
+        }
+
+        /**
+         * The pose inputs, sampled {@code ahead} ticks in the future — the
+         * stride advanced at its current speed — with a swing sampled
+         * {@code swingAhead} ticks on.
+         */
+        private WornPose.State state(Player player, org.bukkit.entity.Pose stance, float ahead, float swingAhead) {
             WornPose.State state = new WornPose.State();
-            state.walkPosition = walk[0];
+            state.walkPosition = walk[0] + walk[1] * ahead;
             state.walkSpeed = walk[1];
-            state.age = player.getTicksLived();
+            state.age = player.getTicksLived() + ahead;
             state.headYaw = WornPose.wrap(player.getLocation().getYaw() - bodyYaw);
             state.headPitch = player.getLocation().getPitch();
             state.crouching = stance == Pose.SNEAKING;
             state.riding = player.getVehicle() != null;
             state.leftHanded = player.getMainHand() == MainHand.LEFT;
             armPoses(player, state);
-            float swing = (tick - swingStart + SWING_LEAD) / SWING_TICKS;
+            float swing = (tick - swingStart + swingAhead) / SWING_TICKS;
             if (swing > 0f && swing < 1f) {
                 state.attackTime = swing;
                 state.attackLeft = swingLeft;
             }
-            WornPose.Pose pose = WornPose.pose(state);
-
-            for (Map.Entry<String, ItemDisplay> entry : displays.entrySet()) {
-                Armor3dSet.Part part = shown.get(entry.getKey());
-                WornPose.Limb limb = part == null ? null : WornPose.limbOf(part.bone());
-                Transformation next;
-                if (limb == null || hidden) {
-                    next = collapsed();
-                } else {
-                    Vector3f translation = new Vector3f();
-                    Quaternionf rotation = WornPose.place(pose, limb, part.anchor(), part.rotation(), bodyYaw,
-                            state.crouching, translation);
-                    float size = WornPose.PLAYER_SCALE / (part.scale() > 0 ? part.scale() : 1f);
-                    next = new Transformation(translation, rotation, new Vector3f(size, size, size), new Quaternionf());
-                }
-                ItemDisplay display = entry.getValue();
-                if (next.equals(display.getTransformation())) {
-                    continue;
-                }
-                // Toggled, not set: an unchanged delay is dropped from the
-                // metadata packet, and a tween then runs against a start tick
-                // long past and snaps. RigAnimator carries the long version.
-                display.setInterpolationDelay(1);
-                display.setInterpolationDelay(0);
-                display.setInterpolationDuration(POSE_PERIOD);
-                display.setTransformation(next);
-            }
+            return state;
         }
 
         /** What each hand is doing, for the arm poses vanilla draws. */
@@ -512,7 +497,8 @@ public final class WornArmour implements Listener {
         }
 
         /**
-         * Hides the armour from anybody who cannot see the person wearing it.
+         * Hides the shared copy from anybody who cannot see the person wearing
+         * it.
          *
          * <p>A vanished moderator in 3D armour would otherwise be a suit
          * walking round on its own — and so would anybody an emote has
@@ -528,7 +514,7 @@ public final class WornArmour implements Listener {
                 if (sees == !hidden) {
                     continue;
                 }
-                for (ItemDisplay display : displays.values()) {
+                for (ItemDisplay display : shared.displays.values()) {
                     if (sees) {
                         viewer.showEntity(plugin, display);
                     } else {
@@ -545,6 +531,133 @@ public final class WornArmour implements Listener {
         }
 
         void clear() {
+            shared.clear();
+            if (own != null) {
+                own.clear();
+                own = null;
+            }
+        }
+    }
+
+    /** One copy of a wearer's displays: the shared one, or their own. */
+    private final class Copy {
+
+        final boolean own;
+        final Map<String, ItemDisplay> displays = new HashMap<>();
+        final Map<String, Armor3dSet.Part> shown = new HashMap<>();
+        boolean fresh;
+
+        Copy(boolean own) {
+            this.own = own;
+        }
+
+        /** Spawns what is missing, removes what is no longer worn, and carries the rest to {@code at}. */
+        void sync(Player player, Map<String, Armor3dSet.Part> wanted, Location at, boolean jumped) {
+            World world = player.getWorld();
+            boolean moved = jumped;
+            for (Map.Entry<String, ItemDisplay> entry : List.copyOf(displays.entrySet())) {
+                ItemDisplay display = entry.getValue();
+                Armor3dSet.Part part = wanted.get(entry.getKey());
+                if (part == null || !display.isValid() || display.getWorld() != world
+                        || !part.model().equals(shown.get(entry.getKey()).model())) {
+                    display.remove();
+                    displays.remove(entry.getKey());
+                    shown.remove(entry.getKey());
+                }
+            }
+            for (Map.Entry<String, Armor3dSet.Part> entry : wanted.entrySet()) {
+                if (displays.containsKey(entry.getKey())) {
+                    continue;
+                }
+                displays.put(entry.getKey(), spawn(player, at, entry.getValue()));
+                shown.put(entry.getKey(), entry.getValue());
+                fresh = true;
+            }
+            DisplayCarry carry = own ? ownGlide : glide;
+            for (ItemDisplay display : displays.values()) {
+                if (moved || display.getLocation().distanceSquared(at) > SNAP_DISTANCE * SNAP_DISTANCE) {
+                    snap.carry(display);
+                    display.teleport(at);
+                    carry.carry(display);
+                } else {
+                    display.teleport(at);
+                }
+            }
+        }
+
+        private ItemDisplay spawn(Player player, Location at, Armor3dSet.Part part) {
+            ItemDisplay display = at.getWorld().spawn(at, ItemDisplay.class, d -> {
+                d.setItemStack(items.art(part.model()));
+                // NONE: the model is built in its own frame, not an item's.
+                d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
+                d.setBillboard(Display.Billboard.FIXED);
+                d.setPersistent(false);
+                // A display is culled by a box at its position, and this one
+                // stands at the feet: without a box the size of a player, the
+                // armour vanishes whenever the feet leave the screen.
+                d.setDisplayWidth(CULL_WIDTH);
+                d.setDisplayHeight(CULL_HEIGHT);
+                // Nothing until the first pose lands, rather than a chestplate
+                // at the feet for a tick.
+                d.setTransformation(collapsed());
+            });
+            (own ? ownGlide : glide).carry(display);
+            if (own) {
+                // Only the wearer: everybody else has the shared copy.
+                for (Player other : Bukkit.getOnlinePlayers()) {
+                    if (!other.equals(player)) {
+                        other.hideEntity(plugin, display);
+                    }
+                }
+            } else {
+                player.hideEntity(plugin, display);
+                Wearer wearer = wearers.get(player.getUniqueId());
+                if (wearer != null) {
+                    for (UUID viewer : wearer.hiddenFrom) {
+                        Player other = Bukkit.getPlayer(viewer);
+                        if (other != null) {
+                            other.hideEntity(plugin, display);
+                        }
+                    }
+                }
+            }
+            return display;
+        }
+
+        void pose(Player player, WornPose.State state, float bodyYaw, boolean hidden) {
+            if (displays.isEmpty()) {
+                return;
+            }
+            WornPose.Pose pose = WornPose.pose(state);
+            for (Map.Entry<String, ItemDisplay> entry : displays.entrySet()) {
+                Armor3dSet.Part part = shown.get(entry.getKey());
+                WornPose.Limb limb = part == null ? null : WornPose.limbOf(part.bone());
+                Transformation next;
+                if (limb == null || hidden) {
+                    next = collapsed();
+                } else {
+                    Vector3f translation = new Vector3f();
+                    Quaternionf rotation = WornPose.place(pose, limb, part.anchor(), part.rotation(), bodyYaw,
+                            state.crouching, translation);
+                    float size = WornPose.PLAYER_SCALE / (part.scale() > 0 ? part.scale() : 1f);
+                    next = new Transformation(translation, rotation, new Vector3f(size, size, size), new Quaternionf());
+                }
+                ItemDisplay display = entry.getValue();
+                if (next.equals(display.getTransformation())) {
+                    continue;
+                }
+                // Toggled, not set: an unchanged delay is dropped from the
+                // metadata packet, and a tween then runs against a start tick
+                // long past and snaps. RigAnimator carries the long version.
+                display.setInterpolationDelay(1);
+                display.setInterpolationDelay(0);
+                display.setInterpolationDuration(fresh ? 0 : POSE_PERIOD);
+                display.setTransformation(next);
+            }
+            fresh = false;
+        }
+
+        void clear() {
             for (ItemDisplay display : displays.values()) {
                 display.remove();
             }
@@ -553,7 +666,7 @@ public final class WornArmour implements Listener {
         }
     }
 
-    /** Where the displays stand: the player's feet, turned to nothing — the transform holds every turn. */
+    /** Where the shared copy stands: the player's feet, turned to nothing — the transform holds every turn. */
     private static Location feet(Player player) {
         Location at = player.getLocation().clone();
         at.setYaw(0f);
