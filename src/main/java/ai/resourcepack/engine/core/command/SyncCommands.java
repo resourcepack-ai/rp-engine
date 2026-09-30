@@ -43,15 +43,20 @@ public final class SyncCommands implements Area {
     /** Takes a pushed pack back off one player, leaving the server's own content. */
     private final Consumer<String> unpush;
 
+    /** Whether a player joined through Geyser, which studio needs to build them the right pack. */
+    private final java.util.function.Predicate<java.util.UUID> isBedrock;
+
     public SyncCommands(Server server, SyncClient sync, SyncGroup group,
                         DistributionManager distribution,
-                        Consumer<String> announce, Consumer<String> unpush) {
+                        Consumer<String> announce, Consumer<String> unpush,
+                        java.util.function.Predicate<java.util.UUID> isBedrock) {
         this.server = server;
         this.sync = sync;
         this.group = group;
         this.distribution = distribution;
         this.announce = announce;
         this.unpush = unpush;
+        this.isBedrock = isBedrock == null ? id -> false : isBedrock;
     }
 
     @Override
@@ -382,7 +387,7 @@ public final class SyncCommands implements Area {
             Reply.to(player, "/rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
             return true;
         }
-        if (!sync.link(code, player.getName())) {
+        if (!sync.link(code, player.getName(), isBedrock.test(player.getUniqueId()))) {
             Reply.to(player, "Could not reach studio. Check sync.url in config.yml.");
             return true;
         }

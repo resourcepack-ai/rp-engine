@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.distribution;
 
+import org.bukkit.entity.Interaction;
 import org.bukkit.entity.Player;
 
 import java.util.UUID;
@@ -51,4 +52,36 @@ public interface BedrockSupport {
      *         player is not Bedrock — rather than a failure worth logging.
      */
     boolean applyPack(Player player, String url);
+
+    // --- Placed models ------------------------------------------------------
+    //
+    // Geyser does not translate display entities, so a placed rig is invisible
+    // to a Bedrock player unless something draws it for them. These are the
+    // moments the rig code tells the seam about; the default is to do nothing,
+    // which is exactly right on a server with no Geyser. Default methods rather
+    // than a cast at each call site, so the rig code never names a class that
+    // only exists when Geyser does.
+
+    /** A rig was just put into the world. */
+    default void rigPlaced(Interaction hitbox, String modelId) {
+    }
+
+    /** A rig was taken out of the world; its hitbox is already gone or going. */
+    default void rigRemoved(UUID hitboxId) {
+    }
+
+    /** A rig started an animation that Bedrock viewers should play too. */
+    default void animationStarted(UUID hitboxId, String modelId, String animation) {
+    }
+
+    /** A player's Bedrock session ended (a quit, or the transfer an apply causes). */
+    default void forget(UUID playerId) {
+    }
+
+    /**
+     * The server's own content, rebuilt for Bedrock: served to every Bedrock
+     * session as it joins, beside anything studio pushed them.
+     */
+    default void serverContent(ai.resourcepack.engine.core.bedrock.BedrockContent.Result content) {
+    }
 }

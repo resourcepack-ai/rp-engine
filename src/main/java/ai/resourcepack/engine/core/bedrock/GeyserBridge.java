@@ -90,6 +90,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     private final EventRegistrar registrar;
     private final NamespacedKey modelKey;
     private final NamespacedKey yawKey;
+    private final NamespacedKey placedYawKey;
+    private final NamespacedKey scaleKey;
 
     // Registration happens once, at Geyser's registry build during boot, so
     // model-specific names are unknowable. A fixed pool of generic ids is
@@ -126,6 +128,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         this.registrar = EventRegistrar.of(this);
         this.modelKey = new NamespacedKey(plugin, "model-id");
         this.yawKey = new NamespacedKey(plugin, "rig-yaw");
+        this.placedYawKey = new NamespacedKey(plugin, "model-yaw");
+        this.scaleKey = new NamespacedKey(plugin, "rig-scale");
         if (!packsDir.isDirectory() && !packsDir.mkdirs()) {
             plugin.getLogger().warning("Couldn't create " + packsDir + " - Bedrock pack pushes won't persist");
         }
@@ -133,10 +137,15 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         GeyserApi.api().eventBus().subscribe(registrar, SessionLoadResourcePacksEvent.class, this::onSessionLoadPacks);
         GeyserApi.api().eventBus().subscribe(registrar, GeyserDefineEntitiesEvent.class, this::onDefineEntities);
         GeyserApi.api().eventBus().subscribe(registrar, GeyserDefineCustomItemsEvent.class, this::onDefineCustomItems);
+        startViewTask();
         plugin.getLogger().info("Geyser detected - Bedrock pack pushes enabled");
     }
 
     public void shutdown() {
+        if (viewTask != -1) {
+            Bukkit.getScheduler().cancelTask(viewTask);
+            viewTask = -1;
+        }
         try {
             GeyserApi.api().eventBus().unregisterAll(registrar);
         } catch (Exception ignored) {
@@ -202,6 +211,17 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     // --- Pack delivery -------------------------------------------------------
 
     private void onSessionLoadPacks(SessionLoadResourcePacksEvent event) {
+        // The server's own content first, so a studio push registered after
+        // it sits on top — the same order the Java stack is sent in.
+        BedrockContent.Result content = serverContent;
+        if (content != null && content.file() != null && Files.isRegularFile(content.file())) {
+            try {
+                event.register(ResourcePack.create(PackCodec.path(content.file())));
+            } catch (Exception e) {
+                plugin.getLogger().warning("Couldn't serve the server's Bedrock pack to "
+                    + event.connection().bedrockUsername() + ": " + e.getMessage());
+            }
+        }
         String xuid = event.connection().xuid();
         if (xuid == null || xuid.isEmpty()) return;
         File file = packFile(xuid);
@@ -211,6 +231,75 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         } catch (Exception e) {
             plugin.getLogger().warning("Couldn't serve Bedrock pack to " + event.connection().bedrockUsername() + ": " + e.getMessage());
         }
+    }
+
+    // --- The server's own content ---------------------------------------------
+
+    /** The last Bedrock build of the content folder, or null. */
+    private volatile BedrockContent.Result serverContent;
+    /** Whether Geyser has already asked for item mappings; it asks once, at startup. */
+    private volatile boolean itemsDefined;
+
+    @Override
+    public void serverContent(BedrockContent.Result content) {
+        BedrockContent.Result previous = serverContent;
+        serverContent = content;
+        // Geyser takes item mappings once, when it builds its registries at
+        // startup. A reload that changes WHICH items exist changes the pack
+        // (served on each join) but not the mappings, so the new items show
+        // as their base material to Bedrock players until a restart. Said
+        // once, in the log, rather than discovered.
+        if (itemsDefined && content != null && previous != null
+                && !registrationIds(content).equals(registrationIds(previous))) {
+            plugin.getLogger().info("Bedrock: the item list changed; restart the server for Bedrock players to see the new items.");
+        }
+    }
+
+    private static java.util.Set<String> registrationIds(BedrockContent.Result content) {
+        java.util.Set<String> ids = new java.util.TreeSet<>();
+        for (BedrockContent.Registration r : content.items()) ids.add(r.bedrockId());
+        return ids;
+    }
+
+    private void defineContentItems(GeyserDefineCustomItemsEvent event) {
+        BedrockContent.Result content = serverContent;
+        if (content == null) return;
+        int count = 0;
+        for (BedrockContent.Registration item : content.items()) {
+            try {
+                Identifier javaItem = Identifier.of(item.javaItem());
+                CustomItemDefinition.Builder builder;
+                if (item.javaModel() != null) {
+                    // 1.21.4+: the stack's item_model IS the definition's key.
+                    builder = CustomItemDefinition.builder(Identifier.of(item.bedrockId()), Identifier.of(item.javaModel()));
+                } else {
+                    // Below it: the base item's own model, told apart by number.
+                    builder = CustomItemDefinition.builder(Identifier.of(item.bedrockId()), javaItem)
+                        .predicate(org.geysermc.geyser.api.predicate.item.ItemRangeDispatchPredicate
+                            .legacyCustomModelData(item.legacyNumber()));
+                }
+                builder.displayName(item.displayName())
+                    .bedrockOptions(CustomItemBedrockOptions.builder().allowOffhand(true).icon(item.icon()));
+                if (item.armorSlot() != null) {
+                    builder.component(org.geysermc.geyser.api.item.custom.v2.component.java.JavaItemDataComponents.EQUIPPABLE,
+                        org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.of(equipmentSlot(item.armorSlot())));
+                }
+                event.register(javaItem, builder.build());
+                count++;
+            } catch (Exception | LinkageError e) {
+                plugin.getLogger().warning("Couldn't register Bedrock item " + item.bedrockId() + ": " + e);
+            }
+        }
+        if (count > 0) plugin.getLogger().info("Registered " + count + " content items with Geyser");
+    }
+
+    private static org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot equipmentSlot(String slot) {
+        return switch (slot) {
+            case "head" -> org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.HEAD;
+            case "chest" -> org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.CHEST;
+            case "legs" -> org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.LEGS;
+            default -> org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.FEET;
+        };
     }
 
     /**
@@ -323,6 +412,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     private void onDefineCustomItems(GeyserDefineCustomItemsEvent event) {
+        itemsDefined = true;
+        defineContentItems(event);
         int count = 0;
         for (int slot = 1; slot <= SLOT_POOL; slot++) {
             try {
@@ -362,20 +453,78 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     // --- In-world rendering --------------------------------------------------
+    //
+    // A client entity is drawn for a Bedrock viewer when a rig comes within
+    // SPAWN_RANGE of them and taken away past DESPAWN_RANGE, on a timer rather
+    // than on join/teleport/world-change events. The timer is what makes it
+    // right in every case at once: a Bedrock client drops entities in chunks it
+    // unloads, so "spawned once at join" goes invisible the first time somebody
+    // walks away and back, and a world change or a respawn clears the client's
+    // entities without telling anybody. The gap between the two ranges stops a
+    // rig on the boundary flickering in and out.
 
-    /** Spawns every placed rig in the player's world for their Bedrock session. Call delayed after join. */
-    public void syncPlayerView(Player player) {
-        GeyserSession session = sessionOf(player.getUniqueId());
-        if (session == null) return;
-        for (Interaction hitbox : player.getWorld().getEntitiesByClass(Interaction.class)) {
-            String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
-            if (modelId != null) spawnFor(session, player.getUniqueId(), hitbox, modelId);
+    private static final double SPAWN_RANGE = 48;
+    private static final double DESPAWN_RANGE = 56;
+    private static final long VIEW_PERIOD_TICKS = 20;
+
+    private int viewTask = -1;
+
+    private void startViewTask() {
+        if (viewTask != -1) return;
+        viewTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refreshViews, VIEW_PERIOD_TICKS, VIEW_PERIOD_TICKS)
+            .getTaskId();
+    }
+
+    /** Brings every Bedrock viewer's set of drawn rigs in line with what is near them. */
+    private void refreshViews() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            GeyserSession session = sessionOf(player.getUniqueId());
+            if (session == null) continue;
+            Map<UUID, Long> mine = spawned.computeIfAbsent(player.getUniqueId(), k -> new HashMap<>());
+
+            // Out of range, gone, or in another world: take it down.
+            mine.entrySet().removeIf(entry -> {
+                Entity hitbox = Bukkit.getEntity(entry.getKey());
+                boolean keep = hitbox != null && hitbox.isValid()
+                    && hitbox.getWorld().equals(player.getWorld())
+                    && hitbox.getLocation().distanceSquared(player.getLocation()) <= DESPAWN_RANGE * DESPAWN_RANGE;
+                if (!keep) removeEntity(session, entry.getValue());
+                return !keep;
+            });
+
+            for (Entity nearby : player.getWorld().getNearbyEntities(
+                    player.getLocation(), SPAWN_RANGE, SPAWN_RANGE, SPAWN_RANGE, e -> e instanceof Interaction)) {
+                if (mine.containsKey(nearby.getUniqueId())) continue;
+                String modelId = nearby.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+                if (modelId != null) spawnFor(session, player.getUniqueId(), (Interaction) nearby, modelId);
+            }
         }
     }
 
-    /** A rig was just placed - show it to every Bedrock player in that world. */
+    @Override
+    public void rigPlaced(Interaction hitbox, String modelId) {
+        onRigPlaced(hitbox, modelId);
+    }
+
+    @Override
+    public void rigRemoved(UUID hitboxId) {
+        onRigRemoved(hitboxId);
+    }
+
+    @Override
+    public void animationStarted(UUID hitboxId, String modelId, String animation) {
+        playAnimation(hitboxId, modelId, animation);
+    }
+
+    @Override
+    public void forget(UUID playerId) {
+        forgetPlayer(playerId);
+    }
+
+    /** A rig was just placed - show it now to every Bedrock player near it, rather than on the next pass. */
     public void onRigPlaced(Interaction hitbox, String modelId) {
         for (Player player : hitbox.getWorld().getPlayers()) {
+            if (player.getLocation().distanceSquared(hitbox.getLocation()) > SPAWN_RANGE * SPAWN_RANGE) continue;
             GeyserSession session = sessionOf(player.getUniqueId());
             if (session != null) spawnFor(session, player.getUniqueId(), hitbox, modelId);
         }
@@ -386,15 +535,18 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             Long geyserId = entities.remove(hitboxId);
             if (geyserId == null) return;
             GeyserSession session = sessionOf(playerId);
-            if (session == null) return;
-            try {
-                RemoveEntityPacket packet = new RemoveEntityPacket();
-                packet.setUniqueEntityId(geyserId);
-                session.sendUpstreamPacket(packet);
-            } catch (Exception | LinkageError e) {
-                plugin.getLogger().warning("Couldn't remove Bedrock entity: " + e);
-            }
+            if (session != null) removeEntity(session, geyserId);
         });
+    }
+
+    private void removeEntity(GeyserSession session, long geyserId) {
+        try {
+            RemoveEntityPacket packet = new RemoveEntityPacket();
+            packet.setUniqueEntityId(geyserId);
+            session.sendUpstreamPacket(packet);
+        } catch (Exception | LinkageError e) {
+            plugin.getLogger().warning("Couldn't remove Bedrock entity: " + e);
+        }
     }
 
     /** A trigger fired - play the same animation the pack defines, client-side. */
@@ -476,6 +628,12 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             packet.setRotation(Vector2f.from(0f, yaw));
             packet.setHeadRotation(yaw);
             packet.setBodyRotation(yaw);
+            // A model placed at 4x is 4x for Java viewers; without this it
+            // stood at its own size for Bedrock ones.
+            Float scale = hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
+            if (scale != null && scale != 1f) {
+                packet.getMetadata().put(org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.SCALE, scale);
+            }
             session.sendUpstreamPacket(packet);
             entities.put(hitbox.getUniqueId(), geyserId);
         } catch (Exception | LinkageError e) {
@@ -483,9 +641,11 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         }
     }
 
-    /** Placement yaw, recovered from the rig's display entities (survives restarts). */
+    /** Placement yaw: the hitbox's own record, else recovered from the rig's display entities. */
     private float rigYaw(Interaction hitbox) {
         PersistentDataContainer pdc = hitbox.getPersistentDataContainer();
+        Float placed = pdc.get(placedYawKey, PersistentDataType.FLOAT);
+        if (placed != null) return placed;
         String joined = pdc.get(new NamespacedKey(plugin, "display-uuids"), PersistentDataType.STRING);
         if (joined == null) joined = pdc.get(new NamespacedKey(plugin, "display-uuid"), PersistentDataType.STRING);
         if (joined == null) return 0f;

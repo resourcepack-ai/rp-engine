@@ -1056,10 +1056,18 @@ public final class RigAnimator implements Listener {
             end(hitbox, replaced, ModelAnimationEndEvent.Cause.REPLACED);
         }
         scheduleEnd(hitbox, animation, animationIndex, start, now);
-        // The library tells Bedrock viewers to play the same keyframes
-        // natively here. Nothing in this engine implements that seam yet; when
-        // Geyser support lands it goes back exactly here.
+        // Bedrock viewers play the same keyframes natively: the Bedrock pack
+        // carries them as a client animation under the same name.
+        bedrock.animationStarted(hitbox.getUniqueId(), modelIdOf(hitbox), animation.name);
         return true;
+    }
+
+    /** Who to tell when an animation starts, for players the displays do not reach. */
+    private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
+        ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
+
+    public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
+        this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
     }
 
     /**

@@ -62,6 +62,9 @@ public final class RigPlacementListener implements Listener {
      */
     static final String SCALE_MARKER = "rpai_scale:";
 
+    /** Studio's Bedrock slot marker, at custom_model_data strings index 1. */
+    static final String BEDROCK_SLOT_MARKER = "rpai_slot_";
+
     /** Clamped to the same range the panel offers, since this is parsed text. */
     private static final float MIN_SCALE = 0.125f;
     private static final float MAX_SCALE = 8f;
@@ -91,6 +94,9 @@ public final class RigPlacementListener implements Listener {
     /** The placement's heading, on the hitbox — see the write in {@link #spawn}. */
     private final NamespacedKey placedYawKey;
 
+    /** The source stack's Bedrock slot marker, on the hitbox. See {@link #itemWithModelData}. */
+    private final NamespacedKey bedrockSlotKey;
+
     public RigPlacementListener(Host host, RigStore rigs, RigAnimator animator) {
         this.host = host;
         this.modelKey = host.key("model-id");
@@ -105,6 +111,7 @@ public final class RigPlacementListener implements Listener {
         this.spawns = new RigSpawn(host, animator);
         this.authoredKey = host.key("model");
         this.placedYawKey = host.key("model-yaw");
+        this.bedrockSlotKey = host.key("bedrock-slot");
     }
 
     /** The model id a panel-given item carries, or null if it's not one of ours. */
@@ -251,8 +258,14 @@ public final class RigPlacementListener implements Listener {
             if (animation != null) {
                 i.getPersistentDataContainer().set(animationKey, PersistentDataType.STRING, animation);
             }
+            // The stack's Bedrock slot marker, so a broken animated rig gives
+            // back an item Geyser still maps. See itemWithModelData.
+            String slot = sourceItem == null ? null : bedrockSlotOf(sourceItem);
+            if (slot != null) i.getPersistentDataContainer().set(bedrockSlotKey, PersistentDataType.STRING, slot);
         });
         animator.track(hitbox);
+        // Before the trigger, so the place animation reaches the Bedrock copy.
+        bedrock.rigPlaced(hitbox, modelId);
         animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, placer);
         return hitbox;
     }
@@ -363,13 +376,31 @@ public final class RigPlacementListener implements Listener {
         String animation = hitbox.getPersistentDataContainer().get(animationKey, PersistentDataType.STRING);
         Float placedScale = hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
         float scale = placedScale != null ? placedScale : 1f;
+        String slot = hitbox.getPersistentDataContainer().get(bedrockSlotKey, PersistentDataType.STRING);
         Location where = hitbox.getLocation().add(0, 0.5, 0);
         World world = hitbox.getWorld();
         animator.untrackHitbox(hitbox.getUniqueId());
+        bedrock.rigRemoved(hitbox.getUniqueId());
         hitbox.remove();
 
         if (!dropItem) return;
-        world.dropItemNaturally(where, drop != null ? drop : itemWithModelData(modelId, animation, scale));
+        world.dropItemNaturally(where, drop != null ? drop : itemWithModelData(modelId, slot, animation, scale));
+    }
+
+    /** Who to tell when a rig comes or goes, for players the displays do not reach. */
+    private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
+        ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
+
+    public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
+        this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
+    }
+
+    /** The "rpai_slot_<n>" marker on a panel-given stack, or null. */
+    static String bedrockSlotOf(ItemStack item) {
+        for (String value : customModelStrings(item)) {
+            if (value != null && value.startsWith(BEDROCK_SLOT_MARKER)) return value;
+        }
+        return null;
     }
 
     /** The handle an event carries. Set by the library at startup; see RigAnimator. */
@@ -395,19 +426,30 @@ public final class RigPlacementListener implements Listener {
     }
 
     static ItemStack itemWithModelData(String modelData) {
-        return itemWithModelData(modelData, null, 1f);
+        return itemWithModelData(modelData, null, null, 1f);
     }
 
     static ItemStack itemWithModelData(String modelData, String animation, float scale) {
+        return itemWithModelData(modelData, null, animation, scale);
+    }
+
+    /**
+     * @param bedrockSlot the "rpai_slot_&lt;n&gt;" marker the stack was placed
+     *                    from, or null. It goes back at index 1, which is the
+     *                    index Geyser's item mapping matches on; without it a
+     *                    Bedrock player who breaks an animated model picks up
+     *                    plain paper. Only the placement knows it: the number
+     *                    is studio's, and nothing here can derive it.
+     */
+    static ItemStack itemWithModelData(String modelData, String bedrockSlot, String animation, float scale) {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            List<String> values = new ArrayList<>(3);
+            List<String> values = new ArrayList<>(4);
             values.add(modelData);
-            // Rebuilt without the Bedrock slot marker the panel writes at
-            // index 1: nothing here can know the cmd, and only index 0 is read
-            // for rendering. The animation marker is found by prefix, not
-            // position, so it survives the gap.
+            if (bedrockSlot != null) values.add(bedrockSlot);
+            // The animation marker is found by prefix, not position, so it
+            // survives with or without the slot before it.
             if (animation != null) values.add(ANIMATION_MARKER + animation);
             // And the size, for the same reason: breaking a 4x statue and
             // putting it back down must not quietly return it to 1x.

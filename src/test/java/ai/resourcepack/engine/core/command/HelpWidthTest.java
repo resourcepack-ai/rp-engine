@@ -31,7 +31,7 @@ class HelpWidthTest {
                 new ModelCommands(null, null, null, null, null, null),
                 new InterfaceCommands(null, null, null, null, null),
                 new EmoteCommands(null, null),
-                new SyncCommands(null, null, null, null, null, null),
+                new SyncCommands(null, null, null, null, null, null, null),
                 new LiquidCommands(null, null, null, null));
 
         List<Help> lines = new ArrayList<>();

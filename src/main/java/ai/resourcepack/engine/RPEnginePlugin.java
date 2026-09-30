@@ -433,7 +433,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
         animator = new RigAnimator(library, rigs);
+        animator.bedrock(bedrock);
         rigPlacement = new RigPlacementListener(library, rigs, animator);
+        rigPlacement.bedrock(bedrock);
         models = new ModelsImpl(animator, rigs, rigPlacement);
 
         emoteStore = new EmoteStore(getDataFolder());
@@ -599,6 +601,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     packHost.register(pack);
                 }, this::pushTo);
         studio.onContent(this::registerPushedContent);
+        studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
         invites = new EmoteInvites(this, emotes());
@@ -699,7 +702,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
-                        this::announceMembers, this::unpush),
+                        this::announceMembers, this::unpush, id -> bedrock.isBedrock(id)),
                 liquidCommands,
                 new VehicleCommands(vehicles),
                 new EditCommands(edits, registry, items, vehicles, editing),
@@ -1326,6 +1329,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
+        buildBedrockContent(output);
 
         to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
                 + plural(loaded.definitions().size(), "definition") + ", "
@@ -1392,7 +1396,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             Player player = getServer().getPlayerExact(name);
             if (player != null) {
                 entries.add(player.getUniqueId().toString().replace("-", "")
-                        + ":" + player.getName() + ":java"
+                        + ":" + player.getName()
+                        + ":" + (bedrock.isBedrock(player.getUniqueId()) ? "bedrock" : "java")
                         + ":" + ai.resourcepack.engine.core.sync.PlayerCape.token(player));
             }
         }
@@ -1427,6 +1432,84 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * Per-world and per-permission selection is a server's decision rather
      * than ours, so it arrives as an API rather than as a guess.
      */
+    /**
+     * The default bundle again, for Bedrock players: only on a server running
+     * Geyser, since nobody else could be served it. See BedrockContent for
+     * what crosses and what cannot.
+     */
+    private void buildBedrockContent(Path output) {
+        if (!bedrock.available()) {
+            return;
+        }
+        BuiltPack main = null;
+        for (BuiltPack pack : built) {
+            if (pack.bundle().equals(defaultBundle)) {
+                main = pack;
+                break;
+            }
+        }
+        if (main == null) {
+            bedrock.serverContent(null);
+            return;
+        }
+        boolean numbered = compatibility.itemEra().needsNumbers();
+        List<ai.resourcepack.engine.core.bedrock.BedrockContent.Item> bedrockItems = new ArrayList<>();
+        for (ContentId id : items.ids()) {
+            ItemInfo info = items.info(id).orElse(null);
+            if (info == null) {
+                continue;
+            }
+            // A copy renders through somebody else's model, so its sprite is theirs.
+            ItemInfo source = info.copiedFrom().flatMap(items::info).orElse(info);
+            Integer number = numbered ? modelNumbers.existing(info.modelId()).orElse(null) : null;
+            if (numbered && number == null) {
+                continue;
+            }
+            bedrockItems.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Item(
+                    id, info.material(), bedrockName(info), source.texture(), info.modelId(), number,
+                    info.armor().orElse(null)));
+        }
+        List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
+        for (ContentId id : icons.ids()) {
+            icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
+                    icon.codepoint(),
+                    "assets/" + id.namespace() + "/textures/font/" + icon.file() + ".png")));
+        }
+        try {
+            ai.resourcepack.engine.core.bedrock.BedrockContent.Result result =
+                    ai.resourcepack.engine.core.bedrock.BedrockContent.build(main.file(), bedrockItems, bedrockIcons,
+                            output, defaultBundle, getConfig().getString("pack.description", "RP Engine"));
+            bedrock.serverContent(result);
+            if (!result.empty()) {
+                getLogger().info("Bedrock pack built: " + result.items().size() + " items, "
+                        + result.sounds() + " sounds, " + result.icons() + " icons, "
+                        + result.armour() + " armour pieces.");
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            getLogger().warning("Could not build the Bedrock pack: " + e.getMessage());
+        }
+    }
+
+    /** An item's name without its colour codes, or its id made readable. */
+    private static String bedrockName(ItemInfo info) {
+        String raw = info.name().orElse(null);
+        if (raw != null) {
+            String plain = raw.replaceAll("(?i)&#[0-9a-f]{6}", "").replaceAll("(?i)[&§][0-9a-fk-or]", "").trim();
+            if (!plain.isEmpty()) {
+                return plain;
+            }
+        }
+        String path = info.id().path();
+        String last = path.substring(path.lastIndexOf('/') + 1).replace('_', ' ');
+        StringBuilder out = new StringBuilder(last.length());
+        boolean upper = true;
+        for (char c : last.toCharArray()) {
+            out.append(upper ? Character.toUpperCase(c) : c);
+            upper = c == ' ';
+        }
+        return out.toString();
+    }
+
     private List<BuiltPack> desiredFor(Player player) {
         List<BuiltPack> stack = new ArrayList<>(2);
         if (!defaultBundle.isEmpty()) {
@@ -1513,6 +1596,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        // The Bedrock session ends either way — a transfer reconnects as a new
+        // one, with none of the rigs the old one was drawing.
+        bedrock.forget(event.getPlayer().getUniqueId());
         if (reconnecting.remove(event.getPlayer().getUniqueId())) {
             // A Geyser transfer, not a departure. Everything below would undo
             // an apply that is still in flight.
