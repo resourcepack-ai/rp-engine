@@ -109,6 +109,14 @@ public final class ModelPlacementListener implements Listener {
         this.placedYawKey = host.key("model-yaw");
     }
 
+    /** Who to tell when a piece comes or goes, for players the displays do not reach. */
+    private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
+            ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
+
+    public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
+        this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
+    }
+
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, ModelInfo> loaded) {
         this.model = loaded == null ? Map.of() : Map.copyOf(loaded);
@@ -315,6 +323,8 @@ public final class ModelPlacementListener implements Listener {
             }
         });
 
+        // Before the place trigger, so its animation reaches the Bedrock copy.
+        bedrock.rigPlaced(hitbox, info.id().toString());
         if (partIds != null) {
             animator.track(hitbox);
             animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, null);
@@ -516,6 +526,7 @@ public final class ModelPlacementListener implements Listener {
                 && anchor.getType() == Material.LIGHT) {
             anchor.setType(Material.AIR, false);
         }
+        bedrock.rigRemoved(hitbox.getUniqueId());
         hitbox.remove();
 
         if (!ask.isDropItem() || world == null) {

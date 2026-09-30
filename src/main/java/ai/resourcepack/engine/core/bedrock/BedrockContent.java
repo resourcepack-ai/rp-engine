@@ -71,6 +71,40 @@ public final class BedrockContent {
     }
 
     /**
+     * One placeable model: the id its hitbox carries, and where the block
+     * model it is drawn with sits in the Java pack.
+     */
+    public record Model(ContentId id, String modelZipPath, float scale) {
+    }
+
+    /**
+     * Everything the build reads besides the Java pack.
+     *
+     * @param vanilla    a vanilla texture path ({@code block/stone}) to its
+     *                   image, or null for "not to hand"; may itself be null
+     * @param soundAlias a vanilla Java sound event to the Bedrock sound Geyser
+     *                   plays for it, or null when it plays none by name; may
+     *                   itself be null, which leaves vanilla replacements out
+     */
+    public record Inputs(List<Item> items, List<Icon> icons, List<Model> models,
+                         java.util.function.Function<String, BufferedImage> vanilla,
+                         java.util.function.UnaryOperator<String> soundAlias) {
+    }
+
+    /** How many placeable models one pack can draw for Bedrock; the bridge registers this many. */
+    public static final int MODEL_POOL = 200;
+
+    /** The entity a model in slot {@code slot} is spawned as. */
+    public static String modelIdentifier(int slot) {
+        return "rpengine:model_" + slot;
+    }
+
+    /** The Bedrock-safe name a model's geometry, texture and animations are filed under. */
+    public static String modelKey(String contentId) {
+        return sanitize(contentId);
+    }
+
+    /**
      * What Geyser is told about one item.
      *
      * @param javaModel   the {@code item_model} a stack carries on 1.21.4+, or
@@ -83,10 +117,20 @@ public final class BedrockContent {
                                String icon, String displayName, String armorSlot) {
     }
 
-    /** The built pack, or null when nothing crossed; and what Geyser needs. */
-    public record Result(Path file, List<Registration> items, int sounds, int icons, int armour) {
+    /**
+     * The built pack, or null when nothing crossed; and what Geyser needs.
+     *
+     * @param modelSlots  a model's content id to its entity slot
+     * @param modelScales a model's content id to the size it is placed at
+     */
+    public record Result(Path file, List<Registration> items, int sounds, int icons, int armour,
+                         Map<String, Integer> modelSlots, Map<String, Float> modelScales) {
         public boolean empty() {
             return file == null;
+        }
+
+        public int models() {
+            return modelSlots.size();
         }
     }
 
@@ -100,7 +144,16 @@ public final class BedrockContent {
      */
     public static Result build(Path javaZip, List<Item> items, List<Icon> icons, Path out, String bundle,
                                String description) throws IOException {
+        return build(javaZip, new Inputs(items, icons, List.of(), null, null), out, bundle, description);
+    }
+
+    public static Result build(Path javaZip, Inputs inputs, Path out, String bundle,
+                               String description) throws IOException {
+        List<Item> items = inputs.items();
+        List<Icon> icons = inputs.icons();
         Map<String, byte[]> files = new TreeMap<>();
+        Map<String, Integer> modelSlots = new TreeMap<>();
+        Map<String, Float> modelScales = new TreeMap<>();
         List<Registration> registrations = new ArrayList<>();
         int sounds;
         int glyphs;
@@ -158,7 +211,11 @@ public final class BedrockContent {
                 String name = entry.getName();
                 if (!name.startsWith("assets/") || !name.endsWith("/sounds.json")) continue;
                 String namespace = name.substring("assets/".length(), name.length() - "/sounds.json".length());
-                if (namespace.contains("/") || namespace.equals("minecraft")) continue;
+                if (namespace.contains("/")) continue;
+                // A replaced VANILLA sound reaches Bedrock only under the name
+                // Geyser plays it by, which only Geyser knows.
+                boolean vanilla = namespace.equals("minecraft");
+                if (vanilla && inputs.soundAlias() == null) continue;
                 JsonObject events;
                 try (InputStream in = zip.getInputStream(entry)) {
                     events = JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8))
@@ -194,7 +251,10 @@ public final class BedrockContent {
                     String category = java.has("category") ? java.get("category").getAsString() : "master";
                     def.addProperty("category", bedrockCategory(category));
                     def.add("sounds", bedrockSounds);
-                    definitions.add(namespace + ":" + event.getKey(), def);
+                    String bedrockName = vanilla ? inputs.soundAlias().apply(event.getKey())
+                            : namespace + ":" + event.getKey();
+                    if (bedrockName == null || bedrockName.isEmpty()) continue;
+                    definitions.add(bedrockName, def);
                     sounds++;
                 }
             }
@@ -219,13 +279,46 @@ public final class BedrockContent {
 
             byte[] packPng = read(zip, "pack.png");
             if (packPng != null) files.put("pack_icon.png", packPng);
+
+            // --- Placeable models ------------------------------------------
+            // Sorted, so a model keeps its slot while the set is unchanged; the
+            // bridge reads the slots a session was actually served, so a reload
+            // that reshuffles them is still drawn right for everybody.
+            List<Model> models = new ArrayList<>(inputs.models());
+            models.sort(java.util.Comparator.comparing(m -> m.id().toString()));
+            for (Model model : models) {
+                if (modelSlots.size() >= MODEL_POOL) break;
+                byte[] source = read(zip, model.modelZipPath());
+                if (source == null) continue;
+                JsonObject json;
+                try {
+                    json = JsonParser.parseString(new String(source, StandardCharsets.UTF_8)).getAsJsonObject();
+                } catch (RuntimeException bad) {
+                    continue;
+                }
+                int slot = modelSlots.size() + 1;
+                String key = modelKey(model.id().toString());
+                java.util.Optional<BedrockGeometry.Converted> converted = BedrockGeometry.convert(
+                        modelIdentifier(slot), key, json, ref -> texture(zip, ref, inputs.vanilla()));
+                if (converted.isEmpty()) continue;
+                ByteArrayOutputStream atlas = new ByteArrayOutputStream();
+                ImageIO.write(converted.get().atlas(), "png", atlas);
+                files.put("textures/entity/rpe_" + key + ".png", atlas.toByteArray());
+                files.put("models/entity/rpe_" + key + ".geo.json", json(converted.get().geometry()));
+                files.put("entity/rpe_" + key + ".entity.json", json(converted.get().entity()));
+                if (converted.get().animations() != null) {
+                    files.put("animations/rpe_" + key + ".animation.json", json(converted.get().animations()));
+                }
+                modelSlots.put(model.id().toString(), slot);
+                modelScales.put(model.id().toString(), model.scale());
+            }
         }
 
         Path target = out.resolve(bundle + ".mcpack");
-        boolean anything = !registrations.isEmpty() || sounds > 0 || glyphs > 0;
+        boolean anything = !registrations.isEmpty() || sounds > 0 || glyphs > 0 || !modelSlots.isEmpty();
         if (!anything) {
             Files.deleteIfExists(target);
-            return new Result(null, List.of(), 0, 0, 0);
+            return new Result(null, List.of(), 0, 0, 0, Map.of(), Map.of());
         }
 
         // The version has to change when the content does — a Bedrock client
@@ -244,7 +337,8 @@ public final class BedrockContent {
         for (Map.Entry<String, byte[]> file : files.entrySet()) zipOut.add(file.getKey(), file.getValue());
         Files.createDirectories(out);
         zipOut.writeTo(target);
-        return new Result(target, List.copyOf(registrations), sounds, glyphs, armour);
+        return new Result(target, List.copyOf(registrations), sounds, glyphs, armour,
+                java.util.Collections.unmodifiableMap(modelSlots), java.util.Collections.unmodifiableMap(modelScales));
     }
 
     // --- Pieces ---------------------------------------------------------------
@@ -405,6 +499,21 @@ public final class BedrockContent {
 
     private static String uuid(String seed) {
         return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** A model's texture: the pack's own copy, else the game's, else nothing. */
+    private static BufferedImage texture(ZipFile zip, String ref,
+                                         java.util.function.Function<String, BufferedImage> vanilla) {
+        int colon = ref.indexOf(':');
+        String namespace = colon < 0 ? "minecraft" : ref.substring(0, colon);
+        String path = colon < 0 ? ref : ref.substring(colon + 1);
+        try {
+            byte[] png = read(zip, "assets/" + namespace + "/textures/" + path + ".png");
+            if (png != null) return ImageIO.read(new ByteArrayInputStream(png));
+        } catch (IOException ignored) {
+            // Falls through to the game's copy.
+        }
+        return namespace.equals("minecraft") && vanilla != null ? vanilla.apply(path) : null;
     }
 
     private static byte[] read(ZipFile zip, String name) throws IOException {

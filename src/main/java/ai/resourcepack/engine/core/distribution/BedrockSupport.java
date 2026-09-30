@@ -84,4 +84,12 @@ public interface BedrockSupport {
      */
     default void serverContent(ai.resourcepack.engine.core.bedrock.BedrockContent.Result content) {
     }
+
+    /**
+     * The Bedrock sound a vanilla Java sound event is played as, for a pack
+     * that replaces one; null (the default) leaves replacements Java-only.
+     */
+    default java.util.function.UnaryOperator<String> soundAlias() {
+        return null;
+    }
 }
