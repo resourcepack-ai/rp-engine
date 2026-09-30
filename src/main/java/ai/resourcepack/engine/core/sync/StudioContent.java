@@ -115,6 +115,8 @@ public final class StudioContent {
         List<Armor3dPart> parts;
         /** The equipment asset the item wears, e.g. {@code minecraft:rpai_x_chestplate}, or absent. */
         String asset;
+        /** The Bedrock item Geyser maps this piece to, or absent. Boxed: 0 is not a slot. */
+        Integer bedrockSlot;
     }
 
     /**
@@ -764,7 +766,8 @@ public final class StudioContent {
                         part.scale == null || part.scale <= 0 ? 1f : part.scale));
             }
             pieces.put(which, new Armor3dSet.Worn(which, piece.item, List.copyOf(parts),
-                    piece.asset == null || piece.asset.isEmpty() ? null : piece.asset));
+                    piece.asset == null || piece.asset.isEmpty() ? null : piece.asset,
+                    piece.bedrockSlot != null && piece.bedrockSlot > 0 ? piece.bedrockSlot : null));
         }
         List<int[]> ranges = new ArrayList<>();
         for (int[] range : set.shaderProtocols == null ? List.<int[]>of() : set.shaderProtocols) {
@@ -787,6 +790,7 @@ public final class StudioContent {
             piece.piece = worn.piece().wire();
             piece.item = worn.item();
             piece.asset = worn.asset();
+            piece.bedrockSlot = worn.bedrockSlot();
             piece.parts = new ArrayList<>();
             for (Armor3dSet.Part part : worn.parts()) {
                 Armor3dPart written = new Armor3dPart();
