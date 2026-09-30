@@ -187,6 +187,11 @@ public final class StudioPush {
         return slot(payload, SLOT_EMOTES);
     }
 
+    /** The Bedrock .mcpack, or empty when studio built none (every recipient on Java). */
+    public static Optional<String> bedrockUrl(String payload) {
+        return slot(payload, SLOT_BEDROCK);
+    }
+
     /** The animated-model rigs, on the same terms. Nothing reads these yet. */
     public static Optional<String> rigsUrl(String payload) {
         return slot(payload, SLOT_RIGS);

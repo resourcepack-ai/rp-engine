@@ -224,6 +224,17 @@ public final class SyncClient {
      * @return false if the connection could not be opened
      */
     public synchronized boolean link(String code, String playerName) {
+        return link(code, playerName, false);
+    }
+
+    /**
+     * As above, saying which edition the claimer plays. Studio reads it back to
+     * decide whether a push needs a Bedrock pack built at all: it skips the
+     * build only on a positive "java", so saying "java" for a Geyser player
+     * (which this used to, for everybody) sends them a Java pack their client
+     * cannot load and nothing else.
+     */
+    public synchronized boolean link(String code, String playerName, boolean bedrock) {
         if (code == null || playerName == null) {
             return false;
         }
@@ -231,9 +242,7 @@ public final class SyncClient {
             return false;
         }
         claimed.put(code, playerName);
-        // "java" because this plugin does not serve Bedrock. Saying so is
-        // better than omitting it: studio reads the platform back.
-        send("LINKED " + code + " " + playerName + " java");
+        send("LINKED " + code + " " + playerName + " " + (bedrock ? "bedrock" : "java"));
         return true;
     }
 

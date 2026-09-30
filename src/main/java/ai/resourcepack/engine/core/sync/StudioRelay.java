@@ -53,6 +53,9 @@ public final class StudioRelay {
     private final BiConsumer<Player, BuiltPack> deliver;
     /** Puts a push's named content into the registry. Main thread. */
     private Runnable registerContent = () -> { };
+    /** Who is on Bedrock, and how to hand them a .mcpack. */
+    private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
+            ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
 
     public StudioRelay(Plugin plugin, SyncClient sync, SyncGroup group, RigStore rigs,
                        EmoteStore emotes, StudioContent content, SkinApplier skins, Path output,
@@ -77,6 +80,10 @@ public final class StudioRelay {
      * writes into, and the plugin builds this object before it has finished
      * building itself.
      */
+    public void onBedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
+        this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
+    }
+
     public void onContent(Runnable register) {
         this.registerContent = register == null ? () -> { } : register;
     }
@@ -123,20 +130,36 @@ public final class StudioRelay {
                 .ifPresent(json -> merged("Pushed content", content.updateFromJson(json, log),
                         () -> content.save(log)));
 
-        if (fetched.pack().isEmpty()) {
+        // The Bedrock twin, for recipients who joined through Geyser. Studio
+        // builds one whenever any recipient might be Bedrock; a Bedrock player
+        // cannot load the Java zip, so for them this slot IS the push.
+        Optional<String> bedrockUrl = StudioPush.bedrockUrl(payload);
+        BuiltPack pack = fetched.pack().orElse(null);
+        if (pack == null && bedrockUrl.isEmpty()) {
             sync.failed(code, fetched.reason());
             return;
         }
-        BuiltPack pack = fetched.pack().get();
         onMainThread(() -> {
             registerContent.run();
-            register.accept(pack);
+            if (pack != null) register.accept(pack);
             int reached = eachRecipient(code, player -> {
+                if (bedrock.isBedrock(player.getUniqueId())) {
+                    if (bedrockUrl.isEmpty()) {
+                        EngineCommand.say(player, "Studio pushed a pack, but nothing in it has a Bedrock version yet.");
+                        return false;
+                    }
+                    // A Bedrock client only loads packs while joining, so this
+                    // reconnects them; see GeyserBridge.applyPack.
+                    EngineCommand.say(player, "Studio pushed a pack. Reconnecting you to load it.");
+                    return bedrock.applyPack(player, bedrockUrl.get());
+                }
+                if (pack == null) return false;
                 deliver.accept(player, pack);
                 EngineCommand.say(player, "Studio pushed a pack.");
                 return true;
             });
-            answer(reached, () -> sync.applied(code), why -> sync.failed(code, why));
+            answer(reached, () -> sync.applied(code),
+                    why -> sync.failed(code, pack == null ? fetched.reason() : why));
         });
     }
 
