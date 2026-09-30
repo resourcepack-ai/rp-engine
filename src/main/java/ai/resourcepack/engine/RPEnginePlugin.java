@@ -503,6 +503,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquids = new Liquids(this, pools);
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
+        placements.bedrock(bedrock);
         // What a placed model is to a vehicle: whether it stops one, what it is
         // shaped like, and how big its own definition draws it.
         //
@@ -1227,6 +1228,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
+        placementCatalogue = parsedModels.model();
 
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
         report(to, "entities", parsedEntities.diagnostics());
@@ -1437,9 +1439,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * Geyser, since nobody else could be served it. See BedrockContent for
      * what crosses and what cannot.
      */
+    /** The content folder's placeable pieces, as last loaded; the Bedrock build draws these. */
+    private Map<ContentId, ai.resourcepack.engine.api.ModelInfo> placementCatalogue = Map.of();
+
+    /** The game's own textures, for Bedrock models that paint with them. */
+    private ai.resourcepack.engine.core.bedrock.VanillaTextures vanillaTextures;
+
     private void buildBedrockContent(Path output) {
         if (!bedrock.available()) {
             return;
+        }
+        if (vanillaTextures == null) {
+            vanillaTextures = new ai.resourcepack.engine.core.bedrock.VanillaTextures(
+                    getDataFolder().toPath().resolve("cache").resolve("vanilla-textures"), getLogger());
         }
         BuiltPack main = null;
         for (BuiltPack pack : built) {
@@ -1469,6 +1481,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     id, info.material(), bedrockName(info), source.texture(), info.modelId(), number,
                     info.armor().orElse(null)));
         }
+        // Placeable pieces, drawn from the model their item is shaped by. A
+        // flat item placed as a piece has no block model and is left out.
+        List<ai.resourcepack.engine.core.bedrock.BedrockContent.Model> bedrockModels = new ArrayList<>();
+        for (Map.Entry<ContentId, ai.resourcepack.engine.api.ModelInfo> entry : placementCatalogue.entrySet()) {
+            ItemInfo item = items.info(entry.getValue().item()).orElse(null);
+            if (item == null) {
+                continue;
+            }
+            ContentId shape = item.modelId();
+            bedrockModels.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Model(entry.getKey(),
+                    "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json",
+                    entry.getValue().scale()));
+        }
         List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
         for (ContentId id : icons.ids()) {
             icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
@@ -1477,13 +1502,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         try {
             ai.resourcepack.engine.core.bedrock.BedrockContent.Result result =
-                    ai.resourcepack.engine.core.bedrock.BedrockContent.build(main.file(), bedrockItems, bedrockIcons,
+                    ai.resourcepack.engine.core.bedrock.BedrockContent.build(main.file(),
+                            new ai.resourcepack.engine.core.bedrock.BedrockContent.Inputs(bedrockItems, bedrockIcons,
+                                    bedrockModels, vanillaTextures::cached, bedrock.soundAlias()),
                             output, defaultBundle, getConfig().getString("pack.description", "RP Engine"));
             bedrock.serverContent(result);
             if (!result.empty()) {
                 getLogger().info("Bedrock pack built: " + result.items().size() + " items, "
-                        + result.sounds() + " sounds, " + result.icons() + " icons, "
-                        + result.armour() + " armour pieces.");
+                        + result.models() + " models, " + result.sounds() + " sounds, "
+                        + result.icons() + " icons, " + result.armour() + " armour pieces.");
+            }
+            // A model that paints with the game's own textures needs them baked
+            // in, and the first build had only what was on disk. Fetched off
+            // the main thread, then built once more.
+            if (vanillaTextures.hasMissing()) {
+                getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                    if (vanillaTextures.fetchMissing()) {
+                        getServer().getScheduler().runTask(this, () -> buildBedrockContent(output));
+                    }
+                });
             }
         } catch (java.io.IOException | RuntimeException e) {
             getLogger().warning("Could not build the Bedrock pack: " + e.getMessage());

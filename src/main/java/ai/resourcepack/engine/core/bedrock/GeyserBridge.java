@@ -129,6 +129,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         this.modelKey = new NamespacedKey(plugin, "model-id");
         this.yawKey = new NamespacedKey(plugin, "rig-yaw");
         this.placedYawKey = new NamespacedKey(plugin, "model-yaw");
+        this.authoredKey = new NamespacedKey(plugin, "model");
         this.scaleKey = new NamespacedKey(plugin, "rig-scale");
         if (!packsDir.isDirectory() && !packsDir.mkdirs()) {
             plugin.getLogger().warning("Couldn't create " + packsDir + " - Bedrock pack pushes won't persist");
@@ -217,6 +218,10 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         if (content != null && content.file() != null && Files.isRegularFile(content.file())) {
             try {
                 event.register(ResourcePack.create(PackCodec.path(content.file())));
+                // What THIS session was served, so its placed models resolve
+                // against the slots in the pack it holds rather than a newer one.
+                String viewer = event.connection().xuid();
+                if (viewer != null) contentByXuid.put(viewer, content);
             } catch (Exception e) {
                 plugin.getLogger().warning("Couldn't serve the server's Bedrock pack to "
                     + event.connection().bedrockUsername() + ": " + e.getMessage());
@@ -233,10 +238,87 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         }
     }
 
+    // --- Vanilla sound names --------------------------------------------------
+
+    /**
+     * The Bedrock sound Geyser plays for a vanilla Java sound event, or null
+     * when it plays one some other way (a level event) or not at all.
+     *
+     * <p>A pack that replaces {@code entity.creeper.primed} replaces nothing on
+     * Bedrock under that name: Geyser maps the event to Bedrock's own sound
+     * before the pack is asked. The mapping is Geyser's and lives only in a
+     * running Geyser, which is why a pack built anywhere else cannot do this.
+     * Internal API, fenced: an update that moves it costs the aliases, nothing
+     * else.
+     */
+    @Override
+    public java.util.function.UnaryOperator<String> soundAlias() {
+        return event -> {
+            try {
+                String key = event.startsWith("minecraft:") ? event.substring("minecraft:".length()) : event;
+                org.geysermc.geyser.registry.type.SoundMapping mapping =
+                    org.geysermc.geyser.registry.Registries.SOUNDS.get(key);
+                if (mapping == null) return null;
+                String playsound = mapping.playsound();
+                return playsound == null || playsound.isEmpty() ? null : playsound;
+            } catch (Exception | LinkageError e) {
+                return null;
+            }
+        };
+    }
+
+    /**
+     * Adds a Bedrock-named copy of every replaced vanilla sound to a studio
+     * pack's sound definitions, for the same reason as {@link #soundAlias}.
+     * Rewrites the staged file in place; a pack with nothing to alias is left
+     * byte for byte.
+     */
+    private void aliasVanillaSounds(File pack) {
+        try {
+            Map<String, byte[]> entries = new java.util.LinkedHashMap<>();
+            try (ZipFile zip = new ZipFile(pack)) {
+                for (java.util.Enumeration<? extends ZipEntry> e = zip.entries(); e.hasMoreElements(); ) {
+                    ZipEntry entry = e.nextElement();
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        entries.put(entry.getName(), in.readAllBytes());
+                    }
+                }
+            }
+            byte[] raw = entries.get("sounds/sound_definitions.json");
+            if (raw == null) return;
+            com.google.gson.JsonObject root = com.google.gson.JsonParser.parseString(
+                new String(raw, StandardCharsets.UTF_8)).getAsJsonObject();
+            com.google.gson.JsonObject defs = root.getAsJsonObject("sound_definitions");
+            if (defs == null) return;
+            java.util.function.UnaryOperator<String> alias = soundAlias();
+            Map<String, com.google.gson.JsonElement> added = new HashMap<>();
+            for (Map.Entry<String, com.google.gson.JsonElement> def : defs.entrySet()) {
+                String name = alias.apply(def.getKey());
+                if (name != null && !name.equals(def.getKey()) && !defs.has(name)) added.put(name, def.getValue());
+            }
+            if (added.isEmpty()) return;
+            added.forEach(defs::add);
+            entries.put("sounds/sound_definitions.json", root.toString().getBytes(StandardCharsets.UTF_8));
+            try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(Files.newOutputStream(pack.toPath()))) {
+                for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+                    out.putNextEntry(new ZipEntry(entry.getKey()));
+                    out.write(entry.getValue());
+                    out.closeEntry();
+                }
+            }
+        } catch (Exception | LinkageError e) {
+            plugin.getLogger().fine("Couldn't alias vanilla sounds in " + pack.getName() + ": " + e);
+        }
+    }
+
     // --- The server's own content ---------------------------------------------
 
     /** The last Bedrock build of the content folder, or null. */
     private volatile BedrockContent.Result serverContent;
+    /** The build each Bedrock session was served as it joined, by xuid. */
+    private final Map<String, BedrockContent.Result> contentByXuid = new ConcurrentHashMap<>();
+    /** The tag a content-folder model's hitbox carries: its content id. */
+    private final NamespacedKey authoredKey;
     /** Whether Geyser has already asked for item mappings; it asks once, at startup. */
     private volatile boolean itemsDefined;
 
@@ -318,6 +400,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
                     byte[] bytes = fetch(bedrockUrl);
                     File file = packFile(xuid);
                     Files.write(file.toPath(), bytes);
+                    aliasVanillaSounds(file);
                     written = file;
                 }
             } catch (Exception e) {
@@ -437,6 +520,46 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             }
         }
         if (count > 0) plugin.getLogger().info("Registered " + count + " model item slots with Geyser");
+        defineArmourPool(event);
+    }
+
+    /**
+     * 3D armour pieces: a pool of wearable items, four per set (helmet,
+     * chestplate, leggings, boots, in that order, so the number fixes the
+     * slot), matched by the {@code rpai_armor_<n>} marker a piece carries.
+     * Studio's Bedrock pack draws each as an attachable on the body. A pool
+     * rather than names because Geyser asks once, at startup, and a set pushed
+     * after that must not need a restart. Keep in step with Studio's
+     * ARMOR3D_BEDROCK_SETS.
+     */
+    private static final int ARMOR_POOL = 64 * 4;
+
+    private void defineArmourPool(GeyserDefineCustomItemsEvent event) {
+        org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot[] slots = {
+            org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.HEAD,
+            org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.CHEST,
+            org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.LEGS,
+            org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.EquipmentSlot.FEET,
+        };
+        int count = 0;
+        for (int n = 1; n <= ARMOR_POOL; n++) {
+            try {
+                event.register(
+                    Identifier.of("minecraft", "paper"),
+                    CustomItemDefinition.builder(Identifier.of("rpai", "armor3d_" + n), Identifier.of("minecraft", "paper"))
+                        .displayName("3D armour")
+                        .predicate(ItemMatchPredicate.customModelData(1,
+                            ai.resourcepack.engine.core.armor3d.Armor3dItems.BEDROCK_MARKER + n))
+                        .component(org.geysermc.geyser.api.item.custom.v2.component.java.JavaItemDataComponents.EQUIPPABLE,
+                            org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable.of(slots[(n - 1) % 4]))
+                        .bedrockOptions(CustomItemBedrockOptions.builder().allowOffhand(true).icon("rpai_armor3d_" + n))
+                        .build());
+                count++;
+            } catch (Exception | LinkageError e) {
+                plugin.getLogger().warning("Couldn't register Bedrock armour slot " + n + ": " + e);
+            }
+        }
+        if (count > 0) plugin.getLogger().info("Registered " + count + " 3D armour slots with Geyser");
     }
 
     private void onDefineEntities(GeyserDefineEntitiesEvent event) {
@@ -447,6 +570,18 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
                 count++;
             } catch (Exception e) {
                 plugin.getLogger().warning("Couldn't register Bedrock entity slot " + slot + ": " + e.getMessage());
+            }
+        }
+        // A second pool for the content folder's own placeable models, whose
+        // slots the server's Bedrock pack assigns. A pool rather than names
+        // for the reason studio's is one: Geyser takes entities once, at
+        // startup, and a model added by a reload must not need a restart.
+        for (int slot = 1; slot <= BedrockContent.MODEL_POOL; slot++) {
+            try {
+                event.register(CustomEntityDefinition.of(BedrockContent.modelIdentifier(slot)));
+                count++;
+            } catch (Exception e) {
+                plugin.getLogger().warning("Couldn't register Bedrock content model slot " + slot + ": " + e.getMessage());
             }
         }
         if (count > 0) plugin.getLogger().info("Registered " + count + " model entity slots with Geyser");
@@ -495,7 +630,9 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             for (Entity nearby : player.getWorld().getNearbyEntities(
                     player.getLocation(), SPAWN_RANGE, SPAWN_RANGE, SPAWN_RANGE, e -> e instanceof Interaction)) {
                 if (mine.containsKey(nearby.getUniqueId())) continue;
-                String modelId = nearby.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+                PersistentDataContainer pdc = nearby.getPersistentDataContainer();
+                String modelId = pdc.get(authoredKey, PersistentDataType.STRING);
+                if (modelId == null) modelId = pdc.get(modelKey, PersistentDataType.STRING);
                 if (modelId != null) spawnFor(session, player.getUniqueId(), (Interaction) nearby, modelId);
             }
         }
@@ -551,7 +688,12 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
 
     /** A trigger fired - play the same animation the pack defines, client-side. */
     public void playAnimation(UUID hitboxId, String modelId, String animationName) {
-        String animationId = "animation.rpai." + sanitize(modelId) + "." + sanitize(animationName);
+        Entity hitbox = Bukkit.getEntity(hitboxId);
+        boolean authored = hitbox != null
+            && hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING);
+        String animationId = authored
+            ? BedrockGeometry.animationId(BedrockContent.modelKey(modelId), animationName)
+            : "animation.rpai." + sanitize(modelId) + "." + sanitize(animationName);
         spawned.forEach((playerId, entities) -> {
             Long geyserId = entities.get(hitboxId);
             if (geyserId == null) return;
@@ -577,6 +719,12 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
 
     public void forgetPlayer(UUID playerId) {
         spawned.remove(playerId);
+        try {
+            GeyserConnection connection = GeyserApi.api().connectionByUuid(playerId);
+            if (connection != null && connection.xuid() != null) contentByXuid.remove(connection.xuid());
+        } catch (Exception | LinkageError ignored) {
+            // Geyser going down with the server; nothing to tidy.
+        }
     }
 
     /**
@@ -607,11 +755,23 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
 
     private void spawnFor(GeyserSession session, UUID playerId, Interaction hitbox, String modelId) {
         // Resolved through this viewer's own pack, so a viewer whose pack
-        // lacks the model correctly sees nothing.
-        Map<String, Integer> slots = slotsByXuid.get(session.xuid());
-        Integer slot = slots != null ? slots.get(modelId) : null;
-        if (slot == null) return;
-        String identifier = "rpai:model_" + slot;
+        // lacks the model correctly sees nothing. A content-folder piece is
+        // looked up in the server's pack; a studio one in what studio sent.
+        String authored = hitbox.getPersistentDataContainer().get(authoredKey, PersistentDataType.STRING);
+        String identifier;
+        Float contentScale = null;
+        if (authored != null) {
+            BedrockContent.Result content = contentByXuid.get(session.xuid());
+            Integer slot = content != null ? content.modelSlots().get(authored) : null;
+            if (slot == null) return;
+            identifier = BedrockContent.modelIdentifier(slot);
+            contentScale = content.modelScales().get(authored);
+        } else {
+            Map<String, Integer> slots = slotsByXuid.get(session.xuid());
+            Integer slot = slots != null ? slots.get(modelId) : null;
+            if (slot == null) return;
+            identifier = "rpai:model_" + slot;
+        }
         Map<UUID, Long> entities = spawned.computeIfAbsent(playerId, k -> new HashMap<>());
         if (entities.containsKey(hitbox.getUniqueId())) return;
         try {
@@ -630,7 +790,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             packet.setBodyRotation(yaw);
             // A model placed at 4x is 4x for Java viewers; without this it
             // stood at its own size for Bedrock ones.
-            Float scale = hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
+            Float scale = contentScale != null ? contentScale
+                : hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
             if (scale != null && scale != 1f) {
                 packet.getMetadata().put(org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.SCALE, scale);
             }
