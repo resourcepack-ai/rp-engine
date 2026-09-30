@@ -1875,6 +1875,41 @@ filled the way an overlay's is — `{player}` and the other built-ins describe
 the player the dialog is SHOWN to, and PlaceholderAPI answers the rest when it
 is installed. A name nothing knows is left as written.
 
+**A placeholder can choose.** `{mode?off:Disabled|on:Enabled}` becomes the words
+after the value `mode` has — `Enabled` when it is `on` — and the LAST entry when
+it matches none of them or has no value at all, so write the default last. The
+entries are `value:words`, split by `|`; the words may be anything but a brace.
+
+**A dialog can keep settings for each player.** Declare them under `vars:`, each
+with every value it may take, and a button can set one with `/rp var`:
+
+```yaml
+settings:
+  title: "Sidebar: {show_sidebar?off:Hidden|on:Shown}"
+  vars:
+    show_sidebar: ["on", "off"]
+  buttons:
+    - label: "Turn it {show_sidebar?off:on|on:off}"
+      command: "rp var show_sidebar {show_sidebar?off:on|on:off}"
+```
+
+`/rp var <name> <value>` sets the value for whoever runs it and opens the dialog
+they were looking at again, now showing it — so that button flips the setting
+and the screen updates in place. Every player may run it (a click on a dialog is
+theirs), but it only accepts a name some loaded dialog declares, and only one of
+the values that dialog lists. Settings are kept on the player and survive
+restarts. Your other plugins read them as `%rpengine_var_show_sidebar%`, and a
+dialog as `{show_sidebar}` like any other placeholder.
+
+Quote `on`, `off`, `yes` and `no`: unquoted, YAML reads them as true and false.
+Under `vars:` an unquoted one is read back as `on` or `off`, which is nearly
+always what was meant; in a command or a label it is not.
+
+Studio does all of this for you when you give a switch, slider, stepper,
+checkbox, segmented control or dropdown a **player setting**: it draws every
+state of the control and puts all of them in a choice, so each player sees
+theirs.
+
 **One button is a notice, two are a yes/no, three or more are a grid.** You do
 not choose which; the count does, because those are the only three shapes the
 game has and they differ in nothing else.

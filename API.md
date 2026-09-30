@@ -632,6 +632,24 @@ carrying one is refused by the game, and takes its whole dialog with it), and a
 value is inserted once and never read again. Words drawn into a Studio dialog's
 PICTURE are pixels and stay as they were drawn.
 
+A placeholder can also choose — `{mode?off:Disabled|on:Enabled}` keeps the entry
+whose value `mode` has, and the last one when it has none of them. That is how a
+Studio dialog's bound switch or slider is drawn in each player's own state.
+
+**Player settings.** A dialog may declare settings (`DialogInfo.variables()`: a
+name to the values it may take). A player sets one by clicking the dialog — which
+runs `/rp var <name> <value>` as them — and the value is kept on the player, read
+by every dialog opened for them after that. Read it from your plugin as
+`%rpengine_var_<name>%` through PlaceholderAPI, or pass a value of your own when
+you open a dialog: what you hand to `show` wins over the stored one.
+
+```java
+Map<String, List<String>> settings = engine.dialogs().info(id)
+        .map(DialogInfo::variables)
+        .orElse(Map.of());
+// {"show_sidebar": ["on", "off"], "opacity": ["0", "10", …]}
+```
+
 `show` returns false rather than throwing, and there are three reasons it might:
 
 ```java
