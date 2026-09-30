@@ -73,7 +73,7 @@ public final class DialogDefinitions {
                         "json: " + file.get() + " is not a file in this pack."));
                 return Optional.empty();
             }
-            return Optional.of(DialogInfo.authored(definition.id(), json, name, vars(body, origin, where, diagnostics)));
+            return Optional.of(DialogInfo.authored(definition.id(), json, name));
         }
 
         List<String> lines = body.strings("body");
@@ -133,70 +133,7 @@ public final class DialogDefinitions {
             json.append("  ]\n");
         }
         json.append("}\n");
-        return Optional.of(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics)));
-    }
-
-    /**
-     * The player settings a dialog declares — {@code vars:}, a name to the list
-     * of values it may take:
-     *
-     * <pre>
-     * vars:
-     *   show_sidebar: [on, off]
-     *   chat_mode: [all, friends, none]
-     * </pre>
-     *
-     * <p>What {@code /rp var} lets a player set, and nothing else — see
-     * {@link DialogVariables}. A dialog reads a setting like any placeholder,
-     * and CHOOSES by one with {@code {show_sidebar?off:Off|on:On}}; a button
-     * that runs {@code rp var show_sidebar {show_sidebar?off:on|on:off}}
-     * toggles it, and the dialog opens again showing the new value.
-     */
-    /**
-     * A setting's values as written. YAML reads an unquoted {@code on}, {@code
-     * off}, {@code yes} or {@code no} as a boolean, and a switch's values are
-     * {@code on} and {@code off} — Studio's too — so a boolean here is read back
-     * as the word nearly everybody who wrote one meant.
-     */
-    private static List<String> settingValues(Object raw) {
-        List<String> out = new ArrayList<>();
-        for (Object element : raw instanceof List<?> list ? list : raw == null ? List.of() : List.of(raw)) {
-            if (element instanceof Boolean flag) {
-                out.add(flag ? "on" : "off");
-            } else if (element != null && !(element instanceof Map) && !(element instanceof List)) {
-                out.add(element.toString());
-            }
-        }
-        return out;
-    }
-
-    private static Map<String, List<String>> vars(DefinitionNode body, String origin, String where, List<Diagnostic> diagnostics) {
-        Optional<DefinitionNode> declared = body.node("vars");
-        if (declared.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, List<String>> out = new LinkedHashMap<>();
-        for (String key : declared.get().keys()) {
-            String name = key.toLowerCase(Locale.ROOT);
-            if (!DialogVariables.NAME.matcher(name).matches()) {
-                diagnostics.add(Diagnostic.warning(origin, where,
-                        "vars: " + key + " is not a setting name — lower-case letters, digits and _, starting with a letter."));
-                continue;
-            }
-            List<String> values = new ArrayList<>();
-            for (String value : settingValues(declared.get().raw(key))) {
-                if (DialogVariables.VALUE.matcher(value).matches()) {
-                    values.add(value);
-                } else {
-                    diagnostics.add(Diagnostic.warning(origin, where,
-                            "vars: " + key + ": \"" + value + "\" is not a value a setting can hold — letters, digits, _ . and -."));
-                }
-            }
-            if (!values.isEmpty()) {
-                out.put(name, values);
-            }
-        }
-        return out;
+        return Optional.of(DialogInfo.authored(definition.id(), json.toString(), name));
     }
 
     private static String button(DefinitionNode node, String origin, String where, List<Diagnostic> diagnostics) {

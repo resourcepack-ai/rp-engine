@@ -115,33 +115,6 @@ class DialogDefinitionsTest {
         assertEquals(3, json.split("\"label\"", -1).length - 1);
     }
 
-    /**
-     * A hand-written dialog declares its player settings as a Studio one does,
-     * so a toggle built in YAML works without Studio: the names and values are
-     * what /rp var will accept, and anything that could not be one is warned
-     * about and left out.
-     */
-    @Test
-    void aDialogDeclaresThePlayerSettingsItShows() throws IOException {
-        write("mypack/dialogs/menus.yml",
-                "settings:\n"
-                        + "  title: \"Sidebar: {show_sidebar?off:Off|on:On}\"\n"
-                        + "  vars:\n"
-                        + "    show_sidebar: [on, off]\n"
-                        + "    Bad Name: [x]\n"
-                        + "    chat: [all, \"not ok\"]\n"
-                        + "  buttons:\n"
-                        + "    - label: Toggle\n"
-                        + "      command: \"rp var show_sidebar {show_sidebar?off:on|on:off}\"\n");
-        DialogDefinitions.Result result = parse();
-        DialogInfo dialog = one(result, "mypack:settings");
-        assertNotNull(dialog);
-        assertEquals(java.util.List.of("on", "off"), dialog.variables().get("show_sidebar"));
-        assertEquals(java.util.List.of("all"), dialog.variables().get("chat"));
-        assertEquals(2, dialog.variables().size());
-        assertTrue(result.diagnostics().size() >= 2, "a bad name and a bad value are both warned about");
-    }
-
     /** A screen with no way out is the one thing refused rather than warned about. */
     @Test
     void aDialogNobodyCanLeaveIsRefused() throws IOException {
