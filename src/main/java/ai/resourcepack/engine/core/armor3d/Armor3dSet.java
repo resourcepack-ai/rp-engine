@@ -108,8 +108,16 @@ public final class Armor3dSet {
      *              {@code asset}, which the game draws
      * @param asset the equipment asset the item wears, or null — see
      *              {@link Armor3dSet#drawnBy(int)}
+     * @param bedrockSlot the Bedrock item Geyser maps this piece to, or null:
+     *              the piece carries {@code rpai_armor_<n>} beside its art and
+     *              the Bedrock pack draws item {@code rpai:armor3d_<n>} on the
+     *              body. Studio numbers them; see GeyserBridge.
      */
-    public record Worn(Piece piece, String item, List<Part> parts, String asset) {
+    public record Worn(Piece piece, String item, List<Part> parts, String asset, Integer bedrockSlot) {
+
+        public Worn(Piece piece, String item, List<Part> parts, String asset) {
+            this(piece, item, parts, asset, null);
+        }
     }
 
     private final String id;

@@ -33,6 +33,9 @@ public final class Armor3dItems {
     /** The prefix of every model string a set's art is named by — Studio's {@code lib/armor3d/pack.ts}. */
     public static final String MODEL_PREFIX = "armor3d:";
 
+    /** Studio's Bedrock marker for a piece; GeyserBridge registers the pool it names. */
+    public static final String BEDROCK_MARKER = "rpai_armor_";
+
     private final NamespacedKey pieceKey;
     private final RigTags tags;
     /** Puts the slot, and the asset where there is one, on a piece. */
@@ -61,7 +64,10 @@ public final class Armor3dItems {
         if (meta == null) {
             return stack;
         }
-        tags.write(meta, List.of(worn.item()));
+        // The art at index 0; the Bedrock marker, when studio numbered the
+        // piece, at index 1, which is where Geyser's mapping looks.
+        tags.write(meta, worn.bedrockSlot() == null ? List.of(worn.item())
+                : List.of(worn.item(), BEDROCK_MARKER + worn.bedrockSlot()));
         meta.getPersistentDataContainer().set(pieceKey, PersistentDataType.STRING,
                 set.id() + "/" + worn.piece().wire());
         meta.setDisplayName(ChatColor.RESET + set.name() + " " + worn.piece().label());
