@@ -64,7 +64,8 @@ public final class InterfaceCommands implements Area {
                 Help.of("shaders", "list the shader objects"),
                 Help.of("shader", "<id|clear> [player]", "show one"),
                 Help.of("dialogs", "list the dialogs"),
-                Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"));
+                Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"),
+                Help.of("var", "<name> <value>", "set a dialog setting"));
     }
 
     @Override
@@ -86,6 +87,8 @@ public final class InterfaceCommands implements Area {
                 return dialogs(sender);
             case "dialog":
                 return dialog(sender, args);
+            case "var":
+                return var(sender, args);
             case "shaders":
                 return shaders(sender);
             case "shader":
@@ -95,8 +98,80 @@ public final class InterfaceCommands implements Area {
         }
     }
 
+    /**
+     * {@code /rp var <name> <value> [player]} — what a click on a bound control
+     * in a Studio dialog runs, as the player who clicked it.
+     *
+     * <p>Every player may run it, because the click is theirs; so it sets only
+     * a variable some loaded dialog declares, and only to a value that dialog
+     * lists — see {@link ai.resourcepack.engine.core.dialog.DialogVariables}.
+     * Then it opens the dialog they were looking at again, which reads their
+     * values as it opens and so shows the control in its new state. Silent when
+     * it works, because the answer is on their screen; a line when it does not,
+     * because a click that does nothing is otherwise a mystery.
+     *
+     * <p>Naming another player is for staff and tests, and needs what opening a
+     * dialog on somebody else needs.
+     */
+    private boolean var(CommandSender sender, String[] args) {
+        if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) || impl.variables() == null) {
+            Reply.to(sender, "Dialog settings are not available on this server.");
+            return true;
+        }
+        if (args.length < 3) {
+            Reply.to(sender, "/rp var <name> <value> [player]");
+            return true;
+        }
+        Player target;
+        if (args.length > 3) {
+            if (!sender.hasPermission(EngineCommand.permissionFor("dialog"))) {
+                Reply.to(sender, "You need " + EngineCommand.permissionFor("dialog") + " to change somebody else's settings.");
+                return true;
+            }
+            target = org.bukkit.Bukkit.getPlayerExact(args[3]);
+            if (target == null) {
+                Reply.to(sender, args[3] + " is not online.");
+                return true;
+            }
+        } else if (sender instanceof Player player) {
+            target = player;
+        } else {
+            Reply.to(sender, "Name a player: /rp var <name> <value> <player>");
+            return true;
+        }
+        String name = args[1].toLowerCase(Locale.ROOT);
+        String value = args[2];
+        if (!impl.declares(name, value)) {
+            Reply.to(sender, "No dialog has a setting called " + name + " that can be " + value + ".");
+            return true;
+        }
+        if (!impl.variables().set(target, name, value)) {
+            Reply.to(sender, "That setting could not be saved: " + target.getName() + " has as many as a player can keep.");
+            return true;
+        }
+        // On the next tick: the click that ran this may still be closing the
+        // dialog on the client, and a dialog opened in the same breath would
+        // be the one it closes.
+        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(InterfaceCommands.class);
+        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> impl.reopen(target));
+        if (sender != target) {
+            Reply.to(sender, "Set " + name + " to " + value + " for " + target.getName() + ".");
+        }
+        return true;
+    }
+
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
+        if (sub.equals("var") && dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) {
+            java.util.Map<String, List<String>> declared = impl.declared();
+            if (args.length == 2) {
+                return Completions.matching(args[1], new ArrayList<>(declared.keySet()));
+            }
+            if (args.length == 3) {
+                return Completions.matching(args[2], declared.getOrDefault(args[1].toLowerCase(Locale.ROOT), List.of()));
+            }
+            return List.of();
+        }
         // A dialog's values: the one nearly every dialog about somebody wants,
         // offered for every player online.
         if (sub.equals("dialog") && args.length >= 4) {

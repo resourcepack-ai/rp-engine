@@ -67,4 +67,58 @@ class DialogPlaceholdersTest {
         String out = DialogPlaceholders.fill("{\"title\":\"{a} and {b}\"}", from(Map.of("a", "{b}", "b", "B")));
         assertEquals("{\"title\":\"{b} and B\"}", out);
     }
+
+    // A choice keeps the entry the value names — the last when none does —
+    // which is how a Studio switch is drawn on for one player and off for the
+    // next, and how its click toggles the state the player is looking at.
+
+    @Test
+    void aChoiceKeepsTheEntryItsValueNames() {
+        String json = "{\"text\":\"{show_sidebar?off:|on:}\"}";
+        assertTrue(DialogPlaceholders.any(json));
+        assertEquals("{\"text\":\"\"}", DialogPlaceholders.fill(json, from(Map.of("show_sidebar", "off"))));
+        assertEquals("{\"text\":\"\"}", DialogPlaceholders.fill(json, from(Map.of("show_sidebar", "ON"))));
+    }
+
+    @Test
+    void aChoiceWithNoValueOrAnUnknownOneKeepsItsLastEntry() {
+        String json = "{\"command\":\"rp var mode {mode?off:on|on:off}\"}";
+        assertEquals("{\"command\":\"rp var mode off\"}", DialogPlaceholders.fill(json, name -> Optional.empty()));
+        assertEquals("{\"command\":\"rp var mode off\"}", DialogPlaceholders.fill(json, from(Map.of("mode", "banana"))));
+        assertEquals("{\"command\":\"rp var mode on\"}", DialogPlaceholders.fill(json, from(Map.of("mode", "off"))));
+    }
+
+    @Test
+    void aChoiceInsertsItsEntryAsWritten() {
+        // The entry came out of the JSON string it goes back into: escaping it
+        // again would double every backslash in it.
+        String json = "{\"text\":\"{v?a:x\\\"y|b:z}\"}";
+        assertEquals("{\"text\":\"x\\\"y\"}", DialogPlaceholders.fill(json, from(Map.of("v", "a"))));
+    }
+
+    @Test
+    void choicesAndPlainPlaceholdersFillInOnePass() {
+        String json = "{\"title\":\"{target}: {mode?a:Alpha|b:Beta}\"}";
+        assertEquals("{\"title\":\"Steve: Alpha\"}", DialogPlaceholders.fill(json, from(Map.of("target", "Steve", "mode", "a"))));
+    }
+
+    @Test
+    void aChoiceWithNoWellFormedEntryIsLeftAsWritten() {
+        String json = "{\"title\":\"{mode?nothing here}\"}";
+        assertEquals(json, DialogPlaceholders.fill(json, from(Map.of("mode", "a"))));
+    }
+
+    @Test
+    void variablesEncodeAndDecodeAndRefuseWhatTheyDoNotKeep() {
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        values.put("show_sidebar", "off");
+        values.put("opacity", "70");
+        String encoded = DialogVariables.encode(values);
+        assertEquals("show_sidebar=off;opacity=70", encoded);
+        assertEquals(values, DialogVariables.decode(encoded));
+        // Anything that could not have been written is skipped, not trusted.
+        assertEquals(Map.of("ok", "1"), DialogVariables.decode("ok=1;Bad Name=2;x=a b;=3;noeq;y="));
+        assertFalse(DialogVariables.NAME.matcher("9lives").matches());
+        assertTrue(DialogVariables.VALUE.matcher("0.5").matches());
+    }
 }

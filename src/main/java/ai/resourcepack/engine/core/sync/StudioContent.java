@@ -151,6 +151,14 @@ public final class StudioContent {
         String id;
         String name;
         com.google.gson.JsonElement json;
+        /** The variables its bound controls show, and each one's values. Absent binds nothing. */
+        List<DialogVariable> vars;
+    }
+
+    /** A variable a dialog declares: see {@link ai.resourcepack.engine.api.DialogInfo#variables()}. */
+    static final class DialogVariable {
+        String name;
+        List<String> values;
     }
 
     /**
@@ -678,8 +686,24 @@ public final class StudioContent {
             if (dialog == null || dialog.json == null || !dialog.json.isJsonObject()) {
                 continue;
             }
+            Map<String, List<String>> vars = new LinkedHashMap<>();
+            for (DialogVariable v : dialog.vars == null ? List.<DialogVariable>of() : dialog.vars) {
+                if (v == null || v.name == null || v.values == null
+                        || !ai.resourcepack.engine.core.dialog.DialogVariables.NAME.matcher(v.name).matches()) {
+                    continue;
+                }
+                List<String> values = new ArrayList<>();
+                for (String value : v.values) {
+                    if (value != null && ai.resourcepack.engine.core.dialog.DialogVariables.VALUE.matcher(value).matches()) {
+                        values.add(value);
+                    }
+                }
+                if (!values.isEmpty()) {
+                    vars.put(v.name, values);
+                }
+            }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
-                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name)));
+                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars)));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
