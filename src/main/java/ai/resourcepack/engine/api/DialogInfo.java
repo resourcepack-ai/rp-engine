@@ -1,5 +1,8 @@
 package ai.resourcepack.engine.api;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -35,22 +38,42 @@ public final class DialogInfo {
     private final String json;
     private final String name;
     private final boolean pushed;
+    private final Map<String, List<String>> variables;
 
-    private DialogInfo(ContentId id, String json, String name, boolean pushed) {
+    private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
         this.pushed = pushed;
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        if (variables != null) {
+            variables.forEach((k, v) -> {
+                if (k != null && v != null) {
+                    copy.put(k, List.copyOf(v));
+                }
+            });
+        }
+        this.variables = Map.copyOf(copy);
     }
 
     /** One loaded from a content folder. */
     public static DialogInfo authored(ContentId id, String json, String name) {
-        return new DialogInfo(id, json, name, false);
+        return new DialogInfo(id, json, name, false, Map.of());
+    }
+
+    /** One loaded from a content folder that declares variables — see {@link #variables()}. */
+    public static DialogInfo authored(ContentId id, String json, String name, Map<String, List<String>> variables) {
+        return new DialogInfo(id, json, name, false, variables);
     }
 
     /** One that arrived with a pushed Studio pack. */
     public static DialogInfo pushed(ContentId id, String json, String name) {
-        return new DialogInfo(id, json, name, true);
+        return new DialogInfo(id, json, name, true, Map.of());
+    }
+
+    /** One that arrived with a pushed Studio pack and declares variables — see {@link #variables()}. */
+    public static DialogInfo pushed(ContentId id, String json, String name, Map<String, List<String>> variables) {
+        return new DialogInfo(id, json, name, true, variables);
     }
 
     public ContentId id() {
@@ -78,6 +101,21 @@ public final class DialogInfo {
      */
     public boolean fromPushedPack() {
         return pushed;
+    }
+
+    /**
+     * The player settings this dialog shows, each with every value it may take.
+     *
+     * <p>A Studio dialog can bind a control — a switch, a slider, a choice of
+     * three — to a name, and draws it in whatever state each player's own
+     * value says ({@code {name?value:…}} in its JSON). These are the names it
+     * binds. They are also the whole of what a player may SET: {@code /rp var}
+     * is run by the player whose click it is, so it accepts a name only if some
+     * dialog declares it, and a value only if that dialog lists it. Empty for a
+     * dialog that binds nothing.
+     */
+    public Map<String, List<String>> variables() {
+        return variables;
     }
 
     @Override

@@ -45,8 +45,22 @@ public final class DialogsImpl implements Dialogs {
 
     private final DialogDatapack datapack;
     private final boolean supported;
+    /** Each player's own values for the dialogs' bound controls. Null in a test with none. */
+    private final DialogVariables variables;
 
     private volatile Map<ContentId, DialogInfo> dialogs = Map.of();
+
+    /**
+     * The dialog each player was last shown, and what it was opened with — so
+     * a click that changes one of their values can open it again, drawn in the
+     * new state, about the same somebody. Weak on the player: a session that
+     * ends takes its entry with it.
+     */
+    private final Map<Player, Shown> lastShown = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /** A dialog as it was shown to somebody. */
+    public record Shown(ContentId id, Map<String, String> values) {
+    }
 
     /**
      * Who is holding a pushed pack. Everybody, until told otherwise.
@@ -60,8 +74,13 @@ public final class DialogsImpl implements Dialogs {
     private volatile Predicate<Player> pushedAudience = viewer -> true;
 
     public DialogsImpl(DialogDatapack datapack, boolean supported) {
+        this(datapack, supported, null);
+    }
+
+    public DialogsImpl(DialogDatapack datapack, boolean supported, DialogVariables variables) {
         this.datapack = datapack;
         this.supported = supported;
+        this.variables = variables;
     }
 
     /** Says who may be shown a dialog whose art came from a pushed pack. */
@@ -133,16 +152,21 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
+        Shown shown = new Shown(id, values == null ? Map.of() : Map.copyOf(values));
 
         // Decode JSON directly so multiline text and other values need not
         // pass through the command parser or wait for the datapack registry.
-        if (DialogPackets.show(viewer, json)) return true;
+        if (DialogPackets.show(viewer, json)) {
+            lastShown.put(viewer, shown);
+            return true;
+        }
 
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
         Optional<String> inline = DialogSnbt.of(json);
         if (inline.isPresent() && dispatch("minecraft:dialog show " + viewer.getName() + " " + inline.get(),
                 named, false) == Outcome.SHOWN) {
+            lastShown.put(viewer, shown);
             return true;
         }
 
@@ -154,6 +178,7 @@ public final class DialogsImpl implements Dialogs {
         // in it and this still works.
         Outcome byName = dispatch("minecraft:dialog show " + viewer.getName() + " " + named, named, true);
         if (byName == Outcome.SHOWN) {
+            lastShown.put(viewer, shown);
             // A show that worked is the only proof available that the server
             // has read what was written — nothing can ask the registry
             // directly. So it is what clears the flag, and without this
@@ -186,12 +211,66 @@ public final class DialogsImpl implements Dialogs {
         return false;
     }
 
+    /** The dialog a player was last shown, and what it was opened with. */
+    public Optional<Shown> lastShown(Player viewer) {
+        return viewer == null ? Optional.empty() : Optional.ofNullable(lastShown.get(viewer));
+    }
+
+    /**
+     * Opens the dialog a player was last shown again, with what it was opened
+     * with — which, since their values are read as it opens, draws every bound
+     * control in its current state. False when there is none to reopen.
+     */
+    public boolean reopen(Player viewer) {
+        Shown shown = lastShown.get(viewer);
+        return shown != null && dialogs.containsKey(shown.id()) && show(viewer, shown.id(), shown.values());
+    }
+
+    /**
+     * Whether a loaded dialog lets a player set {@code name} to {@code value}:
+     * some dialog declares the name, and lists the value for it. The check
+     * every {@code /rp var} passes, because a player runs it — see
+     * {@link DialogVariables}.
+     */
+    public boolean declares(String name, String value) {
+        for (DialogInfo info : dialogs.values()) {
+            java.util.List<String> values = info.variables().get(name);
+            if (values != null && values.stream().anyMatch(v -> v.equalsIgnoreCase(value))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Every variable any loaded dialog declares, with the values it may take. */
+    public Map<String, java.util.List<String>> declared() {
+        Map<String, java.util.List<String>> out = new java.util.TreeMap<>();
+        for (DialogInfo info : dialogs.values()) {
+            info.variables().forEach((name, values) -> out.merge(name, values, (a, b) -> {
+                java.util.List<String> both = new java.util.ArrayList<>(a);
+                for (String v : b) {
+                    if (!both.contains(v)) {
+                        both.add(v);
+                    }
+                }
+                return both;
+            }));
+        }
+        return out;
+    }
+
+    /** The store of player values, for the command that sets them. Null when this was made without one. */
+    public DialogVariables variables() {
+        return variables;
+    }
+
     /**
      * The dialog's JSON with its placeholders filled for this viewer — see
      * {@link DialogPlaceholders}. What a caller handed over wins, matched
-     * without regard to case; then the built-ins and PlaceholderAPI.
+     * without regard to case; then the player's own dialog values (what a
+     * bound control shows); then the built-ins and PlaceholderAPI.
      */
-    private static String filled(Player viewer, String json, Map<String, String> values) {
+    private String filled(Player viewer, String json, Map<String, String> values) {
         if (!DialogPlaceholders.any(json)) {
             return json;
         }
@@ -205,8 +284,12 @@ public final class DialogsImpl implements Dialogs {
         }
         return DialogPlaceholders.fill(json, name -> {
             String mine = given.get(name.toLowerCase(java.util.Locale.ROOT));
-            return mine != null
-                    ? Optional.of(mine)
+            if (mine != null) {
+                return Optional.of(mine);
+            }
+            Optional<String> stored = variables == null ? Optional.empty() : variables.get(viewer, name);
+            return stored.isPresent()
+                    ? stored
                     : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, null);
         });
     }

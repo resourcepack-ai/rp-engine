@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -44,6 +44,9 @@ permissions:
       rpengine.say: true
       rpengine.screens: true
       rpengine.screen: true
+      rpengine.dialogs: true
+      rpengine.dialog: true
+      rpengine.var: true
       rpengine.hud: true
       rpengine.shaders: true
       rpengine.shader: true
@@ -106,6 +109,19 @@ permissions:
   rpengine.screen:
     description: Open a custom screen.
     default: op
+  rpengine.dialogs:
+    description: List the dialogs.
+    default: op
+  rpengine.dialog:
+    description: Open a dialog on a player, and change somebody else's dialog settings.
+    default: op
+  rpengine.var:
+    # Everybody, and it has to be: a click on a bound control in a dialog
+    # runs /rp var as the player who clicked it. It can only set a variable
+    # some loaded dialog declares, to a value that dialog lists, and only
+    # for the player running it - see DialogVariables.
+    description: Change your own dialog settings - what a click on a dialog's switch or slider runs.
+    default: true
   rpengine.hud:
     description: Draw a HUD overlay on yourself.
     default: op

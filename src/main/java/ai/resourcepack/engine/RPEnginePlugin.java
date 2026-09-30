@@ -451,7 +451,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // why it does nothing, rather than watch a command fail.
         dialogs = new ai.resourcepack.engine.core.dialog.DialogsImpl(
                 new ai.resourcepack.engine.core.dialog.DialogDatapack(getLogger()),
-                compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS));
+                compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS),
+                // Each player's own dialog settings: what a Studio dialog's
+                // bound switches and sliders show, and what /rp var sets.
+                new ai.resourcepack.engine.core.dialog.DialogVariables(this));
         // The rig carrier, so anything whose model animates wears the rig
         // rather than one still display: a vehicle, and an emote carrying a
         // model only part of which moves. ONE of them, built here rather than
@@ -604,7 +607,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // All four go through `optional`, which is what keeps a server that
         // has none of them from ever loading their classes. See its note.
         if (optional("PlaceholderAPI",
-                () -> Placeholders.register(this, registry, emotes(), items, seats, sessions, group))) {
+                () -> Placeholders.register(this, registry, emotes(), items, seats, sessions, group,
+                        (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name)))) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
         }
         if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {

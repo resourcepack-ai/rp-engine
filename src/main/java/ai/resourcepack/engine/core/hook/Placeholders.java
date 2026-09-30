@@ -53,9 +53,12 @@ public final class Placeholders extends PlaceholderExpansion {
     private final Seats seats;
     private final BundleSessions sessions;
     private final SyncGroup group;
+    /** A player's dialog settings — what a Studio dialog's bound controls show. */
+    private final java.util.function.BiFunction<Player, String, Optional<String>> dialogVars;
 
     private Placeholders(Plugin plugin, ContentRegistry registry, Emotes emotes, Items items,
-                         Seats seats, BundleSessions sessions, SyncGroup group) {
+                         Seats seats, BundleSessions sessions, SyncGroup group,
+                         java.util.function.BiFunction<Player, String, Optional<String>> dialogVars) {
         this.plugin = plugin;
         this.registry = registry;
         this.emotes = emotes;
@@ -63,6 +66,7 @@ public final class Placeholders extends PlaceholderExpansion {
         this.seats = seats;
         this.sessions = sessions;
         this.group = group;
+        this.dialogVars = dialogVars;
     }
 
     /**
@@ -78,7 +82,8 @@ public final class Placeholders extends PlaceholderExpansion {
      * @return whether it registered
      */
     public static boolean register(Plugin plugin, ContentRegistry registry, Emotes emotes,
-                                   Items items, Seats seats, BundleSessions sessions, SyncGroup group) {
+                                   Items items, Seats seats, BundleSessions sessions, SyncGroup group,
+                                   java.util.function.BiFunction<Player, String, Optional<String>> dialogVars) {
         if (plugin.getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
             return false;
         }
@@ -89,7 +94,7 @@ public final class Placeholders extends PlaceholderExpansion {
             // rather than our problem to solve.
             return false;
         }
-        return new Placeholders(plugin, registry, emotes, items, seats, sessions, group).register();
+        return new Placeholders(plugin, registry, emotes, items, seats, sessions, group, dialogVars).register();
     }
 
     @Override
@@ -203,6 +208,11 @@ public final class Placeholders extends PlaceholderExpansion {
             return yesNo(ContentId.parse(params.substring("has_".length()))
                     .filter(registry::contains)
                     .isPresent());
+        }
+        // %rpengine_var_<name>%: a dialog setting the player chose by clicking
+        // a bound control — empty until they have chosen one.
+        if (name.startsWith("var_")) {
+            return dialogVars == null ? "" : dialogVars.apply(player, name.substring("var_".length())).orElse("");
         }
         return null;
     }
