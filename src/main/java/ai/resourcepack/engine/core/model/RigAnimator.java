@@ -834,29 +834,10 @@ public final class RigAnimator implements Listener {
         // head back off whatever it was looking at.
         HeadLook.applyTo(animationTransform, part, display);
 
-        // Innermost of all: a part whose geometry the pack re-centred on its
-        // own pivot is put back where it belongs. A CONSTANT translation, so
-        // the client has only the rotation to tween and a spinning wheel is a
-        // rotation rather than a rotation plus a wobble. See
-        // ModelRigs.Part.anchor().
-        if (part.anchor != null && part.anchor.length == 3) {
-            animationTransform.translate(part.anchor[0] / 16f, part.anchor[1] / 16f, part.anchor[2] / 16f);
-        }
-
-        // Innermost of all, after the anchor: a cube turned past what a block
-        // model can hold. The pack drew it untilted and this is the turn.
-        //
-        // Outside the `values != null` branch above ON PURPOSE. A fixed step
-        // reads no keyframes, so it is not part of the pose an animation asks
-        // for — and a model may have no animations whatsoever and still have
-        // one of these, which is the whole point of it: the entity IS the
-        // rotation. It settles on the first tick and every tick after it
-        // returns early on an unchanged transform.
-        for (RigStore.Step step : part.program) {
-            if (step != null && step.target == null) {
-                RigMath.applyFixedRotation(animationTransform, step.pivot, step.rotate);
-            }
-        }
+        // Innermost of all: the part's rest pose, which is its anchor and any
+        // fixed rotation. See RigStore.Part.applyRest for why their order is
+        // the one thing about it that matters.
+        part.applyRest(animationTransform);
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
