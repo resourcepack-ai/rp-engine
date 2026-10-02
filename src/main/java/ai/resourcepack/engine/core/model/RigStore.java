@@ -2,10 +2,8 @@ package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.api.MergeResult;
-import ai.resourcepack.engine.core.animation.RigMath;
 
 import com.google.gson.Gson;
-import org.joml.Matrix4f;
 
 import java.io.File;
 import java.io.IOException;
@@ -73,42 +71,6 @@ public final class RigStore {
          * a property of a model and being a rule about somebody's game.
          */
         double damage;
-
-        /**
-         * Composes this part's rest pose into {@code m}, innermost of
-         * everything: the fixed rotation of a cube turned past what a block
-         * model can hold, then the anchor that puts re-centred geometry back.
-         *
-         * <p>Matrices compose right to left, so the anchor is written LAST to
-         * act FIRST. The pack shifted the geometry by {@code -anchor}; the fixed
-         * step's pivot is in the source model's coordinates; so the geometry
-         * has to be back in those coordinates before it is turned about that
-         * pivot. The other way round turns the shifted cube about a point it is
-         * no longer at, which misplaces it by {@code (I - R) * anchor}: a
-         * conduit 9px left of centre tilted 27 degrees came out 5px right and
-         * 5px up, and two crest pieces turned 135 degrees landed a block away.
-         * The anchor alone and the rotation alone are each right, which is
-         * why it took a cube with both to show it.
-         *
-         * <p>Outside an animation's pose ON PURPOSE. A fixed step reads no
-         * keyframes, and a model may have no animations at all and still have
-         * one: the entity IS the rotation.
-         */
-        void applyRest(Matrix4f m) {
-            if (program != null) {
-                for (Step step : program) {
-                    if (step != null && step.target == null) {
-                        RigMath.applyFixedRotation(m, step.pivot, step.rotate);
-                    }
-                }
-            }
-            // A CONSTANT translation, so the client has only the rotation to
-            // tween and a spinning wheel is a rotation rather than a rotation
-            // plus a wobble. See ModelRigs.Part.anchor().
-            if (anchor != null && anchor.length == 3) {
-                m.translate(anchor[0] / 16f, anchor[1] / 16f, anchor[2] / 16f);
-            }
-        }
     }
 
 
