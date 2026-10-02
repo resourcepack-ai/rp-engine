@@ -74,9 +74,6 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
-telemetry:
-  enabled: true
-
 models:
   # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
   # says where that piece's seat is; this corrects how the game DRAWS somebody
