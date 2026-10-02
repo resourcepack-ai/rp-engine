@@ -74,6 +74,16 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
+# Counting how many servers run RP Engine.
+#
+# Every 30 seconds the plugin tells resourcepack.ai it is running, and what it
+# sends is a random id it made up the first time it started (kept in
+# plugins/RPEngine/server-id) and nothing else: no address, no server name, no
+# players, no content. Nothing is logged either way. Turn it off and nothing
+# is sent at all.
+telemetry:
+  enabled: true
+
 models:
   # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
   # says where that piece's seat is; this corrects how the game DRAWS somebody
