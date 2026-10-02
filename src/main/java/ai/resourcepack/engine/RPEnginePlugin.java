@@ -241,6 +241,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * outlives one.
      */
     private EditSessions edits;
+    /** The usage heartbeat; null when {@code telemetry.enabled} is off. */
+    private ai.resourcepack.engine.core.telemetry.Heartbeat heartbeat;
     private SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -673,6 +675,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         startHost();
         registerCommands();
         rebuild(getServer().getConsoleSender());
+
+        // A random id every thirty seconds and nothing else, so we know how
+        // many servers run this. See Heartbeat for exactly what goes.
+        if (getConfig().getBoolean("telemetry.enabled", true)) {
+            heartbeat = new ai.resourcepack.engine.core.telemetry.Heartbeat(this,
+                    getConfig().getString("telemetry.url", "https://studio.resourcepack.ai"));
+            heartbeat.start();
+        }
     }
 
     /**
@@ -1006,6 +1016,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (heartbeat != null) {
+            heartbeat.stop();
+        }
         if (vehicles != null) {
             vehicles.stop();
         }
