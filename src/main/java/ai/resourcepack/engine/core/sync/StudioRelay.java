@@ -77,6 +77,9 @@ public final class StudioRelay {
      */
     private final Object merging = new Object();
 
+    /** Every push still in use and who holds which. See {@link PushedPacks}. */
+    private PushedPacks packs = new PushedPacks();
+
     /** Who is on Bedrock, and how to hand them a .mcpack. */
     private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
             ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
@@ -110,6 +113,11 @@ public final class StudioRelay {
 
     public void onContent(Runnable register) {
         this.registerContent = register == null ? () -> { } : register;
+    }
+
+    /** Where each push's own content is kept, and who is holding it. Set once at start-up. */
+    public void onPacks(PushedPacks packs) {
+        this.packs = packs == null ? new PushedPacks() : packs;
     }
 
     /**
@@ -178,14 +186,25 @@ public final class StudioRelay {
         Optional<String> rigsText = joined(rigsJson);
         Optional<String> emotesText = joined(emotesJson);
         Optional<String> contentText = joined(contentJson);
+        StudioContent[] arrived = new StudioContent[1];
         synchronized (merging) {
             rigsText.ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
             emotesText.ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
             // What the pack holds that a command can name. Registered on the main
             // thread below with everything else that touches shared state.
-            contentText.ifPresent(json -> merged("Pushed content", content.updateFromJson(json, log),
-                    () -> content.save(log)));
+            //
+            // Snapshotted here, under the lock, because the store is the LAST
+            // push and the next one may already be waiting to replace it. The
+            // snapshot is what the recipients of THIS push are shown.
+            contentText.ifPresent(json -> {
+                MergeResult result = content.updateFromJson(json, log);
+                merged("Pushed content", result, () -> content.save(log));
+                if (result.ok()) {
+                    arrived[0] = content.snapshot();
+                }
+            });
         }
+        StudioContent own = arrived[0];
 
         // The Bedrock twin, for recipients who joined through Geyser. Studio
         // builds one whenever any recipient might be Bedrock; a Bedrock player
@@ -196,28 +215,46 @@ public final class StudioRelay {
             sync.failed(code, fetched.reason());
             return;
         }
+        // A push with no content manifest still holds its recipients to it:
+        // they are wearing a pack with nothing in it a command can name, and
+        // somebody else's pushed screens are no more theirs than before.
+        String packId = own == null ? "" : own.packId();
         onMainThread(() -> {
-            registerContent.run();
+            if (own != null) {
+                packs.arrived(own);
+            }
             if (pack != null) register.accept(pack);
             int reached = eachRecipient(code, player -> {
-                if (bedrock.isBedrock(player.getUniqueId())) {
-                    if (bedrockUrl.isEmpty()) {
-                        EngineCommand.say(player, "Studio pushed a pack, but nothing in it has a Bedrock version yet.");
-                        return false;
-                    }
-                    // A Bedrock client only loads packs while joining, so this
-                    // reconnects them; see GeyserBridge.applyPack.
-                    EngineCommand.say(player, "Studio pushed a pack. Reconnecting you to load it.");
-                    return bedrock.applyPack(player, bedrockUrl.get());
+                boolean reachedThem = deliverTo(player, pack, bedrockUrl);
+                if (reachedThem) {
+                    packs.hold(player.getUniqueId(), packId);
                 }
-                if (pack == null) return false;
-                deliver.accept(player, pack);
-                EngineCommand.say(player, "Studio pushed a pack.");
-                return true;
+                return reachedThem;
             });
+            // After the recipients are recorded, since who holds what is what
+            // decides which pushes are still in the catalogue.
+            registerContent.run();
             answer(reached, () -> sync.applied(code),
                     why -> sync.failed(code, pack == null ? fetched.reason() : why));
         });
+    }
+
+    /** Puts one push on one player: the Bedrock twin for a Geyser player, the zip for everybody else. */
+    private boolean deliverTo(Player player, BuiltPack pack, Optional<String> bedrockUrl) {
+        if (bedrock.isBedrock(player.getUniqueId())) {
+            if (bedrockUrl.isEmpty()) {
+                EngineCommand.say(player, "Studio pushed a pack, but nothing in it has a Bedrock version yet.");
+                return false;
+            }
+            // A Bedrock client only loads packs while joining, so this
+            // reconnects them; see GeyserBridge.applyPack.
+            EngineCommand.say(player, "Studio pushed a pack. Reconnecting you to load it.");
+            return bedrock.applyPack(player, bedrockUrl.get());
+        }
+        if (pack == null) return false;
+        deliver.accept(player, pack);
+        EngineCommand.say(player, "Studio pushed a pack.");
+        return true;
     }
 
     /** A give-command, run as the console against whoever the ref names. */
