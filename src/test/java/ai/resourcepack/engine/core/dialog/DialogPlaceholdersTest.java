@@ -221,4 +221,75 @@ class DialogPlaceholdersTest {
         String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{rank}\"}", from(Map.of("rank", "§6§lVIP")));
         assertEquals("{\"text\":\"" + m + "VIP\"}", out);
     }
+
+    // ------------------------------------------------------------ live heads
+
+    /** A live head's marker exactly as Studio's dialog builder writes one: see its `liveHeadMarker`. */
+    private static String marker(String color, String name) {
+        return "{\"text\":\"\",\"font\":\"minecraft:dialog_space\",\"color\":\"" + color + "\",\"insertion\":\"rp:head:" + name + "\"}";
+    }
+
+    /** A body with a marker in it, the way the builder sets one: after the line's own runs, then a step back. */
+    private static String body(String marker) {
+        return "{\"type\":\"minecraft:notice\",\"title\":\"Profile\",\"body\":[{\"type\":\"plain_message\",\"contents\":{\"text\":\"\",\"extra\":["
+                + "{\"text\":\"\",\"font\":\"minecraft:dialog_space\"}," + marker
+                + ",{\"text\":\"\",\"font\":\"minecraft:dialog_space\"}]}}]}";
+    }
+
+    @Test
+    void aFilledHeadBecomesThePlayersFace() {
+        String out = DialogPlaceholders.fill(body(marker("#fcdff8", "{target}")), from(Map.of("target", "Notch")), true);
+        assertTrue(out.contains("{\"type\":\"object\",\"object\":\"player\",\"player\":\"Notch\",\"hat\":true,\"color\":\"#fcdff8\",\"shadow_color\":0}"), out);
+        assertFalse(out.contains("rp:head:"), out);
+        // Still a dialog: the swap is whole objects, never a broken one.
+        com.google.gson.JsonParser.parseString(out);
+    }
+
+    @Test
+    void aServerWithoutTheComponentKeepsTheMarker() {
+        String out = DialogPlaceholders.fill(body(marker("#fcdff8", "{target}")), from(Map.of("target", "Notch")), false);
+        assertTrue(out.contains(marker("#fcdff8", "Notch")), out);
+        assertFalse(out.contains("\"object\""), out);
+    }
+
+    @Test
+    void aHeadNothingNamesStaysEmpty() {
+        String json = body(marker("#fce7f9", "{target}"));
+        assertEquals(json, DialogPlaceholders.fill(json, name -> Optional.empty(), true));
+    }
+
+    @Test
+    void aValueTheGameWouldRefuseAsANameStaysEmpty() {
+        // The game refuses a WHOLE dialog over a name it will not take, so
+        // anything that is not one leaves the slot empty instead.
+        for (String value : new String[] {"Some Body", "ThisNameIsFarTooLongForMinecraft", "Zoë", "Bob\"s", "", "  "}) {
+            String out = DialogPlaceholders.fill(body(marker("#fcdff8", "{target}")), from(Map.of("target", value)), true);
+            assertFalse(out.contains("\"object\":\"player\""), value + " became a head: " + out);
+            com.google.gson.JsonParser.parseString(out);
+        }
+    }
+
+    @Test
+    void everyHeadOnABodyIsSwappedWithItsOwnColour() {
+        String json = body(marker("#fcdff8", "{player}") + "," + marker("#fcbffb", "{target}"));
+        String out = DialogPlaceholders.fill(json, from(Map.of("player", "Alex_1", "target", "jeb_")), true);
+        assertTrue(out.contains("\"player\":\"Alex_1\",\"hat\":true,\"color\":\"#fcdff8\""), out);
+        assertTrue(out.contains("\"player\":\"jeb_\",\"hat\":true,\"color\":\"#fcbffb\""), out);
+    }
+
+    @Test
+    void somethingThatOnlyLooksLikeAMarkerIsLeftAlone() {
+        // A different colour or font is somebody's own text, whatever it says.
+        String other = "{\"text\":\"\",\"font\":\"minecraft:default\",\"color\":\"#fcdff8\",\"insertion\":\"rp:head:Notch\"}";
+        assertEquals(other, DialogPlaceholders.withHeads(other));
+        String red = "{\"text\":\"\",\"font\":\"minecraft:dialog_space\",\"color\":\"#ff0000\",\"insertion\":\"rp:head:Notch\"}";
+        assertEquals(red, DialogPlaceholders.withHeads(red));
+    }
+
+    @Test
+    void aNameIsReadBackOutOfItsJsonEscapes() {
+        assertEquals("Steve", DialogPlaceholders.playerName(DialogPlaceholders.unescape("\\u0053teve")));
+        assertEquals(null, DialogPlaceholders.playerName(DialogPlaceholders.unescape("Bob\\\"s")));
+        assertEquals(null, DialogPlaceholders.playerName("{target}"));
+    }
 }
