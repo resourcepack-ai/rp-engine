@@ -1597,7 +1597,7 @@ public final class EmoteDirector implements Listener {
         float[][] leaving = leavingPose(session, now);
         session.memberEmote = wanted;
         session.memberState = null;
-        session.emote = wanted != null ? wanted : session.rest;
+        session.emote = wornOrRest(wanted, session.rest);
         session.animators = wanted != null && wanted.animators != null
             ? wanted.animators
             : Collections.<String, Map<String, List<Keyframe>>>emptyMap();
@@ -1638,6 +1638,28 @@ public final class EmoteDirector implements Listener {
         rest.length = 0;
         rest.loop = true;
         return rest;
+    }
+
+    /**
+     * What a session falls back to while it wears nothing: a group's rest
+     * state, a driven session's stand-in, and nothing for a one-shot, which
+     * never swaps what it wears.
+     *
+     * <p><strong>A driven session needs one as much as a group does.</strong>
+     * It used to be the group alone, so {@code wear(player, null)} after a
+     * worn emote — a vehicle state left blank with the seat rig off, an addon
+     * putting its rider back on their feet — set {@code session.emote} to null
+     * and threw half way through the swap. The session stayed in the map, and
+     * from then on every tick threw before reaching anybody after it, which
+     * stopped every emote and worn rig on the server.
+     */
+    static EmoteStore.Emote restFor(EmoteStore.Group group, boolean driven, EmoteStore.Emote opening) {
+        return group != null || driven ? opening : null;
+    }
+
+    /** What a swap puts on: the emote asked for, or the rest state when that is nothing. */
+    static EmoteStore.Emote wornOrRest(EmoteStore.Emote wanted, EmoteStore.Emote rest) {
+        return wanted != null ? wanted : rest;
     }
 
     /**
@@ -2076,7 +2098,7 @@ public final class EmoteDirector implements Listener {
         // the flag is accepted on any emote and quietly means nothing on one
         // that already shows its wearer the rig.
         session.showSelf = showSelf;
-        session.rest = group != null ? emote : null;
+        session.rest = restFor(group, driven, emote);
         session.emote = emote;
         session.animators = animators == null ? Collections.<String, Map<String, List<Keyframe>>>emptyMap() : animators;
         session.root = root;
@@ -4004,85 +4026,120 @@ public final class EmoteDirector implements Listener {
 
     private void tick() {
         for (Map.Entry<UUID, Session> entry : new ArrayList<>(active.entrySet())) {
-            Player player = Bukkit.getPlayer(entry.getKey());
-            Session session = entry.getValue();
-            if (player == null || !player.isOnline()) {
-                // Their partners go too — an emote nobody is left to finish is
-                // three rigs frozen mid-pose around an empty spot.
-                endTroupe(session, EmoteEndEvent.Cause.QUIT);
-                continue;
+            // One session at a time, each on its own: a session that throws is
+            // ended and reported rather than allowed to abort the loop, because
+            // an exception here used to skip everybody after it in the map —
+            // every emote and worn rig on the server froze until a restart.
+            try {
+                tickSession(entry.getKey(), entry.getValue());
+            } catch (RuntimeException e) {
+                quarantine(entry.getKey(), entry.getValue(), e);
             }
-            // What they are holding, before anything is posed. Both kinds of
-            // emote get it: an ordinary one hides the body exactly as a stance
-            // does, so a rig playing a wave with an empty hand is the same
-            // wrong picture standing still as it is walking.
-            syncHands(player, session);
-            // The cape chases the body, one step per tick and only here.
-            // `pose` reads what this leaves and is called from the swing
-            // listener too, so stepping it there as well would run the
-            // integrator twice in a tick somebody happened to click in — a
-            // cape that flinched when you hit something.
-            // Resolved into the body's heading rather than the camera's, which
-            // for a rider are two different numbers — see CapeSway.step and
-            // `facing`. Null for everybody who is not being carried, which is
-            // everybody until a vehicle says otherwise, and is the look.
-            session.cape.step(player, session.facing);
-            // A worn emote is the whole of the other branch: it never asks
-            // whether they moved, because moving is the point of it.
-            if (session.stance()) {
-                if (!tickStance(player, session)) continue;
-                // Nothing to pose while the rig is away: the displays are
-                // holding air, and a set can sit in a state it leaves to
-                // vanilla for as long as somebody keeps running. It was still
-                // writing a transform per bone per tick to entities nobody can
-                // see.
-                if (!session.rigHidden) {
-                    pose(entry.getKey(), session, poseTicks(session, player.getWorld().getGameTime()));
-                    session.snap = false;
-                }
-                continue;
-            }
-            // While root motion is running, "did they move" is asked against
-            // where WE put them. Against the origin it would be the emote
-            // cancelling itself on its own first step.
-            Location now = player.getLocation();
-            if (session.anchor == null) session.anchor = session.origin;
-            // The settle window: adopt wherever they actually ended up rather
-            // than measuring against where we aimed. A teleport is acknowledged
-            // a tick late and gravity puts people down on the block under them,
-            // and both used to read as walking away. Bounded to a spot near the
-            // one intended, so this cannot be ridden anywhere.
-            if (session.settling > 0) {
-                session.settling--;
-                if (now.getWorld().equals(session.origin.getWorld())
-                        && now.distanceSquared(session.origin) <= MAX_ROOT_STEP * MAX_ROOT_STEP) {
-                    session.anchor = now.clone();
-                }
-            }
-            Location anchor = session.expected != null ? session.expected : session.anchor;
-            // Position only. Yaw and pitch are deliberately not consulted —
-            // `distanceSquared` reads x/y/z — because looking around is not
-            // leaving, and an emote that ended when somebody moved the mouse
-            // would be unusable.
-            boolean moved = session.settling <= 0
-                && (!now.getWorld().equals(anchor.getWorld())
-                    || now.distanceSquared(anchor) > MOVE_TOLERANCE * MOVE_TOLERANCE);
-            double elapsed = clock(session, player.getWorld().getGameTime());
-            boolean finished = !session.emote.loop && elapsed > Math.max(0, session.emote.length);
-            if (moved || finished) {
-                // `finished` is the same answer for everybody — one clock, one
-                // length — and `moved` deliberately isn't: anybody stepping out
-                // of a duet ends it for both, because the alternative is one
-                // half of a handshake carrying on alone.
-                stop(player, true, moved ? EmoteEndEvent.Cause.MOVED : EmoteEndEvent.Cause.FINISHED);
-                continue;
-            }
-            follow(player, session, animationTime(session.emote, elapsed));
-            pose(entry.getKey(), session, INTERPOLATION_TICKS);
         }
         // A movement set swapping to a member that carries other models
         // respawns them in the pass above.
         announceRigs();
+    }
+
+    /** One pass of one session. The body of {@link #tick}, lifted out so a failure stays its own. */
+    private void tickSession(UUID id, Session session) {
+        Player player = Bukkit.getPlayer(id);
+        if (player == null || !player.isOnline()) {
+            // Their partners go too — an emote nobody is left to finish is
+            // three rigs frozen mid-pose around an empty spot.
+            endTroupe(session, EmoteEndEvent.Cause.QUIT);
+            return;
+        }
+        // What they are holding, before anything is posed. Both kinds of
+        // emote get it: an ordinary one hides the body exactly as a stance
+        // does, so a rig playing a wave with an empty hand is the same
+        // wrong picture standing still as it is walking.
+        syncHands(player, session);
+        // The cape chases the body, one step per tick and only here.
+        // `pose` reads what this leaves and is called from the swing
+        // listener too, so stepping it there as well would run the
+        // integrator twice in a tick somebody happened to click in — a
+        // cape that flinched when you hit something.
+        // Resolved into the body's heading rather than the camera's, which
+        // for a rider are two different numbers — see CapeSway.step and
+        // `facing`. Null for everybody who is not being carried, which is
+        // everybody until a vehicle says otherwise, and is the look.
+        session.cape.step(player, session.facing);
+        // A worn emote is the whole of the other branch: it never asks
+        // whether they moved, because moving is the point of it.
+        if (session.stance()) {
+            if (!tickStance(player, session)) return;
+            // Nothing to pose while the rig is away: the displays are
+            // holding air, and a set can sit in a state it leaves to
+            // vanilla for as long as somebody keeps running. It was still
+            // writing a transform per bone per tick to entities nobody can
+            // see.
+            if (!session.rigHidden) {
+                pose(id, session, poseTicks(session, player.getWorld().getGameTime()));
+                session.snap = false;
+            }
+            return;
+        }
+        // While root motion is running, "did they move" is asked against
+        // where WE put them. Against the origin it would be the emote
+        // cancelling itself on its own first step.
+        Location now = player.getLocation();
+        if (session.anchor == null) session.anchor = session.origin;
+        // The settle window: adopt wherever they actually ended up rather
+        // than measuring against where we aimed. A teleport is acknowledged
+        // a tick late and gravity puts people down on the block under them,
+        // and both used to read as walking away. Bounded to a spot near the
+        // one intended, so this cannot be ridden anywhere.
+        if (session.settling > 0) {
+            session.settling--;
+            if (now.getWorld().equals(session.origin.getWorld())
+                    && now.distanceSquared(session.origin) <= MAX_ROOT_STEP * MAX_ROOT_STEP) {
+                session.anchor = now.clone();
+            }
+        }
+        Location anchor = session.expected != null ? session.expected : session.anchor;
+        // Position only. Yaw and pitch are deliberately not consulted —
+        // `distanceSquared` reads x/y/z — because looking around is not
+        // leaving, and an emote that ended when somebody moved the mouse
+        // would be unusable.
+        boolean moved = session.settling <= 0
+            && (!now.getWorld().equals(anchor.getWorld())
+                || now.distanceSquared(anchor) > MOVE_TOLERANCE * MOVE_TOLERANCE);
+        double elapsed = clock(session, player.getWorld().getGameTime());
+        boolean finished = !session.emote.loop && elapsed > Math.max(0, session.emote.length);
+        if (moved || finished) {
+            // `finished` is the same answer for everybody — one clock, one
+            // length — and `moved` deliberately isn't: anybody stepping out
+            // of a duet ends it for both, because the alternative is one
+            // half of a handshake carrying on alone.
+            stop(player, true, moved ? EmoteEndEvent.Cause.MOVED : EmoteEndEvent.Cause.FINISHED);
+            return;
+        }
+        follow(player, session, animationTime(session.emote, elapsed));
+        pose(id, session, INTERPOLATION_TICKS);
+    }
+
+    /** Sessions already reported, so a fault that recurs is one line in the log rather than twenty a second. */
+    private final java.util.Set<UUID> quarantined = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Ends a session whose tick threw, and says so once.
+     *
+     * <p>Ended rather than skipped: a session that fails once fails on every
+     * tick after it, and its wearer is standing invisible behind a rig nobody
+     * is driving. {@link #endOne} takes it out of the map before tidying up,
+     * so even a teardown that throws as well cannot leave it there.
+     */
+    private void quarantine(UUID id, Session session, RuntimeException failure) {
+        if (quarantined.add(id)) {
+            host.plugin().getLogger().log(java.util.logging.Level.WARNING,
+                "An emote session for " + id + " failed and was ended so the others keep playing.", failure);
+        }
+        try {
+            endTroupe(session, EmoteEndEvent.Cause.STOPPED);
+        } catch (RuntimeException again) {
+            active.remove(id);
+        }
     }
 
     /**
