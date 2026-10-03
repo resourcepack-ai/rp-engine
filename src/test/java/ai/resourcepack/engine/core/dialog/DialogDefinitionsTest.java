@@ -187,4 +187,37 @@ class DialogDefinitionsTest {
         String json = one(parse(), "mypack:odd").json();
         assertTrue(json.contains("\\\"hi\\\""));
     }
+
+    // A page of a dialog with pages stays up when clicked (after: none), and the
+    // game refuses a dialog that pauses under none — so none does not pause
+    // unless told to, and told to, is warned about and still does not.
+
+    @Test
+    void stayingUpDoesNotPause() throws IOException {
+        write("mypack/dialogs/pages.yml",
+                "settings:\n"
+                        + "  after: none\n"
+                        + "  buttons:\n"
+                        + "    - label: Audio\n"
+                        + "      command: rp page mypack:audio\n"
+                        + "audio:\n"
+                        + "  after: none\n"
+                        + "  pause: true\n"
+                        + "  buttons:\n"
+                        + "    - label: Close\n"
+                        + "      command: rp page close\n"
+                        + "plain:\n"
+                        + "  buttons:\n"
+                        + "    - label: Ok\n");
+        DialogDefinitions.Result result = parse();
+        String settings = one(result, "mypack:settings").json();
+        assertTrue(settings.contains("\"after_action\": \"none\""));
+        assertTrue(settings.contains("\"pause\": false"));
+        assertTrue(one(result, "mypack:audio").json().contains("\"pause\": false"));
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.severity() == Diagnostic.Severity.WARNING),
+                "asking for a pause it cannot have is said");
+        assertTrue(one(result, "mypack:plain").json().contains("\"pause\": true"), "a dialog that closes still pauses");
+        // And the page link an authored button writes is one /rp page honours.
+        assertTrue(DialogLinks.opens(settings, ContentId.parse("mypack:audio").orElseThrow()));
+    }
 }

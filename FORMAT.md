@@ -1917,17 +1917,31 @@ between them with `/rp page`:
 # dialogs/settings.yml
 settings:
   title: Settings
+  after: none                      # stay up until the next page replaces it
   body: [Pick what to change.]
   buttons:
     - label: Audio
       command: rp page mypack:settings_audio
+    - label: Close
+      command: rp page close       # what closes it, now that a click does not
 settings_audio:
   title: Settings - Audio
+  after: none
   body: [Music and sounds.]
   buttons:
     - label: Back
       command: rp page mypack:settings
 ```
+
+`after: none` is what makes the turn smooth. Under the default, `close`, the
+game shuts the dialog the moment the button is pressed, and the player sees the
+world — and their cursor jump to the middle — until the next page arrives.
+Under `none` the page they were on stays up until the next one takes its place.
+The cost is that a button no longer closes the dialog by being pressed, so give
+the one that should `command: rp page close`; Escape still closes it at once.
+A dialog under `after: none` does not pause the game either: the game refuses
+one that pauses and stays open, so `pause:` is off there unless you say
+otherwise — and saying otherwise is warned about and ignored.
 
 `/rp page <id>` opens that dialog for whoever runs it, with the values the one
 they were looking at was opened with — so `{target}` survives the turn — but
