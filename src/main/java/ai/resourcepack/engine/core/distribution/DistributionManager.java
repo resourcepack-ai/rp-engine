@@ -304,6 +304,15 @@ public final class DistributionManager implements Listener {
         if (awaiting.get(id) == null) {
             return;
         }
+        // Only an answer about THIS pack. A player here is usually sent the
+        // server's own bundle too, and every status used to count: the bundle
+        // loading recorded the published pack as loaded (which is what lets a
+        // pushed overlay be drawn for them), and declining the bundle reported
+        // the published one as declined to the dashboard.
+        UUID pack = sending.statusId(event);
+        if (pack != null && !pack.equals(DISTRIBUTION_PACK_ID)) {
+            return;
+        }
         // Switched on the NAME rather than the enum constant, which looks
         // like a step backwards and is not. INVALID_URL and FAILED_RELOAD
         // arrived in 1.20.3, and a switch over an enum compiles to a lookup
