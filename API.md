@@ -628,7 +628,7 @@ who as you open it:
 
 ```java
 engine.dialogs().show(staff, "mypack:punish", Map.of("target", suspect.getName()));
-// "Punish {target}" opens as "Punish Steve", the name and the face on its card are Steve's,
+// "Punish {target}" opens as "Punish Steve", the name on its card is Steve's,
 // and a reason that runs "mute {target} 1h" runs "mute Steve 1h".
 ```
 

@@ -97,20 +97,6 @@ public final class DistributionManager implements Listener {
      */
     private final Map<UUID, Boolean> loaded = new ConcurrentHashMap<>();
 
-    /**
-     * Which Studio pack this server publishes, as the manifest names it; null
-     * when it does not say (a Studio older than the field), or nothing is bound.
-     *
-     * <p>What lets a pushed screen be drawn for somebody holding the published
-     * pack only when it came from that same pack — rather than whatever was
-     * pushed last, which is a different pack whenever somebody tests one while
-     * the server publishes another.
-     */
-    public String publishedPackId() {
-        Manifest current = manifest;
-        return isBound() && current.enabled && !current.packId.isEmpty() ? current.packId : null;
-    }
-
     /** Whether this player is holding the published pack. See {@link #loaded}. */
     public boolean serving(UUID player) {
         return player != null && loaded.containsKey(player);
@@ -318,15 +304,6 @@ public final class DistributionManager implements Listener {
         if (awaiting.get(id) == null) {
             return;
         }
-        // Only an answer about THIS pack. A player here is usually sent the
-        // server's own bundle too, and every status used to count: the bundle
-        // loading recorded the published pack as loaded (which is what lets a
-        // pushed overlay be drawn for them), and declining the bundle reported
-        // the published one as declined to the dashboard.
-        UUID pack = sending.statusId(event);
-        if (pack != null && !pack.equals(DISTRIBUTION_PACK_ID)) {
-            return;
-        }
         // Switched on the NAME rather than the enum constant, which looks
         // like a step backwards and is not. INVALID_URL and FAILED_RELOAD
         // arrived in 1.20.3, and a switch over an enum compiles to a lookup
@@ -504,8 +481,6 @@ public final class DistributionManager implements Listener {
     static final class Manifest {
         final boolean enabled;
         final String releaseId;
-        /** The Studio pack this is, as a pushed content manifest names it. Empty when not said. */
-        final String packId;
         final List<Entry> entries;
         private final Map<Integer, Entry> byProtocol = new HashMap<>();
         private final Map<String, Entry> byVersion = new HashMap<>();
@@ -522,10 +497,9 @@ public final class DistributionManager implements Listener {
             }
         }
 
-        private Manifest(boolean enabled, String releaseId, String packId, List<Entry> entries, JsonArray raw) {
+        private Manifest(boolean enabled, String releaseId, List<Entry> entries, JsonArray raw) {
             this.enabled = enabled;
             this.releaseId = releaseId;
-            this.packId = packId == null ? "" : packId;
             this.entries = entries;
             for (int i = 0; i < entries.size(); i++) {
                 Entry entry = entries.get(i);
@@ -540,7 +514,7 @@ public final class DistributionManager implements Listener {
         }
 
         static Manifest empty() {
-            return new Manifest(false, "", "", new ArrayList<>(), new JsonArray());
+            return new Manifest(false, "", new ArrayList<>(), new JsonArray());
         }
 
         static Manifest parse(JsonObject json) {
@@ -560,10 +534,7 @@ public final class DistributionManager implements Listener {
                     ? json.get("releaseId").getAsString()
                     : "";
             boolean enabled = json.has("enabled") && json.get("enabled").getAsBoolean();
-            String packId = json.has("packId") && json.get("packId").isJsonPrimitive()
-                    ? json.get("packId").getAsString()
-                    : "";
-            return new Manifest(enabled, releaseId, packId, entries, raw);
+            return new Manifest(enabled, releaseId, entries, raw);
         }
 
         Entry byProtocol(int protocol) {

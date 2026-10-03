@@ -66,11 +66,10 @@ public final class StudioContent {
     /**
      * The namespace pushed content lands in.
      *
-     * <p>Fixed rather than the pack's own name: each player holds one push, in
-     * one bundle ({@link StudioPush#BUNDLE}), so a command naming
-     * {@code studio:menu} means the menu in the push THEY hold. Several people
-     * holding different pushes share the namespace and each is answered from
-     * their own — see {@link PushedPacks}.
+     * <p>Fixed rather than the pack's own name: one pack is pushed at a time,
+     * into one bundle ({@link StudioPush#BUNDLE}), and a namespace that
+     * changed with the pack would leave the last one's ids in the registry
+     * pointing at art nobody is wearing any more.
      */
     public static final String NAMESPACE = "studio";
 
@@ -558,82 +557,6 @@ public final class StudioContent {
 
     public StudioContent(File dataFolder) {
         this.file = new File(dataFolder, "studio-content.json");
-    }
-
-    /** One with no file behind it: a snapshot of one push, or several merged. See {@link #snapshot}. */
-    private StudioContent() {
-        this.file = null;
-    }
-
-    /** The pack this came from, as Studio names it. Empty when the manifest named none. */
-    public String packId() {
-        return packId;
-    }
-
-    /**
-     * A copy of what this holds now, with no file and no registry claim.
-     *
-     * <p>This store is the LAST push, replaced whole by the next — which is
-     * right for what it persists and wrong as the only record, because on a
-     * server where several people sync, the next push is usually somebody
-     * else's. A snapshot is how one push's content outlives the next one for
-     * the players still holding it; see {@link PushedPacks}. The maps are
-     * immutable and replaced rather than changed, so sharing them is a copy.
-     */
-    public StudioContent snapshot() {
-        StudioContent copy = new StudioContent();
-        copy.sounds = sounds;
-        copy.screens = screens;
-        copy.huds = huds;
-        copy.vehicles = vehicles;
-        copy.vehiclePassable = vehiclePassable;
-        copy.dialogs = dialogs;
-        copy.armor3d = armor3d;
-        copy.packId = packId;
-        return copy;
-    }
-
-    /**
-     * Several pushes as one catalogue, in the order given: a later one wins an
-     * id it shares with an earlier one.
-     *
-     * <p>What the server lists, completes and registers, so nobody's content
-     * disappears from it because somebody else pushed. Who may actually be
-     * SHOWN a pushed screen or dialog is decided per player, against their own
-     * push — see {@link PushedPacks#contentFor}.
-     */
-    public static StudioContent union(java.util.List<StudioContent> packs) {
-        Map<ContentId, SoundInfo> sounds = new LinkedHashMap<>();
-        Map<ContentId, OverlayInfo> screens = new LinkedHashMap<>();
-        Map<ContentId, OverlayInfo> huds = new LinkedHashMap<>();
-        Map<ContentId, VehicleInfo> vehicles = new LinkedHashMap<>();
-        Set<String> passable = new java.util.LinkedHashSet<>();
-        Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = new LinkedHashMap<>();
-        Map<String, Armor3dSet> armor = new LinkedHashMap<>();
-        String last = "";
-        for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
-            if (pack == null) {
-                continue;
-            }
-            sounds.putAll(pack.sounds);
-            screens.putAll(pack.screens);
-            huds.putAll(pack.huds);
-            vehicles.putAll(pack.vehicles);
-            passable.addAll(pack.vehiclePassable);
-            dialogs.putAll(pack.dialogs);
-            armor.putAll(pack.armor3d);
-            last = pack.packId;
-        }
-        StudioContent all = new StudioContent();
-        all.sounds = Map.copyOf(sounds);
-        all.screens = Map.copyOf(screens);
-        all.huds = Map.copyOf(huds);
-        all.vehicles = Map.copyOf(vehicles);
-        all.vehiclePassable = Set.copyOf(passable);
-        all.dialogs = Map.copyOf(dialogs);
-        all.armor3d = Map.copyOf(armor);
-        all.packId = last;
-        return all;
     }
 
     /** The pushed sounds, keyed by id. */
@@ -1134,7 +1057,7 @@ public final class StudioContent {
 
     /** Reads what was saved. A missing file is an empty pack, not a problem. */
     public void load(Logger log) {
-        if (file == null || !file.isFile()) {
+        if (!file.isFile()) {
             return;
         }
         try {
@@ -1160,9 +1083,6 @@ public final class StudioContent {
      * has, and the next push writes it again.
      */
     public void save(Logger log) {
-        if (file == null) {
-            return;
-        }
         if (isEmpty()) {
             try {
                 Files.deleteIfExists(file.toPath());
