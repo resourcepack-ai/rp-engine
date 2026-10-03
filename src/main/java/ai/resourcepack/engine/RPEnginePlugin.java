@@ -460,7 +460,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS),
                 // Each player's own dialog settings: what a Studio dialog's
                 // bound switches and sliders show, and what /rp var sets.
-                new ai.resourcepack.engine.core.dialog.DialogVariables(this));
+                new ai.resourcepack.engine.core.dialog.DialogVariables(this),
+                // What plugins publish for a player. The overlays' own store:
+                // one set of values per player, printed by a HUD and a dialog.
+                overlayRuntime);
         // The rig carrier, so anything whose model animates wears the rig
         // rather than one still display: a vehicle, and an emote carrying a
         // model only part of which moves. ONE of them, built here rather than
@@ -1137,11 +1140,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
-     * The dialogs this server holds, and how to open one.
+     * The dialogs this server holds, how to open one, and the values it prints.
      *
      * <p>See {@link ai.resourcepack.engine.api.Dialogs} — in particular that a
-     * dialog needs Minecraft 1.21.6, and that one written this load is not in
-     * the server's registry until the next data reload.
+     * dialog needs Minecraft 1.21.6, and that the values a plugin publishes for
+     * a player are one set shared with {@link #overlays()}.
      */
     public ai.resourcepack.engine.api.Dialogs dialogs() {
         return dialogs;

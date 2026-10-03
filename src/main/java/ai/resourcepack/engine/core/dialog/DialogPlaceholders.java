@@ -46,11 +46,52 @@ import java.util.regex.Pattern;
  * <p>One pass, left to right: a value that itself contains a brace is inserted
  * as it is and never read again, so a player named to look like a placeholder
  * cannot make one.
+ *
+ * <h2>Live values in a picture</h2>
+ *
+ * A Studio dialog can draw a placeholder IN its picture — "{player}" on a
+ * profile card, "{coins}" on a balance — as words the game draws from text
+ * rather than pixels baked into the art. The pack draws them and then steps
+ * back over them with the same words in a font of negative spaces, so the body
+ * line they sit in still comes to exactly its width; that is what keeps the
+ * client from wrapping the picture somewhere else. Two things can still break
+ * it, and neither is knowable until the value is: a character the pack's
+ * negative font has no width for, and a value so long the words run off the
+ * end of the line. So Studio puts a MARK in front of each such placeholder —
+ * one private-use character, zero-width in every font it is drawn in — whose
+ * codepoint says how big the words are and how much room they have
+ * ({@link #LIVE_MARK_BASE}), and a marked value is kept to what the pack can
+ * measure and to that room ({@link #fitLive}). An engine older than this fills
+ * the placeholder without the mark meaning anything, which is right for every
+ * value that was going to fit anyway.
  */
 public final class DialogPlaceholders {
 
     private DialogPlaceholders() {
     }
+
+    /**
+     * The first live mark. A mark is {@code LIVE_MARK_BASE + mode * 512 +
+     * room}: the mode is 2 for words drawn twice the size plus 1 for bold, and
+     * the room is how many pixels the value may move the pen, at most 511.
+     * Studio's dialog builder writes them; the two have to agree.
+     */
+    public static final int LIVE_MARK_BASE = 0xF000;
+
+    /** One past the last live mark. */
+    static final int LIVE_MARK_END = LIVE_MARK_BASE + 4 * 512;
+
+    /** What a value cut short to fit its room ends with. */
+    private static final int ELLIPSIS = 0x2026;
+
+    /**
+     * What a space in a live value is written as: a no-break space, which the
+     * pack's live fonts make exactly as wide as a space. A real space anywhere
+     * in a picture's body line is where the client's line splitter breaks it
+     * when the next line's first character overflows — which every full line's
+     * does — so one in a value would split the picture there.
+     */
+    private static final int LIVE_SPACE = 0x00A0;
 
     /**
      * A placeholder: a name of letters, digits and underscores between braces —
@@ -89,11 +130,67 @@ public final class DialogPlaceholders {
                     at = m.end();
                 }
             } else if (value.isPresent()) {
-                out.append(json, at, m.start()).append(escape(clean(value.get())));
+                String clean = clean(value.get());
+                char before = m.start() > 0 ? json.charAt(m.start() - 1) : 0;
+                if (before >= LIVE_MARK_BASE && before < LIVE_MARK_END) {
+                    clean = fitLive(clean, before);
+                }
+                out.append(json, at, m.start()).append(escape(clean));
                 at = m.end();
             }
         } while (m.find());
         return out.append(json, at, json.length()).toString();
+    }
+
+    /**
+     * A value as live words in a picture may draw it: every space a no-break
+     * space ({@link #LIVE_SPACE}), every character the pack's fonts cannot
+     * measure exactly turned into a {@code ?}, and the whole cut short — ending
+     * in an ellipsis — when it would move the pen further than the mark's room.
+     * Line breaks and tabs are among what becomes {@code ?}, because a line
+     * break in a picture's body would split the picture.
+     *
+     * @param mark the live mark in front of the placeholder: see {@link #LIVE_MARK_BASE}
+     */
+    static String fitLive(String value, int mark) {
+        int code = mark - LIVE_MARK_BASE;
+        int mode = code / 512;
+        int room = code % 512;
+        int scale = (mode & 2) != 0 ? 2 : 1;
+        boolean bold = (mode & 1) != 0;
+        StringBuilder out = new StringBuilder(value.length());
+        int used = 0;
+        int ellipsis = DialogGlyphWidths.advance(ELLIPSIS, scale, bold);
+        int[] codepoints = value.codePoints()
+                .map(cp -> cp == ' ' || cp == LIVE_SPACE ? LIVE_SPACE : DialogGlyphWidths.covers(cp) ? cp : '?')
+                .toArray();
+        int total = 0;
+        for (int cp : codepoints) {
+            total += liveAdvance(cp, scale, bold);
+        }
+        if (total <= room) {
+            for (int cp : codepoints) {
+                out.appendCodePoint(cp);
+            }
+            return out.toString();
+        }
+        for (int cp : codepoints) {
+            int advance = liveAdvance(cp, scale, bold);
+            if (used + advance + ellipsis > room) {
+                break;
+            }
+            out.appendCodePoint(cp);
+            used += advance;
+        }
+        if (used + ellipsis <= room) {
+            out.appendCodePoint(ELLIPSIS);
+        }
+        return out.toString();
+    }
+
+    /** A live character's advance: the table's, a no-break space measured as the space it stands for. */
+    private static int liveAdvance(int codepoint, int scale, boolean bold) {
+        return DialogGlyphWidths.advance(codepoint == LIVE_SPACE ? ' ' : codepoint, scale, bold);
     }
 
     /**

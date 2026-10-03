@@ -24,6 +24,31 @@ import java.util.Optional;
  * whole dialog inside {@code /dialog show}, which has accepted one written out
  * in full since the version this feature needs. A dialog loaded, pushed or
  * edited a moment ago opens now.
+ *
+ * <h2>Live values</h2>
+ *
+ * A dialog may print <code>{name}</code> placeholders — in its title, a
+ * tooltip, a button, the command a click runs, and in a Studio dialog's
+ * picture too, where words with a placeholder in them are drawn by the game
+ * rather than baked into the art. They are filled for each player as the
+ * dialog opens, from the first of these that answers:
+ *
+ * <ol>
+ *   <li>the values the dialog was opened with ({@link #show(Player, ContentId, Map)},
+ *       or {@code name=value} on {@code /rp dialog});</li>
+ *   <li>the player's own settings — what a Studio dialog's bound switches and
+ *       sliders show ({@link #setting});</li>
+ *   <li>what a plugin published for the player with {@link #set} — the same
+ *       values {@link Overlays#set} publishes, because a number called
+ *       {@code coins} means one thing on a HUD and in a shop;</li>
+ *   <li>the engine's built-ins ({@code {player}}, {@code {health}},
+ *       {@code {world}} …, all about the player it is shown to);</li>
+ *   <li>PlaceholderAPI, if the server has it.</li>
+ * </ol>
+ *
+ * A name none of them answers is left as written. A dialog is drawn once, as it
+ * opens: a value that changes afterwards shows the next time it opens, which
+ * {@link #reopen} does on purpose.
  */
 public interface Dialogs {
 
@@ -91,10 +116,13 @@ public interface Dialogs {
      * one that nothing answers is left as written. Names are matched without
      * regard to case. {@link #show(Player, ContentId)} is this with no values.
      *
-     * <p>Words drawn INTO a Studio dialog's picture are pixels, and stay as they
-     * were drawn. So does a dialog opened by its registry id rather than as
-     * itself — the fallback for one the command line cannot carry — because the
-     * registry holds it unfilled.
+     * <p>A Studio dialog's picture is filled too, where its author wrote a
+     * placeholder into the words — those are drawn by the game, not baked into
+     * the art. A value there is kept to the characters the game's bitmap font
+     * draws (anything else becomes {@code ?}) and to the room the words have,
+     * ending in an ellipsis when it is cut. A dialog opened by its registry id
+     * rather than as itself — the fallback for one the command line cannot
+     * carry — is not filled at all, because the registry holds it unfilled.
      *
      * @return what {@link #show(Player, ContentId)} returns
      */
@@ -102,6 +130,79 @@ public interface Dialogs {
         return show(viewer, id);
     }
 
+    /** As {@link #show(Player, ContentId)}, from the text form of an id. False for one that does not parse. */
+    default boolean show(Player viewer, String id) {
+        return ContentId.parse(id).map(parsed -> show(viewer, parsed)).orElse(false);
+    }
+
+    /** As {@link #show(Player, ContentId, Map)}, from the text form of an id. False for one that does not parse. */
+    default boolean show(Player viewer, String id, Map<String, String> values) {
+        return ContentId.parse(id).map(parsed -> show(viewer, parsed, values)).orElse(false);
+    }
+
     /** Closes whatever dialog a player has open. */
     void close(Player viewer);
+
+    /**
+     * Opens the dialog this player was last shown again, with the values it was
+     * opened with — so every placeholder is read afresh. What to call after
+     * something on it changed: a store whose Buy button runs your command
+     * reopens it, and the balance on it is the new one.
+     *
+     * <p>The server is not told when a player closes a dialog, so this opens it
+     * whether or not it is still on their screen. Call it in answer to a click
+     * on the dialog, not on a timer.
+     *
+     * @return false when there is nothing to reopen, or {@link #show} would refuse
+     */
+    default boolean reopen(Player viewer) {
+        return false;
+    }
+
+    /**
+     * Sets a value this player's dialogs can print as <code>{name}</code>.
+     *
+     * <p><b>The same values {@link Overlays#set} sets</b> — one set per player
+     * for both, so a value your plugin publishes for a HUD is already in every
+     * dialog and the other way round. A null value removes it. Safe from any
+     * thread: it records the value and draws nothing. A dialog already open
+     * keeps what it showed; {@link #reopen} draws it again.
+     *
+     * <p>The values a dialog was opened with, and the player's own settings,
+     * win over this — see the interface note for the order.
+     */
+    default void set(Player viewer, String name, String value) {
+    }
+
+    /** What {@link #set} (or {@link Overlays#set}) last put there, if anything. */
+    default Optional<String> value(Player viewer, String name) {
+        return Optional.empty();
+    }
+
+    /**
+     * One of the player's own settings: the value a Studio dialog's bound
+     * switch, slider or choice shows them, which they set by clicking it. Kept
+     * on the player, across restarts. PlaceholderAPI reads the same value as
+     * {@code %rpengine_var_<name>%}.
+     */
+    default Optional<String> setting(Player viewer, String name) {
+        return Optional.empty();
+    }
+
+    /**
+     * Sets one of the player's own settings, as if they had clicked it — any
+     * name, not only one a dialog declares, because your plugin is not the
+     * player. A null value clears it.
+     *
+     * <p>Names are lower-case letters, digits and {@code _}, starting with a
+     * letter, up to 32; values are letters, digits and {@code _ . -}, up to 32;
+     * a player keeps at most 64. Nothing reopens: call {@link #reopen} if they
+     * are looking at the dialog.
+     *
+     * @return false when the name or value is not one a setting can be, or the
+     *         player already has as many as they can keep
+     */
+    default boolean setSetting(Player viewer, String name, String value) {
+        return false;
+    }
 }
