@@ -1910,6 +1910,37 @@ checkbox, segmented control or dropdown a **player setting**: it draws every
 state of the control and puts all of them in a choice, so each player sees
 theirs.
 
+**A dialog can have pages.** Make each page a dialog of its own and turn
+between them with `/rp page`:
+
+```yaml
+# dialogs/settings.yml
+settings:
+  title: Settings
+  body: [Pick what to change.]
+  buttons:
+    - label: Audio
+      command: rp page mypack:settings_audio
+settings_audio:
+  title: Settings - Audio
+  body: [Music and sounds.]
+  buttons:
+    - label: Back
+      command: rp page mypack:settings
+```
+
+`/rp page <id>` opens that dialog for whoever runs it, with the values the one
+they were looking at was opened with — so `{target}` survives the turn — but
+only when that one has a button, or a click in its body, running exactly that
+command: a player reaches a page the way the dialog lets them and no other.
+Every player may run it, for the reason they may run `/rp var`. Prefer it to a
+`dialog:` button between your own dialogs, which names the next one by its
+registry id: until the next restart that id does not exist, and the game refuses
+the whole dialog holding the button over it.
+
+A dialog made in Studio with pages arrives the same way: its first page is
+`studio:<id>` and every other page `studio:<id>.<page>`.
+
 **One button is a notice, two are a yes/no, three or more are a grid.** You do
 not choose which; the count does, because those are the only three shapes the
 game has and they differ in nothing else.

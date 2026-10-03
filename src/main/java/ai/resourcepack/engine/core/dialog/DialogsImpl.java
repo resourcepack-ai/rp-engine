@@ -227,6 +227,26 @@ public final class DialogsImpl implements Dialogs {
     }
 
     /**
+     * Whether the dialog a player was last shown turns to {@code target} — holds
+     * a click running {@code /rp page <target>}. The check every {@code /rp page}
+     * passes, because a player runs it: see {@link DialogLinks}. Read against the
+     * catalogue as it is now, so a push that took the link away takes the page
+     * with it.
+     */
+    public boolean links(Player viewer, ContentId target) {
+        Shown shown = viewer == null ? null : lastShown.get(viewer);
+        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        return from != null && DialogLinks.opens(from.json(), target);
+    }
+
+    /** Every dialog the one a player was last shown turns to — what {@code /rp page} completes. */
+    public List<ContentId> linked(Player viewer) {
+        Shown shown = viewer == null ? null : lastShown.get(viewer);
+        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        return from == null ? List.of() : DialogLinks.targets(from.json());
+    }
+
+    /**
      * Whether a loaded dialog lets a player set {@code name} to {@code value}:
      * some dialog declares the name, and lists the value for it. The check
      * every {@code /rp var} passes, because a player runs it — see

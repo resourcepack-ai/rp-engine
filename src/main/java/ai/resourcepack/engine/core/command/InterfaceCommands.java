@@ -15,7 +15,8 @@ import java.util.Locale;
 /**
  * What a player hears and sees that is not the world: {@code sounds},
  * {@code sound}, {@code icons}, {@code say}, {@code screens}, {@code screen},
- * {@code hud}, {@code shaders}, {@code shader}.
+ * {@code hud}, {@code shaders}, {@code shader}, and the dialogs with their two
+ * player-run halves, {@code var} and {@code page}.
  *
  * <p>The listing halves are here rather than beside the content commands
  * because they exist to be used with the playing halves — you run
@@ -65,7 +66,8 @@ public final class InterfaceCommands implements Area {
                 Help.of("shader", "<id|clear> [player]", "show one"),
                 Help.of("dialogs", "list the dialogs"),
                 Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"),
-                Help.of("var", "<name> <value>", "set a dialog setting"));
+                Help.of("var", "<name> <value>", "set a dialog setting"),
+                Help.of("page", "<id>", "turn a dialog to another page"));
     }
 
     @Override
@@ -89,6 +91,8 @@ public final class InterfaceCommands implements Area {
                 return dialog(sender, args);
             case "var":
                 return var(sender, args);
+            case "page":
+                return page(sender, args);
             case "shaders":
                 return shaders(sender);
             case "shader":
@@ -160,8 +164,75 @@ public final class InterfaceCommands implements Area {
         return true;
     }
 
+    /**
+     * {@code /rp page <id>} — what a click on a paged dialog runs, as the player
+     * who clicked it: a sidebar button, a tab, a "Next" arrow.
+     *
+     * <p>A page is a dialog of its own (a Studio dialog's second page is
+     * {@code studio:<id>.<page>}), so this opens a dialog — but only one the
+     * dialog the player was last shown turns to, with a click running exactly
+     * this command; see {@link ai.resourcepack.engine.core.dialog.DialogLinks}.
+     * That is why every player may run it while {@code /rp dialog} is staff's:
+     * it does what the click did and nothing else. The page opens with the
+     * values the first one was opened with, so a punish menu about Steve is
+     * still about Steve on its second page.
+     *
+     * <p>Silent when it works, like {@code /rp var}: the answer is the page on
+     * their screen. A line when it does not, because a click that does nothing
+     * is otherwise a mystery.
+     */
+    private boolean page(CommandSender sender, String[] args) {
+        if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl)) {
+            Reply.to(sender, "Dialog pages are not available on this server.");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            Reply.to(sender, "Only a player turns a page: it is what a click on a dialog runs. "
+                    + "/rp dialog <id> <player> opens one on somebody.");
+            return true;
+        }
+        if (args.length < 2) {
+            Reply.to(sender, "/rp page <id>");
+            return true;
+        }
+        java.util.Optional<ContentId> parsed = ContentId.parse(args[1].toLowerCase(Locale.ROOT));
+        if (parsed.isEmpty() || !impl.links(player, parsed.get())) {
+            // Said the same way whether the id is malformed, unknown or simply
+            // not linked: from here all three are "no page of what you were
+            // shown", and naming which would tell a player what exists.
+            Reply.to(sender, impl.lastShown(player).isPresent()
+                    ? "The dialog you were shown has no page called " + args[1] + "."
+                    : "Open a dialog first: /rp page turns the one you are looking at to another of its pages.");
+            return true;
+        }
+        ContentId id = parsed.get();
+        java.util.Map<String, String> values = impl.lastShown(player)
+                .map(ai.resourcepack.engine.core.dialog.DialogsImpl.Shown::values)
+                .orElse(java.util.Map.of());
+        // On the next tick, for the reason /rp var waits: the click that ran
+        // this may still be closing the page it was on.
+        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(InterfaceCommands.class);
+        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || impl.show(player, id, values)) {
+                return;
+            }
+            Reply.to(player, !impl.canShow(player, id)
+                    ? "That page is drawn in a pack you are not holding, so it would open as missing-glyph boxes."
+                    : "The game would not open " + id + ". The console says what it made of it.");
+        });
+        return true;
+    }
+
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
+        if (sub.equals("page") && dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) {
+            // Only the pages a click on what they are looking at could open —
+            // the only ones this would open anyway.
+            if (args.length != 2 || !(sender instanceof Player player)) {
+                return List.of();
+            }
+            return Completions.matchingIds(args[1], impl.linked(player));
+        }
         if (sub.equals("var") && dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) {
             java.util.Map<String, List<String>> declared = impl.declared();
             if (args.length == 2) {
