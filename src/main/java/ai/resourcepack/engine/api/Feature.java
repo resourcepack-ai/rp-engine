@@ -206,7 +206,23 @@ public enum Feature {
                     + "want to go, right-click to speed up a notch and left-click to slow "
                     + "down or reverse. The cost is that steering is your head, so the "
                     + "driver turns with the vehicle and cannot look around while driving. "
-                    + "Needs Paper; a Spigot server gets this arm whatever its version.");
+                    + "Needs Paper; a Spigot server gets this arm whatever its version."),
+
+    /**
+     * The {@code player} text component: a player's face, drawn by the game from
+     * their own skin, anywhere text is.
+     *
+     * <p>What uses it is a Studio dialog's live head, the face of whoever the
+     * dialog is about in a slot on a profile card. The pack sends a blank marker
+     * where the face goes, and the engine swaps the face in only on a server
+     * whose codec knows the component: one it does not know would refuse the
+     * whole dialog, so below this the slot simply stays empty.
+     */
+    TEXT_OBJECTS(
+            McVersion.of(1, 21, 9),
+            "Player heads in dialogs",
+            "A Studio dialog's live player head is left empty. The rest of the dialog, "
+                    + "its live words included, works as usual.");
 
     private final McVersion since;
     private final String label;

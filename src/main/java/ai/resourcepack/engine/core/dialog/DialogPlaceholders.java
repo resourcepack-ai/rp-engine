@@ -1,5 +1,9 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.engine.api.Feature;
+import ai.resourcepack.engine.api.McVersion;
+import ai.resourcepack.engine.core.version.Compatibility;
+
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Function;
@@ -64,6 +68,20 @@ import java.util.regex.Pattern;
  * measure and to that room ({@link #fitLive}). An engine older than this fills
  * the placeholder without the mark meaning anything, which is right for every
  * value that was going to fit anyway.
+ *
+ * <h2>Live heads</h2>
+ *
+ * A Studio dialog can also show a player's FACE in its picture: the head on a
+ * profile card, whoever the dialog is about. The game draws one from the
+ * player's own skin as the {@code player} text component, which only 1.21.9 and
+ * newer know, and a dialog holding a component its server's codec does not know
+ * is refused whole. So Studio never sends the component: it sends a MARKER, a
+ * blank 8px space whose insertion carries the name ({@code rp:head:{target}})
+ * and whose colour is the address the pack's text shader places the face by.
+ * The name is filled like any placeholder, and then, on a server that has the
+ * component ({@link Feature#TEXT_OBJECTS}), {@link #withHeads} swaps each marker
+ * for the face: same colour, same advance. Anywhere else, and for a name the
+ * game would not take as a player's, the marker stays and the slot is empty.
  */
 public final class DialogPlaceholders {
 
@@ -102,6 +120,22 @@ public final class DialogPlaceholders {
     /** A legacy formatting code. The game refuses a whole dialog over one in a command. */
     private static final Pattern LEGACY = Pattern.compile("§.?");
 
+    /**
+     * A live head's marker, exactly as Studio's dialog builder writes it
+     * ({@code liveHeadMarker}): an 8px space in the dialog's space font, its
+     * colour, then its insertion, the name already filled. Studio's dialog
+     * check runs this pattern over a built body, so the two cannot drift
+     * without it failing.
+     */
+    static final Pattern HEAD = Pattern.compile(
+            "\\{\"text\":\"\\uE003\",\"font\":\"minecraft:dialog_space\",\"color\":\"(#fc[0-9a-f]{4})\",\"insertion\":\"rp:head:((?:[^\"\\\\]|\\\\.)*)\"\\}");
+
+    /** The longest name the game takes as a player's. */
+    private static final int MAX_NAME = 16;
+
+    /** Whether this server's codec knows the {@code player} component: read once, then kept. */
+    private static volatile Boolean drawsHeads;
+
     /** Whether there is anything here to fill — so a dialog with none costs one scan. */
     public static boolean any(String json) {
         return json != null && NAME.matcher(json).find();
@@ -109,9 +143,20 @@ public final class DialogPlaceholders {
 
     /**
      * The JSON with every placeholder {@code lookup} answers replaced by its
-     * value, escaped for a JSON string, and every choice resolved.
+     * value, escaped for a JSON string, and every choice resolved; and, on a
+     * server that draws them, every live head swapped in ({@link #withHeads}).
      */
     public static String fill(String json, Function<String, Optional<String>> lookup) {
+        return fill(json, lookup, serverDrawsHeads());
+    }
+
+    /** {@link #fill(String, Function)}, told whether the server draws heads rather than asking it. */
+    static String fill(String json, Function<String, Optional<String>> lookup, boolean heads) {
+        String filled = fillPlaceholders(json, lookup);
+        return heads && filled != null ? withHeads(filled) : filled;
+    }
+
+    private static String fillPlaceholders(String json, Function<String, Optional<String>> lookup) {
         if (json == null) {
             return null;
         }
@@ -140,6 +185,118 @@ public final class DialogPlaceholders {
             }
         } while (m.find());
         return out.append(json, at, json.length()).toString();
+    }
+
+    /**
+     * The JSON with every live head's marker that names a player swapped for
+     * the {@code player} component: the same colour, so the pack's shader can
+     * place the face, no shadow, and the hat. A marker whose name the game
+     * would not take (a placeholder nothing answered, a value with a space in
+     * it, one longer than a name can be) is left as it is, an empty slot: a
+     * name the game refuses would take the whole dialog with it.
+     */
+    static String withHeads(String json) {
+        Matcher m = HEAD.matcher(json);
+        if (!m.find()) {
+            return json;
+        }
+        StringBuilder out = new StringBuilder(json.length());
+        int at = 0;
+        do {
+            String name = playerName(unescape(m.group(2)));
+            if (name != null) {
+                out.append(json, at, m.start())
+                        .append("{\"type\":\"object\",\"object\":\"player\",\"player\":\"").append(name)
+                        .append("\",\"hat\":true,\"color\":\"").append(m.group(1)).append("\",\"shadow_color\":0}");
+                at = m.end();
+            }
+        } while (m.find());
+        return out.append(json, at, json.length()).toString();
+    }
+
+    /**
+     * A value as the game takes a player's name, or null: at most sixteen
+     * characters, none of them a space, a control character or past ASCII,
+     * which is the game's own rule, and none a quote, a backslash or a brace,
+     * which no name has and which would mean a placeholder left unfilled.
+     */
+    static String playerName(String value) {
+        String name = value.trim();
+        if (name.isEmpty() || name.length() > MAX_NAME) {
+            return null;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c <= 32 || c >= 127 || c == '"' || c == '\\' || c == '{' || c == '}') {
+                return null;
+            }
+        }
+        return name;
+    }
+
+    /** The inside of a JSON string, read back. */
+    static String unescape(String json) {
+        StringBuilder out = new StringBuilder(json.length());
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c != '\\' || i + 1 >= json.length()) {
+                out.append(c);
+                continue;
+            }
+            char next = json.charAt(++i);
+            switch (next) {
+                case 'n':
+                    out.append('\n');
+                    break;
+                case 'r':
+                    out.append('\r');
+                    break;
+                case 't':
+                    out.append('\t');
+                    break;
+                case 'b':
+                    out.append('\b');
+                    break;
+                case 'f':
+                    out.append('\f');
+                    break;
+                case 'u':
+                    if (i + 4 < json.length()) {
+                        try {
+                            out.append((char) Integer.parseInt(json.substring(i + 1, i + 5), 16));
+                            i += 4;
+                            break;
+                        } catch (NumberFormatException ignored) {
+                            // Not an escape after all: kept as written.
+                        }
+                    }
+                    out.append(next);
+                    break;
+                default:
+                    out.append(next);
+            }
+        }
+        return out.toString();
+    }
+
+    /**
+     * Whether this server's dialogs may carry the {@code player} component.
+     * Asked of the server once; a server whose version cannot be read is
+     * treated as one without it, which costs a face rather than a dialog.
+     */
+    static boolean serverDrawsHeads() {
+        Boolean known = drawsHeads;
+        if (known == null) {
+            boolean yes;
+            try {
+                yes = McVersion.parse(Compatibility.readServerVersion()).map(Feature.TEXT_OBJECTS::on).orElse(false);
+            } catch (RuntimeException | LinkageError e) {
+                yes = false;
+            }
+            known = yes;
+            drawsHeads = known;
+        }
+        return known;
     }
 
     /**
