@@ -142,12 +142,6 @@ public final class ModelCommands implements Area {
             Reply.error(player, "Look at a mob within " + (int) REACH + " blocks.");
             return true;
         }
-        // A mob is the world's; another PLAYER is a person, and dressing them
-        // in a model is acting on somebody else.
-        if (target instanceof Player other && !Targets.permitted(sender, "bind", other)) {
-            Targets.refuse(sender, "bind", "put a model on");
-            return true;
-        }
         if (bound.bind(target, id.get(), 1f)) {
             Reply.to(player, "That " + target.getType().name().toLowerCase(java.util.Locale.ROOT)
                     + " is wearing " + Reply.accent(id.get()) + " now.");
@@ -168,10 +162,6 @@ public final class ModelCommands implements Area {
         Entity target = lookingAt(player);
         if (target == null) {
             Reply.error(player, "Look at a mob within " + (int) REACH + " blocks.");
-            return true;
-        }
-        if (target instanceof Player other && !Targets.permitted(sender, "unbind", other)) {
-            Targets.refuse(sender, "unbind", "take a model off");
             return true;
         }
         Reply.to(player, bound.unbind(target)

@@ -91,7 +91,11 @@ public final class Armor3dCommands implements Area {
             return Completions.matching(args[2], ids);
         }
         if (args.length == 4) {
-            return Completions.matching(args[3], Targets.names(sender, "armor"));
+            List<String> names = new ArrayList<>();
+            for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
+                names.add(player.getName());
+            }
+            return Completions.matching(args[3], names);
         }
         return List.of();
     }
@@ -124,10 +128,6 @@ public final class Armor3dCommands implements Area {
         Player player = Targets.of(sender, args.length >= 4 ? args[3] : null);
         if (player == null) {
             Reply.error(sender, args.length >= 4 ? "Nobody called " + args[3] + " is online." : "Name a player.");
-            return true;
-        }
-        if (!Targets.permitted(sender, "armor", player)) {
-            Targets.refuse(sender, "armor", wear ? "dress" : "give armour to");
             return true;
         }
         for (Armor3dSet.Worn piece : set.pieces().values()) {

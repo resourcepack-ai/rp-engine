@@ -13,13 +13,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Predicate;
 import java.util.logging.Logger;
 
 /**
@@ -53,24 +49,6 @@ import java.util.logging.Logger;
  * <p>The directory is ours and is rewritten wholesale: a dialog somebody
  * deleted from their content folder should stop existing, not linger as a
  * screen a command still opens.
- *
- * <h2>Page turns that never reach the server</h2>
- *
- * The registry is also what makes a page turn INSTANT. The server sends every
- * player the whole dialog registry at join, and a {@code show_dialog} by id is
- * opened by the client out of it, with no round trip. So the files here carry
- * their page links as {@code show_dialog} wherever the page linked to has
- * nothing per-player in it ({@link DialogLinks#swap}): a page with a
- * placeholder has to be filled by the engine as it opens, and a copy out of
- * the registry would show its braces. And the engine sends a page's links that
- * way only to a player for whom the registry's copy of every page reachable
- * from it is exactly that player's own version — {@link #registered}, against
- * what the files were when this server started ({@code atStart}).
- *
- * <p>A file naming a dialog that is not in the same load stops the server
- * starting at all ("Failed to load datapacks"), so {@link #write} only ever
- * names a page that already has its file, and takes a page's file away only
- * once nothing names it.
  */
 public final class DialogDatapack {
 
@@ -79,120 +57,11 @@ public final class DialogDatapack {
 
     private final Logger log;
 
-    /**
-     * Set, for the life of the JVM, once a write has changed what is on disk:
-     * from then on the files are not what the registry was built from, and an
-     * engine enabled again in the same process (a plugin reload) must not take
-     * them for it. A system property because it has to outlive the classloader.
-     */
-    private static final String WRITTEN_THIS_RUN = "rpengine.dialogs.written";
-
-    /** What stands in for a dialog file about to be deleted: names nothing, so nothing dangles. */
-    private static final String NEUTRAL = "{\"type\":\"minecraft:notice\",\"title\":\"\"}";
-
     /** Whether what is on disk is not what the running server has read. */
     private volatile boolean reloadWanted;
 
-    /**
-     * The files this server's dialog registry was built from: what was on disk
-     * when the engine came up, which is after the worlds loaded and before it
-     * wrote anything. Empty when that cannot be known.
-     */
-    private final Map<ContentId, String> atStart;
-
-    /** Whether the registry holds an id, asked once each: it is fixed for the life of the process. */
-    private final Map<ContentId, Boolean> inRegistry = new ConcurrentHashMap<>();
-
-    /** How the registry is asked: the server's codec, or a test's stand-in. */
-    private final Predicate<ContentId> held;
-
     public DialogDatapack(Logger log) {
-        this(log, Boolean.getBoolean(WRITTEN_THIS_RUN) ? Map.of() : readAtStart(), DialogDatapack::probe);
-    }
-
-    /** A registry built from {@code atStart}, holding what {@code held} says. For tests. */
-    DialogDatapack(Logger log, Map<ContentId, String> atStart, Predicate<ContentId> held) {
         this.log = log;
-        this.atStart = Map.copyOf(atStart);
-        this.held = held;
-    }
-
-    /** Whether any page could turn without the server this run: false until a restart has read a datapack. */
-    public boolean instantPossible() {
-        return !atStart.isEmpty();
-    }
-
-    /**
-     * Whether a player's client already holds {@code content} as dialog {@code id}:
-     * it was the file on disk when this server started, so the registry was built
-     * from it, and the registry really has the id. The second half is asked of
-     * the server's own codec, once, because a pack the world has DISABLED is on
-     * disk and not in the registry - and a {@code show_dialog} naming an id the
-     * registry lacks stops the whole dialog holding it from opening.
-     */
-    public boolean registered(ContentId id, String content) {
-        String before = id == null ? null : atStart.get(id);
-        if (before == null || !before.equals(content)) {
-            return false;
-        }
-        return inRegistry.computeIfAbsent(id, held::test);
-    }
-
-    /** Decodes a dialog whose one button opens {@code id}: the codec resolves the id, so it fails when it is missing. */
-    private static boolean probe(ContentId id) {
-        try {
-            DialogPackets.decode("{\"type\":\"minecraft:notice\",\"title\":\"\",\"action\":{\"label\":\"\","
-                    + "\"action\":{\"type\":\"minecraft:show_dialog\",\"dialog\":\"" + id + "\"}}}");
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            return false;
-        }
-    }
-
-    /** The dialog files on disk now, by id. Read once, as the engine comes up. */
-    private static Map<ContentId, String> readAtStart() {
-        try {
-            List<World> worlds = Bukkit.getWorlds();
-            if (worlds.isEmpty()) {
-                return Map.of();
-            }
-            Path data = DataPackFolder.of(worlds.get(0), PACK).resolve("data");
-            if (!Files.isDirectory(data)) {
-                return Map.of();
-            }
-            List<Path> files;
-            try (java.util.stream.Stream<Path> found = Files.walk(data)) {
-                files = found.filter(Files::isRegularFile).toList();
-            }
-            Map<ContentId, String> out = new HashMap<>();
-            for (Path file : files) {
-                // data/<namespace>/dialog/<path>.json, the path free to hold slashes.
-                Path rel = data.relativize(file);
-                if (rel.getNameCount() < 3 || !rel.getName(1).toString().equals("dialog")) {
-                    continue;
-                }
-                String path = rel.subpath(2, rel.getNameCount()).toString().replace('\\', '/');
-                if (!path.endsWith(".json")) {
-                    continue;
-                }
-                String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-                ContentId.parse(rel.getName(0) + ":" + path.substring(0, path.length() - 5))
-                        .ifPresent(id -> out.put(id, text));
-            }
-            return Map.copyOf(out);
-        } catch (IOException | RuntimeException e) {
-            return Map.of();
-        }
-    }
-
-    /**
-     * A dialog as its file holds it: its page links to pages, among {@code all},
-     * with nothing per-player in them turned into {@code show_dialog}s. The
-     * engine works out the same thing for each player to compare against.
-     */
-    public static String fileContent(String json, Map<ContentId, String> all) {
-        Predicate<ContentId> plain = page -> all.containsKey(page) && !DialogPlaceholders.any(all.get(page));
-        return DialogLinks.swap(json, plain);
     }
 
     /**
@@ -266,11 +135,7 @@ public final class DialogDatapack {
         try {
             Files.createDirectories(data);
             changed = writeIfDifferent(root.resolve("pack.mcmeta"), mcmeta());
-            Map<ContentId, String> all = new LinkedHashMap<>();
-            for (DialogInfo dialog : dialogs) {
-                all.put(dialog.id(), dialog.json());
-            }
-            Map<Path, String> wanted = new LinkedHashMap<>();
+            Set<Path> wanted = new LinkedHashSet<>();
             for (DialogInfo dialog : dialogs) {
                 ContentId id = dialog.id();
                 Path folder = data.resolve(id.namespace()).resolve("dialog");
@@ -279,20 +144,10 @@ public final class DialogDatapack {
                 // slashes (an authored `menus/shop` is dialog/menus/shop.json),
                 // and one that did threw here and stopped every write after it.
                 Files.createDirectories(file.getParent());
-                // First every page gets a file, as it is, before anything names
-                // it: a write cut short leaves no link to a page with no file.
-                if (!Files.isRegularFile(file)) {
-                    Files.write(file, dialog.json().getBytes(StandardCharsets.UTF_8));
-                    changed = true;
-                }
-                wanted.put(file, fileContent(dialog.json(), all));
+                wanted.add(file);
+                changed |= writeIfDifferent(file, dialog.json());
             }
-            // Then what each file is for: its links between pages the client
-            // can open as they are, every one of which now has its file.
-            for (Map.Entry<Path, String> entry : wanted.entrySet()) {
-                changed |= writeIfDifferent(entry.getKey(), entry.getValue());
-            }
-            changed |= removeOthers(data, wanted.keySet());
+            changed |= removeOthers(data, wanted);
         } catch (IOException e) {
             log.warning("Could not write the dialog datapack: " + e.getMessage());
             return;
@@ -303,14 +158,13 @@ public final class DialogDatapack {
         // which is a dialog that actually opened.
         if (changed) {
             reloadWanted = true;
-            System.setProperty(WRITTEN_THIS_RUN, "true");
             // Deliberately not an instruction. These open right now, in the
             // command, and telling somebody to restart for something that
             // already works is how a restart became the answer to every later
             // problem. The only thing the restart buys is the id.
             log.info("Dialogs were written to " + root + ". They open now — /rp dialogs lists them. "
                     + "After the next restart each one is also a registry id other datapacks and "
-                    + "command blocks can name, and their pages turn without waiting for the server.");
+                    + "command blocks can name.");
         }
     }
 
@@ -324,12 +178,7 @@ public final class DialogDatapack {
         return true;
     }
 
-    /**
-     * Deletes dialog files for ids that are gone. Each is first made to name
-     * nothing, and only then are any deleted: two that are going may name each
-     * other, and a write cut short between deleting one and the other would
-     * leave a link to a file that is not there.
-     */
+    /** Deletes dialog files for ids that are gone, and namespaces left empty. */
     private static boolean removeOthers(Path data, Set<Path> keep) throws IOException {
         List<Path> gone = new ArrayList<>();
         if (!Files.isDirectory(data)) {
@@ -337,9 +186,6 @@ public final class DialogDatapack {
         }
         try (java.util.stream.Stream<Path> found = Files.walk(data)) {
             found.filter(Files::isRegularFile).filter(path -> !keep.contains(path)).forEach(gone::add);
-        }
-        for (Path path : gone) {
-            writeIfDifferent(path, NEUTRAL);
         }
         for (Path path : gone) {
             Files.deleteIfExists(path);

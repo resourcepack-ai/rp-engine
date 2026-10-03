@@ -6,16 +6,12 @@ import ai.resourcepack.engine.api.Dialogs;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Deque;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Opening dialogs. The implementation behind {@link Dialogs}.
@@ -67,33 +63,20 @@ public final class DialogsImpl implements Dialogs {
      */
     private final Map<Player, Shown> lastShown = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
-    /**
-     * A dialog as it was shown to somebody, and the pages its links turn to on
-     * the client, without asking the server ({@link #instantPages}) — which the
-     * player may be looking at instead by now.
-     */
-    public record Shown(ContentId id, Map<String, String> values, Set<ContentId> reach) {
-        public Shown(ContentId id, Map<String, String> values) {
-            this(id, values, Set.of());
-        }
+    /** A dialog as it was shown to somebody. */
+    public record Shown(ContentId id, Map<String, String> values) {
     }
 
-    /** How far a dialog's pages are followed looking for the ones that turn on the client. */
-    private static final int MAX_PAGES = 64;
-
     /**
-     * Each player's own version of a pushed dialog. Null until told, which
-     * opens the catalogue's for everybody.
+     * Who is holding a pushed pack. Everybody, until told otherwise.
      *
      * <p>Same gate the overlays have and for the same reason: a pushed
      * dialog's picture is a glyph that only exists in the pack Studio sent to
      * one player, so opening it for anybody else is a screen of missing-glyph
-     * boxes — and on a server where several people sync, "anybody holding a
-     * pushed pack" is not the same as holding THIS one, which is what the gate
-     * used to ask. The engine's own content is not gated — a server's bundle
-     * is what its players are already wearing.
+     * boxes. The engine's own content is not gated — a server's bundle is what
+     * its players are already wearing.
      */
-    private volatile java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> pushedView;
+    private volatile Predicate<Player> pushedAudience = viewer -> true;
 
     public DialogsImpl(DialogDatapack datapack, boolean supported) {
         this(datapack, supported, null, null);
@@ -111,22 +94,9 @@ public final class DialogsImpl implements Dialogs {
         this.published = published;
     }
 
-    /** Says how to find a player's own version of a pushed dialog: their push's, or empty. */
-    public void pushedView(java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> view) {
-        this.pushedView = view;
-    }
-
-    /**
-     * What a dialog is for this player: the server's own as it is, and a pushed
-     * one as their own push has it — empty if their push has none.
-     */
-    public Optional<DialogInfo> info(Player viewer, ContentId id) {
-        Optional<DialogInfo> found = info(id);
-        java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> view = pushedView;
-        if (found.isEmpty() || !found.get().fromPushedPack() || view == null) {
-            return found;
-        }
-        return viewer == null ? Optional.empty() : view.apply(viewer, id);
+    /** Says who may be shown a dialog whose art came from a pushed pack. */
+    public void audience(Predicate<Player> holdsPushedPack) {
+        this.pushedAudience = holdsPushedPack == null ? viewer -> true : holdsPushedPack;
     }
 
     /**
@@ -170,7 +140,11 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return false;
         }
-        return info(viewer, id).isPresent();
+        Optional<DialogInfo> found = info(id);
+        if (found.isEmpty()) {
+            return false;
+        }
+        return !found.get().fromPushedPack() || pushedAudience.test(viewer);
     }
 
     @Override
@@ -183,19 +157,13 @@ public final class DialogsImpl implements Dialogs {
         if (!canShow(viewer, id)) {
             return false;
         }
-        DialogInfo info = info(viewer, id).orElse(null);
+        DialogInfo info = dialogs.get(id);
         if (info == null) {
             return false;
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
-        // Its links to pages the client already holds as they are turn there
-        // without a round trip: see instantPages.
-        Set<ContentId> instant = instantPages(viewer, id, info.json());
-        if (!instant.isEmpty()) {
-            json = DialogLinks.swap(json, instant::contains);
-        }
-        Shown shown = new Shown(id, values == null ? Map.of() : Map.copyOf(values), instant);
+        Shown shown = new Shown(id, values == null ? Map.of() : Map.copyOf(values));
 
         // Decode JSON directly so multiline text and other values need not
         // pass through the command parser or wait for the datapack registry.
@@ -254,106 +222,6 @@ public final class DialogsImpl implements Dialogs {
         return false;
     }
 
-    /**
-     * The pages a player can be turned to from {@code from} by the client alone.
-     *
-     * <p>A {@code show_dialog} by id opens the copy in the registry the server
-     * synced at join, with no round trip — see {@link DialogDatapack}. That
-     * copy is the file written before this server last started, so a link may
-     * go that way only to a page whose copy is EXACTLY what this player would be
-     * sent, and only to one with nothing per-player in it, since nothing fills a
-     * placeholder in a registry copy. And it is all or nothing for everything
-     * reachable from here: the registry's pages link to each other the same way,
-     * so a client that has turned to one can go on turning without the server,
-     * and every page it could reach has to be the player's own — one stale page
-     * would be a screen of somebody else's push, or of missing glyphs.
-     *
-     * <p>Empty whenever any of that cannot be shown: no restart since the
-     * dialog was pushed, a different push for this player, the pack disabled
-     * in this world, a server the engine cannot ask. Every link then stays the
-     * {@code /rp page} it was, which is a round trip and always correct.
-     */
-    Set<ContentId> instantPages(Player viewer, ContentId from, String json) {
-        return instantPages(from, json, next -> info(viewer, next));
-    }
-
-    /**
-     * Whether a dialog's page links turn on the client, for the server's own
-     * copy of it: what {@code /rp dialogs} says beside each one. Null for a
-     * dialog with no page links at all.
-     */
-    public Boolean pagesTurnInstantly(ContentId id) {
-        DialogInfo info = info(id).orElse(null);
-        if (info == null || DialogLinks.targets(info.json()).isEmpty()) {
-            return null;
-        }
-        return !instantPages(id, info.json(), this::info).isEmpty();
-    }
-
-    private Set<ContentId> instantPages(ContentId from, String json,
-                                        java.util.function.Function<ContentId, Optional<DialogInfo>> lookup) {
-        if (!datapack.instantPossible() || from == null || json == null) {
-            return Set.of();
-        }
-        // Every page reachable from here by page links, as this player has it.
-        Map<ContentId, String> pages = new LinkedHashMap<>();
-        pages.put(from, json);
-        Deque<ContentId> todo = new ArrayDeque<>(DialogLinks.targets(json));
-        while (!todo.isEmpty() && pages.size() < MAX_PAGES) {
-            ContentId next = todo.poll();
-            if (pages.containsKey(next)) {
-                continue;
-            }
-            Optional<DialogInfo> page = lookup.apply(next);
-            if (page.isPresent()) {
-                pages.put(next, page.get().json());
-                todo.addAll(DialogLinks.targets(page.get().json()));
-            }
-        }
-        if (pages.size() == 1) {
-            return Set.of();
-        }
-        Set<ContentId> out = new LinkedHashSet<>();
-        for (Map.Entry<ContentId, String> page : pages.entrySet()) {
-            if (DialogPlaceholders.any(page.getValue())) {
-                continue;
-            }
-            if (!datapack.registered(page.getKey(), DialogDatapack.fileContent(page.getValue(), pages))) {
-                return Set.of();
-            }
-            out.add(page.getKey());
-        }
-        return Set.copyOf(out);
-    }
-
-    /**
-     * Follows a player the client turned to another page by itself. A command
-     * held by a click on one of the pages they could have reached, and not by
-     * the page they were sent, says that is where they are — so a
-     * {@link #reopen} after it (a store's Buy button, say) reopens that page
-     * rather than the one they came from.
-     */
-    public void noteCommand(Player viewer, String command) {
-        Shown shown = viewer == null || command == null ? null : lastShown.get(viewer);
-        if (shown == null || shown.reach().isEmpty()) {
-            return;
-        }
-        DialogInfo current = info(viewer, shown.id()).orElse(null);
-        if (current != null && DialogLinks.holdsCommand(current.json(), command)) {
-            return;
-        }
-        for (ContentId page : shown.reach()) {
-            if (page.equals(shown.id())) {
-                continue;
-            }
-            Optional<DialogInfo> info = info(viewer, page);
-            if (info.isPresent() && DialogLinks.holdsCommand(info.get().json(), command)) {
-                lastShown.put(viewer, new Shown(page, shown.values(), shown.reach()));
-                return;
-            }
-        }
-    }
-
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
         return viewer == null ? Optional.empty() : Optional.ofNullable(lastShown.get(viewer));
@@ -367,7 +235,7 @@ public final class DialogsImpl implements Dialogs {
     @Override
     public boolean reopen(Player viewer) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        return shown != null && info(viewer, shown.id()).isPresent() && show(viewer, shown.id(), shown.values());
+        return shown != null && dialogs.containsKey(shown.id()) && show(viewer, shown.id(), shown.values());
     }
 
     @Override
@@ -407,28 +275,16 @@ public final class DialogsImpl implements Dialogs {
      * with it.
      */
     public boolean links(Player viewer, ContentId target) {
-        return linked(viewer).contains(target);
+        Shown shown = viewer == null ? null : lastShown.get(viewer);
+        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        return from != null && DialogLinks.opens(from.json(), target);
     }
 
-    /**
-     * Every dialog the one a player was last shown turns to — what {@code /rp page}
-     * completes — and every one turned to from the pages the client could have
-     * gone to by itself: a page reached without the server still links onward
-     * through it, and the server has no other way to know the player is there.
-     */
+    /** Every dialog the one a player was last shown turns to — what {@code /rp page} completes. */
     public List<ContentId> linked(Player viewer) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        if (shown == null) {
-            return List.of();
-        }
-        Set<ContentId> out = new LinkedHashSet<>();
-        Set<ContentId> from = new LinkedHashSet<>();
-        from.add(shown.id());
-        from.addAll(shown.reach());
-        for (ContentId page : from) {
-            info(viewer, page).ifPresent(info -> out.addAll(DialogLinks.targets(info.json())));
-        }
-        return List.copyOf(out);
+        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        return from == null ? List.of() : DialogLinks.targets(from.json());
     }
 
     /**

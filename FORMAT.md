@@ -1980,13 +1980,12 @@ punish:
 ```
 
 ```
-/rp dialog mypack:punish target=Steve Admin
+/rp dialog mypack:punish Admin target=Steve
 ```
 
 opens it for Admin, titled "Punish Steve", with a button that runs
-`mute Steve 1h`. The player goes last; leave it out and it opens for whoever
-typed it: `/rp dialog mypack:punish target=Steve`. (Before 0.1.71 the player
-came straight after the id, and that order is still read.) A name the command did not give is
+`mute Steve 1h`. Leave the player out and it opens for whoever typed it:
+`/rp dialog mypack:punish target=Steve`. A name the command did not give is
 filled the way an overlay's is — `{player}` and the other built-ins describe
 the player the dialog is SHOWN to, and PlaceholderAPI answers the rest when it
 is installed. A name nothing knows is left as written.
@@ -2070,18 +2069,6 @@ the whole dialog holding the button over it.
 
 A dialog made in Studio with pages arrives the same way: its first page is
 `studio:<id>` and every other page `studio:<id>.<page>`.
-
-**After a restart, those page turns stop asking the server.** A server gives
-every player its dialogs as it starts, and a page the player already has opens
-on the client at once. So when the server has started since a dialog was last
-loaded, the engine sends its `rp page` links as the game's own
-`minecraft:show_dialog` by id instead, and the datapack it writes carries them
-that way too. It does this only for pages with nothing per-player in them
-(nothing in `{braces}`, which only the engine can fill as a page opens), and
-only while every page the player could reach that way is exactly the copy the
-server started with; anything else stays an `rp page`, which always works.
-`/rp dialogs` says which dialogs' pages turn instantly. You write `rp page`
-either way.
 
 **One button is a notice, two are a yes/no, three or more are a grid.** You do
 not choose which; the count does, because those are the only three shapes the

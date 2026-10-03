@@ -68,15 +68,6 @@ permissions:
       rpengine.push: true
       rpengine.emote.cast: true
       rpengine.emote.force: true
-      rpengine.sound.others: true
-      rpengine.screen.others: true
-      rpengine.hud.others: true
-      rpengine.shader.others: true
-      rpengine.dialog.others: true
-      rpengine.var.others: true
-      rpengine.armor.others: true
-      rpengine.bind.others: true
-      rpengine.unbind.others: true
   rpengine.reload:
     description: Reload content and config.
     default: op
@@ -107,9 +98,6 @@ permissions:
   rpengine.sound:
     description: Play a custom sound to yourself.
     default: op
-  rpengine.sound.others:
-    description: Play a custom sound to somebody else.
-    default: op
   rpengine.icons:
     description: List the icons.
     default: op
@@ -120,19 +108,13 @@ permissions:
     description: List the screens and HUDs.
     default: op
   rpengine.screen:
-    description: Open a custom screen on yourself.
-    default: op
-  rpengine.screen.others:
-    description: Open a custom screen on somebody else.
+    description: Open a custom screen.
     default: op
   rpengine.dialogs:
     description: List the dialogs.
     default: op
   rpengine.dialog:
-    description: Open a dialog on yourself - including one about somebody else (target=Steve).
-    default: op
-  rpengine.dialog.others:
-    description: Open a dialog on somebody else's screen.
+    description: Open a dialog on a player, and change somebody else's dialog settings.
     default: op
   rpengine.var:
     # Everybody, and it has to be: a click on a bound control in a dialog
@@ -141,9 +123,6 @@ permissions:
     # for the player running it - see DialogVariables.
     description: Change your own dialog settings - what a click on a dialog's switch or slider runs.
     default: true
-  rpengine.var.others:
-    description: Change somebody else's dialog settings.
-    default: op
   rpengine.page:
     # Everybody, for rpengine.var's reason: a click on a paged dialog's
     # sidebar runs /rp page as the player who clicked it. It only opens a
@@ -154,17 +133,11 @@ permissions:
   rpengine.hud:
     description: Draw a HUD overlay on yourself.
     default: op
-  rpengine.hud.others:
-    description: Draw or clear a HUD overlay on somebody else.
-    default: op
   rpengine.shaders:
     description: List the Studio shader objects.
     default: op
   rpengine.shader:
     description: Show a Studio shader object on yourself.
-    default: op
-  rpengine.shader.others:
-    description: Show or clear a Studio shader object on somebody else.
     default: op
   rpengine.recipes:
     description: List the recipes.
@@ -191,14 +164,8 @@ permissions:
   rpengine.bind:
     description: Put a model on a mob that already exists.
     default: op
-  rpengine.bind.others:
-    description: Put a model on another PLAYER. A mob needs only rpengine.bind.
-    default: op
   rpengine.unbind:
     description: Take a bound model back off.
-    default: op
-  rpengine.unbind.others:
-    description: Take a bound model off another player.
     default: op
   rpengine.liquid:
     description: Mark out pools of a custom liquid.
@@ -210,10 +177,7 @@ permissions:
     description: Park a vehicle, or take one away.
     default: op
   rpengine.armor:
-    description: Put on and look at 3D armour yourself.
-    default: op
-  rpengine.armor.others:
-    description: Dress somebody else in 3D armour, or hand them a set.
+    description: Put on, hand out and look at 3D armour.
     default: op
   rpengine.edit:
     description: >

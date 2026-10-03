@@ -183,18 +183,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private SyncClient sync;
     private StudioRelay studio;
     private StudioContent pushed;
-    /**
-     * Every push still in use, and which one each player holds. {@link #pushed}
-     * is the LAST push, kept on disk; this is what lets the push before it
-     * outlive it for the people still holding it. See {@link PushedPacks}.
-     */
-    private final ai.resourcepack.engine.core.sync.PushedPacks pushedPacks =
-            new ai.resourcepack.engine.core.sync.PushedPacks();
-    /**
-     * Every live push as one catalogue: what is listed, registered, parked and
-     * worn. Rebuilt by {@link #registerPushedContent}.
-     */
-    private volatile StudioContent pushedAll = StudioContent.union(List.of());
     /** 3D armour: the pieces, and the displays on whoever has them on. See core/armor3d. */
     private ai.resourcepack.engine.core.armor3d.Armor3dItems armor3dItems;
     private ai.resourcepack.engine.core.armor3d.WornArmour wornArmour;
@@ -464,9 +452,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // last one after a restart.
         pushed = new StudioContent(getDataFolder());
         pushed.load(getLogger());
-        if (!pushed.isEmpty()) {
-            pushedPacks.arrived(pushed.snapshot());
-        }
         // Dialogs need 1.21.6. Below it the definitions still load and still
         // list — a server owner should see the content they wrote and be told
         // why it does nothing, rather than watch a command fail.
@@ -543,7 +528,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
             @Override
             public boolean stops(String id) {
-                return placements.stopsVehicles(id) && pushedAll.modelStopsVehicles(id);
+                return placements.stopsVehicles(id) && pushed.modelStopsVehicles(id);
             }
 
             @Override
@@ -586,14 +571,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the command says why, rather than dressing people in blank paper.
         armor3dItems = new ai.resourcepack.engine.core.armor3d.Armor3dItems(this, compatibility);
         wornArmour = new ai.resourcepack.engine.core.armor3d.WornArmour(this, compatibility, armor3dItems,
-                () -> pushedAll.armor3d(), compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
+                pushed::armor3d, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
-        // A page the client turned to by itself is only heard of through the next
-        // command clicked on it: see DialogClicks.
-        if (dialogs != null) {
-            getServer().getPluginManager().registerEvents(new ai.resourcepack.engine.core.dialog.DialogClicks(dialogs), this);
-        }
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
                 new ItemListener(this, items, new ActionRunner(items, sounds),
@@ -629,7 +609,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     packHost.register(pack);
                 }, this::pushTo);
         studio.onContent(this::registerPushedContent);
-        studio.onPacks(pushedPacks);
         studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
@@ -668,7 +647,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emotes.start();
         getServer().getPluginManager().registerEvents(distribution, this);
         distribution.start();
-        // WHO MAY BE SHOWN A PUSHED OVERLAY, AND WHICH VERSION OF IT.
+        // WHO MAY BE SHOWN A PUSHED OVERLAY.
         //
         // Its picture is a glyph that only exists in a Studio pack, so drawing
         // one for somebody who has not got that pack is a row of missing-glyph
@@ -676,35 +655,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // it is saved and reloaded — so one sync used to hand every player who
         // ever joined afterwards an overlay they could not see.
         //
-        // And not "anybody holding a Studio pack" either, which is what this
-        // asked until 2026-10-03: on a server where several people sync, the
-        // last push's always-on shader object went up on every screen that held
-        // ANY pushed pack (or the published one), and the person who pushed
-        // before them lost their own dialogs. So each player is looked up in
-        // the push they hold — or, holding none, in the pack this server
-        // publishes if they were served it, which is the "the server publishes
-        // it for everyone" case. See PushedPacks.
-        java.util.function.Function<org.bukkit.entity.Player, Optional<StudioContent>> theirs = player -> {
-            if (pushedPacks.published(distribution.publishedPackId())) {
-                getServer().getScheduler().runTask(this, this::registerPushedContent);
-            }
-            return pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()));
-        };
-        overlays.pushedView(new Overlays.PushedView() {
-
-            @Override
-            public Optional<OverlayInfo> screen(Player viewer, ContentId id) {
-                return theirs.apply(viewer).map(content -> content.screens().get(id));
-            }
-
-            @Override
-            public Optional<OverlayInfo> hud(Player viewer, ContentId id) {
-                return theirs.apply(viewer).map(content -> content.huds().get(id));
-            }
-        });
+        // Two ways to be holding one, and both count. A push goes through the
+        // bundle machinery, so `sessions` knows about it. Distribution does
+        // not: it sends its own pack straight to every joining player, which
+        // is the "the server publishes it for everyone" case, and there the
+        // client's own SUCCESSFULLY_LOADED is the record.
+        java.util.function.Predicate<org.bukkit.entity.Player> holdsPushed =
+                player -> sessions.holds(player.getUniqueId(), StudioPush.BUNDLE)
+                        || distribution.serving(player.getUniqueId());
+        overlays.audience(holdsPushed);
         // A pushed dialog's picture is a glyph in the pushed pack, so the same
-        // rule applies one screen further on.
-        dialogs.pushedView((viewer, id) -> theirs.apply(viewer).map(content -> content.dialogs().get(id)));
+        // gate applies one screen further on.
+        dialogs.audience(holdsPushed);
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
@@ -760,7 +722,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 liquidCommands,
                 new VehicleCommands(vehicles),
                 new EditCommands(edits, registry, items, vehicles, editing),
-                new ai.resourcepack.engine.core.command.Armor3dCommands(() -> pushedAll.armor3d(), armor3dItems,
+                new ai.resourcepack.engine.core.command.Armor3dCommands(pushed::armor3d, armor3dItems,
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
                                 ? null
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
@@ -824,38 +786,32 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (pushed == null) {
             return;
         }
-        // Every push still in use, not only the last: somebody else pressing
-        // Sync used to take a player's own screens and dialogs out of the
-        // catalogue while they were still wearing the pack they came in.
-        StudioContent all = StudioContent.union(pushedPacks.live());
-        pushedAll.release();
-        pushedAll = all;
-        all.register(registry, getLogger());
+        pushed.register(registry, getLogger());
 
         Map<ContentId, SoundInfo> allSounds =
                 new LinkedHashMap<>(authoredSounds);
-        allSounds.putAll(all.sounds());
+        allSounds.putAll(pushed.sounds());
         sounds.replace(allSounds);
 
         Map<ContentId, OverlayInfo> allScreens =
                 new LinkedHashMap<>(authoredScreens);
-        allScreens.putAll(all.screens());
+        allScreens.putAll(pushed.screens());
         Map<ContentId, OverlayInfo> allHuds =
                 new LinkedHashMap<>(authoredHuds);
-        allHuds.putAll(all.huds());
+        allHuds.putAll(pushed.huds());
         overlays.replace(allScreens, allHuds);
         overlays.replaceHeads(pushed.screenHeads());
 
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> allDialogs =
                 new LinkedHashMap<>(authoredDialogs);
-        allDialogs.putAll(all.dialogs());
+        allDialogs.putAll(pushed.dialogs());
         // Rewrites the datapack with both halves, which is the only way a
         // pushed dialog can exist at all — see DialogDatapack.
         dialogs.replace(allDialogs);
 
         Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> allVehicles =
                 new LinkedHashMap<>(authoredVehicles);
-        allVehicles.putAll(all.vehicles());
+        allVehicles.putAll(pushed.vehicles());
         vehicles.replace(allVehicles);
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
@@ -981,7 +937,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean rebaking;
 
     /**
-     * How long after a rebuild another one waits, in milliseconds.
+     * How long after a rebuild another one waits, ticks.
      *
      * <p>Not a delay before the FIRST one - that fires at once, because a
      * player who joined alone should not stand about as a default skin
@@ -991,19 +947,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * rebuild each. A server filling up at the start of an evening therefore
      * pays two, not twenty, and the person who walked in on their own pays
      * nothing at all.
-     *
-     * <p><b>Wall-clock time, not the world's.</b> It was measured with the
-     * first world's {@code getFullTime}, which is its time of day and stands
-     * still wherever {@code doDaylightCycle} is off - a lobby, typically, and
-     * the test server's - so after the first rebake the window never closed
-     * and every later one waited the whole five seconds.
      */
-    private static final long REBAKE_COOLDOWN_MS = 5_000L;
+    private static final long REBAKE_COOLDOWN_TICKS = 100L;
 
     /** {@code emotes.bake-on-join}. See {@link #rebakeSoon}. */
     private volatile boolean bakeOnJoin = true;
 
-    /** When the last rebuild for a new skin ran, epoch milliseconds. See {@link #rebakeSoon}. */
+    /** When the last rebuild for a new skin ran, in ticks. See {@link #rebakeSoon}. */
     private long lastRebake = Long.MIN_VALUE / 2;
 
     /**
@@ -1021,19 +971,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * <p>Delayed and coalesced rather than immediate: a server filling up at
      * the start of an evening would otherwise rebuild once per arrival, and
      * the rebuild is the expensive half. One booking covers everybody who
-     * turns up while it is pending.
-     *
-     * <p><strong>The new build is not pushed onto anybody who already has a
-     * working pack.</strong> The rig is baked into the default bundle, so every
-     * rebake is a new build of it for every player online, and re-sending it
-     * reloaded every client on the server each time a stranger walked in -
-     * which on a busy server was every few minutes, and was reported as
-     * "everybody's pack reloads when somebody joins". It goes to whoever joins
-     * from now on, and to anybody here the next time they are sent a pack
-     * anyway (a push, {@code /rp push}, coming back). The one exception is a
-     * player whose download has not finished: the rebuild has just replaced
-     * the file their URL pointed at, so they are sent the new build rather
-     * than left with a failure. See {@link PackDelivery#resendUnfinished}.
+     * turns up while it is pending, and the delivery below re-sends only to
+     * players whose pack is actually out of date.
      *
      * <p>{@code emotes.bake-on-join: false} turns it off for a server that
      * would rather choose its own moment - a big pack, a busy lobby - and
@@ -1043,22 +982,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (!bakeOnJoin || rebaking || !isEnabled()) {
             return;
         }
-        long since = System.currentTimeMillis() - lastRebake;
+        long now = getServer().getWorlds().isEmpty() ? 0 : getServer().getWorlds().get(0).getFullTime();
+        long since = now - lastRebake;
         // NEXT TICK rather than this instant: this is reached from inside the
         // join, and rebuilding every pack on the server halfway through
         // somebody's PlayerJoinEvent is a reentrancy nobody wants. One tick is
         // fifty milliseconds and reads as immediate.
-        long wait = since >= REBAKE_COOLDOWN_MS ? 1L : Math.max(1L, (REBAKE_COOLDOWN_MS - since + 49) / 50);
+        long wait = since >= REBAKE_COOLDOWN_TICKS ? 1L : REBAKE_COOLDOWN_TICKS - since;
         rebaking = true;
         getServer().getScheduler().runTaskLater(this, () -> {
             rebaking = false;
-            lastRebake = System.currentTimeMillis();
-            // The content only, not config.yml as well: a skin arriving is not
-            // somebody asking for their edited settings to take effect.
-            rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
-            for (Player player : getServer().getOnlinePlayers()) {
-                delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
-            }
+            lastRebake = getServer().getWorlds().isEmpty()
+                    ? 0 : getServer().getWorlds().get(0).getFullTime();
+            reloadContent(getServer().getConsoleSender());
         }, wait);
     }
 
@@ -1162,11 +1098,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (recipes != null) {
             recipes.clear();
         }
-        if (studio != null) {
-            // Pushes still downloading are abandoned: there is nobody left to
-            // hand them to.
-            studio.close();
-        }
         if (sync != null) {
             sync.close();
         }
@@ -1260,17 +1191,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * holding.
      */
     private void rebuild(CommandSender to) {
-        rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP, true);
+        rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP);
     }
 
-    /**
-     * As above, saying why, which is the one thing the event carries.
-     *
-     * @param resend whether everybody online is sent the new builds. True for
-     *               anything somebody asked for; false for a rebake nobody did,
-     *               whose caller decides who needs one - see {@link #rebakeSoon}
-     */
-    private void rebuild(CommandSender to, ContentLoadEvent.Cause why, boolean resend) {
+    /** As above, saying why, which is the one thing the event carries. */
+    private void rebuild(CommandSender to, ContentLoadEvent.Cause why) {
         // content/ is yours and output/ is ours. The names are doing real work
         // here: a folder called packs/ reads as "put your packs in me", which is
         // the one mistake a new user is most likely to make on day one.
@@ -1437,10 +1362,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
         // stack is already right.
-        if (resend) {
-            for (Player player : getServer().getOnlinePlayers()) {
-                delivery.apply(player, desiredFor(player));
-            }
+        for (Player player : getServer().getOnlinePlayers()) {
+            delivery.apply(player, desiredFor(player));
         }
 
         // Last, and that is the whole contract: a listener runs once every
@@ -1478,9 +1401,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // taking off and nothing would move.
         studioPacks.remove(player.getUniqueId());
         delivery.apply(player, desiredFor(player));
-        if (pushedPacks.release(player.getUniqueId())) {
-            registerPushedContent();
-        }
     }
 
     /**
@@ -1733,32 +1653,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         });
     }
 
-    /**
-     * What a client said about a pack, so a rebake can tell a player whose
-     * download is still running from one who already has a working pack. See
-     * {@link PackDelivery#resendUnfinished}.
-     */
-    @EventHandler
-    public void onPackStatus(org.bukkit.event.player.PlayerResourcePackStatusEvent event) {
-        if (delivery == null) {
-            return;
-        }
-        UUID player = event.getPlayer().getUniqueId();
-        UUID pack = delivery.statusId(event);
-        // By name, for the reason DistributionManager.onPackStatus gives: an
-        // enum switch naming a constant this server lacks fails the class.
-        switch (event.getStatus().name()) {
-            case "SUCCESSFULLY_LOADED":
-                delivery.loads().confirmed(player, pack);
-                break;
-            case "DECLINED":
-                delivery.loads().declined(player, pack);
-                break;
-            default:
-                // Progress, or a failure - neither settles anything.
-        }
-    }
-
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         // The Bedrock session ends either way — a transfer reconnects as a new
@@ -1784,13 +1678,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
-        delivery.loads().forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
-        // A push nobody holds any more leaves the catalogue, unless it is the
-        // last one (kept on disk) or the one this server publishes.
-        if (pushedPacks.release(event.getPlayer().getUniqueId())) {
-            registerPushedContent();
-        }
         if (distribution != null) {
             distribution.forget(event.getPlayer().getUniqueId());
         }

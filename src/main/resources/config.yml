@@ -182,7 +182,7 @@ vehicles:
 
 emotes:
   # Rebuild the packs shortly after somebody turns up whose emote rig is not
-  # in them.
+  # in them, and send the new ones out.
   #
   # A player's rig IS pack content - a model per bone wearing their skin - so
   # a player this server has never seen has no rig to wear, and rides, sits
@@ -194,14 +194,8 @@ emotes:
   # should not stand about as a default skin waiting out a window that exists
   # for crowds. Anybody who arrives during it, or in the five seconds after,
   # is covered by a single follow-up rather than costing a rebuild each - so a
-  # server filling up at the start of an evening pays two, not twenty.
-  #
-  # The new build is NOT pushed onto players who already have a working pack:
-  # a new pack reloads a client, and somebody walking in should not reload
-  # everybody else. It goes to whoever joins next, and to anybody already here
-  # the next time they are sent a pack anyway - a push, /rp push, rejoining.
-  # Until then they see the newcomer as the default rig. A player whose
-  # download had not finished is sent the new build at once.
+  # server filling up at the start of an evening pays two, not twenty. Only
+  # players whose pack is actually out of date are sent a new one.
   #
   # Turn it off if you would rather choose the moment yourself - a big pack, a
   # busy lobby - and /rp reload still bakes whatever has arrived.

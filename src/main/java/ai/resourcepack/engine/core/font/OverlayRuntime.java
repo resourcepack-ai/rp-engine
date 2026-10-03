@@ -163,14 +163,8 @@ public final class OverlayRuntime {
         Set<ContentId> mine = triggered.computeIfAbsent(viewer.getUniqueId(),
                 key -> Collections.synchronizedSet(new LinkedHashSet<>()));
         for (ContentId id : overlays.hudIds()) {
-            // Their own version, and only if they have one: a pushed HUD's
-            // triggers belong to the push it came in, so somebody else's
-            // always-on overlay is not put on this player's screen.
-            Optional<OverlayInfo> info = overlays.hud(viewer, id);
+            Optional<OverlayInfo> info = overlays.hud(id);
             if (info.isEmpty()) {
-                if (mine.remove(id)) {
-                    hide(viewer, id);
-                }
                 continue;
             }
             List<OverlayTrigger> triggers = info.get().triggers();
@@ -248,7 +242,7 @@ public final class OverlayRuntime {
      */
     public void onJoin(Player viewer) {
         for (ContentId id : overlays.hudIds()) {
-            overlays.hud(viewer, id).ifPresent(info -> {
+            overlays.hud(id).ifPresent(info -> {
                 for (OverlayTrigger trigger : info.triggers()) {
                     if (trigger.kind() == OverlayTrigger.Kind.JOIN && holds(viewer, joinAsState(trigger))) {
                         show(viewer, id);
@@ -280,7 +274,7 @@ public final class OverlayRuntime {
      * showing the health somebody had when they put it on.
      */
     public void draw(Player viewer) {
-        top(viewer).flatMap(id -> overlays.hud(viewer, id)).ifPresent(info -> overlays.send(viewer, info, valuesOf(viewer)));
+        top(viewer).flatMap(overlays::hud).ifPresent(info -> overlays.send(viewer, info, valuesOf(viewer)));
     }
 
     /** The overlay actually on screen — the last one shown. */
@@ -297,7 +291,7 @@ public final class OverlayRuntime {
     }
 
     public boolean show(Player viewer, ContentId id) {
-        if (viewer == null || !viewer.isOnline() || id == null || overlays.hud(viewer, id).isEmpty()) {
+        if (viewer == null || !viewer.isOnline() || id == null || overlays.hud(id).isEmpty()) {
             return false;
         }
         // A LinkedHashSet keyed on insertion order, and re-showing something
