@@ -389,6 +389,18 @@ public final class OverlayRuntime {
     }
 
     /**
+     * Every value a plugin has published for this player, as it is now.
+     *
+     * <p>A copy: what a dialog prints as it opens, which is the other reader of
+     * these values. One set per player for both is the point — a number called
+     * {@code coins} means the same thing on a HUD and in a shop's dialog, and a
+     * plugin publishes it once.
+     */
+    public Map<String, String> values(Player viewer) {
+        return viewer == null ? Map.of() : valuesOf(viewer);
+    }
+
+    /**
      * Fills {@code {name}} placeholders from a player's values.
      *
      * <p>An unset placeholder becomes empty rather than staying as

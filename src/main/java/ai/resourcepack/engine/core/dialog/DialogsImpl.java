@@ -47,6 +47,11 @@ public final class DialogsImpl implements Dialogs {
     private final boolean supported;
     /** Each player's own values for the dialogs' bound controls. Null in a test with none. */
     private final DialogVariables variables;
+    /**
+     * What plugins have published for each player — the overlays' values, which
+     * a dialog prints too ({@link #set}). Null in a test with none.
+     */
+    private final ai.resourcepack.engine.core.font.OverlayRuntime published;
 
     private volatile Map<ContentId, DialogInfo> dialogs = Map.of();
 
@@ -74,13 +79,19 @@ public final class DialogsImpl implements Dialogs {
     private volatile Predicate<Player> pushedAudience = viewer -> true;
 
     public DialogsImpl(DialogDatapack datapack, boolean supported) {
-        this(datapack, supported, null);
+        this(datapack, supported, null, null);
     }
 
     public DialogsImpl(DialogDatapack datapack, boolean supported, DialogVariables variables) {
+        this(datapack, supported, variables, null);
+    }
+
+    public DialogsImpl(DialogDatapack datapack, boolean supported, DialogVariables variables,
+                       ai.resourcepack.engine.core.font.OverlayRuntime published) {
         this.datapack = datapack;
         this.supported = supported;
         this.variables = variables;
+        this.published = published;
     }
 
     /** Says who may be shown a dialog whose art came from a pushed pack. */
@@ -221,9 +232,39 @@ public final class DialogsImpl implements Dialogs {
      * with — which, since their values are read as it opens, draws every bound
      * control in its current state. False when there is none to reopen.
      */
+    @Override
     public boolean reopen(Player viewer) {
-        Shown shown = lastShown.get(viewer);
+        Shown shown = viewer == null ? null : lastShown.get(viewer);
         return shown != null && dialogs.containsKey(shown.id()) && show(viewer, shown.id(), shown.values());
+    }
+
+    @Override
+    public void set(Player viewer, String name, String value) {
+        if (published != null) {
+            published.set(viewer, name, value);
+        }
+    }
+
+    @Override
+    public Optional<String> value(Player viewer, String name) {
+        return published == null ? Optional.empty() : published.value(viewer, name);
+    }
+
+    @Override
+    public Optional<String> setting(Player viewer, String name) {
+        return variables == null ? Optional.empty() : variables.get(viewer, name);
+    }
+
+    @Override
+    public boolean setSetting(Player viewer, String name, String value) {
+        if (variables == null || viewer == null || name == null) {
+            return false;
+        }
+        if (value == null) {
+            variables.clear(viewer, name);
+            return true;
+        }
+        return variables.set(viewer, name, value);
     }
 
     /**
@@ -287,8 +328,16 @@ public final class DialogsImpl implements Dialogs {
     /**
      * The dialog's JSON with its placeholders filled for this viewer — see
      * {@link DialogPlaceholders}. What a caller handed over wins, matched
-     * without regard to case; then the player's own dialog values (what a
-     * bound control shows); then the built-ins and PlaceholderAPI.
+     * without regard to case; then the player's own dialog settings (what a
+     * bound control shows); then what a plugin published for them
+     * ({@link #set}, shared with the overlays); then the built-ins and
+     * PlaceholderAPI.
+     *
+     * <p>Settings come before published values on purpose. A click on a bound
+     * switch sets the setting and opens the dialog again, and the switch has to
+     * come back in the state the click chose — a published value of the same
+     * name would freeze it. A plugin that means to change a setting has
+     * {@link #setSetting} for it.
      */
     private String filled(Player viewer, String json, Map<String, String> values) {
         if (!DialogPlaceholders.any(json)) {
@@ -302,6 +351,7 @@ public final class DialogsImpl implements Dialogs {
                 }
             });
         }
+        Map<String, String> plugins = published == null ? Map.of() : published.values(viewer);
         return DialogPlaceholders.fill(json, name -> {
             String mine = given.get(name.toLowerCase(java.util.Locale.ROOT));
             if (mine != null) {
@@ -310,7 +360,7 @@ public final class DialogsImpl implements Dialogs {
             Optional<String> stored = variables == null ? Optional.empty() : variables.get(viewer, name);
             return stored.isPresent()
                     ? stored
-                    : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, null);
+                    : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, plugins);
         });
     }
 

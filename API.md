@@ -17,6 +17,7 @@ engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
+engine.dialogs();   // dialogs: open one, feed it values, read player settings
 engine.registry();  // everything this server holds, by id
 engine.registration(); // and how to put content of your own into it
 ```
@@ -600,6 +601,10 @@ caller updating six values in a row costs one redraw rather than six. The loop
 picks them up within about a second and a half. `show`, `hide` and `hideAll`
 draw, so those are main thread only.
 
+**Dialogs print the same values.** `dialogs().set` writes this same map, so a
+number published for a HUD is already in every dialog that asks for it, and the
+other way round — see Dialogs below.
+
 ## Dialogs
 
 A dialog is the screen a server opens on a player — Minecraft 1.21.6 and newer.
@@ -611,58 +616,118 @@ engine.dialogs().show(player, "mypack:welcome");
 engine.dialogs().close(player);
 engine.dialogs().ids();                    // what this server has
 engine.dialogs().info(id);                 // what a pack said one is
+engine.dialogs().canShow(player, id);      // would show get as far as the client?
 ```
 
-**A dialog about somebody** says so with a placeholder — `{target}` in its
-title, a tooltip, a button's label or the command a click runs — and you say
-who, as you open it:
+### Values on it
+
+A dialog's words can print `{name}` placeholders — its title, a tooltip, a
+button's label, the command a click runs, and, on a dialog drawn in Studio, the
+words on its screen. **A dialog about somebody** says so with one, and you say
+who as you open it:
 
 ```java
 engine.dialogs().show(staff, "mypack:punish", Map.of("target", suspect.getName()));
-// "Punish {target}" opens as "Punish Steve", and a reason that runs
-// "mute {target} 1h" runs "mute Steve 1h".
+// "Punish {target}" opens as "Punish Steve", the name on its card is Steve's,
+// and a reason that runs "mute {target} 1h" runs "mute Steve 1h".
 ```
 
-A name you did not hand over is asked of the same built-ins an overlay's are
-(`{player}`, `{ping}`, `{world}`… — all about the player it is shown to), then
-of PlaceholderAPI if it is installed. A name nothing answers is left as it was
-written, so a dialog that happens to say `{VIP}` is not rewritten. Names match
-without regard to case, formatting codes are taken out of a value (a command
-carrying one is refused by the game, and takes its whole dialog with it), and a
-value is inserted once and never read again. Words drawn into a Studio dialog's
-PICTURE are pixels and stay as they were drawn.
+Or publish a value once, for every dialog and every HUD that prints it — these
+are the same values `overlays().set` publishes, one set per player:
+
+```java
+engine.dialogs().set(player, "coins", String.valueOf(balance));
+engine.dialogs().set(player, "coins", null);   // remove it
+engine.dialogs().value(player, "coins");       // what you last set
+```
+
+A placeholder is looked up in five places, and the first answer wins:
+
+1. **What you handed to `show`**, matched without regard to case.
+2. **The player's own settings** — see below. Before your published values on
+   purpose: a click on a bound switch sets the setting and reopens the dialog,
+   and the switch has to come back in the state the click chose.
+3. **What you published with `set`** (or `overlays().set`).
+4. **The engine's built-ins**, the same ones an overlay has — `{player}`,
+   `{ping}`, `{world}`… all about the player it is shown to.
+5. **PlaceholderAPI**, if it is installed.
+
+A name nothing answers is left as it was written, so a dialog that happens to
+say `{VIP}` is not rewritten. Formatting codes are taken out of a value (a
+command carrying one is refused by the game, and takes its whole dialog with
+it), and a value is inserted once and never read again.
+
+**Words on a Studio dialog's screen are drawn by the game**, not baked into its
+picture, when they hold a placeholder: the pack sets them into the dialog's body
+as text in the game's own font, followed by the same words in a font of negative
+spaces, so the line they are on comes to the same width whatever they say. A
+value there is kept to the characters the game's bitmap font draws — anything
+else becomes `?` — and is cut short with an ellipsis when it would run past the
+end of its line. Words drawn in a heavy display face are pixels, and stay as they
+were drawn.
 
 A placeholder can also choose — `{mode?off:Disabled|on:Enabled}` keeps the entry
 whose value `mode` has, and the last one when it has none of them. That is how a
 Studio dialog's bound switch or slider is drawn in each player's own state.
 
-**Player settings.** A dialog may declare settings (`DialogInfo.variables()`: a
-name to the values it may take). A player sets one by clicking the dialog — which
-runs `/rp var <name> <value>` as them — and the value is kept on the player, read
-by every dialog opened for them after that. Read it from your plugin as
-`%rpengine_var_<name>%` through PlaceholderAPI, or pass a value of your own when
-you open a dialog: what you hand to `show` wins over the stored one.
+**A dialog is drawn once, as it opens**, so a value that changes while it is on
+screen shows the next time it opens. `reopen` opens the dialog a player was last
+shown again, with the values it was opened with — what to call after a click on
+it changed something:
 
 ```java
+// A Buy button on the store runs /buy sword. In your command:
+economy.withdraw(player, price);
+engine.dialogs().set(player, "coins", String.valueOf(economy.getBalance(player)));
+engine.dialogs().reopen(player);   // the store again, with the new balance on it
+```
+
+The server is not told when a player closes a dialog, so `reopen` opens it
+whether it is still on their screen or not: call it in answer to a click, not on
+a timer.
+
+### Player settings
+
+A dialog may declare settings (`DialogInfo.variables()`: a name to the values it
+may take). A player sets one by clicking the dialog — which runs `/rp var <name>
+<value>` as them — and the value is kept on the player, across restarts, read by
+every dialog opened for them after that. Read or change one from your plugin:
+
+```java
+engine.dialogs().setting(player, "show_sidebar");            // Optional: "on" or "off"
+engine.dialogs().setSetting(player, "show_sidebar", "off");  // as if they clicked it
+engine.dialogs().setSetting(player, "show_sidebar", null);   // back to the default
+
 Map<String, List<String>> settings = engine.dialogs().info(id)
         .map(DialogInfo::variables)
         .orElse(Map.of());
 // {"show_sidebar": ["on", "off"], "opacity": ["0", "10", …]}
 ```
 
-`show` returns false rather than throwing, and there are three reasons it might:
+PlaceholderAPI reads the same value as `%rpengine_var_<name>%`. Your plugin may
+set any name, not only one a dialog declares — a name is lower-case letters,
+digits and `_` (32 at most), a value letters, digits and `_ . -` (32 at most),
+and a player keeps 64; `setSetting` answers false for anything outside that.
+Nothing reopens on its own.
+
+`show` returns false rather than throwing, and `canShow` says why before you try:
 
 ```java
 if (!engine.dialogs().supported()) {
     // Older than 1.21.6. The game has no dialog screen at all and there is
     // nothing to substitute — use an overlay or a screen instead.
 }
-if (engine.dialogs().pending()) {
-    // The definitions are on disk and the running server has not read them.
-    // Dialogs are datapack data and a datapack is read before plugins start,
-    // so a dialog added this session opens after the next data reload.
+if (!engine.dialogs().canShow(player, id)) {
+    // No such dialog, the player is offline, or they are not holding the pack
+    // its picture is in. What it cannot promise is that the game accepts the
+    // dialog's JSON: that is only known by sending it, and a refusal is logged.
 }
 ```
+
+A dialog loaded, pushed or edited a moment ago opens straight away — the engine
+sends the whole dialog rather than naming it, so nothing waits for a restart.
+`pending()` only says whether its `namespace:id` is in the server's registry
+yet, which matters to a datapack or a command block of your own that names it.
 
 **The content of a dialog is not API.** `DialogInfo.json()` is the game's own
 `minecraft:dialog` object as text, transported rather than modelled — the engine
@@ -676,7 +741,8 @@ that exists only in the pack that was pushed, so `show` answers false for a
 player who is not holding it — the same rule an overlay follows, and for the
 same reason.
 
-Main thread only.
+`set` and `value` are safe from any thread. Everything else here touches a
+player and is main thread only.
 
 ## Icons in your own text
 

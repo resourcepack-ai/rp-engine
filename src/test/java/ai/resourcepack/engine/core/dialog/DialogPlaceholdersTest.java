@@ -121,4 +121,104 @@ class DialogPlaceholdersTest {
         assertFalse(DialogVariables.NAME.matcher("9lives").matches());
         assertTrue(DialogVariables.VALUE.matcher("0.5").matches());
     }
+
+    // Live values: a placeholder Studio drew into a dialog's picture, behind a
+    // mark that says how big its words are and how much room they have. The
+    // value has to stay measurable and inside that room, or the body line it is
+    // on stops coming to its width and the picture under it moves.
+
+    /** A mark for words of this size and weight, with this much room. */
+    private static String mark(int scale, boolean bold, int room) {
+        int mode = (scale == 2 ? 2 : 0) + (bold ? 1 : 0);
+        return new String(Character.toChars(DialogPlaceholders.LIVE_MARK_BASE + mode * 512 + room));
+    }
+
+    /** How far the game's font moves the pen for a string, by the generated table. */
+    private static int advance(String text, int scale, boolean bold) {
+        return text.codePoints().map(cp -> DialogGlyphWidths.advance(cp, scale, bold)).sum();
+    }
+
+    @Test
+    void theWidthTableIsTheGamesFont() {
+        // 'A' is five pixels and the gap; 'i' and '!' one; a space four.
+        assertEquals(6, DialogGlyphWidths.advance('A', 1, false));
+        assertEquals(2, DialogGlyphWidths.advance('i', 1, false));
+        assertEquals(4, DialogGlyphWidths.advance(' ', 1, false));
+        // Twice the size doubles the ink and not the gap; bold adds one.
+        assertEquals(11, DialogGlyphWidths.advance('A', 2, false));
+        assertEquals(7, DialogGlyphWidths.advance(' ', 2, false));
+        assertEquals(7, DialogGlyphWidths.advance('A', 1, true));
+        // Accented letters and the small capitals server prefixes are written in.
+        assertTrue(DialogGlyphWidths.covers('é') && DialogGlyphWidths.covers('ᴠ'));
+        // What only unifont draws is not measured.
+        assertFalse(DialogGlyphWidths.covers('日'));
+        assertEquals(-1, DialogGlyphWidths.advance('日', 1, false));
+    }
+
+    @Test
+    void aMarkedValueKeepsToWhatThePackCanMeasure() {
+        String json = "{\"text\":\"Hi " + mark(1, false, 300) + "{name}\"}";
+        String out = DialogPlaceholders.fill(json, from(Map.of("name", "Ana日本\nB")));
+        assertEquals("{\"text\":\"Hi " + mark(1, false, 300) + "Ana???B\"}", out);
+    }
+
+    @Test
+    void aMarkedValuesSpacesBecomeNoBreakSpaces() {
+        // A real space on a picture's body line is where the client would break
+        // the line, so a live value never carries one.
+        String m = mark(1, false, 300);
+        String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{rank}\"}", from(Map.of("rank", "VIP Plus")));
+        assertEquals("{\"text\":\"" + m + "VIP Plus\"}", out);
+        assertFalse(out.contains(" "));
+    }
+
+    @Test
+    void anUnmarkedValueIsLeftAlone() {
+        String out = DialogPlaceholders.fill("{\"title\":\"Hi {name}\"}", from(Map.of("name", "Ana日本")));
+        assertEquals("{\"title\":\"Hi Ana日本\"}", out);
+    }
+
+    @Test
+    void aMarkedValueThatFitsIsUnchanged() {
+        String json = "{\"text\":\"" + mark(1, false, 60) + "{coins}\"}";
+        assertEquals("{\"text\":\"" + mark(1, false, 60) + "1,250\"}", DialogPlaceholders.fill(json, from(Map.of("coins", "1,250"))));
+    }
+
+    @Test
+    void aMarkedValueTooLongForItsRoomIsCutWithAnEllipsis() {
+        for (int scale : new int[] {1, 2}) {
+            for (boolean bold : new boolean[] {false, true}) {
+                int room = 40;
+                String m = mark(scale, bold, room);
+                String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{name}\"}", from(Map.of("name", "Supercalifragilistic")));
+                String value = out.substring(("{\"text\":\"" + m).length(), out.length() - 2);
+                assertTrue(value.endsWith("…"), "cut short at scale " + scale + (bold ? " bold" : "") + ": " + value);
+                assertTrue(advance(value, scale, bold) <= room, value + " is wider than its room");
+                // And no shorter than it had to be: one more letter would not fit.
+                String longer = value.substring(0, value.length() - 1) + "Supercalifragilistic".charAt(value.length() - 1) + "…";
+                assertTrue(advance(longer, scale, bold) > room);
+            }
+        }
+    }
+
+    @Test
+    void aMarkWithNoRoomLeavesNothing() {
+        String m = mark(1, false, 0);
+        assertEquals("{\"text\":\"" + m + "\"}", DialogPlaceholders.fill("{\"text\":\"" + m + "{name}\"}", from(Map.of("name", "Steve"))));
+    }
+
+    @Test
+    void aMarkedNameNothingAnswersIsStillLeftAsWritten() {
+        // Both copies of a live run then say exactly the same thing, so the
+        // negative font still steps back over exactly what was drawn.
+        String json = "{\"text\":\"" + mark(1, false, 100) + "{nobody}\"}";
+        assertEquals(json, DialogPlaceholders.fill(json, name -> Optional.empty()));
+    }
+
+    @Test
+    void aMarkedValueLosesItsFormattingCodesFirst() {
+        String m = mark(1, true, 200);
+        String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{rank}\"}", from(Map.of("rank", "§6§lVIP")));
+        assertEquals("{\"text\":\"" + m + "VIP\"}", out);
+    }
 }
