@@ -35,7 +35,8 @@ public final class Overlays {
     private final Map<UUID, BossBar> bars = new HashMap<>();
 
     /**
-     * Who is actually holding a pushed pack. Everybody, until told otherwise.
+     * Each player's own version of a pushed overlay. Null until told, which
+     * shows the catalogue to everybody — what an engine with no sync wants.
      *
      * <p><b>A pushed overlay is not for the whole server.</b> Studio pushes a
      * pack to the player who asked for it; the rest are wearing whatever the
@@ -45,25 +46,41 @@ public final class Overlays {
      * see — and the manifest outlives the push, so after one sync every player
      * who ever joined got it, for good.
      *
+     * <p><b>And it is not for everybody holding SOME pushed pack either.</b>
+     * The gate used to be exactly that, and on a server where several people
+     * sync it let the last push's always-on shader object onto every screen
+     * that held any Studio pack, drawn out of glyphs from whichever pack each
+     * of them happened to hold. So a pushed overlay is looked up per player,
+     * in their own push: see {@code PushedPacks}.
+     *
      * <p>The engine's own content is not gated: a server's own bundle is what
      * its players are already wearing, and a server owner who turns hosting off
      * has made that decision themselves.
      */
-    private volatile java.util.function.Predicate<Player> pushedAudience = viewer -> true;
+    private volatile PushedView pushedView;
 
-    /**
-     * Says who may be shown an overlay whose art came from a pushed pack.
-     *
-     * <p>Set once at start-up. Idempotent and safe to call again; a null
-     * restores "everybody", which is what an engine with no sync would want.
-     */
-    public void audience(java.util.function.Predicate<Player> holdsPushedPack) {
-        this.pushedAudience = holdsPushedPack == null ? viewer -> true : holdsPushedPack;
+    /** A player's own version of a pushed overlay. */
+    public interface PushedView {
+
+        /** Their push's screen of this id, or empty when their push has none or they hold no push. */
+        Optional<OverlayInfo> screen(Player viewer, ContentId id);
+
+        /** Their push's HUD of this id, on the same terms. */
+        Optional<OverlayInfo> hud(Player viewer, ContentId id);
     }
 
-    /** Whether this player can see this overlay at all. See {@link #audience}. */
+    /**
+     * Says how to find a player's own version of a pushed overlay. Set once at
+     * start-up; null shows the catalogue to everybody.
+     */
+    public void pushedView(PushedView view) {
+        this.pushedView = view;
+    }
+
+    /** Whether this player can see this overlay at all. See {@link #pushedView}. */
     private boolean visible(Player viewer, OverlayInfo info) {
-        return !info.fromPushedPack() || pushedAudience.test(viewer);
+        PushedView view = pushedView;
+        return !info.fromPushedPack() || view == null || view.hud(viewer, info.id()).isPresent();
     }
 
     /** Replaces both catalogues, as a reload does. */
@@ -115,7 +132,7 @@ public final class Overlays {
      * that wants to tell somebody why nothing appeared has to ask first.
      */
     public boolean canShow(Player viewer, ContentId id) {
-        return viewer != null && hud(id).map(info -> visible(viewer, info)).orElse(Boolean.FALSE);
+        return viewer != null && hud(viewer, id).isPresent();
     }
 
     private static Collection<ContentId> sorted(Map<ContentId, OverlayInfo> from) {
@@ -135,13 +152,36 @@ public final class Overlays {
     }
 
     /**
+     * What a screen is for this player: the server's own as it is, and a
+     * pushed one as their own push has it — empty if their push has none.
+     */
+    public Optional<OverlayInfo> screen(Player viewer, ContentId id) {
+        Optional<OverlayInfo> found = screen(id);
+        PushedView view = pushedView;
+        if (found.isEmpty() || !found.get().fromPushedPack() || view == null) {
+            return found;
+        }
+        return viewer == null ? Optional.empty() : view.screen(viewer, id);
+    }
+
+    /** What a HUD is for this player, on the terms {@link #screen(Player, ContentId)} gives. */
+    public Optional<OverlayInfo> hud(Player viewer, ContentId id) {
+        Optional<OverlayInfo> found = hud(id);
+        PushedView view = pushedView;
+        if (found.isEmpty() || !found.get().fromPushedPack() || view == null) {
+            return found;
+        }
+        return viewer == null ? Optional.empty() : view.hud(viewer, id);
+    }
+
+    /**
      * Opens a screen for a player. Main thread only.
      *
      * @return the inventory, so a caller can fill its slots, or empty if there
      *         is no such screen
      */
     public Optional<Inventory> open(Player viewer, ContentId id) {
-        Optional<OverlayInfo> found = screen(id);
+        Optional<OverlayInfo> found = screen(viewer, id);
         if (viewer == null || !viewer.isOnline() || found.isEmpty()) {
             return Optional.empty();
         }
@@ -164,7 +204,7 @@ public final class Overlays {
 
     /** Draws a HUD overlay. Main thread only. */
     public boolean draw(Player viewer, ContentId id) {
-        Optional<OverlayInfo> found = hud(id);
+        Optional<OverlayInfo> found = hud(viewer, id);
         if (viewer == null || !viewer.isOnline() || found.isEmpty()) {
             return false;
         }

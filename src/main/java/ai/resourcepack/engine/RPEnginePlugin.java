@@ -183,6 +183,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private SyncClient sync;
     private StudioRelay studio;
     private StudioContent pushed;
+    /**
+     * Every push still in use, and which one each player holds. {@link #pushed}
+     * is the LAST push, kept on disk; this is what lets the push before it
+     * outlive it for the people still holding it. See {@link PushedPacks}.
+     */
+    private final ai.resourcepack.engine.core.sync.PushedPacks pushedPacks =
+            new ai.resourcepack.engine.core.sync.PushedPacks();
+    /**
+     * Every live push as one catalogue: what is listed, registered, parked and
+     * worn. Rebuilt by {@link #registerPushedContent}.
+     */
+    private volatile StudioContent pushedAll = StudioContent.union(List.of());
     /** 3D armour: the pieces, and the displays on whoever has them on. See core/armor3d. */
     private ai.resourcepack.engine.core.armor3d.Armor3dItems armor3dItems;
     private ai.resourcepack.engine.core.armor3d.WornArmour wornArmour;
@@ -452,6 +464,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // last one after a restart.
         pushed = new StudioContent(getDataFolder());
         pushed.load(getLogger());
+        if (!pushed.isEmpty()) {
+            pushedPacks.arrived(pushed.snapshot());
+        }
         // Dialogs need 1.21.6. Below it the definitions still load and still
         // list — a server owner should see the content they wrote and be told
         // why it does nothing, rather than watch a command fail.
@@ -528,7 +543,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
             @Override
             public boolean stops(String id) {
-                return placements.stopsVehicles(id) && pushed.modelStopsVehicles(id);
+                return placements.stopsVehicles(id) && pushedAll.modelStopsVehicles(id);
             }
 
             @Override
@@ -571,7 +586,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the command says why, rather than dressing people in blank paper.
         armor3dItems = new ai.resourcepack.engine.core.armor3d.Armor3dItems(this, compatibility);
         wornArmour = new ai.resourcepack.engine.core.armor3d.WornArmour(this, compatibility, armor3dItems,
-                pushed::armor3d, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
+                () -> pushedAll.armor3d(), compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
         wornArmour.start();
@@ -609,6 +624,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     packHost.register(pack);
                 }, this::pushTo);
         studio.onContent(this::registerPushedContent);
+        studio.onPacks(pushedPacks);
         studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
@@ -647,7 +663,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emotes.start();
         getServer().getPluginManager().registerEvents(distribution, this);
         distribution.start();
-        // WHO MAY BE SHOWN A PUSHED OVERLAY.
+        // WHO MAY BE SHOWN A PUSHED OVERLAY, AND WHICH VERSION OF IT.
         //
         // Its picture is a glyph that only exists in a Studio pack, so drawing
         // one for somebody who has not got that pack is a row of missing-glyph
@@ -655,18 +671,35 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // it is saved and reloaded — so one sync used to hand every player who
         // ever joined afterwards an overlay they could not see.
         //
-        // Two ways to be holding one, and both count. A push goes through the
-        // bundle machinery, so `sessions` knows about it. Distribution does
-        // not: it sends its own pack straight to every joining player, which
-        // is the "the server publishes it for everyone" case, and there the
-        // client's own SUCCESSFULLY_LOADED is the record.
-        java.util.function.Predicate<org.bukkit.entity.Player> holdsPushed =
-                player -> sessions.holds(player.getUniqueId(), StudioPush.BUNDLE)
-                        || distribution.serving(player.getUniqueId());
-        overlays.audience(holdsPushed);
+        // And not "anybody holding a Studio pack" either, which is what this
+        // asked until 2026-10-03: on a server where several people sync, the
+        // last push's always-on shader object went up on every screen that held
+        // ANY pushed pack (or the published one), and the person who pushed
+        // before them lost their own dialogs. So each player is looked up in
+        // the push they hold — or, holding none, in the pack this server
+        // publishes if they were served it, which is the "the server publishes
+        // it for everyone" case. See PushedPacks.
+        java.util.function.Function<org.bukkit.entity.Player, Optional<StudioContent>> theirs = player -> {
+            if (pushedPacks.published(distribution.publishedPackId())) {
+                getServer().getScheduler().runTask(this, this::registerPushedContent);
+            }
+            return pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()));
+        };
+        overlays.pushedView(new Overlays.PushedView() {
+
+            @Override
+            public Optional<OverlayInfo> screen(Player viewer, ContentId id) {
+                return theirs.apply(viewer).map(content -> content.screens().get(id));
+            }
+
+            @Override
+            public Optional<OverlayInfo> hud(Player viewer, ContentId id) {
+                return theirs.apply(viewer).map(content -> content.huds().get(id));
+            }
+        });
         // A pushed dialog's picture is a glyph in the pushed pack, so the same
-        // gate applies one screen further on.
-        dialogs.audience(holdsPushed);
+        // rule applies one screen further on.
+        dialogs.pushedView((viewer, id) -> theirs.apply(viewer).map(content -> content.dialogs().get(id)));
         // A trusted server holds the socket open from startup: it announces
         // who is online rather than waiting for somebody to type a code, and
         // an announcement down a socket that is not there is nothing at all.
@@ -722,7 +755,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 liquidCommands,
                 new VehicleCommands(vehicles),
                 new EditCommands(edits, registry, items, vehicles, editing),
-                new ai.resourcepack.engine.core.command.Armor3dCommands(pushed::armor3d, armor3dItems,
+                new ai.resourcepack.engine.core.command.Armor3dCommands(() -> pushedAll.armor3d(), armor3dItems,
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
                                 ? null
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
@@ -786,32 +819,38 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (pushed == null) {
             return;
         }
-        pushed.register(registry, getLogger());
+        // Every push still in use, not only the last: somebody else pressing
+        // Sync used to take a player's own screens and dialogs out of the
+        // catalogue while they were still wearing the pack they came in.
+        StudioContent all = StudioContent.union(pushedPacks.live());
+        pushedAll.release();
+        pushedAll = all;
+        all.register(registry, getLogger());
 
         Map<ContentId, SoundInfo> allSounds =
                 new LinkedHashMap<>(authoredSounds);
-        allSounds.putAll(pushed.sounds());
+        allSounds.putAll(all.sounds());
         sounds.replace(allSounds);
 
         Map<ContentId, OverlayInfo> allScreens =
                 new LinkedHashMap<>(authoredScreens);
-        allScreens.putAll(pushed.screens());
+        allScreens.putAll(all.screens());
         Map<ContentId, OverlayInfo> allHuds =
                 new LinkedHashMap<>(authoredHuds);
-        allHuds.putAll(pushed.huds());
+        allHuds.putAll(all.huds());
         overlays.replace(allScreens, allHuds);
         overlays.replaceHeads(pushed.screenHeads());
 
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> allDialogs =
                 new LinkedHashMap<>(authoredDialogs);
-        allDialogs.putAll(pushed.dialogs());
+        allDialogs.putAll(all.dialogs());
         // Rewrites the datapack with both halves, which is the only way a
         // pushed dialog can exist at all — see DialogDatapack.
         dialogs.replace(allDialogs);
 
         Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> allVehicles =
                 new LinkedHashMap<>(authoredVehicles);
-        allVehicles.putAll(pushed.vehicles());
+        allVehicles.putAll(all.vehicles());
         vehicles.replace(allVehicles);
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
@@ -1434,6 +1473,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // taking off and nothing would move.
         studioPacks.remove(player.getUniqueId());
         delivery.apply(player, desiredFor(player));
+        if (pushedPacks.release(player.getUniqueId())) {
+            registerPushedContent();
+        }
     }
 
     /**
@@ -1739,6 +1781,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sessions.forget(event.getPlayer().getUniqueId());
         delivery.loads().forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
+        // A push nobody holds any more leaves the catalogue, unless it is the
+        // last one (kept on disk) or the one this server publishes.
+        if (pushedPacks.release(event.getPlayer().getUniqueId())) {
+            registerPushedContent();
+        }
         if (distribution != null) {
             distribution.forget(event.getPlayer().getUniqueId());
         }
