@@ -42,6 +42,15 @@ class PluginYmlTest {
      */
     private static final Set<String> NOT_SUBCOMMANDS = Set.of("emote.cast", "emote.force", "chat.icons");
 
+    /**
+     * The subcommands that can be pointed at ANOTHER player, each of which
+     * needs {@code rpengine.<sub>.others} to do it — see
+     * {@code Targets.permitted}. Written out so that adding a {@code [player]}
+     * to a command is a decision this test makes somebody take.
+     */
+    private static final Set<String> ACT_ON_OTHERS =
+            Set.of("sound", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind");
+
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
     }
@@ -81,9 +90,37 @@ class PluginYmlTest {
             if (node.equals("admin") || NOT_SUBCOMMANDS.contains(node)) {
                 continue;
             }
-            assertTrue(subs.contains(node) || node.equals("info"),
+            // A qualifier on a subcommand: the same command, aimed at somebody else.
+            String sub = node.endsWith(".others") ? node.substring(0, node.length() - ".others".length()) : node;
+            assertTrue(subs.contains(sub) || sub.equals("info"),
                     "rpengine." + node + " gates nothing: no such subcommand");
         }
+    }
+
+    @Test
+    void everyCommandThatCanActOnSomebodyElseHasItsOwnNode() throws IOException {
+        String yml = pluginYml();
+        Set<String> nodes = declaredNodes(yml);
+        for (String sub : ACT_ON_OTHERS) {
+            String node = sub + ".others";
+            assertTrue(nodes.contains(node), "rpengine." + node + " is not declared");
+            // Ops only by default: whoever may act on themselves has not thereby
+            // been allowed to act on everybody else.
+            Matcher block = Pattern.compile("(?m)^  rpengine\\." + Pattern.quote(node) + ":\\R(?:    .*\\R)*?    default: (\\w+)").matcher(yml);
+            assertTrue(block.find() && block.group(1).equals("op"), "rpengine." + node + " is not op by default");
+        }
+        // And the code checks exactly those: a [player] nobody gates, or a node
+        // nothing checks, are both drift.
+        Set<String> checked = new LinkedHashSet<>();
+        try (var files = Files.list(Path.of("src", "main", "java", "ai", "resourcepack", "engine", "core", "command"))) {
+            for (Path file : files.toList()) {
+                Matcher call = Pattern.compile("Targets\\.permitted\\(sender, \"([a-z]+)\"").matcher(Files.readString(file));
+                while (call.find()) {
+                    checked.add(call.group(1));
+                }
+            }
+        }
+        assertEquals(ACT_ON_OTHERS, checked, "the subcommands that check rpengine.<sub>.others");
     }
 
     @Test
