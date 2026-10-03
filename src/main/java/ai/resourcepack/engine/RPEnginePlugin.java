@@ -1118,6 +1118,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (recipes != null) {
             recipes.clear();
         }
+        if (studio != null) {
+            // Pushes still downloading are abandoned: there is nobody left to
+            // hand them to.
+            studio.close();
+        }
         if (sync != null) {
             sync.close();
         }
