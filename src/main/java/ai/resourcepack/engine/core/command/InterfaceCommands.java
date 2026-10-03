@@ -114,8 +114,8 @@ public final class InterfaceCommands implements Area {
      * it works, because the answer is on their screen; a line when it does not,
      * because a click that does nothing is otherwise a mystery.
      *
-     * <p>Naming another player is for staff and tests, and needs what opening a
-     * dialog on somebody else needs.
+     * <p>Naming another player is for staff and tests, and needs
+     * {@code rpengine.var.others}.
      */
     private boolean var(CommandSender sender, String[] args) {
         if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) || impl.variables() == null) {
@@ -128,13 +128,13 @@ public final class InterfaceCommands implements Area {
         }
         Player target;
         if (args.length > 3) {
-            if (!sender.hasPermission(EngineCommand.permissionFor("dialog"))) {
-                Reply.to(sender, "You need " + EngineCommand.permissionFor("dialog") + " to change somebody else's settings.");
-                return true;
-            }
             target = org.bukkit.Bukkit.getPlayerExact(args[3]);
             if (target == null) {
                 Reply.to(sender, args[3] + " is not online.");
+                return true;
+            }
+            if (!Targets.permitted(sender, "var", target)) {
+                Targets.refuse(sender, "var", "change the dialog settings of");
                 return true;
             }
         } else if (sender instanceof Player player) {
@@ -266,11 +266,7 @@ public final class InterfaceCommands implements Area {
             return Completions.matching(args[args.length - 1], targets);
         }
         if (args.length == 3 && DRAWS.contains(sub)) {
-            List<String> online = new ArrayList<>();
-            for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
-                online.add(player.getName());
-            }
-            return Completions.matching(args[2], online);
+            return Completions.matching(args[2], Targets.names(sender, sub));
         }
         if (args.length != 2) {
             return List.of();
@@ -326,6 +322,10 @@ public final class InterfaceCommands implements Area {
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
             Reply.to(sender, "Name a player: /rpengine sound <id> <player>");
+            return true;
+        }
+        if (!Targets.permitted(sender, "sound", target)) {
+            Targets.refuse(sender, "sound", "play a sound to");
             return true;
         }
         boolean played = ContentId.parse(args[1]).map(id -> sounds.play(target, id))
@@ -434,6 +434,10 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "Name a player: /rpengine shader <id|clear> <player>");
             return true;
         }
+        if (!Targets.permitted(sender, "shader", target)) {
+            Targets.refuse(sender, "shader", "show or clear a shader on");
+            return true;
+        }
         if (args[1].equalsIgnoreCase("clear")) {
             // Only the shaders. A plain HUD somebody else put up is not this
             // command's to take down; /rp hud clear is the one that clears all.
@@ -468,6 +472,10 @@ public final class InterfaceCommands implements Area {
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
             Reply.to(sender, "Name a player: /rpengine screen <id> <player>");
+            return true;
+        }
+        if (!Targets.permitted(sender, "screen", target)) {
+            Targets.refuse(sender, "screen", "open a screen on");
             return true;
         }
         if (ContentId.parse(args[1]).flatMap(id -> overlays.open(target, id)).isEmpty()) {
@@ -522,6 +530,12 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "Name a player: /rpengine dialog <id> <player> [name=value...]");
             return true;
         }
+        // Opening one ABOUT somebody (target=Steve) is opening it on yourself;
+        // only putting it on another player's screen is the others node.
+        if (!Targets.permitted(sender, "dialog", target)) {
+            Targets.refuse(sender, "dialog", "open a dialog on");
+            return true;
+        }
         java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
         for (int i = named ? 3 : 2; i < args.length; i++) {
             int eq = args[i].indexOf('=');
@@ -569,6 +583,10 @@ public final class InterfaceCommands implements Area {
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
             Reply.to(sender, "Name a player: /rpengine hud <id|clear> <player>");
+            return true;
+        }
+        if (!Targets.permitted(sender, "hud", target)) {
+            Targets.refuse(sender, "hud", "show or clear a HUD on");
             return true;
         }
         if (args[1].equalsIgnoreCase("clear")) {

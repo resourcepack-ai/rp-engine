@@ -116,6 +116,22 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         return "rpengine." + sub;
     }
 
+    /**
+     * What pointing a subcommand at SOMEBODY ELSE needs:
+     * {@code rpengine.<subcommand>.others}, on top of {@link #permissionFor}.
+     *
+     * <p>Every command that takes a {@code [player]} — a sound, a screen, a
+     * HUD, a shader, a dialog, a dialog setting, a set of armour, a model bound
+     * onto a player — checks it when the player named is not the one running
+     * it (see {@code Targets.permitted}). The emote's cast has its own pair,
+     * {@code rpengine.emote.cast} and {@code .force}, because a cast is asked
+     * first; an invitation to share a sync is answered by the person invited,
+     * and so needs nothing more than the sync itself.
+     */
+    public static String othersPermissionFor(String sub) {
+        return permissionFor(sub) + ".others";
+    }
+
     /** Every subcommand there is. The plugin's own {@code plugin.yml} mirrors it. */
     public List<String> subcommands() {
         return List.copyOf(areas.keySet());
