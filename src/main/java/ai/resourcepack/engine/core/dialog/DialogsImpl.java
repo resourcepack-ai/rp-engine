@@ -11,7 +11,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 /**
  * Opening dialogs. The implementation behind {@link Dialogs}.
@@ -68,15 +67,18 @@ public final class DialogsImpl implements Dialogs {
     }
 
     /**
-     * Who is holding a pushed pack. Everybody, until told otherwise.
+     * Each player's own version of a pushed dialog. Null until told, which
+     * opens the catalogue's for everybody.
      *
      * <p>Same gate the overlays have and for the same reason: a pushed
      * dialog's picture is a glyph that only exists in the pack Studio sent to
      * one player, so opening it for anybody else is a screen of missing-glyph
-     * boxes. The engine's own content is not gated — a server's bundle is what
-     * its players are already wearing.
+     * boxes — and on a server where several people sync, "anybody holding a
+     * pushed pack" is not the same as holding THIS one, which is what the gate
+     * used to ask. The engine's own content is not gated — a server's bundle
+     * is what its players are already wearing.
      */
-    private volatile Predicate<Player> pushedAudience = viewer -> true;
+    private volatile java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> pushedView;
 
     public DialogsImpl(DialogDatapack datapack, boolean supported) {
         this(datapack, supported, null, null);
@@ -94,9 +96,22 @@ public final class DialogsImpl implements Dialogs {
         this.published = published;
     }
 
-    /** Says who may be shown a dialog whose art came from a pushed pack. */
-    public void audience(Predicate<Player> holdsPushedPack) {
-        this.pushedAudience = holdsPushedPack == null ? viewer -> true : holdsPushedPack;
+    /** Says how to find a player's own version of a pushed dialog: their push's, or empty. */
+    public void pushedView(java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> view) {
+        this.pushedView = view;
+    }
+
+    /**
+     * What a dialog is for this player: the server's own as it is, and a pushed
+     * one as their own push has it — empty if their push has none.
+     */
+    public Optional<DialogInfo> info(Player viewer, ContentId id) {
+        Optional<DialogInfo> found = info(id);
+        java.util.function.BiFunction<Player, ContentId, Optional<DialogInfo>> view = pushedView;
+        if (found.isEmpty() || !found.get().fromPushedPack() || view == null) {
+            return found;
+        }
+        return viewer == null ? Optional.empty() : view.apply(viewer, id);
     }
 
     /**
@@ -140,11 +155,7 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return false;
         }
-        Optional<DialogInfo> found = info(id);
-        if (found.isEmpty()) {
-            return false;
-        }
-        return !found.get().fromPushedPack() || pushedAudience.test(viewer);
+        return info(viewer, id).isPresent();
     }
 
     @Override
@@ -157,7 +168,7 @@ public final class DialogsImpl implements Dialogs {
         if (!canShow(viewer, id)) {
             return false;
         }
-        DialogInfo info = dialogs.get(id);
+        DialogInfo info = info(viewer, id).orElse(null);
         if (info == null) {
             return false;
         }
@@ -235,7 +246,7 @@ public final class DialogsImpl implements Dialogs {
     @Override
     public boolean reopen(Player viewer) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        return shown != null && dialogs.containsKey(shown.id()) && show(viewer, shown.id(), shown.values());
+        return shown != null && info(viewer, shown.id()).isPresent() && show(viewer, shown.id(), shown.values());
     }
 
     @Override
@@ -276,14 +287,14 @@ public final class DialogsImpl implements Dialogs {
      */
     public boolean links(Player viewer, ContentId target) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        DialogInfo from = shown == null ? null : info(viewer, shown.id()).orElse(null);
         return from != null && DialogLinks.opens(from.json(), target);
     }
 
     /** Every dialog the one a player was last shown turns to — what {@code /rp page} completes. */
     public List<ContentId> linked(Player viewer) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        DialogInfo from = shown == null ? null : dialogs.get(shown.id());
+        DialogInfo from = shown == null ? null : info(viewer, shown.id()).orElse(null);
         return from == null ? List.of() : DialogLinks.targets(from.json());
     }
 
