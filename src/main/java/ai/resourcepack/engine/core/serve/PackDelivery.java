@@ -26,6 +26,8 @@ public final class PackDelivery {
     private final boolean force;
     private final PackSending sending;
     private final Logger logger;
+    /** Who has finished loading what. See {@link PackLoads}. */
+    private final PackLoads loads = new PackLoads();
 
     /** Said once rather than on every join, which is where this would land. */
     private boolean warnedAboutStacking;
@@ -91,6 +93,7 @@ public final class PackDelivery {
                 continue;
             }
             sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
+            loads.sent(player.getUniqueId(), pack.uuid());
             player.getServer().getPluginManager().callEvent(
                     new PackSendEvent(player, pack.bundle(), url.get()));
         }
@@ -98,6 +101,38 @@ public final class PackDelivery {
         // BundleSessions for why the two are separate.
         sessions.applied(player.getUniqueId(), desired);
         return true;
+    }
+
+    /**
+     * Which of the packs sent here each client has said it loaded. The plugin
+     * feeds it the status events; {@link #resendUnfinished} reads it.
+     */
+    public PackLoads loads() {
+        return loads;
+    }
+
+    /** Which pack a status is about, or null where packs do not stack. See {@link PackSending#statusId}. */
+    public java.util.UUID statusId(org.bukkit.event.player.PlayerResourcePackStatusEvent event) {
+        return sending.statusId(event);
+    }
+
+    /**
+     * Sends {@code desired} only if the client has not finished loading the
+     * build of {@code bundle} it was last sent.
+     *
+     * <p>For after a rebuild nobody asked to be re-sent: the file behind the
+     * old build is gone, so a download still running against it fails and
+     * that player needs the new one, while somebody who already loaded the old
+     * build keeps it rather than having their whole client reloaded.
+     *
+     * @return whether anything was sent
+     */
+    public boolean resendUnfinished(Player player, String bundle, List<BuiltPack> desired) {
+        if (player == null || bundle == null || bundle.isEmpty()
+                || loads.settled(player.getUniqueId(), BuiltPack.uuidFor(bundle))) {
+            return false;
+        }
+        return apply(player, desired);
     }
 
     /** Drops everything {@code player} is holding from us. */
