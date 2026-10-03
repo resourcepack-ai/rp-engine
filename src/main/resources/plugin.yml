@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -47,6 +47,7 @@ permissions:
       rpengine.dialogs: true
       rpengine.dialog: true
       rpengine.var: true
+      rpengine.page: true
       rpengine.hud: true
       rpengine.shaders: true
       rpengine.shader: true
@@ -121,6 +122,13 @@ permissions:
     # some loaded dialog declares, to a value that dialog lists, and only
     # for the player running it - see DialogVariables.
     description: Change your own dialog settings - what a click on a dialog's switch or slider runs.
+    default: true
+  rpengine.page:
+    # Everybody, for rpengine.var's reason: a click on a paged dialog's
+    # sidebar runs /rp page as the player who clicked it. It only opens a
+    # dialog the one they were last shown links to with exactly that
+    # command - see DialogLinks.
+    description: Turn a dialog to another of its pages - what a click on a paged dialog's sidebar runs.
     default: true
   rpengine.hud:
     description: Draw a HUD overlay on yourself.

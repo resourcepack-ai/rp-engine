@@ -139,8 +139,11 @@ public final class DialogDatapack {
             for (DialogInfo dialog : dialogs) {
                 ContentId id = dialog.id();
                 Path folder = data.resolve(id.namespace()).resolve("dialog");
-                Files.createDirectories(folder);
                 Path file = folder.resolve(id.path() + ".json");
+                // The file's own folder rather than dialog/: a path may carry
+                // slashes (an authored `menus/shop` is dialog/menus/shop.json),
+                // and one that did threw here and stopped every write after it.
+                Files.createDirectories(file.getParent());
                 wanted.add(file);
                 changed |= writeIfDifferent(file, dialog.json());
             }
