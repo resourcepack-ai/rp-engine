@@ -67,7 +67,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("dialogs", "list the dialogs"),
                 Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"),
                 Help.of("var", "<name> <value>", "set a dialog setting"),
-                Help.of("page", "<id>", "turn a dialog to another page"));
+                Help.of("page", "<id|close>", "turn or close a dialog"));
     }
 
     @Override
@@ -180,6 +180,19 @@ public final class InterfaceCommands implements Area {
      * <p>Silent when it works, like {@code /rp var}: the answer is the page on
      * their screen. A line when it does not, because a click that does nothing
      * is otherwise a mystery.
+     *
+     * <p><b>It opens the page at once, in the tick the click arrived in.</b> A
+     * paged dialog from Studio is sent with {@code after_action: none}, so the
+     * client keeps the page it was on in front of the player until this one
+     * replaces it — and every tick spent here is a tick of a dead click. (Under
+     * {@code close} the client shut the page before the command even left it,
+     * and the player watched the world and their cursor jump to the middle for
+     * a round trip; nothing on the server side was waiting on that either.)
+     *
+     * <p>{@code /rp page close} is the footer button of such a dialog: under
+     * {@code none} the game's own button no longer closes anything, so Studio
+     * gives it this, which closes whatever dialog the player has open — their
+     * own, and nothing anybody could mind them closing.
      */
     private boolean page(CommandSender sender, String[] args) {
         if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl)) {
@@ -192,7 +205,11 @@ public final class InterfaceCommands implements Area {
             return true;
         }
         if (args.length < 2) {
-            Reply.to(sender, "/rp page <id>");
+            Reply.to(sender, "/rp page <id|close>");
+            return true;
+        }
+        if (args[1].equalsIgnoreCase("close")) {
+            impl.close(player);
             return true;
         }
         java.util.Optional<ContentId> parsed = ContentId.parse(args[1].toLowerCase(Locale.ROOT));
@@ -209,17 +226,11 @@ public final class InterfaceCommands implements Area {
         java.util.Map<String, String> values = impl.lastShown(player)
                 .map(ai.resourcepack.engine.core.dialog.DialogsImpl.Shown::values)
                 .orElse(java.util.Map.of());
-        // On the next tick, for the reason /rp var waits: the click that ran
-        // this may still be closing the page it was on.
-        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(InterfaceCommands.class);
-        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
-            if (!player.isOnline() || impl.show(player, id, values)) {
-                return;
-            }
+        if (!impl.show(player, id, values)) {
             Reply.to(player, !impl.canShow(player, id)
                     ? "That page is drawn in a pack you are not holding, so it would open as missing-glyph boxes."
                     : "The game would not open " + id + ". The console says what it made of it.");
-        });
+        }
         return true;
     }
 
@@ -231,7 +242,9 @@ public final class InterfaceCommands implements Area {
             if (args.length != 2 || !(sender instanceof Player player)) {
                 return List.of();
             }
-            return Completions.matchingIds(args[1], impl.linked(player));
+            List<String> options = new ArrayList<>(Completions.matchingIds(args[1], impl.linked(player)));
+            options.addAll(Completions.matching(args[1], "close"));
+            return options;
         }
         if (sub.equals("var") && dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) {
             java.util.Map<String, List<String>> declared = impl.declared();
