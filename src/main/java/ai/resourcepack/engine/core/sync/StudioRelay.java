@@ -30,7 +30,8 @@ import java.util.logging.Logger;
  * <p>Each arrives on the websocket thread, so everything that touches a player
  * hops back to the main thread. Downloading deliberately does not: a pack is
  * megabytes, and blocking the server on it would be a lag spike every time
- * somebody clicks push in the panel.
+ * somebody clicks push in the panel. Nor does it happen on the websocket
+ * thread itself — see {@link #onPush}.
  *
  * <p>All four answer the far end either way. A push that reaches nobody is a
  * failure with a reason, not a silence — the panel is a person waiting to see
@@ -53,6 +54,29 @@ public final class StudioRelay {
     private final BiConsumer<Player, BuiltPack> deliver;
     /** Puts a push's named content into the registry. Main thread. */
     private Runnable registerContent = () -> { };
+    /**
+     * Where pushes are fetched, off the socket's read thread.
+     *
+     * <p>A few at once, daemon, and shut down with the plugin. Bounded because
+     * each one is a download of up to {@code StudioPush.MAX_BYTES}, and a
+     * server cannot usefully fetch more than a handful of packs at a time.
+     */
+    private final java.util.concurrent.ExecutorService pushes =
+            java.util.concurrent.Executors.newFixedThreadPool(3, task -> {
+                Thread thread = new Thread(task, "rpengine-studio-push");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    /**
+     * Held while a push's manifests are merged into the stores.
+     *
+     * <p>Pushes are fetched side by side now, and the stores were only ever
+     * written from the one socket thread; two merges into one map at once is a
+     * corrupted map.
+     */
+    private final Object merging = new Object();
+
     /** Who is on Bedrock, and how to hand them a .mcpack. */
     private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
             ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
@@ -88,8 +112,38 @@ public final class StudioRelay {
         this.registerContent = register == null ? () -> { } : register;
     }
 
-    /** A pack: fetch it, serve it, put it on whoever is on the ref. */
+    /**
+     * A pack: fetch it, serve it, put it on whoever is on the ref.
+     *
+     * <p><strong>Returns at once; the push happens on a worker.</strong> This is
+     * called on the websocket's one read thread, and a push used to download
+     * right here — so on a server where several people sync, one person's tens
+     * of megabytes held up everybody else's push, give and skin until it
+     * finished, long enough for the far end to report theirs as timed out and
+     * for the socket's keep-alive to go unanswered.
+     */
     public void onPush(String code, String payload) {
+        try {
+            pushes.execute(() -> {
+                try {
+                    push(code, payload);
+                } catch (RuntimeException e) {
+                    log.log(java.util.logging.Level.WARNING, "A Studio push failed", e);
+                    sync.failed(code, "exception");
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closed) {
+            // The plugin is going away.
+            sync.failed(code, "exception");
+        }
+    }
+
+    /** Stops taking pushes. Called when the plugin disables. */
+    public void close() {
+        pushes.shutdownNow();
+    }
+
+    private void push(String code, String payload) {
         if (!known(code)) {
             sync.failed(code, "unknown-code");
             return;
@@ -121,14 +175,17 @@ public final class StudioRelay {
         // The manifests first: a pack whose art arrives without its keyframes
         // is a pack somebody can wear and not emote in, and the two came down
         // the same push. Different slots of it — see StudioPush.
-        joined(rigsJson).ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
-        joined(emotesJson)
-                .ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
-        // What the pack holds that a command can name. Registered on the main
-        // thread below with everything else that touches shared state.
-        joined(contentJson)
-                .ifPresent(json -> merged("Pushed content", content.updateFromJson(json, log),
-                        () -> content.save(log)));
+        Optional<String> rigsText = joined(rigsJson);
+        Optional<String> emotesText = joined(emotesJson);
+        Optional<String> contentText = joined(contentJson);
+        synchronized (merging) {
+            rigsText.ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
+            emotesText.ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
+            // What the pack holds that a command can name. Registered on the main
+            // thread below with everything else that touches shared state.
+            contentText.ifPresent(json -> merged("Pushed content", content.updateFromJson(json, log),
+                    () -> content.save(log)));
+        }
 
         // The Bedrock twin, for recipients who joined through Geyser. Studio
         // builds one whenever any recipient might be Bedrock; a Bedrock player
