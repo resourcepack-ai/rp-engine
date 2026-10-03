@@ -23,4 +23,9 @@ final class StackedPackSending implements PackSending {
     public void remove(Player player, UUID id) {
         player.removeResourcePack(id);
     }
+
+    @Override
+    public UUID statusId(org.bukkit.event.player.PlayerResourcePackStatusEvent event) {
+        return event.getID();
+    }
 }

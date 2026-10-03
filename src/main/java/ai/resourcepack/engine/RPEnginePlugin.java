@@ -937,7 +937,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean rebaking;
 
     /**
-     * How long after a rebuild another one waits, ticks.
+     * How long after a rebuild another one waits, in milliseconds.
      *
      * <p>Not a delay before the FIRST one - that fires at once, because a
      * player who joined alone should not stand about as a default skin
@@ -947,13 +947,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * rebuild each. A server filling up at the start of an evening therefore
      * pays two, not twenty, and the person who walked in on their own pays
      * nothing at all.
+     *
+     * <p><b>Wall-clock time, not the world's.</b> It was measured with the
+     * first world's {@code getFullTime}, which is its time of day and stands
+     * still wherever {@code doDaylightCycle} is off - a lobby, typically, and
+     * the test server's - so after the first rebake the window never closed
+     * and every later one waited the whole five seconds.
      */
-    private static final long REBAKE_COOLDOWN_TICKS = 100L;
+    private static final long REBAKE_COOLDOWN_MS = 5_000L;
 
     /** {@code emotes.bake-on-join}. See {@link #rebakeSoon}. */
     private volatile boolean bakeOnJoin = true;
 
-    /** When the last rebuild for a new skin ran, in ticks. See {@link #rebakeSoon}. */
+    /** When the last rebuild for a new skin ran, epoch milliseconds. See {@link #rebakeSoon}. */
     private long lastRebake = Long.MIN_VALUE / 2;
 
     /**
@@ -971,8 +977,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * <p>Delayed and coalesced rather than immediate: a server filling up at
      * the start of an evening would otherwise rebuild once per arrival, and
      * the rebuild is the expensive half. One booking covers everybody who
-     * turns up while it is pending, and the delivery below re-sends only to
-     * players whose pack is actually out of date.
+     * turns up while it is pending.
+     *
+     * <p><strong>The new build is not pushed onto anybody who already has a
+     * working pack.</strong> The rig is baked into the default bundle, so every
+     * rebake is a new build of it for every player online, and re-sending it
+     * reloaded every client on the server each time a stranger walked in -
+     * which on a busy server was every few minutes, and was reported as
+     * "everybody's pack reloads when somebody joins". It goes to whoever joins
+     * from now on, and to anybody here the next time they are sent a pack
+     * anyway (a push, {@code /rp push}, coming back). The one exception is a
+     * player whose download has not finished: the rebuild has just replaced
+     * the file their URL pointed at, so they are sent the new build rather
+     * than left with a failure. See {@link PackDelivery#resendUnfinished}.
      *
      * <p>{@code emotes.bake-on-join: false} turns it off for a server that
      * would rather choose its own moment - a big pack, a busy lobby - and
@@ -982,19 +999,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (!bakeOnJoin || rebaking || !isEnabled()) {
             return;
         }
-        long now = getServer().getWorlds().isEmpty() ? 0 : getServer().getWorlds().get(0).getFullTime();
-        long since = now - lastRebake;
+        long since = System.currentTimeMillis() - lastRebake;
         // NEXT TICK rather than this instant: this is reached from inside the
         // join, and rebuilding every pack on the server halfway through
         // somebody's PlayerJoinEvent is a reentrancy nobody wants. One tick is
         // fifty milliseconds and reads as immediate.
-        long wait = since >= REBAKE_COOLDOWN_TICKS ? 1L : REBAKE_COOLDOWN_TICKS - since;
+        long wait = since >= REBAKE_COOLDOWN_MS ? 1L : Math.max(1L, (REBAKE_COOLDOWN_MS - since + 49) / 50);
         rebaking = true;
         getServer().getScheduler().runTaskLater(this, () -> {
             rebaking = false;
-            lastRebake = getServer().getWorlds().isEmpty()
-                    ? 0 : getServer().getWorlds().get(0).getFullTime();
-            reloadContent(getServer().getConsoleSender());
+            lastRebake = System.currentTimeMillis();
+            // The content only, not config.yml as well: a skin arriving is not
+            // somebody asking for their edited settings to take effect.
+            rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
+            for (Player player : getServer().getOnlinePlayers()) {
+                delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
+            }
         }, wait);
     }
 
@@ -1191,11 +1211,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * holding.
      */
     private void rebuild(CommandSender to) {
-        rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP);
+        rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP, true);
     }
 
-    /** As above, saying why, which is the one thing the event carries. */
-    private void rebuild(CommandSender to, ContentLoadEvent.Cause why) {
+    /**
+     * As above, saying why, which is the one thing the event carries.
+     *
+     * @param resend whether everybody online is sent the new builds. True for
+     *               anything somebody asked for; false for a rebake nobody did,
+     *               whose caller decides who needs one - see {@link #rebakeSoon}
+     */
+    private void rebuild(CommandSender to, ContentLoadEvent.Cause why, boolean resend) {
         // content/ is yours and output/ is ours. The names are doing real work
         // here: a folder called packs/ reads as "put your packs in me", which is
         // the one mistake a new user is most likely to make on day one.
@@ -1362,8 +1388,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
         // stack is already right.
-        for (Player player : getServer().getOnlinePlayers()) {
-            delivery.apply(player, desiredFor(player));
+        if (resend) {
+            for (Player player : getServer().getOnlinePlayers()) {
+                delivery.apply(player, desiredFor(player));
+            }
         }
 
         // Last, and that is the whole contract: a listener runs once every
@@ -1653,6 +1681,32 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         });
     }
 
+    /**
+     * What a client said about a pack, so a rebake can tell a player whose
+     * download is still running from one who already has a working pack. See
+     * {@link PackDelivery#resendUnfinished}.
+     */
+    @EventHandler
+    public void onPackStatus(org.bukkit.event.player.PlayerResourcePackStatusEvent event) {
+        if (delivery == null) {
+            return;
+        }
+        UUID player = event.getPlayer().getUniqueId();
+        UUID pack = delivery.statusId(event);
+        // By name, for the reason DistributionManager.onPackStatus gives: an
+        // enum switch naming a constant this server lacks fails the class.
+        switch (event.getStatus().name()) {
+            case "SUCCESSFULLY_LOADED":
+                delivery.loads().confirmed(player, pack);
+                break;
+            case "DECLINED":
+                delivery.loads().declined(player, pack);
+                break;
+            default:
+                // Progress, or a failure - neither settles anything.
+        }
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         // The Bedrock session ends either way — a transfer reconnects as a new
@@ -1678,6 +1732,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+        delivery.loads().forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
         if (distribution != null) {
             distribution.forget(event.getPlayer().getUniqueId());

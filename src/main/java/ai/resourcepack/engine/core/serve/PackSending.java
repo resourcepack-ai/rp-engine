@@ -49,6 +49,19 @@ public interface PackSending {
      */
     void remove(Player player, UUID id);
 
+    /**
+     * Which pack a status event is about, or null where a player holds only
+     * one and a status therefore names none.
+     *
+     * <p>Here rather than at the call sites because the id arrived with
+     * stacking: a status about the server's own bundle is not one about a
+     * pack sent beside it, and reading any answer as the answer about your
+     * own pack is how one pack's success was recorded as another's.
+     */
+    default UUID statusId(org.bukkit.event.player.PlayerResourcePackStatusEvent event) {
+        return null;
+    }
+
     static PackSending forServer(Compatibility compatibility) {
         return compatibility.has(Feature.PACK_STACKING)
                 ? new StackedPackSending()
