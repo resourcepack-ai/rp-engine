@@ -1980,12 +1980,13 @@ punish:
 ```
 
 ```
-/rp dialog mypack:punish Admin target=Steve
+/rp dialog mypack:punish target=Steve Admin
 ```
 
 opens it for Admin, titled "Punish Steve", with a button that runs
-`mute Steve 1h`. Leave the player out and it opens for whoever typed it:
-`/rp dialog mypack:punish target=Steve`. A name the command did not give is
+`mute Steve 1h`. The player goes last; leave it out and it opens for whoever
+typed it: `/rp dialog mypack:punish target=Steve`. (Before 0.1.71 the player
+came straight after the id, and that order is still read.) A name the command did not give is
 filled the way an overlay's is — `{player}` and the other built-ins describe
 the player the dialog is SHOWN to, and PlaceholderAPI answers the rest when it
 is installed. A name nothing knows is left as written.

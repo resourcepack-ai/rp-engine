@@ -65,7 +65,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("shaders", "list the shader objects"),
                 Help.of("shader", "<id|clear> [player]", "show one"),
                 Help.of("dialogs", "list the dialogs"),
-                Help.of("dialog", "<id> [player] [k=v]", "open (1.21.6+)"),
+                Help.of("dialog", "<id> [k=v] [player]", "open (1.21.6+)"),
                 Help.of("var", "<name> <value>", "set a dialog setting"),
                 Help.of("page", "<id|close>", "turn or close a dialog"));
     }
@@ -256,14 +256,24 @@ public final class InterfaceCommands implements Area {
             }
             return List.of();
         }
-        // A dialog's values: the one nearly every dialog about somebody wants,
-        // offered for every player online.
-        if (sub.equals("dialog") && args.length >= 4) {
-            List<String> targets = new ArrayList<>();
+        // After a dialog's id: its values — the one nearly every dialog about
+        // somebody wants, offered for every player online — and then, LAST
+        // and only to somebody who may open one on somebody else, who to
+        // open it for. Nobody else is offered a name at all: the player is
+        // always them.
+        if (sub.equals("dialog") && args.length >= 3) {
+            List<String> options = new ArrayList<>();
             for (Player player : org.bukkit.Bukkit.getOnlinePlayers()) {
-                targets.add("target=" + player.getName());
+                options.add("target=" + player.getName());
             }
-            return Completions.matching(args[args.length - 1], targets);
+            boolean named = false;
+            for (int i = 2; i < args.length - 1; i++) {
+                named |= !args[i].contains("=");
+            }
+            if (!named && Targets.mayTargetOthers(sender, "dialog")) {
+                options.addAll(Targets.names(sender, "dialog"));
+            }
+            return Completions.matching(args[args.length - 1], options);
         }
         if (args.length == 3 && DRAWS.contains(sub)) {
             return Completions.matching(args[2], Targets.names(sender, sub));
@@ -531,16 +541,38 @@ public final class InterfaceCommands implements Area {
     }
 
     private boolean dialog(CommandSender sender, String[] args) {
+        // The player is only offered to somebody who may open one on somebody
+        // else: for everybody else it is always themselves.
+        boolean others = Targets.mayTargetOthers(sender, "dialog");
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine dialog <id> [player] [name=value...]");
+            Reply.to(sender, "/rpengine dialog <id> [name=value...]" + (others ? " [player]" : ""));
             return true;
         }
-        // The player is optional, so a first word with "=" in it is already a
-        // value: "/rp dialog punish target=Steve" opens it for whoever typed it.
-        boolean named = args.length > 2 && !args[2].contains("=");
-        Player target = Targets.of(sender, named ? args[2] : null);
+        // Values are name=value; the one word without "=" is the player. It is
+        // written LAST ("/rp dialog punish target=Steve Admin") and found
+        // wherever it is, because the order it replaced ("/rp dialog punish
+        // Admin target=Steve") is in command blocks and other plugins, and
+        // should go on working. With none it opens for whoever typed it.
+        String named = null;
+        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+        for (int i = 2; i < args.length; i++) {
+            int eq = args[i].indexOf('=');
+            if (eq > 0) {
+                values.put(args[i].substring(0, eq), args[i].substring(eq + 1));
+                continue;
+            }
+            if (eq == 0 || named != null) {
+                Reply.to(sender, "\"" + args[i] + "\" is not name=value. A dialog's values look like target=Steve"
+                        + (others ? ", and the player to open it for goes last." : "."));
+                return true;
+            }
+            named = args[i];
+        }
+        Player target = Targets.of(sender, named);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine dialog <id> <player> [name=value...]");
+            Reply.to(sender, named == null
+                    ? "Name a player: /rpengine dialog <id> [name=value...] <player>"
+                    : "Nobody called " + named + " is online.");
             return true;
         }
         // Opening one ABOUT somebody (target=Steve) is opening it on yourself;
@@ -548,15 +580,6 @@ public final class InterfaceCommands implements Area {
         if (!Targets.permitted(sender, "dialog", target)) {
             Targets.refuse(sender, "dialog", "open a dialog on");
             return true;
-        }
-        java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
-        for (int i = named ? 3 : 2; i < args.length; i++) {
-            int eq = args[i].indexOf('=');
-            if (eq <= 0) {
-                Reply.to(sender, "\"" + args[i] + "\" is not name=value. A dialog's values look like target=Steve.");
-                return true;
-            }
-            values.put(args[i].substring(0, eq), args[i].substring(eq + 1));
         }
         java.util.Optional<ContentId> parsed = ContentId.parse(args[1]);
         if (parsed.map(id -> dialogs.show(target, id, values)).orElse(Boolean.FALSE)) {
