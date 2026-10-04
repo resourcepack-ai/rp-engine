@@ -53,7 +53,11 @@ public final class SoundAssets implements PackContributor {
         boolean firstSubtitle = true;
 
         for (SoundInfo sound : sounds.values()) {
-            String audioPath = "assets/" + namespace + "/sounds/" + sound.file() + ".ogg";
+            // A namespaced file is a resource location: a CraftEngine pack names
+            // its audio that way, out of the resource pack folder it ships.
+            String location = sound.file().indexOf(':') > 0 ? sound.file() : namespace + ":" + sound.file();
+            String audioPath = "assets/" + location.substring(0, location.indexOf(':')) + "/sounds/"
+                    + location.substring(location.indexOf(':') + 1) + ".ogg";
             if (!into.has(audioPath)) {
                 into.error(namespace + "/sounds", sound.id().path(),
                         "No audio at " + audioPath + ". Minecraft only plays Ogg Vorbis; "
@@ -72,7 +76,7 @@ public final class SoundAssets implements PackContributor {
             if (sound.subtitle().isPresent()) {
                 json.append("    \"subtitle\": \"").append(escape(subtitleKey)).append("\",\n");
             }
-            json.append("    \"sounds\": [{\"name\": \"").append(namespace).append(':').append(sound.file())
+            json.append("    \"sounds\": [{\"name\": \"").append(location)
                     .append("\", \"stream\": ").append(sound.stream()).append("}]\n")
                     .append("  }");
 

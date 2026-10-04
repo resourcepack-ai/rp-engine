@@ -10,6 +10,7 @@ import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.McVersion;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.PackMeta;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -77,7 +78,12 @@ public final class ContentFolderLoader {
             "textures", "models", "sounds", "font",
             // ModelEngine's layout: a folder of .bbmodel blueprints. Read as
             // content rather than as definitions, below.
-            "blueprints");
+            "blueprints",
+            // CraftEngine's layout: configuration/ is read by its translator,
+            // resourcepack/ is copied by the builder, and subpacks/ holds
+            // more of both. blueprint/ is its own Blockbench folder, which
+            // nothing here reads, but it is not a mistake either.
+            "configuration", ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK, "subpacks", "blueprint");
 
     /**
      * Kinds that are NOT put into the id space.
@@ -98,8 +104,20 @@ public final class ContentFolderLoader {
 
     private final ContentRegistration registration;
 
+    /**
+     * The Minecraft the server runs, for CraftEngine's version keys
+     * ({@code $$>=1.21.4}). Null means newer than anything, which is what a
+     * test or a tool without a server gets.
+     */
+    private final McVersion version;
+
     public ContentFolderLoader(ContentRegistration registration) {
+        this(registration, null);
+    }
+
+    public ContentFolderLoader(ContentRegistration registration, McVersion version) {
         this.registration = registration;
+        this.version = version;
     }
 
     private static Map<String, ContentKind> categories() {
@@ -147,17 +165,120 @@ public final class ContentFolderLoader {
             return LoadReport.empty();
         }
 
+        // CraftEngine content is gathered from every pack before any pack is
+        // translated: its templates, language text and blocks are shared
+        // between packs. See CraftEngine.
+        CraftEngine.Library craftEngine = gatherCraftEngine(root, diagnostics);
+
         for (Path folder : sortedChildren(root, diagnostics, "")) {
             if (Files.isDirectory(folder)) {
-                loadPack(root, folder, source, packs, definitions, diagnostics);
+                loadPack(root, folder, source, packs, definitions, diagnostics, craftEngine);
             }
         }
         return LoadReport.of(packs, definitions, diagnostics);
     }
 
+    /** Every CraftEngine file in every enabled pack, read and gathered; see {@link CraftEngine.Library}. */
+    private CraftEngine.Library gatherCraftEngine(Path root, List<Diagnostic> diagnostics) {
+        CraftEngine.Library library = new CraftEngine.Library(version);
+        for (Path folder : sortedChildren(root, new ArrayList<>(), "")) {
+            String name = folder.getFileName().toString();
+            if (!Files.isDirectory(folder) || !ContentId.isValidNamespace(name)) {
+                continue;
+            }
+            DefinitionNode packNode = DefinitionNode.empty();
+            Path packFile = folder.resolve(PACK_FILE);
+            if (Files.isRegularFile(packFile)) {
+                packNode = readMap(packFile, relative(root, packFile), new ArrayList<>()).orElse(DefinitionNode.empty());
+                packNode = DefinitionNode.of(library.resolve(packNode.values()));
+            }
+            if (!enabled(packNode)) {
+                continue;
+            }
+            List<Path> files = craftEngineFiles(folder, packNode, library, diagnostics, relative(root, folder));
+            if (files.isEmpty()) {
+                continue;
+            }
+            CraftEngine.Pack pack = null;
+            for (Path file : files) {
+                String origin = relative(root, file);
+                boolean configuration = isUnder(folder, file, "configuration") || isUnder(folder, file, "subpacks");
+                // A configuration/ file is CraftEngine's wherever it is read
+                // from, so its YAML errors are reported here; anything else is
+                // read again by the other loaders, which report them there.
+                Optional<DefinitionNode> document = readMap(file, origin,
+                        configuration ? diagnostics : new ArrayList<>());
+                if (document.isEmpty() || (!configuration && !CraftEngine.looksLikeOne(document.get()))) {
+                    continue;
+                }
+                if (pack == null) {
+                    String namespace = packNode.string("namespace").orElse(name);
+                    pack = library.pack(name, namespace, folder);
+                }
+                library.add(pack, origin, library.resolve(document.get().values()));
+            }
+        }
+        library.prepare(diagnostics);
+        return library;
+    }
+
+    /** {@code enabled: false} parks a pack of ours; {@code enable: false} is CraftEngine's spelling of it. */
+    private static boolean enabled(DefinitionNode packNode) {
+        return packNode.bool("enabled").orElse(packNode.bool("enable").orElse(Boolean.TRUE));
+    }
+
+    private static boolean isUnder(Path folder, Path file, String child) {
+        return file.startsWith(folder.resolve(child));
+    }
+
+    /**
+     * Where CraftEngine files may be in a pack folder: its own
+     * {@code configuration/} tree and those of the subpacks its pack.yml
+     * turns on, and - for one of their files dropped into a pack of ours -
+     * loose in the folder or in a category folder.
+     */
+    private List<Path> craftEngineFiles(Path folder, DefinitionNode packNode, CraftEngine.Library library,
+                                        List<Diagnostic> diagnostics, String origin) {
+        List<Path> files = new ArrayList<>();
+        for (Path child : list(folder, new ArrayList<>(), origin, path -> true)) {
+            if (!Files.isDirectory(child) && isYaml(child)) {
+                files.add(child);
+            }
+        }
+        for (String category : CATEGORIES.keySet()) {
+            Path directory = folder.resolve(category);
+            if (Files.isDirectory(directory)) {
+                files.addAll(sortedYamlFiles(directory, new ArrayList<>(), origin));
+            }
+        }
+        Path configuration = folder.resolve("configuration");
+        if (Files.isDirectory(configuration)) {
+            files.addAll(sortedDefinitionFiles(configuration, diagnostics, origin, true));
+        }
+        Object subpacks = packNode.raw("subpacks");
+        if (subpacks instanceof Map<?, ?> declared) {
+            for (Map.Entry<?, ?> subpack : declared.entrySet()) {
+                if (!CraftEngine.truthy(subpack.getValue())) {
+                    continue;
+                }
+                Path directory = folder.resolve("subpacks").resolve(String.valueOf(subpack.getKey()));
+                Path subConfiguration = directory.resolve("configuration");
+                if (Files.isDirectory(subConfiguration)) {
+                    files.addAll(sortedDefinitionFiles(subConfiguration, diagnostics, origin, true));
+                }
+                if (Files.isDirectory(directory.resolve(ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK))) {
+                    diagnostics.add(Diagnostic.warning(origin + "/subpacks/" + subpack.getKey(),
+                            "This subpack's resourcepack/ folder is not copied into the built pack; only the pack's "
+                                    + "own is. Move what it holds into " + origin + "/resourcepack/."));
+                }
+            }
+        }
+        return files;
+    }
+
     private void loadPack(Path root, Path folder, ContentSource source,
                           List<PackMeta> packs, List<ContentDefinition> definitions,
-                          List<Diagnostic> diagnostics) {
+                          List<Diagnostic> diagnostics, CraftEngine.Library craftEngine) {
         String namespace = folder.getFileName().toString();
         String origin = relative(root, folder);
 
@@ -171,14 +292,16 @@ public final class ContentFolderLoader {
         boolean itemsAdder = !Files.isRegularFile(packFile) && holdsItemsAdderConfig(folder, diagnostics, origin);
         boolean nexoOraxen = !Files.isRegularFile(packFile) && !itemsAdder
                 && holdsNexoOraxenConfig(folder, diagnostics, origin);
-        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen) {
+        boolean craftEngineOnly = !Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen
+                && craftEngine.packs.containsKey(namespace);
+        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly) {
             diagnostics.add(Diagnostic.error(origin,
                     "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
             return;
         }
 
         DefinitionNode packNode;
-        if (itemsAdder || nexoOraxen) {
+        if (itemsAdder || nexoOraxen || craftEngineOnly) {
             // An ItemsAdder pack folder is their contents/<namespace>/, which
             // has no pack.yml in it. Everything pack.yml would have said has a
             // sensible default, so one is not demanded of somebody whose only
@@ -192,7 +315,7 @@ public final class ContentFolderLoader {
             packNode = meta.get();
         }
 
-        if (!packNode.bool("enabled").orElse(Boolean.TRUE)) {
+        if (!enabled(packNode)) {
             return;
         }
 
@@ -205,7 +328,8 @@ public final class ContentFolderLoader {
 
         List<String> bundles = validBundles(packNode, relative(root, packFile), diagnostics);
         packs.add(PackMeta.of(namespace, source,
-                packNode.string("name").orElse(null),
+                // CraftEngine's pack.yml has a description and no name.
+                packNode.string("name").or(() -> packNode.string("description")).orElse(null),
                 packNode.string("author").orElse(null),
                 packNode.string("version").orElse(null),
                 bundles));
@@ -230,7 +354,20 @@ public final class ContentFolderLoader {
         // which is the whole point.
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
         loadNexoOraxenConfigs(root, folder, claimed, definitions, diagnostics);
+        loadCraftEngine(craftEngine, claimed, definitions, diagnostics);
         loadBlueprints(root, folder, claimed, definitions, diagnostics);
+    }
+
+    /** This pack's CraftEngine content, translated; see {@link CraftEngine}. */
+    private void loadCraftEngine(CraftEngine.Library library, Namespace namespace,
+                                 List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
+        Set<ContentId> seen = new HashSet<>();
+        for (CraftEngine.Output output : library.translate(namespace.name(), diagnostics)) {
+            Map<String, Object> document = new LinkedHashMap<>();
+            document.put(output.path(), output.body());
+            define(output.kind(), namespace, DefinitionNode.of(document), output.path(), output.origin(),
+                    seen, definitions, diagnostics);
+        }
     }
 
     /**
@@ -432,6 +569,11 @@ public final class ContentFolderLoader {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
             if (document.isEmpty()) {
+                continue;
+            }
+            // A CraftEngine file is read by its own translator, which needs
+            // every pack's files at once; see gatherCraftEngine.
+            if (kind != ContentKind.EMOTE && CraftEngine.looksLikeOne(document.get())) {
                 continue;
             }
             // Nexo/Oraxen keep their item files under items/ too. They are
