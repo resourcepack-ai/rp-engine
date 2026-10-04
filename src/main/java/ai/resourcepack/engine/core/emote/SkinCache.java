@@ -254,6 +254,87 @@ public final class SkinCache {
         return skins;
     }
 
+    /** A decoded face, kept against the file's modification time so a new skin replaces it. */
+    private record Face(long modified, int[] withHat, int[] bare) { }
+
+    private final java.util.Map<String, Face> faces = new ConcurrentHashMap<>();
+
+    /**
+     * A player's face as 64 ARGB pixels, row by row: the front of the head at
+     * (8, 8) of the skin, with the hat layer at (40, 8) over it when asked.
+     *
+     * <p>For a screen's player head (see {@code ScreenHeads}). Read from the
+     * skin this cache already keeps for the emote rig, which is fetched on
+     * join; until it has arrived, and on an offline-mode server that has no
+     * skin to fetch, the answer is Steve's. The same half-alpha rule as
+     * Studio's head crop decides whether a hat pixel covers the face.
+     */
+    public int[] face(UUID player, boolean hat) {
+        String key = player == null ? "" : keyOf(player);
+        Path png = key.isEmpty() ? null : folder.resolve(key + ".png");
+        long modified = -1;
+        try {
+            if (png != null && Files.isRegularFile(png)) {
+                modified = Files.getLastModifiedTime(png).toMillis();
+            }
+        } catch (IOException ignored) {
+            modified = -1;
+        }
+        String cacheKey = modified < 0 ? "" : key;
+        Face cached = faces.get(cacheKey);
+        if (cached == null || cached.modified() != modified) {
+            byte[] bytes = null;
+            if (modified >= 0) {
+                try {
+                    bytes = Files.readAllBytes(png);
+                } catch (IOException ignored) {
+                    bytes = null;
+                }
+            }
+            if (bytes == null) {
+                bytes = defaultSheet();
+            }
+            cached = decodeFace(bytes, modified);
+            if (cached == null) {
+                return null;
+            }
+            faces.put(cacheKey, cached);
+        }
+        return hat ? cached.withHat() : cached.bare();
+    }
+
+    private static Face decodeFace(byte[] bytes, long modified) {
+        if (bytes == null) {
+            return null;
+        }
+        java.awt.image.BufferedImage image;
+        try {
+            image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+        } catch (IOException e) {
+            return null;
+        }
+        if (image == null || image.getWidth() < 64 || image.getHeight() < 32) {
+            return null;
+        }
+        // A skin is 64 wide; a hi-res one is a multiple, read at its own scale.
+        // The hat is in the top half, so an old 64x32 skin has one too.
+        int scale = image.getWidth() / 64;
+        int[] withHat = new int[64];
+        int[] bare = new int[64];
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                int face = image.getRGB((8 + x) * scale, (8 + y) * scale);
+                if ((face >>> 24) < 128) {
+                    face = 0;
+                }
+                bare[y * 8 + x] = face;
+                int top = image.getRGB((40 + x) * scale, (8 + y) * scale);
+                withHat[y * 8 + x] = (top >>> 24) >= 128 ? top : face;
+            }
+        }
+        return new Face(modified, withHat, bare);
+    }
+
     private byte[] defaultSheet() {
         try (InputStream in = SkinCache.class.getResourceAsStream(DEFAULT_RESOURCE)) {
             return in == null ? null : in.readAllBytes();
