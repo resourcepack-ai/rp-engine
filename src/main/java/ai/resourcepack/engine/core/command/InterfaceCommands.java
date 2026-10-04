@@ -499,6 +499,7 @@ public final class InterfaceCommands implements Area {
         org.bukkit.entity.Player self = sender instanceof org.bukkit.entity.Player
                 ? (org.bukkit.entity.Player) sender
                 : null;
+        boolean slowPages = false;
         for (ContentId id : dialogs.ids()) {
             String name = dialogs.info(id).map(d -> d.name()).orElse("");
             boolean pushed = dialogs.info(id).map(d -> d.fromPushedPack()).orElse(Boolean.FALSE);
@@ -506,7 +507,19 @@ public final class InterfaceCommands implements Area {
                     : self == null ? (name.isEmpty() ? "pushed" : name + " (pushed)")
                     : dialogs.canShow(self, id) ? (name.isEmpty() ? "pushed, you hold it" : name + " (pushed, you hold it)")
                     : (name.isEmpty() ? "pushed, you are NOT holding it" : name + " (pushed, you are NOT holding it)");
+            // Whether its pages turn on the client or wait for the server: the
+            // difference somebody notices as a delay, and fixes with a restart.
+            Boolean instant = dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl
+                    ? impl.pagesTurnInstantly(id) : null;
+            if (instant != null) {
+                slowPages |= !instant;
+                note = (note.isEmpty() ? "" : note + " · ") + (instant ? "pages turn instantly" : "pages wait for the server");
+            }
             Reply.row(sender, id.toString(), note);
+        }
+        if (slowPages && dialogs.supported()) {
+            Reply.to(sender, "Pages turn instantly once the server has restarted since they were synced, "
+                    + "for pages that show nothing per player ({placeholders} are filled as they open).");
         }
         // Both of these are things somebody would otherwise find out by a
         // command doing nothing, which is the failure this whole listing

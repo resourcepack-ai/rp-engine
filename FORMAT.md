@@ -2070,6 +2070,18 @@ the whole dialog holding the button over it.
 A dialog made in Studio with pages arrives the same way: its first page is
 `studio:<id>` and every other page `studio:<id>.<page>`.
 
+**After a restart, those page turns stop asking the server.** A server gives
+every player its dialogs as it starts, and a page the player already has opens
+on the client at once. So when the server has started since a dialog was last
+loaded, the engine sends its `rp page` links as the game's own
+`minecraft:show_dialog` by id instead, and the datapack it writes carries them
+that way too. It does this only for pages with nothing per-player in them
+(nothing in `{braces}`, which only the engine can fill as a page opens), and
+only while every page the player could reach that way is exactly the copy the
+server started with; anything else stays an `rp page`, which always works.
+`/rp dialogs` says which dialogs' pages turn instantly. You write `rp page`
+either way.
+
 **One button is a notice, two are a yes/no, three or more are a grid.** You do
 not choose which; the count does, because those are the only three shapes the
 game has and they differ in nothing else.
