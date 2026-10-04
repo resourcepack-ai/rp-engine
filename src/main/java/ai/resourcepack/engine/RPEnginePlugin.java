@@ -589,6 +589,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 () -> pushedAll.armor3d(), compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
+        // A page the client turned to by itself is only heard of through the next
+        // command clicked on it: see DialogClicks.
+        if (dialogs != null) {
+            getServer().getPluginManager().registerEvents(new ai.resourcepack.engine.core.dialog.DialogClicks(dialogs), this);
+        }
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
                 new ItemListener(this, items, new ActionRunner(items, sounds),
