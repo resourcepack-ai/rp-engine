@@ -106,7 +106,7 @@ public final class ItemDefinitions {
                 body.string("name").orElse(null),
                 body.strings("lore"),
                 body.string("texture").orElse(defaultTexture(definition.id())),
-                body.string("model").orElse(null),
+                model(body),
                 copiedFrom,
                 body.string("permission").orElse(null),
                 armorSlot(body, origin, where, diagnostics),
@@ -119,7 +119,41 @@ public final class ItemDefinitions {
                 .withFlags(body.bool("hat").orElse(Boolean.FALSE),
                         body.bool("keep-on-death").orElse(Boolean.FALSE))
                 .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics))
-                .withLiquid(liquid(body, origin, where, diagnostics)));
+                .withLiquid(liquid(body, origin, where, diagnostics))
+                .withArmorTexture(armorTexture(body, origin, where, diagnostics)));
+    }
+
+    /**
+     * {@code model:}, a name, a resource location, or a whole model written
+     * inline ({@code {parent: minecraft:block/cube_all, textures: {all: ...}}}),
+     * which is carried as its JSON.
+     */
+    public static String model(DefinitionNode body) {
+        Object raw = body.raw("model");
+        if (raw instanceof Map) {
+            return new com.google.gson.GsonBuilder().disableHtmlEscaping().create().toJson(raw);
+        }
+        return body.string("model").orElse(null);
+    }
+
+    /**
+     * {@code armor-texture:}, the equipment texture worn armour is drawn from
+     * instead of the item's own id: {@code namespace:name}.
+     */
+    private static String armorTexture(DefinitionNode body, String origin, String where,
+                                       List<Diagnostic> diagnostics) {
+        Optional<String> declared = body.string("armor-texture");
+        if (declared.isEmpty()) {
+            return null;
+        }
+        String value = declared.get().trim();
+        int colon = value.indexOf(':');
+        if (colon <= 0 || colon == value.length() - 1 || value.indexOf(':', colon + 1) >= 0) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "armor-texture: " + value + " is not a namespace:name. The item's own id is used."));
+            return null;
+        }
+        return value;
     }
 
     /**

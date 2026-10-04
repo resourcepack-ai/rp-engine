@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.api;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -68,9 +69,11 @@ public final class BlockInfo {
     private final String tool;
     private final ContentId drop;
     private final String sound;
+    private final String name;
+    private final List<String> lore;
 
     private BlockInfo(ContentId id, Base base, String model, float hardness,
-                      String tool, ContentId drop, String sound) {
+                      String tool, ContentId drop, String sound, String name, List<String> lore) {
         this.id = id;
         this.base = base;
         this.model = model;
@@ -78,6 +81,8 @@ public final class BlockInfo {
         this.tool = tool;
         this.drop = drop;
         this.sound = sound;
+        this.name = name;
+        this.lore = lore;
     }
 
     /** Engine internal; built by the block loader. */
@@ -90,7 +95,28 @@ public final class BlockInfo {
                 hardness,
                 tool == null ? "" : tool,
                 drop,
-                sound == null ? "" : sound);
+                sound == null ? "" : sound,
+                null,
+                List.of());
+    }
+
+    /** Engine internal; the same block with the name and lore its item is given. */
+    public BlockInfo withItemText(String name, List<String> lore) {
+        return new BlockInfo(id, base, model, hardness, tool, drop, sound, name,
+                lore == null ? List.of() : List.copyOf(lore));
+    }
+
+    /**
+     * The display name of the item that places it, or empty for the game's
+     * own name for the base block.
+     */
+    public Optional<String> name() {
+        return Optional.ofNullable(name);
+    }
+
+    /** The lore of the item that places it. */
+    public List<String> lore() {
+        return lore;
     }
 
     /** Its id, which is also the id of the item that places it. */
