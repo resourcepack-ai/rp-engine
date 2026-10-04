@@ -52,14 +52,11 @@ public final class FontAssets implements PackContributor {
             if (!bundle.namespaces().contains(icon.id().namespace())) {
                 continue;
             }
-            String location = textureOf(icon);
-            String textureNamespace = location.substring(0, location.indexOf(':'));
-            String texturePathPart = location.substring(location.indexOf(':') + 1);
-            String texture = texturePath(textureNamespace, texturePathPart);
+            String texture = texturePath(icon.id().namespace(), "font/" + icon.file());
             if (missing(texture, icon.id(), "fonts", into)) {
                 continue;
             }
-            providers.add(bitmap(textureNamespace, texturePathPart,
+            providers.add(bitmap(icon.id().namespace(), "font/" + icon.file(),
                     icon.height(), icon.ascent(), chars(icon)));
         }
 
@@ -140,23 +137,6 @@ public final class FontAssets implements PackContributor {
         providers.add(bitmap(overlay.id().namespace(), "gui/" + overlay.file(),
                 overlay.height(), overlay.ascent(), "\"" + escape(overlay.codepoint()) + "\""));
         return true;
-    }
-
-    /**
-     * The texture an icon draws, as {@code namespace:path} under
-     * {@code textures/}.
-     *
-     * <p>A plain {@code file} is under the pack's own {@code textures/font/};
-     * a namespaced one is a resource location, which is how CraftEngine names
-     * its images ({@code minecraft:font/image/emojis}) out of a resource pack
-     * folder it ships beside its configuration.
-     */
-    public static String textureOf(IconInfo icon) {
-        String file = icon.file();
-        if (file.indexOf(':') > 0) {
-            return file.endsWith(".png") ? file.substring(0, file.length() - 4) : file;
-        }
-        return icon.id().namespace() + ":font/" + file;
     }
 
     private static String texturePath(String namespace, String path) {

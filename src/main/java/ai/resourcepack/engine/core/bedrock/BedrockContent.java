@@ -175,9 +175,7 @@ public final class BedrockContent {
             JsonObject textureData = new JsonObject();
             for (Item item : items) {
                 String sid = sanitize(item.id().namespace() + "_" + item.id().path());
-                byte[] sprite = read(zip, ai.resourcepack.engine.core.item.Geometry.zipPathOf(
-                        ai.resourcepack.engine.core.item.ModelSources.textureLocation(
-                                item.modelId().namespace(), item.texture())));
+                byte[] sprite = read(zip, "assets/" + item.modelId().namespace() + "/textures/" + item.texture() + ".png");
                 if (sprite == null) continue;
                 String iconKey = "rpe_" + sid;
                 files.put("textures/items/rpe/" + sid + ".png", sprite);

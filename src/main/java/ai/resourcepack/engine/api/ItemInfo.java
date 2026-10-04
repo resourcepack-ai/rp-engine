@@ -33,7 +33,6 @@ public final class ItemInfo {
     private final boolean keepOnDeath;
     private final Map<String, Double> hitboxes;
     private final ContentId liquid;
-    private final String armorTexture;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
@@ -41,7 +40,7 @@ public final class ItemInfo {
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
                      Map<String, AnimationSettings> animations, ItemStats stats,
                      boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes,
-                     ContentId liquid, String armorTexture) {
+                     ContentId liquid) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -61,7 +60,6 @@ public final class ItemInfo {
         this.keepOnDeath = keepOnDeath;
         this.hitboxes = hitboxes;
         this.liquid = liquid;
-        this.armorTexture = armorTexture;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -87,8 +85,7 @@ public final class ItemInfo {
                 false,
                 false,
                 Map.of(),
-                null,
-                "");
+                null);
     }
 
     /**
@@ -103,7 +100,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                animations, stats, hat, keepOnDeath, hitboxes, liquid);
     }
 
     /**
@@ -119,21 +116,21 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                hat, keepOnDeath, hitboxes, liquid);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture);
+                hitboxes, liquid);
     }
 
     /** The same item, with what a hit on each of its bones is worth. */
@@ -141,7 +138,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
                 hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes),
-                liquid, armorTexture);
+                liquid);
     }
 
     /**
@@ -153,29 +150,7 @@ public final class ItemInfo {
     public ItemInfo withLiquid(ContentId liquid) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture);
-    }
-
-    /**
-     * The same item, drawing its worn armour from another texture.
-     *
-     * <p>{@code namespace:name}, which the game reads as
-     * {@code assets/<namespace>/textures/entity/equipment/<layer>/<name>.png}
-     * - what a CraftEngine equipment names. Empty, the usual case, is the
-     * item's own id.
-     */
-    public ItemInfo withArmorTexture(String armorTexture) {
-        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
-                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture == null ? "" : armorTexture);
-    }
-
-    /**
-     * The equipment texture worn armour is drawn from, as {@code namespace:name},
-     * or empty for the item's own id.
-     */
-    public Optional<String> armorTexture() {
-        return armorTexture.isEmpty() ? Optional.empty() : Optional.of(armorTexture);
+                hitboxes, liquid);
     }
 
     /**

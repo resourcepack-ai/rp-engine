@@ -203,39 +203,20 @@ public final class ItemAssets implements PackContributor {
     private void writeEquipment(ItemInfo item, String namespace, String slot, Contribution into) {
         String name = item.id().path();
         String layer = slot.equals("legs") ? "humanoid_leggings" : "humanoid";
-        // The texture is the item's own id unless the definition names
-        // another, which is how a CraftEngine equipment's art is reached.
-        String texture = item.armorTexture().orElse(namespace + ":" + name);
-        String textureNamespace = texture.substring(0, texture.indexOf(':'));
         into.add("assets/" + namespace + "/equipment/" + name + ".json",
-                json("{\"layers\":{\"" + layer + "\":[{\"texture\":\"" + texture + "\"}]}}"));
-        if (bundle == null || bundle.namespaces().contains(textureNamespace)) {
-            requireTexture(item, namespace, equipmentTexture(texture, layer), into);
-        }
-    }
-
-    /** Where the game reads a {@code namespace:name} equipment texture for one layer. */
-    private static String equipmentTexture(String texture, String layer) {
-        int colon = texture.indexOf(':');
-        return "assets/" + texture.substring(0, colon) + "/textures/entity/equipment/" + layer + "/"
-                + texture.substring(colon + 1) + ".png";
+                json("{\"layers\":{\"" + layer + "\":[{\"texture\":\""
+                        + namespace + ":" + name + "\"}]}}"));
+        requireTexture(item, namespace,
+                "assets/" + namespace + "/textures/entity/equipment/" + layer + "/" + name + ".png",
+                into);
     }
 
     /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */
     private void writeSprite(ItemInfo item, String namespace, String modelPath, Contribution into) {
-        // A namespaced texture is a resource location, written as it is: a
-        // CraftEngine pack names minecraft:item/custom/ruby and ships the PNG
-        // in its own resource pack folder.
-        String texture = ModelSources.textureLocation(namespace, item.texture());
+        String texture = namespace + ":" + item.texture();
         into.add(modelPath, json("{\"parent\":\"minecraft:item/generated\","
                 + "\"textures\":{\"layer0\":\"" + texture + "\"}}"));
-        String textureNamespace = texture.substring(0, texture.indexOf(':'));
-        // Only a texture a pack in this bundle is meant to ship can be missing;
-        // one in another namespace may be the game's own.
-        if (!ModelSources.isLocation(item.texture()) || bundle == null
-                || bundle.namespaces().contains(textureNamespace)) {
-            requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
-        }
+        requireTexture(item, namespace, "assets/" + namespace + "/textures/" + item.texture() + ".png", into);
     }
 
     /** The 3D case: a model file the author exported from Blockbench. */
@@ -248,22 +229,20 @@ public final class ItemAssets implements PackContributor {
         if (writeProject(item, namespace, name, modelPath, into)) {
             return;
         }
-        Optional<ModelSources.Found> source = source(into, namespace, name, ".json");
+        String sourcePath = "assets/models/" + name + ".json";
+        Optional<byte[]> source = source(into, namespace, "models/" + name + ".json");
         if (source.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
-                    ModelSources.isLocation(name)
-                            ? "No model at " + ModelSources.describe(namespace, name, ".json") + "."
-                            : "No model at assets/models/" + name + ".bbmodel or assets/models/" + name
-                                    + ".json. Save the Blockbench project into assets/models/ "
-                                    + "and it is read directly.");
+                    "No model at assets/models/" + name + ".bbmodel or " + sourcePath
+                            + ". Save the Blockbench project into assets/models/ "
+                            + "and it is read directly.");
             // Falls back to the sprite, so the item still exists and still
             // stacks. An item that vanishes because its art is missing is a
             // much worse failure than one that renders wrong.
             writeSprite(item, namespace, modelPath, into);
             return;
         }
-        String sourcePath = source.get().path();
-        Optional<Geometry.Model> model = Geometry.read(source.get().bytes(), source.get().textureNamespace());
+        Optional<Geometry.Model> model = Geometry.read(source.get(), namespace);
         if (model.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
                     sourcePath + " is not a model file. Blockbench writes one "
@@ -274,12 +253,8 @@ public final class ItemAssets implements PackContributor {
         // The source was copied in with the rest of assets/. It has been read
         // and rewritten now, so the original goes rather than shipping beside
         // the thing built from it. Only what was consumed: a model nobody
-        // referenced stays, because it is probably a shared parent. A file
-        // out of a whole resource pack folder always stays, because anything
-        // else in that pack may name it.
-        if (source.get().consumable()) {
-            into.drop("assets/" + namespace + "/models/" + localName(name) + ".json");
-        }
+        // referenced stays, because it is probably a shared parent.
+        into.drop("assets/" + namespace + "/models/" + name + ".json");
         into.add(modelPath, model.get().json());
         // A model file can carry animations too, and for a long time only the
         // .bbmodel branch above looked. Studio EXPORTS a Java model with an
@@ -303,23 +278,26 @@ public final class ItemAssets implements PackContributor {
     }
 
     /**
-     * A model file for {@code name}, from wherever {@link ModelSources} says
-     * one may be.
+     * A source file, from under {@code assets/} or from an ItemsAdder pack's
+     * root.
      *
-     * <p>Ours is the documented layout and is tried first. ItemsAdder keeps
-     * {@code models/} beside its configs, ModelEngine {@code blueprints/}, and
-     * CraftEngine a whole resource pack folder; a pack copied straight out of
-     * any of them should not need its folders moved around before its models
-     * are read.
+     * <p>Ours is the documented layout and is tried first. Theirs keeps
+     * {@code models/} and {@code textures/} beside the configs, and a pack
+     * copied straight out of ItemsAdder should not need its folders moved
+     * around before its models are read.
      */
-    private static Optional<ModelSources.Found> source(Contribution into, String namespace, String name,
-                                                        String extension) {
-        return ModelSources.find(namespace, name, extension, path -> into.source(namespace, path));
-    }
-
-    /** The path part of a model name, which is the whole of a plain one. */
-    static String localName(String name) {
-        return ModelSources.isLocation(name) ? name.substring(name.indexOf(':') + 1) : name;
+    private static Optional<byte[]> source(Contribution into, String namespace, String path) {
+        Optional<byte[]> ours = into.source(namespace, "assets/" + path);
+        if (ours.isPresent()) {
+            return ours;
+        }
+        // An ItemsAdder pack keeps models/ at its root; a ModelEngine one
+        // keeps blueprints/. Both are read where they lie, so a pack copied
+        // out of either needs no folders moved.
+        Optional<byte[]> theirs = into.source(namespace, path);
+        return theirs.isPresent()
+                ? theirs
+                : into.source(namespace, path.replaceFirst("^models/", "blueprints/"));
     }
 
     /**
@@ -329,13 +307,12 @@ public final class ItemAssets implements PackContributor {
      */
     private boolean writeProject(ItemInfo item, String namespace, String name,
                                  String modelPath, Contribution into) {
-        Optional<ModelSources.Found> source = source(into, namespace, name, ".bbmodel");
+        String sourcePath = "assets/models/" + name + ".bbmodel";
+        Optional<byte[]> source = source(into, namespace, "models/" + name + ".bbmodel");
         if (source.isEmpty()) {
             return false;
         }
-        String sourcePath = source.get().path();
-        Optional<BbModel.Converted> converted = BbModel.convert(source.get().bytes(), namespace,
-                localName(name));
+        Optional<BbModel.Converted> converted = BbModel.convert(source.get(), namespace, name);
         if (converted.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
                     sourcePath + " has no cube geometry in it. A mesh cannot become a "
@@ -353,9 +330,7 @@ public final class ItemAssets implements PackContributor {
         // Consumed, so it goes rather than shipping beside what was built from
         // it. A project file is often the largest thing in a pack, since the
         // textures are inside it twice over once they are extracted.
-        if (source.get().consumable()) {
-            into.drop("assets/" + namespace + "/models/" + localName(name) + ".bbmodel");
-        }
+        into.drop("assets/" + namespace + "/models/" + name + ".bbmodel");
         into.add(modelPath, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
         writeRig(item, namespace, converted.get().model(), into);
         return true;
