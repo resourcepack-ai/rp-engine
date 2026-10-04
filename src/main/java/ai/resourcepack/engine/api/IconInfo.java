@@ -22,13 +22,20 @@ public final class IconInfo {
     private final int height;
     private final int ascent;
     private final int codepoint;
+    private final int rows;
+    private final int columns;
+    private final int cell;
 
-    private IconInfo(ContentId id, String file, int height, int ascent, int codepoint) {
+    private IconInfo(ContentId id, String file, int height, int ascent, int codepoint,
+                     int rows, int columns, int cell) {
         this.id = id;
         this.file = file;
         this.height = height;
         this.ascent = ascent;
         this.codepoint = codepoint;
+        this.rows = rows;
+        this.columns = columns;
+        this.cell = cell;
     }
 
     /** Engine internal; built by the icon loader. */
@@ -36,7 +43,21 @@ public final class IconInfo {
         return new IconInfo(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(file, "file"),
-                height, ascent, codepoint);
+                height, ascent, codepoint, 1, 1, 1);
+    }
+
+    /**
+     * The same icon, drawn from one cell of a sheet rather than the whole PNG.
+     *
+     * <p>Engine internal. A sheet is split into equal cells, {@code rows} by
+     * {@code columns}, numbered from 1 left to right and then top to bottom.
+     * Nothing is cropped: the game's own bitmap font provider already splits
+     * an image into a grid of characters, so the icon is that grid with every
+     * cell but its own left empty.
+     */
+    public IconInfo withCell(int rows, int columns, int cell) {
+        return new IconInfo(id, file, height, ascent, codepoint,
+                Math.max(1, rows), Math.max(1, columns), Math.max(1, cell));
     }
 
     /** Its id. */
@@ -77,6 +98,21 @@ public final class IconInfo {
      */
     public int codepoint() {
         return codepoint;
+    }
+
+    /** How many rows of cells the PNG is split into. 1 for a picture that is the whole file. */
+    public int rows() {
+        return rows;
+    }
+
+    /** How many columns of cells the PNG is split into. 1 for a picture that is the whole file. */
+    public int columns() {
+        return columns;
+    }
+
+    /** Which cell is this icon, from 1, left to right and then top to bottom. */
+    public int cell() {
+        return cell;
     }
 
     /** The character itself, for putting into a piece of text right now. */

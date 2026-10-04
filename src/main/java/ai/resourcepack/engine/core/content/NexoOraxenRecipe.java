@@ -10,10 +10,28 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/** Translates the recipe files shared by Nexo and Oraxen into RP Engine recipes. */
+/**
+ * Translates the recipe files shared by Nexo and Oraxen into RP Engine recipes.
+ *
+ * <p>Neither plugin writes the recipe type inside the recipe: it is where the
+ * file is. Oraxen has fixed file names ({@code recipes/shaped.yml},
+ * {@code furnace.yml}, ...) and Nexo a folder per type
+ * ({@code recipes/shaped/anything.yml}, its builder writing
+ * {@code shaped_recipes.yml} inside). Both are read off the path relative to
+ * the {@code recipes/} folder.
+ *
+ * <p>An ingredient is {@code minecraft_type}, {@code nexo_item} or
+ * {@code oraxen_item}. Anything else - a tag, another plugin's item - has no
+ * RP Engine equivalent, and a recipe missing one of its ingredients would be
+ * a different recipe, so the whole recipe is skipped and named.
+ */
 final class NexoOraxenRecipe {
     private NexoOraxenRecipe() {
     }
+
+    /** The recipe kinds both plugins have and RP Engine does not, which are skipped by name. */
+    private static final List<String> UNSUPPORTED =
+            List.of("smithing", "brewing", "anvil", "cauldron", "grindstone", "crafter", "predicate");
 
     static boolean looksLikeOne(DefinitionNode document) {
         for (String id : document.keys()) {
@@ -26,14 +44,24 @@ final class NexoOraxenRecipe {
         return false;
     }
 
+    /**
+     * @param recipeFile the file's path relative to the {@code recipes/}
+     *                   folder, which is where its type is written
+     */
     static Map<String, Object> translate(DefinitionNode document, String namespace, String recipeFile,
                                          String origin, List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         String type = typeOf(recipeFile);
         if (type == null) {
             diagnostics.add(Diagnostic.warning(origin,
-                    "This Nexo/Oraxen recipe file is not named shaped, shapeless, furnace, blasting, "
-                            + "smoking, campfire, or stonecutting, so it was skipped."));
+                    "This Nexo/Oraxen recipe file is not named, or in a folder named, shaped, shapeless, furnace, "
+                            + "blasting, smoking, campfire or stonecutting, so it was skipped."));
+            return out;
+        }
+        if (UNSUPPORTED.contains(type)) {
+            diagnostics.add(Diagnostic.warning(origin,
+                    document.keys().size() + " " + type + " recipes were skipped: RP Engine recipes are crafting, "
+                            + "cooking and stonecutting only."));
             return out;
         }
         for (String id : document.keys()) {
@@ -50,12 +78,23 @@ final class NexoOraxenRecipe {
             recipe.node("result").flatMap(value -> value.integer("amount"))
                     .ifPresent(amount -> translated.put("amount", amount));
 
+            List<String> unreadable = new ArrayList<>();
             if (type.equals("shaped")) {
                 Map<String, Object> keys = new LinkedHashMap<>();
                 DefinitionNode ingredients = recipe.node("ingredients").orElse(DefinitionNode.empty());
                 for (String key : ingredients.keys()) {
-                    ingredient(ingredients.node(key).orElse(DefinitionNode.empty()), namespace)
-                            .ifPresent(value -> keys.put(key, value));
+                    DefinitionNode value = ingredients.node(key).orElse(DefinitionNode.empty());
+                    Optional<String> item = ingredient(value, namespace);
+                    if (item.isEmpty()) {
+                        unreadable.add(key);
+                        continue;
+                    }
+                    keys.put(key, item.get());
+                    if (value.integer("amount").orElse(1) > 1) {
+                        diagnostics.add(Diagnostic.warning(origin, id,
+                                "ingredient " + key + " asks for a stack of " + value.integer("amount").get()
+                                        + " in its slot. RP Engine takes one per slot."));
+                    }
                 }
                 List<Object> pattern = new ArrayList<>();
                 for (String row : recipe.strings("shape")) {
@@ -70,18 +109,36 @@ final class NexoOraxenRecipe {
                 translated.put("pattern", pattern);
             } else if (type.equals("shapeless")) {
                 List<Object> ingredients = new ArrayList<>();
-                for (String key : recipe.node("ingredients").orElse(DefinitionNode.empty()).keys()) {
-                    ingredient(recipe.node("ingredients").orElse(DefinitionNode.empty())
-                            .node(key).orElse(DefinitionNode.empty()), namespace).ifPresent(ingredients::add);
+                DefinitionNode declared = recipe.node("ingredients").orElse(DefinitionNode.empty());
+                for (String key : declared.keys()) {
+                    DefinitionNode value = declared.node(key).orElse(DefinitionNode.empty());
+                    Optional<String> item = ingredient(value, namespace);
+                    if (item.isEmpty()) {
+                        unreadable.add(key);
+                        continue;
+                    }
+                    // An amount on a shapeless ingredient is that many of it in
+                    // the grid, which ours writes as that many entries.
+                    for (int i = 0; i < Math.max(1, value.integer("amount").orElse(1)); i++) {
+                        ingredients.add(item.get());
+                    }
                 }
                 translated.put("ingredients", ingredients);
             } else {
-                Optional<String> input = ingredient(recipe.node("input").orElse(DefinitionNode.empty()), namespace)
-                        .or(() -> ingredient(recipe.node("ingredient").orElse(DefinitionNode.empty()), namespace));
-                input.ifPresent(value -> translated.put("ingredient", value));
+                DefinitionNode input = recipe.node("input").or(() -> recipe.node("ingredient"))
+                        .orElse(DefinitionNode.empty());
+                Optional<String> item = ingredient(input, namespace);
+                if (item.isPresent()) translated.put("ingredient", item.get());
+                else unreadable.add("input");
                 recipe.integer("cookingTime").or(() -> recipe.integer("cooking_time"))
                         .ifPresent(time -> translated.put("time", time));
                 recipe.string("experience").ifPresent(experience -> translated.put("experience", experience));
+            }
+            if (!unreadable.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "ingredient " + String.join(", ", unreadable) + " is not a minecraft_type, nexo_item or "
+                                + "oraxen_item, so the recipe was skipped rather than made without it."));
+                continue;
             }
             out.put(id, translated);
         }
@@ -98,15 +155,38 @@ final class NexoOraxenRecipe {
         return id.contains(":") ? id : namespace + ":" + id;
     }
 
-    private static String typeOf(String file) {
-        String name = file.toLowerCase(Locale.ROOT).replace('\\', '/');
-        if (name.endsWith("shaped.yml") || name.endsWith("shaped.yaml")) return "shaped";
-        if (name.endsWith("shapeless.yml") || name.endsWith("shapeless.yaml")) return "shapeless";
-        if (name.endsWith("furnace.yml") || name.endsWith("furnace.yaml")) return "smelting";
-        if (name.endsWith("blasting.yml") || name.endsWith("blasting.yaml")) return "blasting";
-        if (name.endsWith("smoking.yml") || name.endsWith("smoking.yaml")) return "smoking";
-        if (name.endsWith("campfire.yml") || name.endsWith("campfire.yaml")) return "campfire";
-        if (name.endsWith("stonecutting.yml") || name.endsWith("stonecutting.yaml")) return "stonecutting";
+    /**
+     * The type a recipe file's path names: its own name first, then the
+     * folders it is in, nearest first. {@code shaped_recipes} is the name
+     * Nexo's in-game builder writes.
+     */
+    static String typeOf(String file) {
+        String path = file.toLowerCase(Locale.ROOT).replace('\\', '/');
+        int dot = path.lastIndexOf('.');
+        if (dot > path.lastIndexOf('/')) path = path.substring(0, dot);
+        String[] segments = path.split("/");
+        for (int i = segments.length - 1; i >= 0; i--) {
+            String name = segments[i].endsWith("_recipes")
+                    ? segments[i].substring(0, segments[i].length() - "_recipes".length()) : segments[i];
+            switch (name) {
+                case "shaped":
+                case "shapeless":
+                case "blasting":
+                case "smoking":
+                case "campfire":
+                    return name;
+                case "furnace":
+                case "smelting":
+                    return "smelting";
+                case "stonecutting":
+                case "stonecutter":
+                    return "stonecutting";
+                case "brewing_stand":
+                    return "brewing";
+                default:
+                    if (UNSUPPORTED.contains(name)) return name;
+            }
+        }
         return null;
     }
 }

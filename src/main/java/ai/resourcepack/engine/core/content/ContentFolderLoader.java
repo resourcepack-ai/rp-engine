@@ -306,10 +306,12 @@ public final class ContentFolderLoader {
         return false;
     }
 
-    /** Nexo/Oraxen's current item YAML: top-level ids with a capitalised Pack block. */
+    /** Nexo/Oraxen's item YAML (top-level ids with a Pack, Components or Mechanics block), or their sounds.yml. */
     private boolean holdsNexoOraxenConfig(Path folder, List<Diagnostic> diagnostics, String origin) {
         for (Path child : nexoOraxenConfigFiles(folder, diagnostics, origin)) {
-            if (readMap(child, relative(folder, child), new ArrayList<>()).map(NexoOraxen::looksLikeOne).orElse(false)) {
+            if (readMap(child, relative(folder, child), new ArrayList<>())
+                    .map(document -> NexoOraxen.looksLikeOne(document) || NexoOraxenSound.looksLikeOne(document))
+                    .orElse(false)) {
                 return true;
             }
         }
@@ -367,7 +369,20 @@ public final class ContentFolderLoader {
         for (Path file : nexoOraxenConfigFiles(folder, diagnostics, relative(root, folder))) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
-            if (document.isEmpty() || !NexoOraxen.looksLikeOne(document.get())) {
+            if (document.isEmpty()) {
+                continue;
+            }
+            // Their sounds.yml lives at the top of the plugin folder, so a copy
+            // of it is as likely to land loose in the pack as in sounds/.
+            if (NexoOraxenSound.looksLikeOne(document.get()) && file.getParent().equals(folder)) {
+                DefinitionNode translated = DefinitionNode.of(
+                        NexoOraxenSound.translate(document.get(), namespace.name(), origin, diagnostics));
+                for (String path : translated.keys()) {
+                    define(ContentKind.SOUND, namespace, translated, path, origin, seen, definitions, diagnostics);
+                }
+                continue;
+            }
+            if (!NexoOraxen.looksLikeOne(document.get())) {
                 continue;
             }
             for (Map.Entry<ContentKind, Map<String, Object>> kind
@@ -426,8 +441,18 @@ public final class ContentFolderLoader {
                 continue;
             }
             if (kind == ContentKind.RECIPE && NexoOraxenRecipe.looksLikeOne(document.get())) {
+                // The path below recipes/, because Nexo says the type with a
+                // folder (recipes/shaped/x.yml) where Oraxen names the file.
                 DefinitionNode translated = DefinitionNode.of(NexoOraxenRecipe.translate(document.get(), namespace.name(),
-                        file.getFileName().toString(), origin, diagnostics));
+                        folder.relativize(file).toString(), origin, diagnostics));
+                for (String path : translated.keys()) {
+                    define(kind, namespace, translated, path, origin, unregisteredSeen, definitions, diagnostics);
+                }
+                continue;
+            }
+            if (kind == ContentKind.SOUND && NexoOraxenSound.looksLikeOne(document.get())) {
+                DefinitionNode translated = DefinitionNode.of(NexoOraxenSound.translate(document.get(), namespace.name(),
+                        origin, diagnostics));
                 for (String path : translated.keys()) {
                     define(kind, namespace, translated, path, origin, unregisteredSeen, definitions, diagnostics);
                 }

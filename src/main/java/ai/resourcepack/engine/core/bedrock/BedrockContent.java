@@ -66,8 +66,19 @@ public final class BedrockContent {
                        ContentId modelId, Integer modelNumber, String armorSlot) {
     }
 
-    /** One chat icon. */
-    public record Icon(int codepoint, String zipPath) {
+    /**
+     * One chat icon.
+     *
+     * <p>{@code rows}, {@code columns} and {@code cell} say which part of the
+     * PNG it is when the icon is one cell of a sheet. Java needs no cropping
+     * for that - its bitmap provider splits the sheet itself - but a Bedrock
+     * glyph page is pictures laid out by us, so the cell is cut out here.
+     */
+    public record Icon(int codepoint, String zipPath, int rows, int columns, int cell) {
+        /** A whole-file icon, which is every icon that is not on a sheet. */
+        public Icon(int codepoint, String zipPath) {
+            this(codepoint, zipPath, 1, 1, 1);
+        }
     }
 
     /**
@@ -272,6 +283,7 @@ public final class BedrockContent {
                 byte[] png = read(zip, icon.zipPath());
                 if (png == null) continue;
                 BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
+                if (image != null) image = cellOf(image, icon);
                 if (image != null) decoded.add(new Glyph(icon.codepoint(), image));
             }
             glyphs = decoded.size();
@@ -344,6 +356,21 @@ public final class BedrockContent {
     // --- Pieces ---------------------------------------------------------------
 
     private record Glyph(int codepoint, BufferedImage image) {
+    }
+
+    /**
+     * The part of a sheet one icon is, cut the way Java's bitmap provider cuts
+     * it: equal cells, the remainder of an uneven division left off the right
+     * and bottom. Null for a sheet too small to have that many cells.
+     */
+    static BufferedImage cellOf(BufferedImage sheet, Icon icon) {
+        if (icon.rows() <= 1 && icon.columns() <= 1) return sheet;
+        int width = sheet.getWidth() / icon.columns();
+        int height = sheet.getHeight() / icon.rows();
+        if (width < 1 || height < 1) return null;
+        int index = icon.cell() - 1;
+        return sheet.getSubimage((index % icon.columns()) * width, (index / icon.columns()) * height,
+                width, height);
     }
 
     static Map<String, byte[]> glyphPages(List<Glyph> glyphs) throws IOException {

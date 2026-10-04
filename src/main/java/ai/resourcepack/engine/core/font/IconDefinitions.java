@@ -81,7 +81,44 @@ public final class IconDefinitions {
                             + ", which the game refuses to draw at all. Using " + height + "."));
             ascent = height;
         }
-        return Optional.of(IconInfo.of(definition.id(), file, height, ascent, codepoint));
+        IconInfo icon = IconInfo.of(definition.id(), file, height, ascent, codepoint);
+        Optional<DefinitionNode> grid = body.node("grid");
+        if (grid.isPresent()) {
+            icon = cell(icon, grid.get(), origin, where, diagnostics);
+        }
+        return Optional.of(icon);
+    }
+
+    /**
+     * {@code grid: {rows, columns, cell}}: one picture out of a sheet of them.
+     *
+     * <p>A sheet of emotes, or a picture bigger than the 256 pixels a font
+     * glyph may be, is one PNG cut into equal cells. Each icon names its cell,
+     * counted from 1 left to right and then down, which is the numbering Nexo
+     * uses for the same thing, so a pack moved across keeps its numbers.
+     *
+     * <p>Refused rather than clamped when the cell is not on the sheet: a
+     * clamped cell is a different picture, and that is harder to notice than
+     * a warning and a whole-sheet icon.
+     */
+    private static IconInfo cell(IconInfo icon, DefinitionNode grid, String origin, String where,
+                                 List<Diagnostic> diagnostics) {
+        int rows = grid.integer("rows").orElse(1);
+        int columns = grid.integer("columns").orElse(1);
+        int cell = grid.integer("cell").orElse(1);
+        if (rows < 1 || columns < 1 || rows > 16 || columns > 16) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grid: " + rows + " rows by " + columns + " columns is outside 1 to 16 each. "
+                            + "The whole picture is used."));
+            return icon;
+        }
+        if (cell < 1 || cell > rows * columns) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grid.cell: " + cell + " is not one of the " + rows * columns
+                            + " cells, which are numbered from 1. The whole picture is used."));
+            return icon;
+        }
+        return icon.withCell(rows, columns, cell);
     }
 
     /** The icons, and what was wrong with the ones that are missing. */

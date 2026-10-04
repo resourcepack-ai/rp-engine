@@ -132,6 +132,20 @@ class BedrockContentTest {
     }
 
     @Test
+    void anIconOnASheetIsCutOutForBedrock() {
+        // Java's font splits the sheet itself; a Bedrock glyph page is laid
+        // out by us, so the cell has to be the picture.
+        BufferedImage sheet = new BufferedImage(32, 16, BufferedImage.TYPE_INT_ARGB);
+        sheet.setRGB(20, 3, 0xFF00FF00);
+        BufferedImage cell = BedrockContent.cellOf(sheet,
+                new BedrockContent.Icon(0xE000, "faces.png", 1, 2, 2));
+        assertEquals(16, cell.getWidth());
+        assertEquals(16, cell.getHeight());
+        assertEquals(0xFF00FF00, cell.getRGB(4, 3));
+        assertTrue(BedrockContent.cellOf(sheet, new BedrockContent.Icon(0xE000, "faces.png")) == sheet);
+    }
+
+    @Test
     void theSameContentBuildsTheSameVersion() throws IOException {
         Map<String, byte[]> java = Map.of("assets/mypack/textures/item/ruby.png", png(16, 16, 0xFFFF0000));
         List<BedrockContent.Item> items = List.of(new BedrockContent.Item(RUBY, "PAPER", "Ruby", "item/ruby", RUBY, 7, null));

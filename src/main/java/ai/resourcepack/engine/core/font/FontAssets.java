@@ -57,7 +57,7 @@ public final class FontAssets implements PackContributor {
                 continue;
             }
             providers.add(bitmap(icon.id().namespace(), "font/" + icon.file(),
-                    icon.height(), icon.ascent(), icon.codepoint()));
+                    icon.height(), icon.ascent(), chars(icon)));
         }
 
         boolean anyScreen = false;
@@ -135,7 +135,7 @@ public final class FontAssets implements PackContributor {
             return false;
         }
         providers.add(bitmap(overlay.id().namespace(), "gui/" + overlay.file(),
-                overlay.height(), overlay.ascent(), overlay.codepoint()));
+                overlay.height(), overlay.ascent(), "\"" + escape(overlay.codepoint()) + "\""));
         return true;
     }
 
@@ -151,14 +151,40 @@ public final class FontAssets implements PackContributor {
         return true;
     }
 
-    private static String bitmap(String namespace, String path, int height, int ascent, int codepoint) {
+    private static String bitmap(String namespace, String path, int height, int ascent, String chars) {
         return "    {\n"
                 + "      \"type\": \"bitmap\",\n"
                 + "      \"file\": \"" + namespace + ':' + path + ".png\",\n"
                 + "      \"height\": " + height + ",\n"
                 + "      \"ascent\": " + ascent + ",\n"
-                + "      \"chars\": [\"" + escape(codepoint) + "\"]\n"
+                + "      \"chars\": [" + chars + "]\n"
                 + "    }";
+    }
+
+    /**
+     * The {@code chars} rows of an icon's provider, already quoted.
+     *
+     * <p>One string for an ordinary icon. For one cell of a sheet, the game's
+     * own grid: a bitmap provider with several rows of several characters
+     * splits its PNG into that many equal cells, and a NUL (U+0000) in a cell
+     * means nothing is drawn from it. So each icon on a sheet is the same PNG
+     * with every cell but its own empty, and nothing is ever cropped - the
+     * sheet ships once, and the picture is exactly what was drawn.
+     */
+    static String chars(IconInfo icon) {
+        StringBuilder rows = new StringBuilder();
+        int cell = 1;
+        for (int row = 0; row < icon.rows(); row++) {
+            if (row > 0) {
+                rows.append(", ");
+            }
+            rows.append('"');
+            for (int column = 0; column < icon.columns(); column++, cell++) {
+                rows.append(escape(cell == icon.cell() ? icon.codepoint() : 0));
+            }
+            rows.append('"');
+        }
+        return rows.toString();
     }
 
     /**

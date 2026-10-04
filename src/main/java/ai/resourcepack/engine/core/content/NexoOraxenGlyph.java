@@ -3,11 +3,37 @@ package ai.resourcepack.engine.core.content;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Static bitmap glyphs have the same font-provider meaning in all three plugins. */
+/**
+ * Static bitmap glyphs have the same font-provider meaning in all three plugins.
+ *
+ * <p>A Nexo/Oraxen glyph is {@code texture}, {@code height} and
+ * {@code ascent}, which is an icon of ours under another name. Three of their
+ * shapes need more than a rename:
+ *
+ * <ul>
+ *   <li><strong>A multi-bitmap glyph</strong> ({@code rows}/{@code columns})
+ *       is one PNG cut into cells. It becomes one icon per cell,
+ *       {@code <id>_1} to {@code <id>_N}, left to right and then down - the
+ *       numbers Nexo's own {@code <glyph:id:N>} uses - each drawing its cell
+ *       of the same sheet.</li>
+ *   <li><strong>An Oraxen animation</strong> is a sprite sheet of frames
+ *       stacked vertically, played by a shader. The first frame comes across
+ *       as a still icon, which is the same sheet cut into one column.</li>
+ *   <li><strong>A Nexo GIF</strong> is frames Nexo generates itself, so there
+ *       is no sheet to cut and it is skipped.</li>
+ * </ul>
+ *
+ * <p>What does not come across is everything about the glyph as a chat
+ * shortcut - placeholders, a permission, tab completion, a fixed character,
+ * a font of its own. RP Engine icons go into the default font, are typed as
+ * {@code :namespace:id:}, and get a codepoint by id. Each is a warning naming
+ * the glyph.
+ */
 final class NexoOraxenGlyph {
     private NexoOraxenGlyph() {
     }
@@ -32,32 +58,86 @@ final class NexoOraxenGlyph {
             }
             String texture = glyph.string("texture").orElse(null);
             if (texture == null) continue;
-            if (glyph.has("rows") || glyph.has("columns")) {
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        "Multi-bitmap glyphs allocate several characters; split it into one static glyph per cell."));
-                continue;
-            }
             String file = localPath(texture, namespace, id, origin, diagnostics);
             if (file == null) continue;
+            chatOnly(glyph, id, origin, diagnostics);
+
             Map<String, Object> icon = new LinkedHashMap<>();
             icon.put("file", file);
             glyph.integer("height").ifPresent(height -> icon.put("height", height));
             glyph.integer("ascent").ifPresent(ascent -> icon.put("ascent", ascent));
+
+            int rows = glyph.integer("rows").orElse(1);
+            int columns = glyph.integer("columns").orElse(1);
+            if (glyph.node("animation").isPresent()) {
+                int frames = glyph.node("animation").flatMap(a -> a.integer("frames")).orElse(1);
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "is an animated glyph. RP Engine icons are still pictures, so its first frame came across."));
+                if (frames > 1) {
+                    out.put(id, withGrid(icon, frames, 1, 1));
+                } else {
+                    out.put(id, icon);
+                }
+                continue;
+            }
+            if (rows > 1 || columns > 1) {
+                int cells = rows * columns;
+                for (int cell = 1; cell <= cells; cell++) {
+                    out.put(id + "_" + cell, withGrid(icon, rows, columns, cell));
+                }
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "is a " + rows + " by " + columns + " multi-bitmap glyph, so it became " + cells
+                                + " icons, " + id + "_1 to " + id + "_" + cells
+                                + ", numbered left to right and then down as Nexo numbers them."));
+                continue;
+            }
             out.put(id, icon);
         }
         return out;
     }
 
+    private static Map<String, Object> withGrid(Map<String, Object> icon, int rows, int columns, int cell) {
+        Map<String, Object> out = new LinkedHashMap<>(icon);
+        Map<String, Object> grid = new LinkedHashMap<>();
+        grid.put("rows", rows);
+        grid.put("columns", columns);
+        grid.put("cell", cell);
+        out.put("grid", grid);
+        return out;
+    }
+
+    /** The parts of a glyph that are about typing it in chat, which work differently here. */
+    private static void chatOnly(DefinitionNode glyph, String id, String origin, List<Diagnostic> diagnostics) {
+        List<String> skipped = new ArrayList<>();
+        for (String key : List.of("chat", "placeholders", "permission", "tabcomplete", "is_emoji", "char")) {
+            if (glyph.raw(key) != null) skipped.add(key);
+        }
+        glyph.string("font").filter(font -> !font.equals("minecraft:default") && !font.equals("default"))
+                .ifPresent(font -> skipped.add("font"));
+        if (!skipped.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    String.join(", ", skipped) + " skipped: an RP Engine icon goes in the default font, is typed as :"
+                            + id + ": with chat.icons on, and is given its character by id."));
+        }
+    }
+
+    /**
+     * The texture as a path under {@code assets/textures/font/}, which is
+     * where icons are read from. A path that already starts with
+     * {@code font/} is that folder written out.
+     */
     private static String localPath(String texture, String namespace, String id, String origin,
                                     List<Diagnostic> diagnostics) {
         String value = texture.endsWith(".png") ? texture.substring(0, texture.length() - 4) : texture;
         int colon = value.indexOf(':');
-        if (colon < 0) return value;
-        if (!value.substring(0, colon).equals(namespace)) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "Glyph texture " + texture + " is outside this pack's namespace, so it was skipped."));
-            return null;
+        if (colon >= 0) {
+            if (!value.substring(0, colon).equals(namespace)) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "Glyph texture " + texture + " is outside this pack's namespace, so it was skipped."));
+                return null;
+            }
+            value = value.substring(colon + 1);
         }
-        return value.substring(colon + 1);
+        return value.startsWith("font/") ? value.substring("font/".length()) : value;
     }
 }

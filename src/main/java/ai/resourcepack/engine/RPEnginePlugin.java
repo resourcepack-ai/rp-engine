@@ -1511,7 +1511,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (ContentId id : icons.ids()) {
             icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
                     icon.codepoint(),
-                    "assets/" + id.namespace() + "/textures/font/" + icon.file() + ".png")));
+                    "assets/" + id.namespace() + "/textures/font/" + icon.file() + ".png",
+                    icon.rows(), icon.columns(), icon.cell())));
         }
         try {
             ai.resourcepack.engine.core.bedrock.BedrockContent.Result result =
