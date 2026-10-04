@@ -149,6 +149,14 @@ final class EditTargets {
         if (name == null) {
             return null;
         }
+        if (name.startsWith("{") || name.indexOf(':') > 0) {
+            // A resource location out of a CraftEngine resource pack folder, or
+            // a model written inline: neither is a file of this pack's that
+            // the editor could write back to.
+            throw new EditException(item.id() + " wears " + (name.startsWith("{") ? "a model written inline"
+                    : name) + ", which is not a model file under this pack's assets/models/, so it "
+                    + "cannot be edited here.");
+        }
         String namespace = item.id().namespace();
         Map<String, String> refPaths = new LinkedHashMap<>();
 
