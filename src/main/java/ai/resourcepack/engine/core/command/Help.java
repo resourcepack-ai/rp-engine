@@ -74,6 +74,20 @@ final class Help {
         return "  /rp " + signature() + " - " + text;
     }
 
+    /**
+     * The line as this sender reads it: a {@code [player]} they could only
+     * ever fill with their own name is left out, so somebody without the
+     * command's {@code .others} node is not shown an argument that, for them,
+     * can only be refused or redundant.
+     */
+    String render(org.bukkit.command.CommandSender sender) {
+        if (!args.contains("[player]") || Targets.mayTargetOthers(sender, command())) {
+            return render();
+        }
+        String mine = args.replace(" [player]", "").replace("[player] ", "").replace("[player]", "").trim();
+        return new Help(sub, mine, text).render();
+    }
+
     /** The line as it goes into chat: the command bright, the rest grey. */
     String render() {
         ChatStyle style = Reply.style();
