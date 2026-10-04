@@ -269,7 +269,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                 // underlines rather than a page somebody can read. The links
                 // are for a command named in the middle of a sentence, where
                 // one stands out because the rest of the line is prose.
-                sender.sendMessage(line.render());
+                sender.sendMessage(line.render(sender));
             }
         }
         if (!any) {
