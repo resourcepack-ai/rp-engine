@@ -1292,7 +1292,7 @@ public final class StudioContent {
         }
         List<ai.resourcepack.engine.core.font.ScreenHeads.Head> heads = new ArrayList<>();
         for (Head head : screen.heads) {
-            if (head == null || head.rows == null || head.rows.size() != 8 || head.size < 1 || head.size > 4) {
+            if (head == null || head.rows == null || head.rows.size() != 8 || head.size < 1 || head.size > 16) {
                 continue;
             }
             heads.add(new ai.resourcepack.engine.core.font.ScreenHeads.Head(head.x, head.size, head.hat, head.rows));
