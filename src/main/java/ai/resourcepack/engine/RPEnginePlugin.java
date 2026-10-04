@@ -445,8 +445,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         skinCache = new SkinCache(this);
         bakeOnJoin = getConfig().getBoolean("emotes.bake-on-join", true);
         skinCache.onNewSkin(this::rebakeSoon);
-        // A pushed screen's player heads are drawn from the same kept skins.
-        overlays.faces(skinCache::face);
         // What a pushed pack holds that a command can name. Loaded here rather
         // than built on the first push, because a player is still wearing the
         // last one after a restart.
@@ -797,7 +795,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new LinkedHashMap<>(authoredHuds);
         allHuds.putAll(pushed.huds());
         overlays.replace(allScreens, allHuds);
-        overlays.replaceHeads(pushed.screenHeads());
 
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> allDialogs =
                 new LinkedHashMap<>(authoredDialogs);
@@ -1210,8 +1207,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Everything goes, then the folder is read again. See clear().
         registry.clear();
 
-        LoadReport loaded = new ContentFolderLoader(registry,
-                compatibility == null ? null : compatibility.version()).load(content, ContentSource.AUTHORED);
+        LoadReport loaded = new ContentFolderLoader(registry).load(content, ContentSource.AUTHORED);
         report(to, "content", loaded.diagnostics());
 
         ItemDefinitions.Result parsedItems = ItemDefinitions.parse(loaded);
@@ -1229,7 +1225,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
                     block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
-                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false));
+                    null, List.of(), "", block.model(), null, null, null, 0, false, false));
         }
         items.replace(withBlocks);
         // Numbers before anything asks for one, and all at once, so the
@@ -1515,8 +1511,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (ContentId id : icons.ids()) {
             icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
                     icon.codepoint(),
-                    ai.resourcepack.engine.core.item.Geometry.zipPathOf(
-                            ai.resourcepack.engine.core.font.FontAssets.textureOf(icon)),
+                    "assets/" + id.namespace() + "/textures/font/" + icon.file() + ".png",
                     icon.rows(), icon.columns(), icon.cell())));
         }
         try {

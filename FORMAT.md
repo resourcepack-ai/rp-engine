@@ -87,29 +87,6 @@ goes rather than having every player download both. A model **nothing
 references** stays exactly where you put it — that is how a shared parent
 model works, and dropping those would break every model that inherits one.
 
-**A model can also be a resource location or written out.** `model:
-minecraft:item/custom/lamp` names the model the built pack will have at
-`assets/minecraft/models/item/custom/lamp.json`: it is read from a
-`resourcepack/` folder in the pack (see [A CraftEngine pack](#a-craftengine-pack)),
-from `overrides/models/` for `minecraft`, or from `assets/models/` for the pack's
-own namespace. A bare texture path inside a file read this way means
-`minecraft:`, as it does in any resource pack, and the file itself stays where it
-is because something else may name it. A `texture:` can be a resource location
-in the same way (`texture: minecraft:item/custom/ruby`).
-
-A small model can be written into the item itself, which is how a generated one
-is said without a file:
-
-```yaml
-pick:
-  material: IRON_PICKAXE
-  model:
-    parent: minecraft:item/handheld
-    textures: { layer0: mypack:item/pick }
-```
-
-It is written out exactly as given, as the item's model.
-
 An item can also wear another item's model with `copy-model: mypack:other`.
 Nothing is generated for it; it points at what is already there, which is how
 a pack ships five items that look the same without five copies of one file.
@@ -496,19 +473,6 @@ Ship one texture, and which one depends on the slot:
 Leggings are a different layer rather than a second one: the game draws them
 from their own narrower sheet, so art drawn for the wide one puts a belt buckle
 on somebody's knee.
-
-To draw it from other art, name an equipment texture with `armor-texture`:
-
-```yaml
-crown:
-  material: PAPER
-  armor: head
-  armor-texture: minecraft:gold   # the game's own gold armour layer
-```
-
-`namespace:name` is the PNG at
-`assets/<namespace>/textures/entity/equipment/<layer>/<name>.png`, so a texture
-a pack ships in another namespace, or vanilla's, can be worn.
 
 This is vanilla's own equipment path, which arrived in 1.21.4. It replaces the
 old tricks outright — dyed leather spends a colour that can then never be used
@@ -1452,9 +1416,6 @@ ruby_ore:
   sound: minecraft:block.stone.place
 ```
 
-Give the item that places it a name with `name:` and `lore:`, written as on an
-item; without them it carries the base block's own name.
-
 **A block is an item too.** `/rp give mypack:ruby_ore` hands you the thing that
 places it; nothing declares that item, because a block you cannot obtain is not
 a block anybody can use.
@@ -1609,60 +1570,6 @@ of the item — `events`, `drop`, `item_flags`.
 something else is loaded under the folder's name and warns, because the folder
 is what this engine claimed and ids written elsewhere have to resolve.
 
-## A CraftEngine pack
-
-**Drop it in and it loads.** A pack folder out of CraftEngine's
-`resources/` - `pack.yml`, `configuration/`, `resourcepack/` - is read where it
-lies, and so is one of their YAML files inside a pack of yours. A file is
-recognised by its own shape: top-level sections (`items:`, `blocks:`,
-`furniture:`, `images:`, ...) holding namespaced ids, so there is nothing to turn
-on.
-
-**The `resourcepack/` folder is copied into the built pack as written**, every
-namespace in it, `minecraft` included. CraftEngine art is named by resource
-location (`minecraft:item/custom/ruby`), so that is where it has to land; a
-collision with another pack is warned about as `overrides/` collisions are.
-
-**Every pack is read before any is translated**, because CraftEngine's own
-content depends on that: templates are defined in one pack (its
-`default_templates`) and used in another, and an item's `<lang:...>` name is
-written in a third file. A template no loaded pack defines skips that
-definition with a warning naming it.
-
-Read as CraftEngine reads it: `$$>=1.21.2` / `$$<1.21.2` / `$$1.21.2~1.21.4` /
-`$$fallback` keys against the server's version, `a::b` deep keys, `#suffix` on
-section names, and `template` / `arguments` / `overrides` / `merges` with
-`${arg}`, `${arg:-default}`, `${arg^}` and `${arg^^}`.
-
-| Theirs | Ours |
-|---|---|
-| `items.<id>` | an item |
-| `material` · `data.item_name`/`custom_name` · `lore` | `material` · `name` · `lore` (MiniMessage as `&` codes, `<lang:>` as the pack's English text) |
-| `data.enchantments` · `attribute_modifiers` · `max_damage` · `max_stack_size` · `food` · `unbreakable` · `enchantment_glint_override` | `enchantments` · `attributes` · `durability` · `stack` · `food` · `unbreakable` · `glow` |
-| `texture(s)` · `model` (a path, or `generation:`) | `texture` · `model` (a resource location, or written inline) |
-| `equippable` / `settings.equipment` + `equipments.<id>` | `armor` + `armor-texture`, or `hat` |
-| `settings.keep_on_death_chance: 1` | `keep-on-death` |
-| `blocks.<id>`, or `block_item` with the block inline | a custom block, carrying the item's name and lore |
-| `state.auto_state` · `texture(s)`/`model` · `settings.hardness` · `correct_tools`/`required_break_power` · `sounds.place` · `loot` | `base` · `model` · `hardness` · `tool` · `sound` · `drop` |
-| `furniture`, or `furniture_item` with it inline | `place:`, with its surface, facing, hitbox, solidity, seat, light, scale and drop |
-| `images.<id>` (a grid is one icon per cell, `<id>_<row>_<column>`) | an icon |
-| `emoji.<id>` keywords written `:word:` | an icon called `word` |
-| `recipes.<id>` shaped, shapeless, smelting, blasting, smoking, campfire_cooking, stonecutting | a recipe |
-| `sounds.<id>` | a sound |
-| `enable: false` (pack or entry) | skipped, as theirs is |
-
-What does not come across is named in a warning with the id: anything that
-changes a vanilla item or block, behaviours and events, block states beyond the
-first, item model definitions that switch between models (the default one is
-worn), extra furniture elements, hitboxes and seats, smithing and brewing
-recipes, recipes with a tag or a choice of ingredients, categories, jukebox
-songs, and the sections that are not content (loot tables on their own,
-paintings, advancements, features).
-
-**The folder name is still the namespace.** A CraftEngine pack's ids carry their
-own (`default:topaz`); when that is not the folder's, they are loaded under the
-folder's and a warning says to rename the folder.
-
 ## A Model Engine blueprints folder
 
 **Drop it in and it loads.** A `blueprints/` folder of `.bbmodel` files —
@@ -1787,9 +1694,6 @@ Play it with `/rp sound mypack:chime`, or from another plugin through the
 `Sounds` API. The ID **is** the sound event name, so
 `playSound(loc, "mypack:chime", ...)` works from anywhere without asking us.
 
-A `file` with a namespace is a resource location: `minecraft:custom/boom` is
-`assets/minecraft/sounds/custom/boom.ogg`.
-
 **Ogg Vorbis only.** Minecraft plays nothing else, and an mp3 renamed to `.ogg`
 is silence with nothing in game to say why. Missing audio is a build error that
 names the path.
@@ -1834,11 +1738,6 @@ smile:
   file: emotes                            # assets/textures/font/emotes.png
   grid: { rows: 2, columns: 4, cell: 3 }  # cells count from 1, left to right, then down
 ```
-
-A `file` with a namespace is a resource location under `textures/`, so
-`file: minecraft:font/image/emojis` is
-`assets/minecraft/textures/font/image/emojis.png`, wherever in the bundle that
-came from.
 
 Nothing is cropped: the sheet ships once and the game's own font cuts it, so a
 cell is exactly what was drawn. `height` and `ascent` are the cell's, not the

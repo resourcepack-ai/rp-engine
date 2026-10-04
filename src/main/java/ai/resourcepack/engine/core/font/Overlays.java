@@ -72,22 +72,6 @@ public final class Overlays {
         this.huds = loadedHuds == null ? Map.of() : Map.copyOf(loadedHuds);
     }
 
-    private volatile Map<ContentId, ScreenHeads> screenHeads = Map.of();
-    private volatile ScreenHeads.Faces faces = null;
-
-    /**
-     * The player heads on pushed screens. Only Studio packs have any: a head is
-     * drawn from glyphs the pack build allocated. See {@link ScreenHeads}.
-     */
-    public void replaceHeads(Map<ContentId, ScreenHeads> loaded) {
-        this.screenHeads = loaded == null ? Map.of() : Map.copyOf(loaded);
-    }
-
-    /** Where a viewer's face pixels come from. Unset, every head is left as the sheet drew it. */
-    public void faces(ScreenHeads.Faces source) {
-        this.faces = source;
-    }
-
     /** Every screen id, sorted. */
     public Collection<ContentId> screenIds() {
         return sorted(screens);
@@ -146,15 +130,7 @@ public final class Overlays {
             return Optional.empty();
         }
         OverlayInfo info = found.get();
-        String title = title(info);
-        ScreenHeads heads = screenHeads.get(id);
-        ScreenHeads.Faces source = faces;
-        if (heads != null && source != null) {
-            // The viewer's own face, in their own colours, over the Steve the
-            // sheet carries in the same place.
-            title = title + heads.draw(viewer.getUniqueId(), source);
-        }
-        Inventory inventory = create(info, title);
+        Inventory inventory = create(info, title(info));
         if (inventory == null) {
             return Optional.empty();
         }

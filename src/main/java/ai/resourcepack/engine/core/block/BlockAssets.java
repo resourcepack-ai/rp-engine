@@ -6,7 +6,6 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.item.Geometry;
 import ai.resourcepack.engine.core.item.BbModel;
-import ai.resourcepack.engine.core.item.ModelSources;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
 import java.nio.charset.StandardCharsets;
@@ -94,27 +93,22 @@ public final class BlockAssets implements PackContributor {
         }
 
         String name = block.model();
-        String local = name.indexOf(':') > 0 ? name.substring(name.indexOf(':') + 1) : name;
-        Optional<ModelSources.Found> project = source(into, namespace, name, ".bbmodel");
+        Optional<byte[]> project = source(into, namespace, "models/" + name + ".bbmodel");
         if (project.isPresent()) {
-            Optional<BbModel.Converted> converted = BbModel.convert(project.get().bytes(), namespace, local);
+            Optional<BbModel.Converted> converted = BbModel.convert(project.get(), namespace, name);
             if (converted.isPresent()) {
                 into.add(target, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
                 converted.get().textures().forEach((file, png) ->
                         into.add("assets/" + namespace + "/textures/item/" + file + ".png", png));
-                if (project.get().consumable()) {
-                    into.drop("assets/" + namespace + "/models/" + local + ".bbmodel");
-                }
+                into.drop("assets/" + namespace + "/models/" + name + ".bbmodel");
                 return;
             }
         }
 
-        Optional<ModelSources.Found> exported = source(into, namespace, name, ".json");
+        Optional<byte[]> exported = source(into, namespace, "models/" + name + ".json");
         if (exported.isEmpty()) {
             into.error(namespace + "/blocks", block.id().path(),
-                    "No model at " + (ModelSources.isLocation(name)
-                            ? ModelSources.describe(namespace, name, ".json")
-                            : "assets/models/" + name + ".bbmodel or .json") + ". "
+                    "No model at assets/models/" + name + ".bbmodel or .json. "
                             + "The block is placeable and renders as a plain "
                             + block.base().name().toLowerCase(Locale.ROOT) + ".");
             into.add(target, ("{\"parent\":\"minecraft:block/"
@@ -122,19 +116,17 @@ public final class BlockAssets implements PackContributor {
                     .getBytes(StandardCharsets.UTF_8));
             return;
         }
-        Optional<Geometry.Model> model = Geometry.read(exported.get().bytes(), exported.get().textureNamespace());
+        Optional<Geometry.Model> model = Geometry.read(exported.get(), namespace);
         if (model.isPresent()) {
             into.add(target, model.get().json());
-            if (exported.get().consumable()) {
-                into.drop("assets/" + namespace + "/models/" + local + ".json");
-            }
+            into.drop("assets/" + namespace + "/models/" + name + ".json");
         }
     }
 
-    /** Ours first, then the other plugins' layouts. Same rule as items; see {@link ModelSources}. */
-    private static Optional<ModelSources.Found> source(Contribution into, String namespace, String name,
-                                                        String extension) {
-        return ModelSources.find(namespace, name, extension, path -> into.source(namespace, path));
+    /** Ours first, then an ItemsAdder pack's root. Same rule as items. */
+    private static Optional<byte[]> source(Contribution into, String namespace, String path) {
+        Optional<byte[]> ours = into.source(namespace, "assets/" + path);
+        return ours.isPresent() ? ours : into.source(namespace, path);
     }
 
     private static String blockstatePath(BlockInfo.Base base) {

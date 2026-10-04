@@ -164,26 +164,25 @@ public final class Geometry {
                 continue;
             }
             Path pack = content.resolve(item.id().namespace());
-            Optional<ModelSources.Found> found = ModelSources.find(item.id().namespace(), name, ".json",
-                    path -> readInside(pack, path, item.id(), onProblem));
-            found.flatMap(model -> read(model.bytes(), model.textureNamespace()))
-                    .ifPresent(model -> measured.put(item.id(), model.bounds()));
+            Path file = pack.resolve("assets").resolve("models").resolve(name + ".json");
+            if (!Files.isRegularFile(file)) {
+                // An ItemsAdder pack keeps its models at the root.
+                file = pack.resolve("models").resolve(name + ".json");
+            }
+            if (!Files.isRegularFile(file)) {
+                file = pack.resolve("blueprints").resolve(name + ".json");
+            }
+            if (!Files.isRegularFile(file)) {
+                continue;
+            }
+            try {
+                read(Files.readAllBytes(file), item.id().namespace())
+                        .ifPresent(model -> measured.put(item.id(), model.bounds()));
+            } catch (IOException e) {
+                onProblem.accept("Could not measure " + item.id() + ": " + e.getMessage());
+            }
         }
         return measured;
-    }
-
-    /** A file inside a pack folder, never outside it, or empty. */
-    private static Optional<byte[]> readInside(Path pack, String path, ContentId id, Consumer<String> onProblem) {
-        Path file = pack.resolve(path).normalize();
-        if (!file.startsWith(pack.normalize()) || !Files.isRegularFile(file)) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(Files.readAllBytes(file));
-        } catch (IOException e) {
-            onProblem.accept("Could not measure " + id + ": " + e.getMessage());
-            return Optional.empty();
-        }
     }
 
     /**

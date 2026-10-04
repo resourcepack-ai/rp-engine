@@ -89,19 +89,6 @@ public final class PackBuilder {
     static final List<String> IMPORTED_ASSETS =
             List.of("textures", "models", "sounds", "font", "blueprints");
 
-    /**
-     * CraftEngine's layout: a complete resource pack folder beside the
-     * configuration, {@code resourcepack/assets/<any namespace>/...}.
-     *
-     * <p>Copied as written, every namespace included, because that is what it
-     * is: art a CraftEngine pack addresses by resource location
-     * ({@code minecraft:item/custom/ruby}) rather than by a name of ours, so it
-     * has to land exactly where it says. That makes it the same kind of thing
-     * as {@code overrides/} for anything outside the pack's own namespace,
-     * and a collision with another pack is warned about in the same way.
-     */
-    static final String RESOURCE_PACK = "resourcepack";
-
     private final int packFormat;
     private final String description;
     private final List<PackContributor> contributors = new ArrayList<>();
@@ -163,8 +150,6 @@ public final class PackBuilder {
                         namespace, bundle, zip, writtenBy, diagnostics);
             }
             copyTree(packFolder.resolve(OVERRIDES), ASSETS + "/minecraft",
-                    namespace, bundle, zip, writtenBy, diagnostics);
-            copyTree(packFolder.resolve(RESOURCE_PACK).resolve(ASSETS), ASSETS,
                     namespace, bundle, zip, writtenBy, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
@@ -309,11 +294,10 @@ public final class PackBuilder {
             String path = toPrefix + "/" + relative(from, file);
             String previous = writtenBy.get(path);
             if (previous != null) {
-                // Only reachable through overrides/ or a resource pack folder,
-                // since everything else is namespaced. Later-sorted wins, which is stable; the warning
+                // Only reachable through overrides/, since everything else is
+                // namespaced. Later-sorted wins, which is stable; the warning
                 // is what makes it findable.
-                String folder = from.endsWith(Path.of(RESOURCE_PACK, ASSETS)) ? RESOURCE_PACK : OVERRIDES;
-                diagnostics.add(Diagnostic.warning(namespace + "/" + folder,
+                diagnostics.add(Diagnostic.warning(namespace + "/" + OVERRIDES,
                         "Both " + previous + " and " + namespace + " replace " + path
                                 + " in the bundle " + bundle.name() + ". " + namespace + " wins."));
             }

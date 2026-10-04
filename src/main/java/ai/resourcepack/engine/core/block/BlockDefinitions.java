@@ -65,7 +65,7 @@ public final class BlockDefinitions {
         // texture, which is a note block. Worth a warning rather than an error:
         // the block still works, and somebody mid-way through building a pack
         // should not be stopped by art they have not drawn yet.
-        String model = ai.resourcepack.engine.core.item.ItemDefinitions.model(body);
+        String model = body.string("model").orElse(null);
         if (model == null) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "No model, so this renders as a plain " + base.name().toLowerCase(Locale.ROOT)
@@ -109,8 +109,7 @@ public final class BlockDefinitions {
 
         return Optional.of(BlockInfo.of(definition.id(), base, model, hardness,
                 body.string("tool").orElse(null), drop,
-                body.string("sound").orElse(null))
-                .withItemText(body.string("name").orElse(null), body.strings("lore")));
+                body.string("sound").orElse(null)));
     }
 
     /** The blocks, and what was wrong with the ones that are missing. */
