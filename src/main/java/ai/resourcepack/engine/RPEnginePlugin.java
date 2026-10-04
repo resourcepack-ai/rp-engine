@@ -445,6 +445,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         skinCache = new SkinCache(this);
         bakeOnJoin = getConfig().getBoolean("emotes.bake-on-join", true);
         skinCache.onNewSkin(this::rebakeSoon);
+        // A pushed screen's player heads are drawn from the same kept skins.
+        overlays.faces(skinCache::face);
         // What a pushed pack holds that a command can name. Loaded here rather
         // than built on the first push, because a player is still wearing the
         // last one after a restart.
@@ -795,6 +797,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new LinkedHashMap<>(authoredHuds);
         allHuds.putAll(pushed.huds());
         overlays.replace(allScreens, allHuds);
+        overlays.replaceHeads(pushed.screenHeads());
 
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> allDialogs =
                 new LinkedHashMap<>(authoredDialogs);

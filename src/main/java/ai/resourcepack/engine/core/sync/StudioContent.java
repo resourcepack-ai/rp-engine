@@ -410,6 +410,25 @@ public final class StudioContent {
          */
         String shiftPlus;
         String shiftMinus;
+        /**
+         * A SCREEN's player heads, drawn by {@code Overlays.open} from the
+         * viewer's own skin. Null on a HUD and on any screen without one; a
+         * screen with heads also carries {@link #advance} and the alphabet.
+         * See {@link ai.resourcepack.engine.core.font.ScreenHeads}.
+         */
+        List<Head> heads;
+    }
+
+    /** One entry of {@link Overlay#heads}. */
+    static final class Head {
+        /** Left edge of the face, in sheet pixels from the screen glyph's left edge. */
+        int x;
+        /** Screen pixels per face pixel. */
+        int size;
+        /** Whether the skin's hat layer is drawn over the face. */
+        boolean hat;
+        /** The eight row characters, top first. */
+        List<String> rows;
     }
 
     /** One entry of {@link Overlay#runs}. */
@@ -518,6 +537,7 @@ public final class StudioContent {
 
     private volatile Map<ContentId, SoundInfo> sounds = Map.of();
     private volatile Map<ContentId, OverlayInfo> screens = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.core.font.ScreenHeads> screenHeads = Map.of();
     private volatile Map<ContentId, OverlayInfo> huds = Map.of();
     private volatile Map<ContentId, VehicleInfo> vehicles = Map.of();
     /**
@@ -547,6 +567,11 @@ public final class StudioContent {
     /** The pushed screens, keyed by id. */
     public Map<ContentId, OverlayInfo> screens() {
         return screens;
+    }
+
+    /** The player heads on pushed screens, keyed by screen id. Only screens that have any. */
+    public Map<ContentId, ai.resourcepack.engine.core.font.ScreenHeads> screenHeads() {
+        return screenHeads;
     }
 
     /** The pushed HUD overlays, keyed by id. */
@@ -646,12 +671,18 @@ public final class StudioContent {
         }
 
         Map<ContentId, OverlayInfo> readScreens = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.font.ScreenHeads> readHeads = new LinkedHashMap<>();
         for (Overlay screen : manifest.screens == null ? List.<Overlay>of() : manifest.screens) {
             if (screen == null || screen.title == null || screen.container == null) {
                 continue;
             }
-            id(screen.id, log, "screen").ifPresent(id -> readScreens.put(id,
-                    OverlayInfo.pushed(id, screen.title, screen.container, null)));
+            id(screen.id, log, "screen").ifPresent(id -> {
+                readScreens.put(id, OverlayInfo.pushed(id, screen.title, screen.container, null));
+                ai.resourcepack.engine.core.font.ScreenHeads heads = headsOf(screen);
+                if (heads != null) {
+                    readHeads.put(id, heads);
+                }
+            });
         }
 
         Map<ContentId, OverlayInfo> readHuds = new LinkedHashMap<>();
@@ -718,6 +749,7 @@ public final class StudioContent {
 
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
+        screenHeads = Map.copyOf(readHeads);
         huds = Map.copyOf(readHuds);
         vehicles = Map.copyOf(readVehicles);
         vehiclePassable = Set.copyOf(readPassable);
@@ -1077,7 +1109,24 @@ public final class StudioContent {
         }
         manifest.screens = new ArrayList<>();
         for (Map.Entry<ContentId, OverlayInfo> entry : screens.entrySet()) {
-            manifest.screens.add(overlay(entry.getKey(), entry.getValue(), true));
+            Overlay written = overlay(entry.getKey(), entry.getValue(), true);
+            // Heads come home too, or a restart quietly turns every face back into Steve.
+            ai.resourcepack.engine.core.font.ScreenHeads heads = screenHeads.get(entry.getKey());
+            if (heads != null) {
+                written.advance = heads.advance();
+                written.shiftPlus = heads.shiftPlus();
+                written.shiftMinus = heads.shiftMinus();
+                written.heads = new ArrayList<>();
+                for (ai.resourcepack.engine.core.font.ScreenHeads.Head head : heads.heads()) {
+                    Head h = new Head();
+                    h.x = head.x();
+                    h.size = head.size();
+                    h.hat = head.hat();
+                    h.rows = new ArrayList<>(head.rows());
+                    written.heads.add(h);
+                }
+            }
+            manifest.screens.add(written);
         }
         manifest.huds = new ArrayList<>();
         for (Map.Entry<ContentId, OverlayInfo> entry : huds.entrySet()) {
@@ -1234,6 +1283,24 @@ public final class StudioContent {
             }
         }
         return out;
+    }
+
+    /** A screen's heads off the wire, or null when it has none it could draw. */
+    private static ai.resourcepack.engine.core.font.ScreenHeads headsOf(Overlay screen) {
+        if (screen.heads == null || screen.heads.isEmpty() || screen.shiftPlus == null || screen.shiftMinus == null) {
+            return null;
+        }
+        List<ai.resourcepack.engine.core.font.ScreenHeads.Head> heads = new ArrayList<>();
+        for (Head head : screen.heads) {
+            if (head == null || head.rows == null || head.rows.size() != 8 || head.size < 1 || head.size > 4) {
+                continue;
+            }
+            heads.add(new ai.resourcepack.engine.core.font.ScreenHeads.Head(head.x, head.size, head.hat, head.rows));
+        }
+        if (heads.isEmpty()) {
+            return null;
+        }
+        return new ai.resourcepack.engine.core.font.ScreenHeads(screen.advance, screen.shiftPlus, screen.shiftMinus, heads);
     }
 
     private static Overlay overlay(ContentId id, OverlayInfo info, boolean screen) {
