@@ -1207,7 +1207,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Everything goes, then the folder is read again. See clear().
         registry.clear();
 
-        LoadReport loaded = new ContentFolderLoader(registry).load(content, ContentSource.AUTHORED);
+        LoadReport loaded = new ContentFolderLoader(registry,
+                compatibility == null ? null : compatibility.version()).load(content, ContentSource.AUTHORED);
         report(to, "content", loaded.diagnostics());
 
         ItemDefinitions.Result parsedItems = ItemDefinitions.parse(loaded);
@@ -1225,7 +1226,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
                     block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
-                    null, List.of(), "", block.model(), null, null, null, 0, false, false));
+                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false));
         }
         items.replace(withBlocks);
         // Numbers before anything asks for one, and all at once, so the
@@ -1511,7 +1512,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (ContentId id : icons.ids()) {
             icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
                     icon.codepoint(),
-                    "assets/" + id.namespace() + "/textures/font/" + icon.file() + ".png",
+                    ai.resourcepack.engine.core.item.Geometry.zipPathOf(
+                            ai.resourcepack.engine.core.font.FontAssets.textureOf(icon)),
                     icon.rows(), icon.columns(), icon.cell())));
         }
         try {
