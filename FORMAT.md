@@ -1730,6 +1730,20 @@ sword:
   ascent: 8       # how far above the baseline. Never more than height.
 ```
 
+A sheet of pictures in one PNG is cut into equal cells, and an icon can be one
+of them:
+
+```yaml
+smile:
+  file: emotes                            # assets/textures/font/emotes.png
+  grid: { rows: 2, columns: 4, cell: 3 }  # cells count from 1, left to right, then down
+```
+
+Nothing is cropped: the sheet ships once and the game's own font cuts it, so a
+cell is exactly what was drawn. `height` and `ascent` are the cell's, not the
+sheet's. The PNG's width has to divide by the columns and its height by the
+rows, as for any font sheet.
+
 Put one into any piece of text with `:namespace:id:`:
 
 ```

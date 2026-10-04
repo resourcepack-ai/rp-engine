@@ -164,6 +164,30 @@ class IconsTest {
     }
 
     @Test
+    void anIconOnASheetIsTheSheetWithEveryOtherCellEmpty() throws IOException {
+        write("mypack/fonts/a.yml", "smile:\n  file: faces\n  grid: { rows: 2, columns: 2, cell: 3 }\n");
+        write("mypack/assets/textures/font/faces.png", "PNG");
+
+        IconInfo smile = one(parse(), "mypack:smile");
+        assertEquals(3, smile.cell());
+        String font = zip().get("assets/minecraft/font/default.json");
+
+        // The game's own grid cuts the sheet: two rows of two, NUL where
+        // another cell is, so nothing is cropped and the sheet ships once.
+        assertTrue(font.contains("\"chars\": [\"\\u0000\\u0000\", \"\\uE000\\u0000\"]"), font);
+    }
+
+    @Test
+    void aCellThatIsNotOnTheSheetIsTheWholePictureAndSaysSo() throws IOException {
+        write("mypack/fonts/a.yml", "smile:\n  grid: { rows: 2, columns: 2, cell: 5 }\n");
+
+        IconDefinitions.Result result = parse();
+
+        assertEquals(1, one(result, "mypack:smile").rows());
+        assertTrue(result.diagnostics().get(0).message().contains("grid.cell"));
+    }
+
+    @Test
     void theCodepointIsWrittenAsAnEscape() throws IOException {
         write("mypack/fonts/a.yml", "sword: {}\n");
         write("mypack/assets/textures/font/sword.png", "PNG");
