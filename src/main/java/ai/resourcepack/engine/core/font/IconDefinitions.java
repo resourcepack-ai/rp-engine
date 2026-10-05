@@ -90,7 +90,7 @@ public final class IconDefinitions {
             parseOne(definition, codepoint, motion, diagnostics)
                     .ifPresent(icon -> icons.put(icon.id(), icon));
         }
-        return new Result(Map.copyOf(icons), List.copyOf(diagnostics));
+        return new Result(Map.copyOf(unshared(icons, loaded, diagnostics)), List.copyOf(diagnostics));
     }
 
     private static Optional<IconInfo> parseOne(ContentDefinition definition, int codepoint, Motion motion,
@@ -129,7 +129,71 @@ public final class IconDefinitions {
         } else if (grid.isPresent() && motion.gif == null) {
             icon = cell(icon, grid.get(), origin, where, diagnostics);
         }
-        return Optional.of(icon);
+        return Optional.of(icon.withChat(aliases(body, origin, where, diagnostics),
+                body.string("permission").map(String::trim).orElse(null)));
+    }
+
+    /**
+     * {@code aliases: ["<3", ":heart:"]}: more ways to type the icon in chat.
+     *
+     * <p>Chat matches an alias as a whole word, so one with a space in it could
+     * never match anything and is refused rather than kept as a promise that
+     * cannot be kept.
+     */
+    private static List<String> aliases(DefinitionNode body, String origin, String where,
+                                        List<Diagnostic> diagnostics) {
+        List<String> kept = new ArrayList<>();
+        for (String alias : body.strings("aliases")) {
+            String word = alias.trim();
+            if (word.isEmpty()) {
+                continue;
+            }
+            if (word.chars().anyMatch(Character::isWhitespace) || word.length() > 32) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "aliases: \"" + alias + "\" is skipped. Chat matches an alias as one word on its own, "
+                                + "so it cannot contain a space, and it has to be 32 characters or fewer."));
+                continue;
+            }
+            if (!kept.contains(word)) {
+                kept.add(word);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * One alias per icon: when two list the same one, the first by id keeps it
+     * and the others are told. Chat would pick one either way; saying which is
+     * the difference between a choice and a mystery.
+     */
+    private static Map<ContentId, IconInfo> unshared(Map<ContentId, IconInfo> icons, LoadReport loaded,
+                                                     List<Diagnostic> diagnostics) {
+        Map<String, ContentId> owner = new HashMap<>();
+        Map<ContentId, String> origins = new HashMap<>();
+        for (ContentDefinition definition : loaded.definitions(ContentKind.FONT)) {
+            origins.put(definition.id(), definition.origin());
+        }
+        Map<ContentId, IconInfo> out = new LinkedHashMap<>(icons);
+        for (ContentId id : new java.util.TreeSet<>(icons.keySet())) {
+            IconInfo icon = icons.get(id);
+            if (icon.aliases().isEmpty()) {
+                continue;
+            }
+            List<String> kept = new ArrayList<>();
+            for (String alias : icon.aliases()) {
+                ContentId first = owner.putIfAbsent(alias, id);
+                if (first == null) {
+                    kept.add(alias);
+                } else {
+                    diagnostics.add(Diagnostic.warning(origins.getOrDefault(id, ""), id.path(),
+                            "aliases: \"" + alias + "\" is already " + first + "'s, so it types that icon, not this one."));
+                }
+            }
+            if (kept.size() != icon.aliases().size()) {
+                out.put(id, icon.withChat(kept, icon.permission().orElse(null)));
+            }
+        }
+        return out;
     }
 
     /**
