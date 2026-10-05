@@ -352,6 +352,14 @@ class BlockShapesTest {
         assertTrue(blocks.get(id("mypack:ash")).behaviour().falls());
         assertTrue(blocks.get(id("mypack:ash")).behaviour().blastProof());
 
+        BlockInfo crate = blocks("""
+                crate:
+                  model: crate
+                  storage: { type: shulker, rows: 2, title: Crate }
+                """).get(id("mypack:crate"));
+        assertEquals(ai.resourcepack.engine.api.StorageSpec.Type.SHULKER, crate.storage().orElseThrow().type());
+        assertEquals(2, crate.storage().orElseThrow().rows());
+
         BlockInfo cobbles = blocks.get(id("mypack:cobbles"));
         assertEquals(BlockInfo.Property.Kind.RANDOM, cobbles.properties().get(0).kind());
         assertEquals(3, cobbles.states().size());

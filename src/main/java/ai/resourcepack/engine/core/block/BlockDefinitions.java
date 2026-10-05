@@ -150,6 +150,11 @@ public final class BlockDefinitions {
         }
         block = states(block, body, origin, where, diagnostics);
         block = behaviour(block, body, origin, where, diagnostics);
+        Optional<ai.resourcepack.engine.api.StorageSpec> storage =
+                ai.resourcepack.engine.core.storage.StorageDefinitions.parse(body, origin, where, diagnostics);
+        if (storage.isPresent()) {
+            block = block.withStorage(storage.get());
+        }
         Optional<String> itemTexture = body.string("item-texture").or(() -> body.string("item_texture"));
         if (itemTexture.isPresent()) {
             block = block.withItemTexture(itemTexture.get().trim());
