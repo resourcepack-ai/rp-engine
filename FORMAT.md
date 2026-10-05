@@ -549,6 +549,47 @@ The contents are kept on the piece itself, in the world, so they survive a
 restart, move with a copied region and go back with a rolled-back one. There is
 no file of them anywhere.
 
+### A jukebox
+
+A gramophone, a radio, a boombox:
+
+```yaml
+gramophone:
+  material: PAPER
+  model: gramophone
+  place:
+    jukebox:
+      volume: 1.0                       # 1 is a vanilla jukebox, heard ~64 blocks away
+      pitch: 1.0                        # 0.5-2
+      permission: mypack.jukebox.use    # leave out and anybody may
+      playing-model: mypack:gramophone_on   # what it looks like while a disc is in it
+```
+
+`jukebox: true` is one with every default. Right-click it holding a music disc
+to put the disc in — it leaves your hand, unless you are in creative — and the
+record plays at the piece. Right-click again and the disc pops out of the top
+and the music stops for everybody who could hear it. Breaking the piece does the
+same: **a disc is never broken with its jukebox.**
+
+Every vanilla disc works on every version. From Minecraft 1.21, so does any item
+a datapack made playable — but Bukkit does not say which sound a datapack's song
+plays, so such a disc goes in and plays nothing unless this server has a
+[sound](#sounds) with **the song's own id**, in which case it plays that. The
+console says so once per song.
+
+`playing-model` is an item id whose model the piece wears while a disc is in it
+(or a model id with no item of its own), and it goes back to its own model when
+the disc comes out. It does nothing on an [animated](#animating-one) piece,
+whose look is its moving parts; the load says so.
+
+A click with no disc in it and none in hand is not a jukebox click, so a
+gramophone that is also a seat is still sat on. Sneaking on one that is a seat
+always sits.
+
+The record is sent once, when it goes in, as vanilla's is: somebody who walks up
+halfway through hears nothing until the next disc, and a restart does not resume
+it. The disc is still in the piece either way.
+
 ## Armour
 
 Any item can be worn, with its own art:
