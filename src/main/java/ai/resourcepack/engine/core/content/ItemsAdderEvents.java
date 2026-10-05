@@ -259,6 +259,16 @@ final class ItemsAdderEvents {
                 }
                 return true;
             }
+            case "play_particle":
+            case "shoot_particle": {
+                String name = settings.string("name").or(() -> settings.string("particle")).orElse(null);
+                if (name == null) return false;
+                int amount = settings.integer("amount").or(() -> settings.integer("count")).orElse(8);
+                // A shot particle is a line flying from the player; here it is
+                // a puff where the action happens, the nearest step there is.
+                out.add(ImportedActions.step("particle", name.toLowerCase(Locale.ROOT) + " " + amount));
+                return true;
+            }
             case "replace_block":
                 // A placed block's click-into:, written by the block translation.
                 return true;

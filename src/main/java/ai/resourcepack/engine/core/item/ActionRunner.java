@@ -59,6 +59,14 @@ public final class ActionRunner {
      * @return whether the vanilla use of the stack should be cancelled
      */
     public boolean run(Player player, ContentId id, ItemAction.Trigger trigger, ItemStack stack) {
+        return run(player, id, trigger, stack, null);
+    }
+
+    /**
+     * As above, about something standing at {@code at} - a custom block, a
+     * placed piece - which is where a {@code particle} step draws.
+     */
+    public boolean run(Player player, ContentId id, ItemAction.Trigger trigger, ItemStack stack, Location at) {
         List<ItemAction> steps = items.info(id)
                 .map(info -> info.actions(trigger))
                 .orElse(List.of());
@@ -86,14 +94,14 @@ public final class ActionRunner {
                     cancel = true;
                     break;
                 default:
-                    perform(player, step, stack);
+                    perform(player, step, stack, at);
                     break;
             }
         }
         return cancel;
     }
 
-    private void perform(Player player, ItemAction step, ItemStack stack) {
+    private void perform(Player player, ItemAction step, ItemStack stack, Location at) {
         switch (step.kind()) {
             case MESSAGE:
                 player.sendMessage(colour(text(player, step.argument())));
@@ -133,10 +141,59 @@ public final class ActionRunner {
             case GIVE:
                 give(player, step);
                 break;
+            case PARTICLE:
+                particle(player, step, at);
+                break;
             default:
                 break;
         }
     }
+
+    /**
+     * Particles where the action happened.
+     *
+     * <p>By the game's name, tried as written and under the one rename that
+     * matters across the supported versions (1.20.5 renamed most of them);
+     * a type that needs data, or that this version does not have, draws
+     * nothing rather than throwing at somebody's click.
+     */
+    private void particle(Player player, ItemAction step, Location at) {
+        String[] words = step.words();
+        if (words.length == 0) {
+            return;
+        }
+        String name = words[0].toUpperCase(Locale.ROOT);
+        name = name.substring(name.indexOf(':') + 1);
+        int count = words.length > 1 ? Math.max(1, Math.min(200, (int) number(words[1], 8f))) : 8;
+        double spread = words.length > 2 ? number(words[2], 0.3f) : 0.3;
+        Location where = at != null ? at : player.getLocation().add(0, 1, 0);
+        if (where.getWorld() == null) {
+            return;
+        }
+        for (String candidate : new String[] {name, RENAMED.getOrDefault(name, name)}) {
+            try {
+                where.getWorld().spawnParticle(org.bukkit.Particle.valueOf(candidate), where, count,
+                        spread, spread, spread, 0);
+                return;
+            } catch (IllegalArgumentException e) {
+                // Not this name on this version, or it needs data; try the other.
+            }
+        }
+    }
+
+    /** The particles 1.20.5 renamed, both ways, so a name from either side of it works. */
+    private static final Map<String, String> RENAMED = Map.ofEntries(
+            Map.entry("HAPPY_VILLAGER", "VILLAGER_HAPPY"), Map.entry("VILLAGER_HAPPY", "HAPPY_VILLAGER"),
+            Map.entry("ANGRY_VILLAGER", "VILLAGER_ANGRY"), Map.entry("VILLAGER_ANGRY", "ANGRY_VILLAGER"),
+            Map.entry("SMOKE", "SMOKE_NORMAL"), Map.entry("SMOKE_NORMAL", "SMOKE"),
+            Map.entry("LARGE_SMOKE", "SMOKE_LARGE"), Map.entry("SMOKE_LARGE", "LARGE_SMOKE"),
+            Map.entry("ENCHANT", "ENCHANTMENT_TABLE"), Map.entry("ENCHANTMENT_TABLE", "ENCHANT"),
+            Map.entry("SPLASH", "WATER_SPLASH"), Map.entry("WATER_SPLASH", "SPLASH"),
+            Map.entry("FIREWORK", "FIREWORKS_SPARK"), Map.entry("FIREWORKS_SPARK", "FIREWORK"),
+            Map.entry("EXPLOSION", "EXPLOSION_LARGE"), Map.entry("POOF", "EXPLOSION_NORMAL"),
+            Map.entry("ENCHANTED_HIT", "CRIT_MAGIC"), Map.entry("CRIT_MAGIC", "ENCHANTED_HIT"),
+            Map.entry("WITCH", "SPELL_WITCH"), Map.entry("SPELL_WITCH", "WITCH"),
+            Map.entry("BUBBLE", "WATER_BUBBLE"), Map.entry("WATER_BUBBLE", "BUBBLE"));
 
     /**
      * Whether this is still cooling, starting the clock if it is not.

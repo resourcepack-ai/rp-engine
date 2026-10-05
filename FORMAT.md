@@ -173,6 +173,7 @@ Neither is worth it for a trigger.
 | `run` | Runs a command as the user, with the user's own permissions. |
 | `sound` | `mypack:chime`, or a vanilla key like `minecraft:block.anvil.land`. Optional volume and pitch. |
 | `effect` | `SPEED 10 2` — type, seconds, level. Level is 1-based, as it reads. |
+| `particle` | `flame 12 0.3` — type, count, spread. At the block or piece the action is about, or at the user for a held item. A type that needs a colour or a block draws nothing. |
 | `give` | `mypack:ruby 3`. What will not fit drops on the floor. |
 | `take` | Takes this many off the stack. |
 | `cancel` | Cancels the vanilla use, so a wand built on a bucket does not fill with water. |
@@ -2066,7 +2067,9 @@ reads it; anything with a capital is a vanilla material.
 (`as_console` is `console`, otherwise `run`), `potion_effect`, `give_item`
 (a vanilla item is handed over with the game's own `give`),
 `decrement_amount` (`take`), `cancel`, and ItemsAdderAdditions' `message` and
-`actionbar` come across. A permission every action in an event shares becomes
+`actionbar` come across, and `play_particle` and `shoot_particle` are a
+`particle` step (a shot particle as a puff where it happens). A permission every
+action in an event shares becomes
 a `permission` step at its front.
 
 What does not, each of them a warning naming the id rather than a silence: their
@@ -2074,7 +2077,7 @@ What does not, each of them a warning naming the id rather than a silence: their
 different feature rather than a different spelling; a brewing recipe's
 `brew_time`, `fuel_cost` and `on_complete`; events with no trigger
 here (holding, wearing, fishing, a sneaking click, their guns and books);
-actions with no step (particles, damage, dropping experience,
+actions with no step (damage, dropping experience,
 anything with a `delay`, a permission only some actions ask for); loot by
 chance, mob and fishing loot; and an item's own `drop`. Of their armour, an
 animated layer (a strip of frames, which a worn layer cannot play) is not
@@ -2149,8 +2152,8 @@ meaning; on a block or furniture, `right_click` is its `interact`, `break` its
 `remove` and `place` its `place`. The functions `command` (`as_player` is
 `run`, otherwise `console`; `<arg:player.name>` is `{player}`), `message`
 (`overlay` is the action bar), `actionbar`, `play_sound`, `potion_effect`,
-`cancel_event`, `set_count` taking from the stack, and a `run` with no delay
-come across. A `permission` condition is a `permission` step; any other
+`cancel_event`, `particle`, `set_count` taking from the stack, and a `run` with
+no delay come across. A `permission` condition is a `permission` step; any other
 condition is a branch, which actions do not have, so what it guards is skipped.
 An entity entry is attribute values and tags for an existing mob type, with no
 model or spawn, so there is no RP Engine entity in it, and the load says so.

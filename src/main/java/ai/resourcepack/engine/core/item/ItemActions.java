@@ -156,6 +156,8 @@ public final class ItemActions {
                     return "give: " + step.argument() + " is not a namespace:id.";
                 }
                 return null;
+            case PARTICLE:
+                return step.words().length >= 1 ? null : "particle has nothing after it.";
             case EFFECT:
                 return step.words().length >= 2 ? null
                         : "effect: " + step.argument()
