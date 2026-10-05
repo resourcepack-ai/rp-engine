@@ -1327,4 +1327,22 @@ class CraftEnginePackTest {
                 steps(button.actions().get(ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE)));
         assertTrue(warned(report, "gems:button", "is_sneaking"));
     }
+
+    @Test
+    void entitiesSayWhyThereIsNoMobInThem() throws IOException {
+        write("gems/pack.yml", "namespace: gems\n");
+        write("gems/configuration/entities.yml", """
+                entities:
+                  minecraft:zombie:
+                    settings:
+                      attributes:
+                        minecraft:max_health: 40
+                      tags:
+                        - gems:undead
+                """);
+        LoadReport report = load();
+        assertTrue(report.diagnostics().stream().anyMatch(d -> d.message().contains("1 entities entry skipped")
+                && d.message().contains("no model, name or spawn")), report.diagnostics().toString());
+        assertTrue(report.definitions().stream().noneMatch(d -> d.kind() == ai.resourcepack.engine.api.ContentKind.ENTITY));
+    }
 }
