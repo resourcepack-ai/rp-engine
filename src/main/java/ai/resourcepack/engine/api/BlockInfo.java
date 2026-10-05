@@ -387,6 +387,7 @@ public final class BlockInfo {
     private String takes;
     private Growth growth;
     private Behaviour behaviour = Behaviour.NONE;
+    private StorageSpec storage;
 
     /**
      * The small things a block does that vanilla blocks do: fall like sand,
@@ -466,6 +467,7 @@ public final class BlockInfo {
         to.takes = takes;
         to.growth = growth;
         to.behaviour = behaviour;
+        to.storage = storage;
         return to;
     }
 
@@ -507,6 +509,22 @@ public final class BlockInfo {
         BlockInfo changed = copy();
         changed.behaviour = behaviour == null ? Behaviour.NONE : behaviour;
         return changed;
+    }
+
+    /** Engine internal; the same block, holding things. */
+    public BlockInfo withStorage(StorageSpec storage) {
+        BlockInfo changed = copy();
+        changed.storage = storage;
+        return changed;
+    }
+
+    /**
+     * The container a right-click opens, if it is one: the same
+     * {@code storage:} a placed model takes, kept in the chunk's own
+     * persistent data under the block's position.
+     */
+    public Optional<StorageSpec> storage() {
+        return Optional.ofNullable(storage);
     }
 
     /** What it does beyond being placed, clicked and mined. */

@@ -554,6 +554,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // duplication rules as a placed cabinet does now.
         storages = new ai.resourcepack.engine.core.storage.Storages(this, sounds);
         placements.storages(storages);
+        blocks.storages(storages);
         placements.sounds(sounds);
         // A piece that is a jukebox asks this what a disc plays: a material
         // on every version, a data component from 1.21. See Discs.
