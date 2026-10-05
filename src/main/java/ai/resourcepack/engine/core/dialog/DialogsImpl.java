@@ -248,6 +248,9 @@ public final class DialogsImpl implements Dialogs {
             lastShown.put(viewer, shown);
             return true;
         }
+        // Null when the codec read it and something else went wrong, or there
+        // is no direct route on this server.
+        String refused = DialogPackets.lastRefusal();
 
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
@@ -264,7 +267,11 @@ public final class DialogsImpl implements Dialogs {
         // written. Either way the registry is worth trying, because a server
         // that has been restarted since the last content load has the dialog
         // in it and this still works.
-        Outcome byName = dispatch("minecraft:dialog show " + viewer.getName() + " " + named, named, true);
+        // Its own refusal is worth a line only when the dialog never got that
+        // far as itself: otherwise it says the id is not in the registry, which
+        // reads like the problem and is not.
+        Outcome byName = dispatch("minecraft:dialog show " + viewer.getName() + " " + named, named,
+                inline.isEmpty() && refused == null);
         if (byName == Outcome.SHOWN) {
             lastShown.put(viewer, shown);
             // A show that worked is the only proof available that the server
@@ -289,11 +296,15 @@ public final class DialogsImpl implements Dialogs {
                         + "other way in — and if a restart has not done it either, the pack is in this world's "
                         + "DISABLED list (a server that once read it as incompatible puts it there): run "
                         + DialogDatapack.enableCommand() + " once, then restart.");
+            } else if (refused != null) {
+                Bukkit.getLogger().warning("[RPEngine] The game will not read " + named + ": " + refused
+                        + " — that is the dialog itself, not the registry. A field it does not know usually "
+                        + "means the dialog is written for a newer Minecraft than this server runs; anything "
+                        + "else is worth reporting with this line.");
             } else {
                 Bukkit.getLogger().info("[RPEngine] " + named + " was refused both as itself and by name — so "
-                        + "this is the dialog rather than the registry. The line above is what the game made "
-                        + "of it; a complaint about a field usually means it is written for a newer Minecraft "
-                        + "than this server runs.");
+                        + "this is the dialog rather than the registry. A complaint about a field usually means "
+                        + "it is written for a newer Minecraft than this server runs.");
             }
         }
         return false;
