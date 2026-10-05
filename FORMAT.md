@@ -145,7 +145,16 @@ needs its own `-`; two keys in one entry is a missing dash, and that is a load
 error rather than a step that quietly never runs.
 
 Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`,
-`block_break`, `shoot`, `break` (durability ran out), `pickup`.
+`block_break`, `shoot`, `break` (durability ran out), `pickup`, and three about
+the thing standing in the world rather than the stack in a hand: `place` (put
+down), `interact` (right-clicked where it stands) and `remove` (punched out or
+mined by a player). Those three fire for an item with a [`place:`](#placing-a-model)
+block and for a [custom block](#custom-blocks), whose definition takes the same
+`actions:`; on any other item they are a load warning, because they never can.
+On `interact`, `cancel` stops the click's own effect (the seat, or a block
+placed against it); `place` and `remove` run once it is down or gone and cannot
+be cancelled; and `take` does nothing in any of them, because the click is on
+the piece, not on whatever the player holds.
 
 `break` fires after the item is already gone and cannot be cancelled — that is
 vanilla's shape, not ours. It is still worth having for the sound and the
@@ -1470,7 +1479,9 @@ ruby_ore:
 ```
 
 Give the item that places it a name with `name:` and `lore:`, written as on an
-item; without them it carries the base block's own name.
+item; without them it carries the base block's own name. `actions:` are written
+as on an item too, and are that item's: see [Making an item do
+something](#making-an-item-do-something) for `place`, `interact` and `remove`.
 
 **A block is an item too.** `/rp give mypack:ruby_ore` hands you the thing that
 places it; nothing declares that item, because a block you cannot obtain is not
