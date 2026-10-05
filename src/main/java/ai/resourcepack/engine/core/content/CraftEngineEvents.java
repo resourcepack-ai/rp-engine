@@ -270,6 +270,14 @@ final class CraftEngineEvents {
             case "cancel_event":
                 out.add(ImportedActions.step("cancel", ""));
                 return true;
+            case "particle": {
+                String particle = string(get(function, "particle", "type_particle"));
+                if (particle == null) return false;
+                Double count = number(get(function, "count", "amount"));
+                out.add(ImportedActions.step("particle", particle.toLowerCase(Locale.ROOT)
+                        + " " + (count == null ? 8 : Math.max(1, count.intValue()))));
+                return true;
+            }
             case "cycle_block_property":
                 // A block's own click: here, written by the block translation;
                 // it needs no step.
