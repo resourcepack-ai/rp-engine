@@ -24,6 +24,12 @@ public final class DialogItemIcons {
     /** The character of the "no picture" icon; the first item's is the next one. */
     public static final int BASE = 0xE000;
 
+    /**
+     * The character of the highlight drawn behind a stack a player has picked
+     * up, in a dialog whose items move — the cell after the last item's.
+     */
+    public static final int HELD = BASE + 1506;
+
     /** The ids, space-separated, exactly as Studio's generated copy spells them. */
     static final String IDS =
             "acacia_boat acacia_button acacia_chest_boat acacia_door acacia_fence acacia_fence_gate "

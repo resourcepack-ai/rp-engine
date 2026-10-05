@@ -67,7 +67,8 @@ public final class InterfaceCommands implements Area {
                 Help.of("dialogs", "list the dialogs"),
                 Help.of("dialog", "<id> [k=v] [player]", "open (1.21.6+)"),
                 Help.of("var", "<name> <value>", "set a dialog setting"),
-                Help.of("page", "<id|close>", "turn or close a dialog"));
+                Help.of("page", "<id|close>", "turn or close a dialog"),
+                Help.of("slot", "<slot>", "move an item in a dialog"));
     }
 
     @Override
@@ -93,6 +94,8 @@ public final class InterfaceCommands implements Area {
                 return var(sender, args);
             case "page":
                 return page(sender, args);
+            case "slot":
+                return slot(sender, args);
             case "shaders":
                 return shaders(sender);
             case "shader":
@@ -230,6 +233,58 @@ public final class InterfaceCommands implements Area {
             Reply.to(player, !impl.canShow(player, id)
                     ? "That page is drawn in a pack you are not holding, so it would open as missing-glyph boxes."
                     : "The game would not open " + id + ". The console says what it made of it.");
+        }
+        return true;
+    }
+
+    /**
+     * {@code /rp slot <container/index>} — what a click on a slot of a dialog
+     * whose items move runs, as the player who clicked it: the first picks a
+     * stack up, the second puts it down. See
+     * {@link ai.resourcepack.engine.core.dialog.DialogSlots}.
+     *
+     * <p>Every player may run it, for {@code /rp page}'s reason: it acts only on
+     * a slot the dialog the player was last shown has a click for, and only on
+     * the player's own containers, so typing it does what the click did and
+     * nothing more. Then it opens that dialog again at once, items where they
+     * now are — Studio sends such a dialog with {@code after_action: none}, so
+     * the old one stays up until this replaces it. Silent when it works, a line
+     * when it does not.
+     */
+    private boolean slot(CommandSender sender, String[] args) {
+        if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl)) {
+            Reply.to(sender, "Dialogs are not available on this server.");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            Reply.to(sender, "Only a player moves an item: it is what a click on a dialog runs.");
+            return true;
+        }
+        if (args.length < 2) {
+            Reply.to(sender, "/rp slot <slot>");
+            return true;
+        }
+        java.util.Optional<ai.resourcepack.engine.core.dialog.DialogSlots.Key> key =
+                ai.resourcepack.engine.core.dialog.DialogSlots.Key.parse(args[1]);
+        java.util.Optional<ai.resourcepack.engine.core.dialog.DialogsImpl.Shown> shown = impl.lastShown(player);
+        if (key.isEmpty() || shown.isEmpty() || !impl.holdsSlot(player, key.get())) {
+            Reply.to(sender, shown.isPresent()
+                    ? "The dialog you were shown has no slot " + args[1] + " that items move in."
+                    : "Open a dialog first: /rp slot moves an item in the one you are looking at.");
+            return true;
+        }
+        boolean wasHolding = impl.slots().held(player, shown.get().id()).isPresent();
+        ai.resourcepack.engine.core.dialog.DialogSlots.Result result =
+                impl.slots().click(player, shown.get().id(), key.get());
+        if (result == ai.resourcepack.engine.core.dialog.DialogSlots.Result.NO_SUCH_SLOT) {
+            Reply.to(sender, "There is no slot " + args[1] + " to move items in.");
+            return true;
+        }
+        // Picked up, put down or put back — or a move refused, which puts the
+        // light out — so the dialog again, as things now are. A click on an empty
+        // slot with nothing picked up changes nothing on screen, and costs nothing.
+        if (result != ai.resourcepack.engine.core.dialog.DialogSlots.Result.NOTHING || wasHolding) {
+            impl.reopen(player);
         }
         return true;
     }

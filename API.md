@@ -813,6 +813,7 @@ All cancellable unless the row says otherwise.
 | `EmoteStartEvent` | An emote is about to start |
 | `EmoteEndEvent` | An emote ended. Carries why — finished, stopped, moved, damaged, quit, shutdown |
 | `EmoteRigSpawnEvent` | A rig's displays were spawned — it was put on, or a swap replaced its carried models. Carries the new entity ids, for re-mounting them. Not cancellable |
+| `DialogSlotMoveEvent` | A player is about to move a stack in a dialog whose items move — from one slot (`inv/5`, `ender/3`) to another, onto an empty slot, the same item or a different one. Cancelling leaves both where they are |
 
 **The engine decides whether something can physically happen, never whether it
 is allowed to.** Region protection, plot ownership, an event world where

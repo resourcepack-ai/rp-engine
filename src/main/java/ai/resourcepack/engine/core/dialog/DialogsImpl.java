@@ -59,6 +59,9 @@ public final class DialogsImpl implements Dialogs {
 
     private volatile Map<ContentId, DialogInfo> dialogs = Map.of();
 
+    /** What each player has picked up in a dialog whose items move: see {@link DialogSlots}. */
+    private final DialogSlots slots = new DialogSlots();
+
     /**
      * The dialog each player was last shown, and what it was opened with — so
      * a click that changes one of their values can open it again, drawn in the
@@ -189,9 +192,11 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
-        // The player's own items in a Studio dialog's inventory slots, and no
-        // item tooltip this server would refuse the dialog over: DialogItems.
-        json = DialogItems.fill(json, viewer);
+        // The player's own items in a Studio dialog's inventory slots, the one
+        // they have picked up lit, and no item tooltip this server would refuse
+        // the dialog over: DialogItems.
+        slots.shown(viewer, id);
+        json = DialogItems.fill(json, viewer, slots.held(viewer, id).orElse(null));
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
         Set<ContentId> instant = instantPages(viewer, id, info.json());
@@ -513,8 +518,28 @@ public final class DialogsImpl implements Dialogs {
         });
     }
 
+    /** What players have picked up in dialogs whose items move. */
+    public DialogSlots slots() {
+        return slots;
+    }
+
+    /**
+     * Whether the dialog a player was last shown holds a click running
+     * {@code rp slot <key>} — the check every {@code /rp slot} passes, because a
+     * player runs it: see {@link DialogSlots}.
+     */
+    public boolean holdsSlot(Player viewer, DialogSlots.Key key) {
+        Shown shown = viewer == null || key == null ? null : lastShown.get(viewer);
+        if (shown == null) {
+            return false;
+        }
+        Optional<DialogInfo> info = info(viewer, shown.id());
+        return info.isPresent() && DialogLinks.holdsCommand(info.get().json(), DialogSlots.COMMAND + " " + key);
+    }
+
     @Override
     public void close(Player viewer) {
+        slots.forget(viewer);
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }

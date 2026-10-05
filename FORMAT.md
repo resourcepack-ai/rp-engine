@@ -2813,7 +2813,17 @@ item's picture (from an icon font the pack carries), its count, and its own
 tooltip — on Paper the whole item, on Spigot its name and lore. An item wearing a
 model of its own is drawn as a question mark, with its real tooltip. The
 inventory is the one at the moment the dialog opens. Nothing has to be declared
-for this; it is in the dialog Studio sends.
+for this; it is in the dialog Studio sends. It can show their ender chest the
+same way.
+
+**And the items in it can move.** When Studio's "Players can move items" is on,
+every slot's click runs `/rp slot <slot>` as the player — `inv/0`-`inv/35` their
+inventory (0-8 the hotbar), `ender/0`-`ender/26` their ender chest. The first
+click picks a stack up and lights its slot, the second puts it down there
+(merging with the same item, swapping with a different one), and the engine
+opens the dialog again with the items moved. Every player may run it, and it
+moves only their own items and only between slots the dialog they were shown has
+that exact click for. A plugin can refuse a move with `DialogSlotMoveEvent`.
 
 The engine also takes out any item tooltip naming an item this server's version
 of Minecraft does not have, which the game would otherwise refuse the whole
