@@ -153,6 +153,21 @@ public enum Feature {
                     + "Models that stay put look exactly the same."),
 
     /**
+     * The three-slot smithing table, with a template beside the base and the
+     * addition, and the armour trims that come with it.
+     *
+     * <p>1.19.4 had both as an experiment behind a datapack flag, and the
+     * table a 1.19.4 server actually shows is the old two-slot one. So below
+     * 1.20 a smithing recipe is registered the old way, without its template,
+     * which is the same upgrade asked for with one item fewer.
+     */
+    SMITHING_TEMPLATES(
+            McVersion.of(1, 20, 0),
+            "Smithing templates and armour trims",
+            "Smithing recipes use the old two-slot smithing table, so their template is not "
+                    + "asked for, and trim recipes are not registered at all."),
+
+    /**
      * Biome colours for tinted liquids, written as a generated datapack.
      *
      * <p>The datapack biome format is not stable across versions the way a
