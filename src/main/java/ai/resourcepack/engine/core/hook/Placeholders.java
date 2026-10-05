@@ -4,6 +4,7 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentRegistry;
 import ai.resourcepack.engine.api.Emotes;
+import ai.resourcepack.engine.api.Icons;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.serve.BundleSessions;
@@ -50,19 +51,21 @@ public final class Placeholders extends PlaceholderExpansion {
     private final ContentRegistry registry;
     private final Emotes emotes;
     private final Items items;
+    private final Icons icons;
     private final Seats seats;
     private final BundleSessions sessions;
     private final SyncGroup group;
     /** A player's dialog settings — what a Studio dialog's bound controls show. */
     private final java.util.function.BiFunction<Player, String, Optional<String>> dialogVars;
 
-    private Placeholders(Plugin plugin, ContentRegistry registry, Emotes emotes, Items items,
+    private Placeholders(Plugin plugin, ContentRegistry registry, Emotes emotes, Items items, Icons icons,
                          Seats seats, BundleSessions sessions, SyncGroup group,
                          java.util.function.BiFunction<Player, String, Optional<String>> dialogVars) {
         this.plugin = plugin;
         this.registry = registry;
         this.emotes = emotes;
         this.items = items;
+        this.icons = icons;
         this.seats = seats;
         this.sessions = sessions;
         this.group = group;
@@ -82,7 +85,7 @@ public final class Placeholders extends PlaceholderExpansion {
      * @return whether it registered
      */
     public static boolean register(Plugin plugin, ContentRegistry registry, Emotes emotes,
-                                   Items items, Seats seats, BundleSessions sessions, SyncGroup group,
+                                   Items items, Icons icons, Seats seats, BundleSessions sessions, SyncGroup group,
                                    java.util.function.BiFunction<Player, String, Optional<String>> dialogVars) {
         if (plugin.getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
             return false;
@@ -94,7 +97,7 @@ public final class Placeholders extends PlaceholderExpansion {
             // rather than our problem to solve.
             return false;
         }
-        return new Placeholders(plugin, registry, emotes, items, seats, sessions, group, dialogVars).register();
+        return new Placeholders(plugin, registry, emotes, items, icons, seats, sessions, group, dialogVars).register();
     }
 
     @Override
@@ -160,6 +163,17 @@ public final class Placeholders extends PlaceholderExpansion {
                 return String.valueOf(emotes.ids().size());
             default:
                 break;
+        }
+
+        // %rpengine_icon_<namespace:id>%: the icon's character, at the frame
+        // it is showing NOW. This is where an animated icon actually animates:
+        // a scoreboard, a tab list and a hologram all re-ask their placeholders
+        // as they redraw, and each answer is the next frame. A name that is
+        // not an icon is null, so the typo stays visible as typed.
+        if (name.startsWith("icon_")) {
+            return icons == null ? null : ContentId.parse(name.substring("icon_".length()))
+                    .flatMap(icons::characterNow)
+                    .orElse(null);
         }
 
         Player player = who == null ? null : who.getPlayer();

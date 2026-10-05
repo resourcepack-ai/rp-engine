@@ -38,10 +38,27 @@ final class NexoOraxenGlyph {
     private NexoOraxenGlyph() {
     }
 
+    /**
+     * Whether a font file is theirs.
+     *
+     * <p>{@code texture} is the giveaway: an RP Engine icon says {@code file}.
+     * {@code gif} used to be one too and is not any more, because an RP Engine
+     * icon can be a GIF now and says so with the same word. So a GIF counts as
+     * theirs only beside a key nothing of ours has — Nexo's
+     * {@code frame_count} or {@code offset}, or the chat keys — and a file of
+     * plain {@code gif:} icons is read as ours. Read the other way it would
+     * lose every icon in it that has no {@code texture}, which is all of them.
+     */
     static boolean looksLikeOne(DefinitionNode document) {
         for (String id : document.keys()) {
             DefinitionNode glyph = document.node(id).orElse(DefinitionNode.empty());
-            if (glyph.has("texture") || glyph.has("gif")) return true;
+            if (glyph.has("texture")) return true;
+            if (glyph.has("gif")) {
+                for (String theirs : List.of("frame_count", "offset", "placeholders", "chat", "tabcomplete",
+                        "is_emoji", "char")) {
+                    if (glyph.has(theirs)) return true;
+                }
+            }
         }
         return false;
     }
