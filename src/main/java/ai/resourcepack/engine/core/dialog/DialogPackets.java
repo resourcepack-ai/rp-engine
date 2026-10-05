@@ -16,6 +16,20 @@ public final class DialogPackets {
     private static Bridge bridge;
     private static boolean probed;
 
+    /**
+     * What the server's codec said about the last dialog {@link #show} could
+     * not decode, or null. The ONE useful line when a dialog is refused: the
+     * routes after this one fail too, and the last of them (by name) can only
+     * say the id is not in the registry, which reads like the problem and is
+     * not. Main thread, like every show.
+     */
+    private static String lastRefusal;
+
+    /** See {@link #lastRefusal}: the codec's own words about the last dialog it would not read. */
+    public static String lastRefusal() {
+        return lastRefusal;
+    }
+
     private DialogPackets() {}
 
     private record Bridge(Object codec, Object ops, Method parse, Method result,
@@ -102,10 +116,24 @@ public final class DialogPackets {
     }
 
     public static boolean show(Player viewer, String json) {
+        lastRefusal = null;
         Bridge b = bridge();
         if (b == null) return false;
+        Object dialog;
         try {
-            Object dialog = decode(json);
+            dialog = decode(json);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // The codec refused it: the dialog's fault, and the line that says
+            // which field. Kept short — it can quote the dialog's own words.
+            Throwable cause = e;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
+            String message = cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
+            lastRefusal = message.length() > 300 ? message.substring(0, 300) + "…" : message;
+            return false;
+        }
+        try {
             Object player = viewer.getClass().getMethod("getHandle").invoke(viewer);
             player.getClass().getMethod("openDialog", b.holder).invoke(player, dialog);
             return true;
