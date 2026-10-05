@@ -189,6 +189,9 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
+        // The player's own items in a Studio dialog's inventory slots, and no
+        // item tooltip this server would refuse the dialog over: DialogItems.
+        json = DialogItems.fill(json, viewer);
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
         Set<ContentId> instant = instantPages(viewer, id, info.json());
@@ -315,7 +318,9 @@ public final class DialogsImpl implements Dialogs {
         }
         Set<ContentId> out = new LinkedHashSet<>();
         for (Map.Entry<ContentId, String> page : pages.entrySet()) {
-            if (DialogPlaceholders.any(page.getValue())) {
+            // Nothing filled per player can come from the registry's copy: not a
+            // placeholder, and not a player's inventory in a page's slots.
+            if (DialogPlaceholders.any(page.getValue()) || DialogItems.perPlayer(page.getValue())) {
                 continue;
             }
             if (!datapack.registered(page.getKey(), DialogDatapack.fileContent(page.getValue(), pages))) {

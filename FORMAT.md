@@ -2807,6 +2807,18 @@ drawn art in each button's label, and what comes back is a screen that looks
 nothing like Minecraft with buttons that still work. That is what a dialog built
 in Studio is: the picture rides the resource pack, the JSON rides here.
 
+**A Studio dialog can show the player's own inventory.** Its slots arrive empty,
+and as the engine opens the dialog it puts in what that player is holding: each
+item's picture (from an icon font the pack carries), its count, and its own
+tooltip — on Paper the whole item, on Spigot its name and lore. An item wearing a
+model of its own is drawn as a question mark, with its real tooltip. The
+inventory is the one at the moment the dialog opens. Nothing has to be declared
+for this; it is in the dialog Studio sends.
+
+The engine also takes out any item tooltip naming an item this server's version
+of Minecraft does not have, which the game would otherwise refuse the whole
+dialog over. A hand-written dialog gets the same protection.
+
 ## Recipes
 
 ```yaml

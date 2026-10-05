@@ -191,7 +191,8 @@ public final class DialogDatapack {
      * engine works out the same thing for each player to compare against.
      */
     public static String fileContent(String json, Map<ContentId, String> all) {
-        Predicate<ContentId> plain = page -> all.containsKey(page) && !DialogPlaceholders.any(all.get(page));
+        Predicate<ContentId> plain = page -> all.containsKey(page)
+                && !DialogPlaceholders.any(all.get(page)) && !DialogItems.perPlayer(all.get(page));
         return DialogLinks.swap(json, plain);
     }
 
