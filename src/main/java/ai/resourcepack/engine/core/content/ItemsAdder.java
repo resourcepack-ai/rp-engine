@@ -147,8 +147,15 @@ final class ItemsAdder {
                     if (!item.bool("enabled").orElse(Boolean.TRUE)) {
                         return;
                     }
+                    if (blockBehaviour(item).isPresent() && isDirectionalFace(items, id)) {
+                        // One face of another block's directional set: drawn
+                        // as part of that block, not placed as one of its own.
+                        return;
+                    }
                     if (blockBehaviour(item).isPresent()) {
-                        blocksFromItems.put(id, blockItem(item, id, namespace, drops, origin, diagnostics));
+                        Map<String, Object> block = blockItem(item, id, namespace, drops, origin, diagnostics);
+                        directionalFaces(items, item, id, namespace, block);
+                        blocksFromItems.put(id, block);
                     } else {
                         Map<String, Object> body = item(item, id, origin, diagnostics);
                         armour(item, id, origin, diagnostics, body, armours);
@@ -523,14 +530,44 @@ final class ItemsAdder {
         // vanilla block the state hides in.
         String type = specific.node("placed_model").flatMap(model -> model.string("type")).orElse("REAL_NOTE")
                 .toUpperCase(Locale.ROOT);
-        if (type.equals("REAL")) {
-            out.put("base", "mushroom_stem");
-        } else if (!type.equals("REAL_NOTE")) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "placed_model.type " + type + " is not a full block, and RP Engine custom blocks are full cubes "
-                            + "inside a note block. It came across as one; a placed model suits a plant or a "
-                            + "decoration better."));
+        switch (type) {
+            case "REAL":
+                out.put("base", "mushroom_stem");
+                break;
+            case "REAL_WIRE":
+                // Tripwire, as theirs is: a plant.
+                out.put("base", "tripwire");
+                break;
+            case "REAL_TRANSPARENT":
+                // Chorus there; the see-through full block here, which needs
+                // no Paper setting and repaints nothing in the End.
+                out.put("shape", "grate");
+                break;
+            case "REAL_NOTE":
+                break;
+            default:
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "placed_model.type " + type + " draws the block with an entity (a spawner's, or fire's), "
+                                + "which RP Engine blocks do not; it came across as a full block. A placed model "
+                                + "draws any shape."));
         }
+        directional(specific, out);
+        variants(specific, namespace, out);
+        if (specific.bool("no_explosion").orElse(Boolean.FALSE)) {
+            out.put("blast-resistant", true);
+        }
+        if (specific.integer("light_level").orElse(0) > 0) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "light_level: a custom block's light belongs to the vanilla block underneath, and a note block "
+                            + "gives none, so it was skipped. shape: bulb gives light, switched by redstone; a placed "
+                            + "model can give any level."));
+        }
+        // A block whose click swaps it for another (ItemsAdder's on/off pairs)
+        // is the block's own click-into: here.
+        item.node("events").flatMap(events -> events.node("placed_block"))
+                .flatMap(placed -> placed.node("interact")).flatMap(interact -> interact.node("replace_block"))
+                .flatMap(replace -> replace.string("to"))
+                .ifPresent(to -> out.put("click-into", to.contains(":") ? to : namespace + ":" + to));
 
         if (!out.containsKey("model")) {
             generatedCube(resource, namespace).ifPresent(model -> out.put("model", model));
@@ -566,6 +603,96 @@ final class ItemsAdder {
             }
         }
         return out;
+    }
+
+    /** The faces a directional block may name a block of its own for. */
+    private static final List<String> FACES = List.of("north", "east", "south", "west", "up", "down");
+
+    /**
+     * {@code directional_mode}: turned as a log ({@code LOG}), a furnace
+     * ({@code FURNACE}) or a dropper ({@code DROPPER}, and {@code ALL}, which
+     * ItemsAdder describes as both a log and a dropper; the six directions
+     * cover both).
+     */
+    private static void directional(DefinitionNode specific, Map<String, Object> out) {
+        String mode = specific.node("placed_model").flatMap(model -> model.string("directional_mode"))
+                .or(() -> specific.string("directional_mode")).orElse("NONE").trim().toUpperCase(Locale.ROOT);
+        switch (mode) {
+            case "LOG":
+                out.put("rotate", "axis");
+                break;
+            case "FURNACE":
+                out.put("rotate", "horizontal");
+                break;
+            case "DROPPER":
+            case "ALL":
+                out.put("rotate", "all");
+                break;
+            default:
+        }
+    }
+
+    /** Whether {@code id} is {@code <block>_<face>}, a face of a directional block in the same file. */
+    private static boolean isDirectionalFace(DefinitionNode items, String id) {
+        int underscore = id.lastIndexOf('_');
+        if (underscore <= 0 || !FACES.contains(id.substring(underscore + 1))) {
+            return false;
+        }
+        Optional<DefinitionNode> owner = items.node(id.substring(0, underscore));
+        return owner.flatMap(ItemsAdder::blockBehaviour)
+                .flatMap(specific -> specific.node("placed_model").flatMap(model -> model.string("directional_mode"))
+                        .or(() -> specific.string("directional_mode")))
+                .filter(mode -> !mode.equalsIgnoreCase("NONE")).isPresent();
+    }
+
+    /** A directional block's {@code <id>_<face>} items, as the model each direction wears. */
+    private static void directionalFaces(DefinitionNode items, DefinitionNode item, String id, String namespace,
+                                         Map<String, Object> out) {
+        if (!out.containsKey("rotate") || out.get("rotate").equals("axis")) {
+            return;
+        }
+        Map<String, Object> appearances = new LinkedHashMap<>();
+        for (String face : FACES) {
+            items.node(id + "_" + face).ifPresent(sibling -> {
+                Object model = block(sibling).get("model");
+                if (model == null) {
+                    model = generatedCube(sibling.node("resource").orElse(DefinitionNode.empty()), namespace)
+                            .orElse(null);
+                }
+                if (model != null) {
+                    appearances.put("facing=" + face, model);
+                }
+            });
+        }
+        if (!appearances.isEmpty()) {
+            out.put("appearances", appearances);
+        }
+    }
+
+    /** {@code custom_variants}: a look picked at random as each is placed. */
+    private static void variants(DefinitionNode specific, String namespace, Map<String, Object> out) {
+        DefinitionNode declared = specific.node("custom_variants").orElse(null);
+        if (declared == null) {
+            return;
+        }
+        List<Object> picks = new ArrayList<>();
+        for (String name : declared.keys()) {
+            declared.node(name).ifPresent(variant -> {
+                Map<String, Object> pick = new LinkedHashMap<>();
+                variant.string("model").ifPresent(model -> pick.put("model", model));
+                variant.integer("x").ifPresent(x -> pick.put("x", x));
+                variant.integer("y").ifPresent(y -> pick.put("y", y));
+                variant.bool("uvlock").ifPresent(uvlock -> pick.put("uvlock", uvlock));
+                // A weight is a share of the draw; repeating a pick is the same share.
+                int weight = Math.max(1, Math.min(8, variant.integer("weight").orElse(1)));
+                for (int i = 0; i < weight; i++) {
+                    picks.add(pick);
+                }
+            });
+        }
+        if (picks.size() > 1) {
+            out.put("random", picks);
+        }
     }
 
     /** The drop its loot table names, if one was found for it. */

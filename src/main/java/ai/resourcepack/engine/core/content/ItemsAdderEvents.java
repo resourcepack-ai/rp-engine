@@ -259,6 +259,9 @@ final class ItemsAdderEvents {
                 }
                 return true;
             }
+            case "replace_block":
+                // A placed block's click-into:, written by the block translation.
+                return true;
             case "decrement_amount":
                 out.add(ImportedActions.step("take", settings.integer("amount").orElse(1)));
                 return true;
