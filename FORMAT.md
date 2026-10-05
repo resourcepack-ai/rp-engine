@@ -209,8 +209,12 @@ sword:
     - attack_speed: -2.4
     - max_health: { amount: 4, operation: add, slot: hand }
   food: { nutrition: 6, saturation: 7.2, always: false }
+  flags: [HIDE_ENCHANTS, HIDE_ATTRIBUTES]   # lines of the tooltip to hide
 ```
 
+- `flags` are Bukkit's item flag names, in either case. `HIDE_POTION_EFFECTS`
+  and `HIDE_ADDITIONAL_TOOLTIP` (its name from 1.20.5) are each read as the
+  other, and a flag the server does not have is a console line, not an error.
 - Names are **vanilla's, unprefixed** — `sharpness`, `attack_damage` — because
   that is what is written on the wiki you are reading them off.
 - An attribute is `name: amount` for the usual case, or a block with an

@@ -211,6 +211,34 @@ public final class ItemsImpl implements Items {
         });
 
         stats.food().ifPresent(food -> components.food(meta, food, warner));
+
+        for (String flag : stats.flags()) {
+            org.bukkit.inventory.ItemFlag resolved = itemFlag(flag);
+            if (resolved == null) {
+                warn(item, "no item flag called " + flag + " on this server");
+                continue;
+            }
+            meta.addItemFlags(resolved);
+        }
+    }
+
+    /**
+     * A flag by Bukkit's name, or the name it had on the other side of 1.20.5.
+     *
+     * <p>{@code HIDE_POTION_EFFECTS} became {@code HIDE_ADDITIONAL_TOOLTIP}
+     * when item components arrived, and packs are written for both.
+     */
+    private static org.bukkit.inventory.ItemFlag itemFlag(String name) {
+        for (String candidate : List.of(name,
+                name.equals("HIDE_POTION_EFFECTS") ? "HIDE_ADDITIONAL_TOOLTIP"
+                        : name.equals("HIDE_ADDITIONAL_TOOLTIP") ? "HIDE_POTION_EFFECTS" : name)) {
+            try {
+                return org.bukkit.inventory.ItemFlag.valueOf(candidate);
+            } catch (IllegalArgumentException e) {
+                // Not on this server under that name; try the other.
+            }
+        }
+        return null;
     }
 
     private static AttributeModifier.Operation operation(String written) {
