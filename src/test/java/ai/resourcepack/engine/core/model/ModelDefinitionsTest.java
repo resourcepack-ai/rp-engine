@@ -314,6 +314,60 @@ class ModelDefinitionsTest {
         assertTrue(info.withVehicleCollision(true).storage().isPresent());
     }
 
+    // ---- jukebox --------------------------------------------------------
+
+    @Test
+    void aPieceCanBeAJukebox() throws IOException {
+        chair("  place:\n    jukebox:\n      volume: 2\n      pitch: 0.75\n"
+                + "      permission: mypack.jukebox.use\n      playing-model: mypack:gramophone_on\n");
+
+        ModelInfo.Jukebox jukebox = one(parse(), "mypack:chair").jukebox().orElseThrow();
+
+        assertEquals(2f, jukebox.volume());
+        assertEquals(0.75f, jukebox.pitch());
+        assertEquals("mypack.jukebox.use", jukebox.permission().orElseThrow());
+        assertEquals("mypack:gramophone_on", jukebox.playingModel().orElseThrow().toString());
+    }
+
+    @Test
+    void jukeboxTrueIsAVanillaOneThatAnybodyMayUse() throws IOException {
+        chair("  place:\n    jukebox: true\n");
+
+        ModelInfo.Jukebox jukebox = one(parse(), "mypack:chair").jukebox().orElseThrow();
+
+        assertEquals(1f, jukebox.volume());
+        assertEquals(1f, jukebox.pitch());
+        assertTrue(jukebox.permission().isEmpty());
+        assertTrue(jukebox.playingModel().isEmpty());
+    }
+
+    @Test
+    void aJukeboxOutOfRangeFallsBackAndSaysSo() throws IOException {
+        chair("  place:\n    jukebox:\n      volume: -1\n      pitch: 9\n      playing-model: not an id\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo.Jukebox jukebox = one(result, "mypack:chair").jukebox().orElseThrow();
+
+        assertEquals(1f, jukebox.volume());
+        assertEquals(1f, jukebox.pitch());
+        assertTrue(jukebox.playingModel().isEmpty());
+        assertEquals(3, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void aJukeboxBehindAContainerIsToldItIsNeverReached() throws IOException {
+        chair("  place:\n    storage: true\n    jukebox: true\n");
+
+        assertTrue(parse().diagnostics().stream().anyMatch(d -> d.message().contains("never reached")));
+    }
+
+    @Test
+    void aPieceUsuallyPlaysNothing() throws IOException {
+        chair("  place: {}\n");
+
+        assertTrue(one(parse(), "mypack:chair").jukebox().isEmpty());
+    }
+
     @Test
     void nothingLoadedMeansNothingParsed() {
         assertTrue(ModelDefinitions.parse(null, null).model().isEmpty());

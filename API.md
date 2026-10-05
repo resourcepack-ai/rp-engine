@@ -73,9 +73,10 @@ how far into its animation it is, for keeping something else on its clock.
 
 What a pack's `place:` block said is a `ModelInfo`, read-only. Beside the
 facing, scale, seat, light and the rest, `storage()` is the container the piece
-is, as a `StorageSpec` (type, rows, title, sounds), or empty. The engine opens
-it on a right-click; a `ModelInteractEvent` cancelled before that keeps it
-shut.
+is, as a `StorageSpec` (type, rows, title, sounds), or empty, and `jukebox()`
+the disc player it is (volume, pitch, permission, the model it wears while
+playing). The engine handles both on a right-click; a `ModelInteractEvent`
+cancelled before that keeps it shut.
 
 ## Emotes
 
