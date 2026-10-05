@@ -249,29 +249,6 @@ packs use one name.
 Off by default. A name that is not an icon is left exactly as typed, so
 `10:30`, `:)` and a URL all survive.
 
-An icon can list more ways to type it, and can be kept for some players:
-
-```yaml
-# fonts/icons.yml
-heart:
-  file: heart
-  aliases: ["<3", ":love:"]       # also typed as these
-  permission: mypack.icon.heart   # who may type it, by an alias or by :heart:
-```
-
-**An alias is matched as a word on its own** — a space or the end of the line on
-both sides — so `<3` becomes the heart in `I <3 you` and not in `<33`, `a<3`,
-`<3!` or the end of a link. It is matched exactly as written, punctuation and
-all, and cannot contain a space. When two icons list the same alias, the first
-by id keeps it and the load says so.
-
-`permission` is on top of `rpengine.chat.icons`, not instead of it. Without
-one, anybody who may use chat icons may use that icon. Somebody without it sees
-what they typed go out as typed.
-
-An animated icon is its **first frame** in chat — a chat line is drawn once, so
-nothing ever sends it the next one. See [Animated icons](#animated-icons).
-
 Two more flags, both of them things vanilla nearly does already:
 
 ```yaml
@@ -513,6 +490,64 @@ because the way this feature usually rots is a world full of invisible stands
 somebody can stand on.
 
 One player per model, and a model with a seat keeps its hitbox.
+
+### Storing things in one
+
+A cabinet, a wardrobe, a bin, a crate:
+
+```yaml
+cabinet:
+  material: PAPER
+  model: cabinet
+  name: "&6Oak Cabinet"
+  place:
+    storage:
+      type: chest        # chest | personal | enderchest | disposal | shulker
+      rows: 3            # 1-6
+      title: "Cabinet"   # & colour codes. Default: the item's name, else "Storage"
+      open-sound: minecraft:block.chest.open
+      close-sound: minecraft:block.chest.close
+```
+
+`storage: true` is a three-row chest, and `storage: personal` is that type with
+everything else left alone. Right-click to open it.
+
+| Type | Whose contents | When it is broken |
+|---|---|---|
+| `chest` | The piece's. Everybody who opens it sees the same inventory, live | Spills on the ground |
+| `personal` | Each player's own, shared by every piece of that kind — every wardrobe opens the same wardrobe for the same person, and nobody else ever sees in | Nothing to spill: it was never the piece's |
+| `enderchest` | The player's own vanilla ender chest | Nothing |
+| `disposal` | Nobody's. **What goes in is deleted when it closes** | Nothing |
+| `shulker` | The piece's, like a chest | Gives back the item **with the contents inside it**. Put it down again and they are back |
+
+**Two players in one chest see each other's moves**, because there is only
+ever one inventory for it while anybody has it open. That is the guard against
+the duplication bug every chest plugin has had once, and it is why opening a
+storage piece is never two copies racing to be saved.
+
+**Breaking one with somebody looking in closes their screen first**, and only
+then spills what was inside — and a break another plugin cancels spills
+nothing. A creative-mode break, which does not give the piece back, still spills
+the contents, as breaking a chest does.
+
+A shulker-style piece always gives back itself, so it ignores `drop:`. Empty,
+it is the same item as a new one and stacks with them.
+
+`personal` is keyed by the item's id. Rename `mypack:wardrobe` and everybody's
+wardrobe is a new, empty one; the old contents are still on the player, under
+the old id, if you change it back.
+
+`rows:` can be changed after people have filled things. A cabinet made
+smaller opens big enough for what is already in it, and shrinks once the
+extra rows are emptied, rather than deleting them.
+
+A piece that is a seat and a container opens on a plain click and **sits on a
+sneaking one**. The pack's own `interact` actions run before either, and a
+`cancel` in them stops it opening.
+
+The contents are kept on the piece itself, in the world, so they survive a
+restart, move with a copied region and go back with a rolled-back one. There is
+no file of them anywhere.
 
 ## Armour
 
@@ -1986,104 +2021,6 @@ anything that saved the character — a glyph written into a sign or a book is a
 different picture after the next reload. Stable codepoints would need a file
 mapping ID to number that must never be lost or reordered, which is exactly the
 problem the item scheme was designed to delete.
-
-### Animated icons
-
-An icon can have frames. Draw them as a **strip**, stacked top to bottom, every
-frame the same size:
-
-```yaml
-loading:
-  file: loading            # assets/textures/font/loading.png, 8 frames tall
-  height: 9
-  ascent: 8
-  animation:
-    frames: 8              # the PNG's height has to divide by this, as for a grid's rows
-    fps: 10                # 10 if left out; 1 to 20
-    loop: true             # true if left out
-```
-
-Or hand it a **GIF**, and the build draws the strip for you:
-
-```yaml
-dance:
-  gif: dance.gif           # assets/textures/font/dance.gif
-  height: 11
-  ascent: 9
-```
-
-A GIF plays at its own speed (the average of its frame delays) unless
-`animation.fps` says otherwise, and `animation.frames` can keep only the first
-few of its frames. It is read the way a browser plays it: each frame drawn onto
-the one before at its offset, and cleared or put back as the file says. A frame
-larger than 256 pixels on a side is scaled down to fit, with a warning, because
-the game draws nothing for a glyph bigger than that. The GIF itself does not
-ship — the strip beside it, `dance.gif.png`, is what players download. A `gif:`
-with a namespace is a resource location, like `file:`.
-
-**An icon has at most 64 frames**, because every frame is a character of its
-own out of the 6,400 that icons, screens and HUDs share. A longer GIF keeps its
-first 64 and says so; a strip that claims more is drawn as its first frame.
-`fps` goes no higher than 20, which is once a tick — nothing the server sends
-changes faster than that. `animation:` is for a strip or a GIF, not a `grid:`
-sheet.
-
-**Where an animated icon moves, and where it does not.** This matters, so here
-it is plainly. The server animates an icon by sending the next frame's
-character, which means an icon moves only in text that is **sent again as time
-passes**:
-
-- a scoreboard, a tab list, a hologram or a menu that shows
-  `%rpengine_icon_mypack:dance%` through PlaceholderAPI — each refresh asks
-  again and gets the frame that is showing now, so it moves as fast as that
-  plugin refreshes;
-- a plugin's own text redrawn with `Icons.characterNow` or `Icons.formatNow`.
-
-It does **not** move in anything sent once. A chat message, an item name, a
-sign, a book, a dialog, `/rp say`: those are drawn once and show the **first
-frame** for good. `:mypack:dance:` in chat is the first frame, and so is
-`Icons.format`.
-
-That is a choice, and this is why. Nexo and Oraxen animate a glyph in the
-client instead, with a replacement for the game's text shader that recognises a
-special colour and flips through the frames itself — which moves everywhere,
-chat included. RP Engine does not ship a text shader, because a pack can carry
-only one, and ResourcePack AI Studio's packs (which can be sent to the same
-players) already replace that shader for their own overlays and player heads.
-Whichever pack was on top would silently break the other's, and the one that
-lost would look like a bug nobody could find. Picking frames on the server
-cannot collide with anything.
-
-A frame's width is how far the text after it moves along, and the game measures
-it to the last pixel drawn in that frame. So a frame narrower than the others
-nudges what follows it. Draw every frame across the same width — a pixel in the
-far column at the lowest alpha you can save is enough — if that matters.
-
-`loop: false` plays once and stays on the last frame, **timed from when the
-server started**: there is no moment a frame-picking server can call "when you
-looked", so a one-shot icon has played by the time most people see it. It is
-there for the icon that should settle — a fill that ends full — rather than for
-an effect.
-
-### Glyphs from Nexo and Oraxen
-
-Their glyph files load as they are, from `glyphs/`:
-
-| Theirs | Ours |
-|---|---|
-| `texture` · `height` · `ascent` | `file` · `height` · `ascent` |
-| `rows` · `columns` (multi-bitmap) | one icon per cell, `<id>_1` to `<id>_N` |
-| `reference` · `index` | that cell of the sheet it names, in the same file |
-| Oraxen `animation: {frames, fps}` | `animation`, the whole strip |
-| Nexo `gif` · `frame_count` | `gif` · `animation.frames` |
-| `placeholders`, Oraxen `chat.placeholders` | `aliases` |
-| `permission`, Oraxen `chat.permission` | `permission` |
-
-Their animated glyphs move where ours do and not in chat — see above for why.
-What is not carried is named in a warning: tab completion, a fixed `char`, a
-font of their own, `is_emoji`, a GIF's `offset`, and placeholders on a
-multi-bitmap glyph (it became several icons, and a placeholder cannot type all
-of them).
 
 ## Screens and HUDs
 

@@ -270,10 +270,6 @@ final class CraftEngineEvents {
             case "cancel_event":
                 out.add(ImportedActions.step("cancel", ""));
                 return true;
-            case "cycle_block_property":
-                // A block's own click: here, written by the block translation;
-                // it needs no step.
-                return true;
             case "set_count": {
                 Double count = number(get(function, "count", "amount"));
                 if (truthy(function.get("add")) && count != null && count < 0) {

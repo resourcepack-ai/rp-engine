@@ -162,6 +162,21 @@ public final class ModelDefinitions {
             }
         }
 
+        // The same parser a custom block's storage goes through, so the two
+        // cannot disagree about what a setting means.
+        ai.resourcepack.engine.api.StorageSpec storage = ai.resourcepack.engine.core.storage.StorageDefinitions
+                .parse(body, origin, where, diagnostics).orElse(null);
+        if (storage != null && storage.type() == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER
+                && drop != null) {
+            // A shulker-style piece gives back ITSELF with the contents inside,
+            // and putting that down again is what restores them. Anything else
+            // dropped would carry contents no placement can unpack.
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "drop: is ignored on a shulker storage, which always gives back itself with its "
+                            + "contents inside."));
+            drop = null;
+        }
+
         // Absent is TRUE, unlike `solid` beside it: a vehicle driving through a
         // bollard is wrong in every pack that has one, so the exception is the
         // thing worth writing down. See ModelInfo.vehicleCollision.
@@ -180,7 +195,8 @@ public final class ModelDefinitions {
                         light, surface, drop)
                 .withSeatOffset(seatSide, seatForward)
                 .withVehicleCollision(vehicleCollision)
-                .withShape(shape));
+                .withShape(shape)
+                .withStorage(storage));
     }
 
     /**

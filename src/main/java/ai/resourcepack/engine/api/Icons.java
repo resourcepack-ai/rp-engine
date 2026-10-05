@@ -28,31 +28,8 @@ public interface Icons {
      * character stored in a config file, a database or a sign becomes a
      * different picture after the next reload, while an id stored in the same
      * places stays correct for ever.
-     *
-     * <p>The FIRST frame of an animated icon, always. That is the right answer
-     * for anything drawn once — a chat line, an item name, a book — and the
-     * stable one: the same id gives the same character however long the server
-     * has been up. Something you redraw yourself wants
-     * {@link #characterNow(ContentId)}.
      */
     Optional<String> character(ContentId id);
-
-    /**
-     * The character of the frame an icon is showing right now, or empty if
-     * there is no such icon. The same as {@link #character(ContentId)} for a
-     * still picture.
-     *
-     * <p>This is how an icon animates. Each frame is a glyph of its own and
-     * the server picks which one to send, so the animation exists only in text
-     * that is sent again as time passes: a scoreboard line you update, a boss
-     * bar, a hologram, an action bar you repeat. Call this every time you
-     * redraw — a frame lasts {@code 1000 / fps} milliseconds, so redrawing
-     * once a tick shows every frame of anything up to 20 fps, and redrawing
-     * once a second shows one frame a second.
-     */
-    default Optional<String> characterNow(ContentId id) {
-        return character(id);
-    }
 
     /**
      * Replaces every {@code :namespace:id:} in {@code text} with its icon.
@@ -65,18 +42,6 @@ public interface Icons {
      * rather than removed. Text that silently loses a chunk of itself is far
      * harder to diagnose than text that visibly still says
      * {@code :mypack:sword:}, and the second tells somebody what to search for.
-     *
-     * <p>Animated icons come out as their first frame, as
-     * {@link #character(ContentId)} does.
      */
     String format(String text);
-
-    /**
-     * As {@link #format(String)}, with every animated icon at the frame it is
-     * showing right now — for text you send again and again, so that each send
-     * is the next picture. See {@link #characterNow(ContentId)}.
-     */
-    default String formatNow(String text) {
-        return format(text);
-    }
 }
