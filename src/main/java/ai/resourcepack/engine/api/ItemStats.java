@@ -105,31 +105,48 @@ public final class ItemStats {
     private final List<Modifier> modifiers;
     private final Integer maxDamage;
     private final Food food;
+    private final List<String> flags;
 
     private ItemStats(Map<String, Integer> enchantments, List<Modifier> modifiers,
-                      Integer maxDamage, Food food) {
+                      Integer maxDamage, Food food, List<String> flags) {
         this.enchantments = enchantments;
         this.modifiers = modifiers;
         this.maxDamage = maxDamage;
         this.food = food;
+        this.flags = flags;
     }
 
     /** An item that carries none of this, which is nearly all of them. */
     public static ItemStats none() {
-        return new ItemStats(Map.of(), List.of(), null, null);
+        return new ItemStats(Map.of(), List.of(), null, null, List.of());
     }
 
     public static ItemStats of(Map<String, Integer> enchantments, List<Modifier> modifiers,
                                Integer maxDamage, Food food) {
+        return of(enchantments, modifiers, maxDamage, food, List.of());
+    }
+
+    public static ItemStats of(Map<String, Integer> enchantments, List<Modifier> modifiers,
+                               Integer maxDamage, Food food, List<String> flags) {
         return new ItemStats(
                 enchantments == null ? Map.of() : Map.copyOf(enchantments),
                 modifiers == null ? List.of() : List.copyOf(modifiers),
-                maxDamage, food);
+                maxDamage, food,
+                flags == null ? List.of() : List.copyOf(flags));
     }
 
     /** Whether anything at all is set, so the common case costs nothing. */
     public boolean isEmpty() {
-        return enchantments.isEmpty() && modifiers.isEmpty() && maxDamage == null && food == null;
+        return enchantments.isEmpty() && modifiers.isEmpty() && maxDamage == null && food == null
+                && flags.isEmpty();
+    }
+
+    /**
+     * Vanilla's item flags, by Bukkit's name ({@code HIDE_ENCHANTS},
+     * {@code HIDE_ATTRIBUTES}...): which lines of the tooltip are hidden.
+     */
+    public List<String> flags() {
+        return flags;
     }
 
     /** Enchantment name to level, e.g. {@code sharpness: 3}. */
