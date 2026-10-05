@@ -79,6 +79,22 @@ public final class BlockDefinitions {
         // the block still works, and somebody mid-way through building a pack
         // should not be stopped by art they have not drawn yet.
         String model = ai.resourcepack.engine.core.item.ItemDefinitions.model(body);
+        if (model == null) {
+            // A crop or a random block names its looks rather than a model; the
+            // first is what its item shows.
+            for (String listed : List.of("stages", "random")) {
+                Object raw = body.raw(listed);
+                if (model == null && raw instanceof List && !((List<?>) raw).isEmpty()) {
+                    Object first = ((List<?>) raw).get(0);
+                    if (first instanceof Map && ((Map<?, ?>) first).containsKey("model")) {
+                        first = ((Map<?, ?>) first).get("model");
+                    }
+                    model = first instanceof Map
+                            ? new com.google.gson.GsonBuilder().disableHtmlEscaping().create().toJson(first)
+                            : String.valueOf(first);
+                }
+            }
+        }
         Map<String, String> roles = Map.of();
         if (shape != BlockInfo.Shape.CUBE) {
             roles = roleModels(shape, body, model, origin, where, diagnostics);
@@ -93,7 +109,8 @@ public final class BlockDefinitions {
                     "No model and no texture, so this " + shape.name().toLowerCase(Locale.ROOT)
                             + " draws as the vanilla block it takes over. Add texture: <name> for a picture under "
                             + "assets/textures/."));
-        } else if (model == null) {
+        } else if (model == null && body.raw("stages") == null && body.raw("appearances") == null
+                && body.raw("random") == null) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "No model, so this renders as a plain " + base.name().toLowerCase(Locale.ROOT)
                             + ". Add model: <name> for a model under assets/models/."));
@@ -480,13 +497,18 @@ public final class BlockDefinitions {
 
         // stages: [a, b, c] is a growing block's short form: an age property
         // with one value per stage, each drawn by its model.
-        List<String> stages = body.strings("stages");
+        // Each stage is a model name or a model written inline.
+        Object stagesRaw = body.raw("stages");
+        List<?> stages = stagesRaw instanceof List ? (List<?>) stagesRaw : List.of();
         if (!stages.isEmpty() && block.shape() == BlockInfo.Shape.CUBE
                 && properties.stream().noneMatch(known -> known.name().equals("age"))) {
             List<String> ages = new ArrayList<>();
+            com.google.gson.Gson gson = new com.google.gson.GsonBuilder().disableHtmlEscaping().create();
             for (int i = 0; i < stages.size(); i++) {
                 ages.add(String.valueOf(i));
-                appearances.add(BlockInfo.Appearance.of("age=" + i, stages.get(i), 0, 0, false));
+                Object stage = stages.get(i);
+                appearances.add(BlockInfo.Appearance.of("age=" + i,
+                        stage instanceof Map ? gson.toJson(stage) : String.valueOf(stage), 0, 0, false));
             }
             properties.add(BlockInfo.Property.values("age", ages));
         }
