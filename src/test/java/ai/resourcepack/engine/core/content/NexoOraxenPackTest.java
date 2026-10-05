@@ -10,7 +10,9 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.ModelInfo;
 import ai.resourcepack.engine.api.RecipeInfo;
 import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.core.font.Gifs;
 import ai.resourcepack.engine.core.font.IconDefinitions;
+import ai.resourcepack.engine.core.pack.PackFiles;
 import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
@@ -28,6 +30,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -206,7 +209,7 @@ class NexoOraxenPackTest {
     }
 
     @Test
-    void staticGlyphsBecomeIconsGifsExplainThemselvesAndSheetsSplit() throws IOException {
+    void staticGlyphsBecomeIconsGifsAnimateAndSheetsSplit() throws IOException {
         write("pack/items.yml", """
                 ruby:
                   material: PAPER
@@ -224,16 +227,24 @@ class NexoOraxenPackTest {
                   rows: 2
                   columns: 2
                 """);
+        Path gif = content.resolve("pack/assets/textures/font/gifs/animated.gif");
+        Files.createDirectories(gif.getParent());
+        Files.write(gif, Gifs.frames(4, 8, 8, 10));
 
-        var icons = IconDefinitions.parse(load()).icons();
+        var icons = IconDefinitions.parse(load(), PackFiles.folder(content)).icons();
         var ruby = icons.get(ContentId.parse("pack:ruby").orElseThrow());
         assertEquals("ui/ruby", ruby.file());
         assertEquals(11, ruby.height());
         assertEquals(9, ruby.ascent());
-        // The 2x2 sheet is four icons, one per cell; the GIF has no sheet to cut.
-        assertEquals(5, icons.size());
+        // The 2x2 sheet is four icons, one per cell, and the GIF is one more:
+        // an animated icon of its four frames, no longer skipped.
+        assertEquals(6, icons.size());
         assertEquals(4, icons.get(ContentId.parse("pack:grid_4").orElseThrow()).cell());
-        assertTrue(load().diagnostics().stream().anyMatch(d -> d.message().contains("Animated GIF glyphs")));
+        IconInfo animated = icons.get(id("pack:animated"));
+        assertEquals("gifs/animated.gif", animated.file());
+        assertEquals(4, animated.frames());
+        assertEquals(10, animated.fps());
+        assertFalse(warned(load(), null, "Animated GIF glyphs"));
         assertTrue(load().diagnostics().stream().anyMatch(d -> d.message().contains("multi-bitmap glyph")));
     }
 
@@ -693,7 +704,7 @@ class NexoOraxenPackTest {
     // ---- glyphs and recipes -------------------------------------------------
 
     @Test
-    void multiBitmapAndAnimatedGlyphsBecomeCellsOfTheirSheet() throws IOException {
+    void multiBitmapGlyphsBecomeCellsAndAnimatedOnesAnimate() throws IOException {
         write("pack/items.yml", """
                 ruby:
                   material: PAPER
@@ -727,12 +738,161 @@ class NexoOraxenPackTest {
         assertTrue(icons.containsKey(id("pack:faces_6")));
         assertFalse(icons.containsKey(id("pack:faces")));
 
+        // Oraxen's strip is the whole animation now, one glyph per frame,
+        // not its first frame - and its chat placeholder came with it.
         IconInfo spinner = icons.get(id("pack:spinner"));
         assertEquals(16, spinner.rows());
         assertEquals(1, spinner.columns());
         assertEquals(1, spinner.cell());
-        assertTrue(warned(report, "spinner", "first frame"));
-        assertTrue(warned(report, "spinner", "chat"));
+        assertEquals(16, spinner.frames());
+        assertEquals(16, spinner.fps());
+        assertEquals(List.of(":spinner:"), spinner.aliases());
+        assertFalse(warned(report, "spinner", "first frame"));
+        assertFalse(warned(report, "spinner", "skipped"));
+    }
+
+    @Test
+    void aNexoGifWithAFrameCountAnimatesAndItsOffsetIsExplained() throws IOException {
+        anItemsFile();
+        write("pack/glyphs/gifs.yml", """
+                necoflap:
+                  gif: pack:gifs/necoflap.gif
+                  frame_count: 3
+                  offset: 2
+                  ascent: 8
+                  height: 10
+                  placeholders: [":neco:"]
+                  permission: pack.glyph.neco
+                """);
+        Path gif = content.resolve("pack/assets/textures/font/gifs/necoflap.gif");
+        Files.createDirectories(gif.getParent());
+        Files.write(gif, Gifs.frames(6, 4, 4, 20));
+
+        LoadReport report = load();
+        IconInfo neco = IconDefinitions.parse(report, PackFiles.folder(content)).icons().get(id("pack:necoflap"));
+
+        assertEquals("gifs/necoflap.gif", neco.file());
+        assertEquals(3, neco.frames());
+        assertEquals(5, neco.fps());
+        assertEquals(10, neco.height());
+        assertEquals(List.of(":neco:"), neco.aliases());
+        assertEquals("pack.glyph.neco", neco.permission().orElseThrow());
+        assertTrue(warned(report, "necoflap", "offset skipped"));
+        assertFalse(warned(report, "necoflap", "placeholders"));
+    }
+
+    @Test
+    void chatKeysCarryAndWhatCannotIsStillNamed() throws IOException {
+        anItemsFile();
+        write("pack/glyphs/chat.yml", """
+                heart:
+                  texture: pack:heart
+                  placeholders: ["<3", ":heart:"]
+                  permission: pack.heart
+                  tabcomplete: true
+                  is_emoji: true
+                  char: "\\uE123"
+                  font: pack:emoji
+                crown:
+                  texture: pack:crown
+                  chat:
+                    placeholders: [":crown:"]
+                    permission: pack.crown
+                    tabcomplete: true
+                """);
+
+        LoadReport report = load();
+        var icons = IconDefinitions.parse(report).icons();
+
+        assertEquals(List.of("<3", ":heart:"), icons.get(id("pack:heart")).aliases());
+        assertEquals("pack.heart", icons.get(id("pack:heart")).permission().orElseThrow());
+        assertEquals(List.of(":crown:"), icons.get(id("pack:crown")).aliases());
+        assertEquals("pack.crown", icons.get(id("pack:crown")).permission().orElseThrow());
+        // Still dropped, and still said: no warning names what is now carried.
+        assertTrue(warned(report, "heart", "tabcomplete, is_emoji, char, font skipped"));
+        assertTrue(warned(report, "crown", "chat.tabcomplete skipped"));
+        assertFalse(report.diagnostics().stream().anyMatch(d -> d.message().contains("placeholders")
+                || d.message().contains("permission")));
+    }
+
+    @Test
+    void aReferenceGlyphIsThatCellOfItsSheet() throws IOException {
+        anItemsFile();
+        write("pack/glyphs/faces.yml", """
+                faces:
+                  texture: pack:faces
+                  height: 9
+                  ascent: 7
+                  rows: 2
+                  columns: 2
+                grin:
+                  reference: faces
+                  index: 3
+                  placeholders: [":D"]
+                wrong:
+                  reference: faces
+                  index: 9
+                nowhere:
+                  reference: missing
+                  index: 1
+                """);
+
+        LoadReport report = load();
+        var icons = IconDefinitions.parse(report).icons();
+        IconInfo grin = icons.get(id("pack:grin"));
+
+        assertEquals("faces", grin.file());
+        assertEquals(3, grin.cell());
+        assertEquals(2, grin.rows());
+        assertEquals(2, grin.columns());
+        assertEquals(9, grin.height());
+        assertEquals(7, grin.ascent());
+        assertEquals(List.of(":D"), grin.aliases());
+        assertFalse(icons.containsKey(id("pack:wrong")));
+        assertFalse(icons.containsKey(id("pack:nowhere")));
+        assertTrue(warned(report, "wrong", "index: 9"));
+        assertTrue(warned(report, "nowhere", "references missing"));
+    }
+
+    @Test
+    void placeholdersOnAMultiBitmapGlyphAreExplainedAndItsPermissionReachesEveryCell() throws IOException {
+        anItemsFile();
+        write("pack/glyphs/sheet.yml", """
+                faces:
+                  texture: pack:faces
+                  rows: 1
+                  columns: 2
+                  placeholders: [":faces:"]
+                  permission: pack.faces
+                """);
+
+        LoadReport report = load();
+        var icons = IconDefinitions.parse(report).icons();
+
+        assertEquals("pack.faces", icons.get(id("pack:faces_1")).permission().orElseThrow());
+        assertEquals("pack.faces", icons.get(id("pack:faces_2")).permission().orElseThrow());
+        assertTrue(icons.get(id("pack:faces_1")).aliases().isEmpty());
+        assertTrue(warned(report, "faces", "placeholders skipped"));
+    }
+
+    @Test
+    void aFileOfOurOwnGifIconsIsNotMistakenForNexo() throws IOException {
+        write("mine/pack.yml", "{}\n");
+        write("mine/fonts/a.yml", """
+                dance:
+                  gif: dance.gif
+                  height: 11
+                plain: {}
+                """);
+        Path gif = content.resolve("mine/assets/textures/font/dance.gif");
+        Files.createDirectories(gif.getParent());
+        Files.write(gif, Gifs.frames(2, 4, 4, 10));
+
+        var icons = IconDefinitions.parse(load(), PackFiles.folder(content)).icons();
+
+        // Read as Nexo, `plain` would be dropped for having no texture.
+        assertEquals(2, icons.get(id("mine:dance")).frames());
+        assertTrue(icons.containsKey(id("mine:plain")));
     }
 
     @Test
