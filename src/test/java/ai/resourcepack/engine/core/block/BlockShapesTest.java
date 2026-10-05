@@ -325,6 +325,40 @@ class BlockShapesTest {
         assertEquals(300, BlockDefinitions.seconds("5m"));
     }
 
+    @Test
+    void logsStripLampsSwitchSandFallsAndPathsArePickedAtRandom() throws IOException {
+        Map<ContentId, BlockInfo> blocks = blocks("""
+                palm_log:
+                  model: palm_log
+                  rotate: axis
+                  strip: { into: stripped_palm_log, drop: bark }
+                lamp_off:
+                  model: lamp_off
+                  click-into: lamp_on
+                ash:
+                  model: ash
+                  falls: true
+                  blast-resistant: true
+                cobbles:
+                  random:
+                    - cobbles_a
+                    - { model: cobbles_a, y: 90 }
+                    - cobbles_b
+                """);
+        BlockInfo.Behaviour log = blocks.get(id("mypack:palm_log")).behaviour();
+        assertEquals(id("mypack:stripped_palm_log"), log.stripInto().orElseThrow());
+        assertEquals(id("mypack:bark"), log.stripDrop());
+        assertEquals(id("mypack:lamp_on"), blocks.get(id("mypack:lamp_off")).behaviour().clicksInto().orElseThrow());
+        assertTrue(blocks.get(id("mypack:ash")).behaviour().falls());
+        assertTrue(blocks.get(id("mypack:ash")).behaviour().blastProof());
+
+        BlockInfo cobbles = blocks.get(id("mypack:cobbles"));
+        assertEquals(BlockInfo.Property.Kind.RANDOM, cobbles.properties().get(0).kind());
+        assertEquals(3, cobbles.states().size());
+        assertEquals(90, cobbles.appearanceOf("variant=1").y());
+        assertEquals("cobbles_b", cobbles.appearanceOf("variant=2").model());
+    }
+
     private static Map<String, String> read(BuildReport report) throws IOException {
         Map<String, String> entries = new LinkedHashMap<>();
         try (InputStream in = Files.newInputStream(report.pack("main").orElseThrow().file());

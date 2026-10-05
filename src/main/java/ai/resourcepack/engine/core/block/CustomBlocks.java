@@ -290,9 +290,50 @@ public final class CustomBlocks implements Listener {
                 return;
             }
             placed.setBlockData(dataFor(block, number.get()), false);
+            fallIfLoose(placed, block);
         }
         play(block, placed);
         act(event.getPlayer(), block, ItemAction.Trigger.PLACE);
+    }
+
+    /**
+     * A block with {@code falls: true} and nothing under it becomes a falling
+     * block of itself, as sand does. It lands as the same state, so it is
+     * still ours where it comes down.
+     */
+    private void fallIfLoose(Block where, BlockInfo block) {
+        if (!block.behaviour().falls()) {
+            return;
+        }
+        Block below = where.getRelative(BlockFace.DOWN);
+        if (!below.getType().isAir() && !below.isLiquid()) {
+            return;
+        }
+        BlockData data = where.getBlockData();
+        where.setType(Material.AIR, false);
+        org.bukkit.entity.FallingBlock falling = where.getWorld().spawnFallingBlock(
+                where.getLocation().add(0.5, 0, 0.5), data);
+        // Where it cannot land it would drop a plain note block; nothing is
+        // better than the wrong thing.
+        falling.setDropItem(false);
+    }
+
+    /**
+     * Turns the block standing at {@code where} into another of ours, in that
+     * one's placed state: a log stripped by an axe, a lamp switched on.
+     */
+    public boolean turnInto(Block where, ContentId target) {
+        Optional<BlockInfo> into = info(target);
+        if (into.isEmpty()) {
+            return false;
+        }
+        BlockInfo block = into.get();
+        if (block.shape() != BlockInfo.Shape.CUBE) {
+            Optional<Material> material = states.existingShaped(block).map(Material::matchMaterial);
+            material.ifPresent(type -> where.setType(type, false));
+            return material.isPresent();
+        }
+        return setState(where, block, block.defaultState());
     }
 
     /**
@@ -314,6 +355,10 @@ public final class CustomBlocks implements Listener {
                 case AXIS:
                     BlockFace against = event.getBlockPlaced().getFace(event.getBlockAgainst());
                     state = block.with(state, property.name(), axisOf(against));
+                    break;
+                case RANDOM:
+                    state = block.with(state, property.name(), property.values().get(
+                            ThreadLocalRandom.current().nextInt(property.values().size())));
                     break;
                 default:
                     break;
@@ -507,6 +552,10 @@ public final class CustomBlocks implements Listener {
                 continue;
             }
             each.remove();
+            if (found.get().behaviour().blastProof()) {
+                // Out of the list and left standing.
+                continue;
+            }
             if (found.get().shape() == BlockInfo.Shape.DOOR
                     && block.getBlockData() instanceof Bisected
                     && ((Bisected) block.getBlockData()).getHalf() == Bisected.Half.TOP) {
@@ -641,8 +690,18 @@ public final class CustomBlocks implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPhysics(BlockPhysicsEvent event) {
-        if (baseOf(event.getBlock().getType()) != null && at(event.getBlock()).isPresent()) {
+        if (baseOf(event.getBlock().getType()) == null) {
+            return;
+        }
+        Optional<BlockInfo> found = at(event.getBlock());
+        if (found.isPresent()) {
             event.setCancelled(true);
+            if (found.get().behaviour().falls()) {
+                Block block = event.getBlock();
+                // Next tick: a block cannot be replaced from inside its own update.
+                plugin.getServer().getScheduler().runTask(plugin, () -> at(block)
+                        .ifPresent(still -> fallIfLoose(block, still)));
+            }
         }
     }
 
@@ -686,6 +745,27 @@ public final class CustomBlocks implements Listener {
             return;
         }
         boolean used = act(event.getPlayer(), block, ItemAction.Trigger.INTERACT);
+        ItemStack held = event.getItem();
+        if (!used && block.behaviour().stripInto().isPresent() && held != null
+                && held.getType().name().endsWith("_AXE")) {
+            used = turnInto(event.getClickedBlock(), block.behaviour().stripInto().get());
+            if (used) {
+                Block clicked = event.getClickedBlock();
+                clicked.getWorld().playSound(clicked.getLocation().add(0.5, 0.5, 0.5),
+                        org.bukkit.Sound.ITEM_AXE_STRIP, 1f, 1f);
+                if (event.getPlayer().getGameMode() != GameMode.CREATIVE) {
+                    Optional.ofNullable(block.behaviour().stripDrop()).flatMap(items::create).ifPresent(stack ->
+                            clicked.getWorld().dropItemNaturally(clicked.getLocation().add(0.5, 1, 0.5), stack));
+                }
+                event.getPlayer().swingMainHand();
+            }
+        }
+        if (!used && block.behaviour().clicksInto().isPresent()) {
+            used = turnInto(event.getClickedBlock(), block.behaviour().clicksInto().get());
+            if (used) {
+                event.getPlayer().swingMainHand();
+            }
+        }
         if (!used && cube && block.cycle().isPresent()) {
             String next = block.next(found.get().state(), block.cycle().get());
             used = setState(event.getClickedBlock(), block, next);
