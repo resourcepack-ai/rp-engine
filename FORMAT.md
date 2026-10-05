@@ -1616,14 +1616,22 @@ What comes across:
 | `font_images.<id>` | an icon |
 | `sounds.<id>` (`path`, and `settings`' subtitle, volume, pitch and stream) | a sound, its subtitle key looked up in the pack's `minecraft_lang_overwrite` |
 | `resourcepack/assets/<namespace>/sounds.json` (before 4.0.12) | a sound per event, the audio left where it is |
+| `recipes.crafting_table` · `cooking` · `campfire_cooking` · `stonecutter` | `shaped`, the cookers (one per `machines` entry), `campfire`, `stonecutting` |
+| `recipes.smithing` | `smithing` |
+| `recipes.anvil_repair` (`item` mended with `ingredient`) | `anvil` with `repair: 25%`, which is how theirs repairs |
+| `recipes.brewing` (ItemsAdderAdditions'; `base`, `ingredient`, `result`) | `brewing`, with `minecraft:awkward_potion` read as `potion/awkward` |
 | `enabled: false` | skipped, as theirs is |
+
+A bare lowercase id in a recipe (`base: my_sword`) is the file's own, as theirs
+reads it; anything with a capital is a vanilla material.
 
 What does not, each of them a warning naming the id rather than a silence:
 **custom blocks**, which are not a feature here and are not going to be; their
-**entities** and **recipes**, which are a different feature rather than a
-different spelling and want writing as `entities/` and `recipes/`; and the
-parts of an item that are their plugin's own behaviour rather than a property
-of the item — `events`, `drop`, `item_flags`. Of their armour, an animated
+**entities**, which are a different feature rather than a different spelling
+and want writing as `entities/`; recipe groups other than the ones above, and a
+brewing recipe's `brew_time`, `fuel_cost` and `on_complete`; and the parts of an
+item that are their plugin's own behaviour rather than a property of the item —
+`events`, `drop`, `item_flags`. Of their armour, an animated
 layer (a strip of frames, which a worn layer cannot play) is not carried,
 `use_color` tints and emissive layers are dropped, and colour-only armour, which
 has no art, is worn as plain leather. Of their sounds, one that picks between
@@ -1673,14 +1681,17 @@ section names, and `template` / `arguments` / `overrides` / `merges` with
 | `images.<id>` (a grid is one icon per cell, `<id>_<row>_<column>`) | an icon |
 | `emoji.<id>` keywords written `:word:` | an icon called `word` |
 | `recipes.<id>` shaped, shapeless, smelting, blasting, smoking, campfire_cooking, stonecutting | a recipe |
+| `recipes.<id>` smithing_transform (`template_type`, `base`, `addition`, `merge_components`) · smithing_trim (`pattern`) · brewing (`container`, `ingredient`, `result`) | `smithing` (`copy-data`) · `smithing_trim` · `brewing` |
+| `recipes.<id>` shaped_transform · shapeless_transform | `shaped` · `shapeless`, the result made fresh rather than inheriting the source's data, with a warning |
 | `sounds.<id>` | a sound |
 | `enable: false` (pack or entry) | skipped, as theirs is |
 
 What does not come across is named in a warning with the id: anything that
 changes a vanilla item or block, behaviours and events, block states beyond the
 first, item model definitions that switch between models (the default one is
-worn), extra furniture elements, hitboxes and seats, smithing and brewing
-recipes, recipes with a tag or a choice of ingredients, categories, jukebox
+worn), extra furniture elements, hitboxes and seats, dye recipes, smithing recipes
+missing their template or addition, recipes with a tag or a choice of
+ingredients, categories, jukebox
 songs, and the sections that are not content (loot tables on their own,
 paintings, advancements, features).
 

@@ -63,7 +63,8 @@ final class ItemsAdder {
                 || document.node("entities").isPresent()
                 || document.raw("sounds") instanceof Map
                 || document.node("minecraft_lang_overwrite").isPresent()
-                || !armours(document).isEmpty());
+                || !armours(document).isEmpty()
+                || document.node("recipes").isPresent());
     }
 
     /**
@@ -179,7 +180,7 @@ final class ItemsAdder {
         });
 
         document.node("recipes").ifPresent(recipes -> {
-            Map<String, Object> translated = recipes(recipes, origin, diagnostics);
+            Map<String, Object> translated = recipes(recipes, namespace, origin, diagnostics);
             if (!translated.isEmpty()) {
                 out.put(ContentKind.RECIPE, translated);
             }
@@ -234,8 +235,12 @@ final class ItemsAdder {
      * list — so one of theirs can be several of ours, since a recipe here is
      * one type. The extra ones are suffixed with the machine, which is both
      * unique and readable in {@code /rp recipes}.
+     *
+     * <p>{@code smithing}, {@code anvil_repair} and {@code brewing} (the last
+     * is ItemsAdderAdditions', an add-on, in the same file) are named slots
+     * rather than a machine list, and each is one of ours.
      */
-    private static Map<String, Object> recipes(DefinitionNode recipes, String origin,
+    private static Map<String, Object> recipes(DefinitionNode recipes, String namespace, String origin,
                                                List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (String group : recipes.keys()) {
@@ -247,16 +252,25 @@ final class ItemsAdder {
                 }
                 switch (group) {
                     case "crafting_table":
-                        out.put(name, crafting(recipe));
+                        out.put(name, crafting(recipe, namespace));
                         break;
                     case "cooking":
-                        cooking(recipe, name, out);
+                        cooking(recipe, name, namespace, out);
                         break;
                     case "campfire_cooking":
-                        out.put(name, cooked(recipe, "campfire"));
+                        out.put(name, cooked(recipe, "campfire", namespace));
                         break;
                     case "stonecutter":
-                        out.put(name, cooked(recipe, "stonecutting"));
+                        out.put(name, cooked(recipe, "stonecutting", namespace));
+                        break;
+                    case "smithing":
+                        out.put(name, smithing(recipe, namespace));
+                        break;
+                    case "anvil_repair":
+                        out.put(name, anvilRepair(recipe, namespace));
+                        break;
+                    case "brewing":
+                        out.put(name, brewing(recipe, name, namespace, origin, diagnostics));
                         break;
                     default:
                         diagnostics.add(Diagnostic.warning(origin, name,
@@ -267,16 +281,100 @@ final class ItemsAdder {
         return out;
     }
 
+    /** {@code template}, {@code base} and {@code addition}, each one item, and a result. */
+    private static Map<String, Object> smithing(DefinitionNode recipe, String namespace) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", "smithing");
+        for (String slot : List.of("template", "base", "addition")) {
+            slotItem(recipe, slot).ifPresent(item -> out.put(slot, reference(item, namespace)));
+        }
+        result(recipe, namespace, out);
+        return out;
+    }
+
+    /**
+     * {@code item} mended with {@code ingredient} at an anvil. Theirs repairs
+     * the way vanilla repairs with a material, a quarter of full durability
+     * for each one used, which is what ours does with {@code repair: 25%}.
+     */
+    private static Map<String, Object> anvilRepair(DefinitionNode recipe, String namespace) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", "anvil");
+        slotItem(recipe, "item").ifPresent(item -> out.put("base", reference(item, namespace)));
+        slotItem(recipe, "ingredient").ifPresent(item -> out.put("addition", reference(item, namespace)));
+        out.put("repair", "25%");
+        return out;
+    }
+
+    /**
+     * ItemsAdderAdditions' brewing: {@code base} (once {@code input}) in the
+     * bottle slots, {@code ingredient} on top.
+     */
+    private static Map<String, Object> brewing(DefinitionNode recipe, String name, String namespace,
+                                               String origin, List<Diagnostic> diagnostics) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("type", "brewing");
+        slotItem(recipe, "base").or(() -> slotItem(recipe, "input"))
+                .ifPresent(item -> out.put("base", reference(item, namespace)));
+        slotItem(recipe, "ingredient").ifPresent(item -> out.put("ingredient", reference(item, namespace)));
+        result(recipe, namespace, out);
+        List<String> skipped = new ArrayList<>();
+        if (recipe.node("ingredient").flatMap(ingredient -> ingredient.integer("consume")).orElse(1) > 1) {
+            skipped.add("ingredient.consume (a brewing stand uses one)");
+        }
+        for (String key : List.of("brew_time", "fuel_cost", "on_complete")) {
+            if (recipe.has(key)) skipped.add(key);
+        }
+        if (!skipped.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, name,
+                    String.join(", ", skipped) + " have no RP Engine equivalent and were skipped: it brews as "
+                            + "vanilla brewing does. The recipe still works."));
+        }
+        return out;
+    }
+
+    /** A slot written as {@code slot: ID} or {@code slot: {item: ID}}; both spellings are theirs. */
+    private static Optional<String> slotItem(DefinitionNode recipe, String slot) {
+        return recipe.node(slot).flatMap(node -> node.string("item")).or(() -> recipe.string(slot));
+    }
+
+    /**
+     * One of their item references as ours. An id with no namespace is this
+     * file's, as theirs reads it, and anything with a capital letter in it is
+     * a vanilla material. {@code minecraft:awkward_potion} is how their
+     * brewing add-on names a vanilla potion, which is {@code potion/awkward}
+     * here.
+     */
+    static String reference(String raw, String namespace) {
+        String id = raw.trim();
+        if (id.startsWith("minecraft:")) {
+            String name = id.substring("minecraft:".length()).toLowerCase(Locale.ROOT);
+            if (name.equals("water_bottle")) {
+                return "potion/water";
+            }
+            for (String kind : List.of("splash_potion", "lingering_potion", "potion")) {
+                if (name.endsWith("_" + kind)) {
+                    return kind + "/" + name.substring(0, name.length() - kind.length() - 1);
+                }
+            }
+            return id;
+        }
+        if (id.indexOf(':') >= 0 || !id.equals(id.toLowerCase(Locale.ROOT))) {
+            return id;
+        }
+        return namespace + ":" + id;
+    }
+
     /** A shaped recipe. Their pattern uses undefined letters as blanks. */
-    private static Map<String, Object> crafting(DefinitionNode recipe) {
+    private static Map<String, Object> crafting(DefinitionNode recipe, String namespace) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", "shaped");
-        result(recipe, out);
+        result(recipe, namespace, out);
 
         DefinitionNode ingredients = recipe.node("ingredients").orElse(DefinitionNode.empty());
         Map<String, Object> keys = new LinkedHashMap<>();
         for (String key : ingredients.keys()) {
-            ingredients.string(key).ifPresent(item -> keys.put(key, item));
+            ingredients.string(key).ifPresent(item -> keys.put(key, reference(item, namespace)));
         }
         out.put("keys", keys);
 
@@ -295,7 +393,7 @@ final class ItemsAdder {
     }
 
     /** Their cooking, which may name several machines at once. */
-    private static void cooking(DefinitionNode recipe, String name, Map<String, Object> out) {
+    private static void cooking(DefinitionNode recipe, String name, String namespace, Map<String, Object> out) {
         List<String> machines = recipe.strings("machines");
         if (machines.isEmpty()) {
             machines = List.of("FURNACE");
@@ -315,29 +413,27 @@ final class ItemsAdder {
             }
             // One of theirs is several of ours, so all but the first are named
             // for their machine.
-            out.put(first ? name : name + "_" + type, cooked(recipe, type));
+            out.put(first ? name : name + "_" + type, cooked(recipe, type, namespace));
             first = false;
         }
     }
 
     /** The shape every one-ingredient recipe of ours shares. */
-    private static Map<String, Object> cooked(DefinitionNode recipe, String type) {
+    private static Map<String, Object> cooked(DefinitionNode recipe, String type, String namespace) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", type);
-        result(recipe, out);
-        recipe.node("ingredient").flatMap(ingredient -> ingredient.string("item"))
-                .or(() -> recipe.string("ingredient"))
-                .ifPresent(item -> out.put("ingredient", item));
+        result(recipe, namespace, out);
+        slotItem(recipe, "ingredient").ifPresent(item -> out.put("ingredient", reference(item, namespace)));
         recipe.string("exp").ifPresent(exp -> out.put("experience", exp));
         recipe.integer("cook_time").ifPresent(time -> out.put("time", time));
         return out;
     }
 
     /** {@code result: {item: ns:id, amount: 1}}, which both plugins spell the same. */
-    private static void result(DefinitionNode recipe, Map<String, Object> out) {
+    private static void result(DefinitionNode recipe, String namespace, Map<String, Object> out) {
         DefinitionNode result = recipe.node("result").orElse(DefinitionNode.empty());
         result.string("item").or(() -> recipe.string("result"))
-                .ifPresent(item -> out.put("result", item));
+                .ifPresent(item -> out.put("result", reference(item, namespace)));
         result.integer("amount").ifPresent(amount -> out.put("amount", amount));
     }
 
