@@ -131,7 +131,14 @@ public final class ModelPlacementListener implements Listener {
      * @return whether a {@code cancel} step asked for the click's own effect to be stopped
      */
     private boolean act(Player player, ContentId id, ai.resourcepack.engine.api.ItemAction.Trigger trigger) {
-        return actions != null && player != null && actions.run(player, modelItem(id), trigger, null);
+        return act(player, id, trigger, null);
+    }
+
+    /** As above, about the piece standing at {@code at}, where a particle step draws. */
+    private boolean act(Player player, ContentId id, ai.resourcepack.engine.api.ItemAction.Trigger trigger,
+                        Location at) {
+        return actions != null && player != null && actions.run(player, modelItem(id), trigger, null,
+                at == null ? null : at.clone().add(0, 0.5, 0));
     }
 
     /** Opens a piece that holds items. Null until wired, and then a piece is just a piece. */
@@ -283,7 +290,8 @@ public final class ModelPlacementListener implements Listener {
             held.setAmount(held.getAmount() - 1);
         }
         player.swingMainHand();
-        act(player, info.id(), ai.resourcepack.engine.api.ItemAction.Trigger.PLACE);
+        act(player, info.id(), ai.resourcepack.engine.api.ItemAction.Trigger.PLACE,
+                target.getLocation().add(0.5, 0, 0.5));
     }
 
     /** Snaps the player's yaw the way this piece asked to be faced. */
@@ -525,7 +533,8 @@ public final class ModelPlacementListener implements Listener {
 
         // The pack's own click actions come first, and a cancel in them is
         // the author saying this piece is a button rather than a chair.
-        if (act(event.getPlayer(), id.get(), ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)) {
+        if (act(event.getPlayer(), id.get(), ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT,
+                hitbox.getLocation())) {
             event.setCancelled(true);
             return;
         }
@@ -985,7 +994,7 @@ public final class ModelPlacementListener implements Listener {
         Dismantled gone = dismantle(hitbox, model.get(id));
         // After it is gone, so an action that gives something back or runs a
         // command about the space finds it empty, as a broken piece is.
-        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE);
+        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE, where);
 
         if (world == null) {
             return;
