@@ -2065,6 +2065,26 @@ looked", so a one-shot icon has played by the time most people see it. It is
 there for the icon that should settle — a fill that ends full — rather than for
 an effect.
 
+### Glyphs from Nexo and Oraxen
+
+Their glyph files load as they are, from `glyphs/`:
+
+| Theirs | Ours |
+|---|---|
+| `texture` · `height` · `ascent` | `file` · `height` · `ascent` |
+| `rows` · `columns` (multi-bitmap) | one icon per cell, `<id>_1` to `<id>_N` |
+| `reference` · `index` | that cell of the sheet it names, in the same file |
+| Oraxen `animation: {frames, fps}` | `animation`, the whole strip |
+| Nexo `gif` · `frame_count` | `gif` · `animation.frames` |
+| `placeholders`, Oraxen `chat.placeholders` | `aliases` |
+| `permission`, Oraxen `chat.permission` | `permission` |
+
+Their animated glyphs move where ours do and not in chat — see above for why.
+What is not carried is named in a warning: tab completion, a fixed `char`, a
+font of their own, `is_emoji`, a GIF's `offset`, and placeholders on a
+multi-bitmap glyph (it became several icons, and a placeholder cannot type all
+of them).
+
 ## Screens and HUDs
 
 A custom GUI and a HUD overlay are the same trick as an icon, scaled up: the
