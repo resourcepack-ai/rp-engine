@@ -580,18 +580,6 @@ public final class InterfaceCommands implements Area {
                 slowPages |= !instant;
                 note = (note.isEmpty() ? "" : note + " · ") + (instant ? "pages turn instantly" : "pages wait for the server");
             }
-            // The command players open it with, or why it has none it asked for.
-            if (dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) {
-                java.util.Optional<String> command = impl.commandOf(id);
-                java.util.Optional<ai.resourcepack.engine.api.DialogInfo> info = dialogs.info(id);
-                if (command.isPresent()) {
-                    note = (note.isEmpty() ? "" : note + " · ") + "opens with " + command.get()
-                            + info.flatMap(d -> d.permission()).map(p -> " (" + p + ")").orElse("");
-                } else if (info.isPresent() && impl.commandTaken(info.get())) {
-                    note = (note.isEmpty() ? "" : note + " · ") + "/" + info.get().command().orElse("")
-                            + " is taken by another plugin";
-                }
-            }
             Reply.row(sender, id.toString(), note);
         }
         if (slowPages && dialogs.supported()) {

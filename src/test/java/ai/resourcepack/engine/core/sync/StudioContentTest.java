@@ -133,19 +133,16 @@ class StudioContentTest {
     void aPushedDialogKeepsEverythingItArrivedWithAcrossARestart(@TempDir Path dir) {
         // A dialog's variables and item icons were dropped by save(), so after
         // a restart /rp var refused its bound switches and its pack items drew
-        // as the question mark. Its command is new and goes the same way.
+        // as the question mark.
         String manifest = """
                 {"packId":"ian8vezm",
                  "dialogs":[{"id":"settings","name":"Settings",
                    "json":{"type":"minecraft:notice","title":"Settings"},
                    "vars":[{"name":"show_sidebar","values":["on","off"]}],
-                   "itemIcons":{"sword_model":1600},
-                   "command":"/Settings","permission":"myserver.settings"}]}
+                   "itemIcons":{"sword_model":1600}}]}
                 """;
         StudioContent content = read(dir, manifest);
         ContentId id = ContentId.parse("studio:settings").orElseThrow();
-        ai.resourcepack.engine.api.DialogInfo pushed = content.dialogs().get(id);
-        assertEquals("settings", pushed.command().orElseThrow(), "a command is a plain lower-case word, slash off");
         content.save(LOG);
 
         StudioContent reloaded = new StudioContent(dir.toFile());
@@ -153,16 +150,6 @@ class StudioContentTest {
         ai.resourcepack.engine.api.DialogInfo after = reloaded.dialogs().get(id);
         assertEquals(java.util.List.of("on", "off"), after.variables().get("show_sidebar"));
         assertEquals(1600, after.itemIcons().get("sword_model"));
-        assertEquals("settings", after.command().orElseThrow());
-        assertEquals("myserver.settings", after.permission().orElseThrow());
-    }
-
-    @Test
-    void aDialogCommandIsOnePlainWord(@TempDir Path dir) {
-        assertEquals("shop", ai.resourcepack.engine.api.DialogInfo.commandName(" /Shop "));
-        assertEquals(null, ai.resourcepack.engine.api.DialogInfo.commandName("shop now"));
-        assertEquals(null, ai.resourcepack.engine.api.DialogInfo.commandName("rp:shop"));
-        assertEquals(null, ai.resourcepack.engine.api.DialogInfo.commandName(""));
     }
 
     @Test

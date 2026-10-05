@@ -162,13 +162,6 @@ public final class StudioContent {
          * of it carries. Absent when the pack painted none.
          */
         Map<String, Integer> itemIcons;
-        /**
-         * The command a player opens it with, {@code shop} for {@code /shop} —
-         * see {@link ai.resourcepack.engine.api.DialogInfo#command()}. Absent has none.
-         */
-        String command;
-        /** What a player needs to use that command. Absent: anybody may. */
-        String permission;
     }
 
     /** A variable a dialog declares: see {@link ai.resourcepack.engine.api.DialogInfo#variables()}. */
@@ -838,8 +831,7 @@ public final class StudioContent {
                 });
             }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
-                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
-                            .withCommand(dialog.command, dialog.permission)));
+                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
@@ -1289,8 +1281,6 @@ public final class StudioContent {
             if (!entry.getValue().itemIcons().isEmpty()) {
                 dialog.itemIcons = new LinkedHashMap<>(entry.getValue().itemIcons());
             }
-            dialog.command = entry.getValue().command().orElse(null);
-            dialog.permission = entry.getValue().permission().orElse(null);
             manifest.dialogs.add(dialog);
         }
         manifest.armor3d = new ArrayList<>();

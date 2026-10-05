@@ -1135,12 +1135,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (heartbeat != null) {
             heartbeat.stop();
         }
-        if (dialogs != null) {
-            // The commands dialogs are opened with (/shop) were put into the
-            // server's command map by hand, so they come out by hand: a reload
-            // would otherwise leave each one calling a disabled plugin.
-            dialogs.detach();
-        }
         if (blockGrowth != null) {
             blockGrowth.stop();
         }
