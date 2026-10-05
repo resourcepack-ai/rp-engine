@@ -225,6 +225,72 @@ public final class ModelInfo {
         }
     }
 
+    /**
+     * A piece that becomes another piece over time: a sapling into a tree, a
+     * crop through its stages. What Nexo and Oraxen call evolution.
+     */
+    public static final class Grow {
+
+        private final ContentId into;
+        private final long afterTicks;
+        private final double chance;
+        private final int minimumLight;
+
+        private Grow(ContentId into, long afterTicks, double chance, int minimumLight) {
+            this.into = into;
+            this.afterTicks = afterTicks;
+            this.chance = chance;
+            this.minimumLight = minimumLight;
+        }
+
+        /**
+         * @param into         the item whose placed piece replaces this one
+         * @param afterTicks   how long it must have stood first
+         * @param chance       0&ndash;1, the chance per check once that long has passed
+         * @param minimumLight the light it needs at its block, or 0 for none
+         */
+        public static Grow of(ContentId into, long afterTicks, double chance, int minimumLight) {
+            return new Grow(java.util.Objects.requireNonNull(into, "into"),
+                    Math.max(0L, afterTicks),
+                    Double.isFinite(chance) ? Math.max(0d, Math.min(1d, chance)) : 1d,
+                    Math.max(0, Math.min(15, minimumLight)));
+        }
+
+        /** What it grows into. */
+        public ContentId into() {
+            return into;
+        }
+
+        /** The least time it stands before it may grow, in ticks. */
+        public long afterTicks() {
+            return afterTicks;
+        }
+
+        /** The chance it grows on any one check once it may. */
+        public double chance() {
+            return chance;
+        }
+
+        /** The light it needs at its own block to grow, 0 for any. */
+        public int minimumLight() {
+            return minimumLight;
+        }
+
+        /**
+         * Whether a check grows it.
+         *
+         * <p>The whole rule, here rather than in the task that asks, so it is
+         * one tested method rather than three conditions in a loop.
+         *
+         * @param ticksStanding how long since it was placed
+         * @param light         the light level at its block now
+         * @param roll          a uniform random number in [0, 1)
+         */
+        public boolean ready(long ticksStanding, int light, double roll) {
+            return ticksStanding >= afterTicks && light >= minimumLight && roll < chance;
+        }
+    }
+
     private final ContentId id;
     private final ContentId item;
     private final Facing facing;
@@ -242,6 +308,7 @@ public final class ModelInfo {
     private java.util.List<State> states = java.util.List.of();
     private long stateResetTicks;
     private String baseSound;
+    private Grow grow;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -440,6 +507,13 @@ public final class ModelInfo {
         return changed;
     }
 
+    /** The same model, growing into another — or not, for null. */
+    public ModelInfo withGrow(Grow grow) {
+        ModelInfo changed = copy();
+        changed.grow = grow;
+        return changed;
+    }
+
     /**
      * Everything {@link #of} cannot carry, moved across.
      *
@@ -462,6 +536,7 @@ public final class ModelInfo {
         made.states = states;
         made.stateResetTicks = stateResetTicks;
         made.baseSound = baseSound;
+        made.grow = grow;
         return made;
     }
 
@@ -592,6 +667,11 @@ public final class ModelInfo {
     /** The sound it makes going back to the piece as defined, or empty. */
     public java.util.Optional<String> baseSound() {
         return java.util.Optional.ofNullable(baseSound);
+    }
+
+    /** What it grows into and when, or empty for a piece that stays as it is. */
+    public java.util.Optional<Grow> grow() {
+        return java.util.Optional.ofNullable(grow);
     }
 
     @Override

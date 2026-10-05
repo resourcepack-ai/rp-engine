@@ -180,6 +180,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ItemsImpl items;
     private ModelPlacementListener placements;
     private ai.resourcepack.engine.core.storage.Storages storages;
+    private ai.resourcepack.engine.core.model.ModelGrowth growth;
     private Recipes recipes;
     private SyncClient sync;
     private StudioRelay studio;
@@ -546,6 +547,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A piece that is a jukebox asks this what a disc plays: a material
         // on every version, a data component from 1.21. See Discs.
         placements.discs(ai.resourcepack.engine.core.model.Discs.forServer(compatibility, sounds, getLogger()));
+        // The loaded pieces that `grow:` into others. Filled from the world by
+        // every load (see rebuild), so it is never the source of truth.
+        growth = new ai.resourcepack.engine.core.model.ModelGrowth(this, placements);
+        placements.growth(growth);
         // What a placed model is to a vehicle: whether it stops one, what it is
         // shaped like, and how big its own definition draws it.
         //
@@ -586,6 +591,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
         getServer().getPluginManager().registerEvents(storages, this);
+        growth.start();
         getServer().getPluginManager().registerEvents(seats, this);
         // Separately, because the event it wants is in a different package on
         // older servers and so cannot be an annotated method. See Seats.
@@ -1161,6 +1167,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // the server saves its worlds, so this lands in the save.
             storages.closeAll();
         }
+        if (growth != null) {
+            growth.stop();
+        }
         if (placements != null) {
             // Pending door-shuts. A piece left open stays open over a restart
             // and is booked again when its chunk loads.
@@ -1360,6 +1369,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
         placementCatalogue = parsedModels.model();
+        // Which loaded pieces grow, and which are mid-way through a reset,
+        // asked of the world again: this load may have changed both, and the
+        // chunks round spawn loaded before this plugin did.
+        growth.rescan();
 
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
         report(to, "entities", parsedEntities.diagnostics());

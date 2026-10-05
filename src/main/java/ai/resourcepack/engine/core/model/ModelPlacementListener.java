@@ -101,6 +101,7 @@ public final class ModelPlacementListener implements Listener {
         this.solidKey = new NamespacedKey(plugin, "model-solid");
         this.lightKey = new NamespacedKey(plugin, "model-light");
         this.stateKey = new NamespacedKey(plugin, "model-state");
+        this.placedAtKey = new NamespacedKey(plugin, "model-placed");
         this.rigs = rigs;
         this.animator = animator;
         this.spawns = new RigSpawn(host, animator);
@@ -382,7 +383,17 @@ public final class ModelPlacementListener implements Listener {
             if (carried != null && info.storage().map(one -> one.type().keepsContents()).orElse(false)) {
                 i.getPersistentDataContainer().set(storages.contentsKey(), PersistentDataType.BYTE_ARRAY, carried);
             }
+            // When it went down, on every piece and not only the ones that
+            // grow: a pack that gives a piece `grow:` later then counts from
+            // the real placement. The game's tick count rather than its clock,
+            // because /time set and a frozen daylight cycle both move or stop
+            // the clock, and a crop on a server with the sun turned off would
+            // never grow.
+            i.getPersistentDataContainer().set(placedAtKey, PersistentDataType.LONG, world.getGameTime());
         });
+        if (growth != null && info.grow().isPresent()) {
+            growth.track(hitbox);
+        }
 
         // Before the place trigger, so its animation reaches the Bedrock copy.
         bedrock.rigPlaced(hitbox, info.id().toString());
@@ -803,18 +814,40 @@ public final class ModelPlacementListener implements Listener {
     @EventHandler
     public void onLoad(org.bukkit.event.world.EntitiesLoadEvent event) {
         for (Entity entity : event.getEntities()) {
-            if (!(entity instanceof Interaction)) {
-                continue;
+            adopt(entity);
+        }
+    }
+
+    /**
+     * Everything already standing in a loaded chunk, as {@link #onLoad} would
+     * have seen it. For startup and reload: the chunks round spawn are loaded
+     * before this plugin is, so their load events have been and gone.
+     */
+    public void adoptLoaded() {
+        for (World world : Bukkit.getWorlds()) {
+            for (Interaction hitbox : world.getEntitiesByClass(Interaction.class)) {
+                adopt(hitbox);
             }
-            Interaction hitbox = (Interaction) entity;
-            Optional<ContentId> id = idOf(hitbox);
-            ModelInfo info = id.map(model::get).orElse(null);
-            if (info != null && info.stateResetTicks() > 0) {
-                int state = stateOf(hitbox);
-                if (state != 0) {
-                    scheduleReset(hitbox, info, state);
-                }
+        }
+    }
+
+    private void adopt(Entity entity) {
+        if (!(entity instanceof Interaction)) {
+            return;
+        }
+        Interaction hitbox = (Interaction) entity;
+        ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
+        if (info == null) {
+            return;
+        }
+        if (info.stateResetTicks() > 0) {
+            int state = stateOf(hitbox);
+            if (state != 0 && !resets.containsKey(hitbox.getUniqueId())) {
+                scheduleReset(hitbox, info, state);
             }
+        }
+        if (growth != null && info.grow().isPresent()) {
+            growth.track(hitbox);
         }
     }
 
@@ -863,13 +896,18 @@ public final class ModelPlacementListener implements Listener {
      */
     @EventHandler
     public void onUnload(org.bukkit.event.world.EntitiesUnloadEvent event) {
-        if (storages == null) {
-            return;
-        }
         for (Entity entity : event.getEntities()) {
             if (entity instanceof Interaction
                     && entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)) {
-                storages.close(storageKey(entity.getUniqueId()));
+                if (storages != null) {
+                    storages.close(storageKey(entity.getUniqueId()));
+                }
+                // Not checked while its chunk is away. The time still counts,
+                // so it may grow at the first check after it comes back — one
+                // stage, because what it grows into starts its own clock then.
+                if (growth != null) {
+                    growth.forget(entity.getUniqueId());
+                }
             }
         }
     }
@@ -939,7 +977,53 @@ public final class ModelPlacementListener implements Listener {
 
         Location where = hitbox.getLocation();
         World world = where.getWorld();
-        ModelInfo info = model.get(id);
+        Dismantled gone = dismantle(hitbox, model.get(id));
+        // After it is gone, so an action that gives something back or runs a
+        // command about the space finds it empty, as a broken piece is.
+        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE);
+
+        if (world == null) {
+            return;
+        }
+        if (!ask.isDropItem()) {
+            // The piece is not given back — a creative break, or a plugin that
+            // said so — but what was IN it was never the piece's to lose. It
+            // spills, as a chest's contents do whoever breaks the chest.
+            spill(world, where, gone.contents);
+            return;
+        }
+        // A configured drop beats what it was holding: a piece that gives
+        // back something other than itself is a decision the pack made, and
+        // the display's own stack is only the default answer.
+        ItemStack configured = model.containsKey(id)
+                ? model.get(id).drop().flatMap(items::create).orElse(null)
+                : null;
+        ItemStack fallback = configured != null
+                ? configured
+                : gone.shown != null ? gone.shown : items.create(modelItem(id)).orElse(null);
+        List<ItemStack> contents = gone.contents;
+        if (gone.keepInside && fallback != null) {
+            // A shulker-style piece goes back into the item, contents and all.
+            storages.keepInside(fallback, contents);
+            contents = List.of();
+        }
+        if (fallback != null) {
+            world.dropItemNaturally(where.clone().add(0, 0.5, 0), fallback);
+        }
+        spill(world, where, contents);
+    }
+
+    /**
+     * Takes a piece out of the world and hands back what it leaves: every
+     * display, the hitbox, the block it put down, anybody sitting on it, a
+     * pending reset, a disc (dropped at once) and a container's contents
+     * (returned, for the caller to spill or pack).
+     *
+     * <p>Shared by breaking and growing, which differ only in what is given
+     * back afterwards and which events are fired — neither of which is here.
+     */
+    private Dismantled dismantle(Interaction hitbox, ModelInfo info) {
+        Location where = hitbox.getLocation();
 
         // What it was holding, taken out FIRST: every view of it is closed and
         // emptied before anything else happens, so nobody can take something
@@ -1023,39 +1107,93 @@ public final class ModelPlacementListener implements Listener {
             anchor.setType(Material.AIR, false);
         }
         bedrock.rigRemoved(hitbox.getUniqueId());
+        if (growth != null) {
+            growth.forget(hitbox.getUniqueId());
+        }
         hitbox.remove();
-        // After it is gone, so an action that gives something back or runs a
-        // command about the space finds it empty, as a broken piece is.
-        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE);
+        return new Dismantled(drop, contents, keepInside);
+    }
 
-        if (world == null) {
-            return;
+    /** What taking a piece apart left over, for the caller to give back or spill. */
+    private static final class Dismantled {
+
+        /** What its display was holding, back in its own model; null for a rig. */
+        final ItemStack shown;
+        /** What was in it, for a container whose contents were its own. */
+        final List<ItemStack> contents;
+        /** Whether those go back inside the item rather than on the ground. */
+        final boolean keepInside;
+
+        Dismantled(ItemStack shown, List<ItemStack> contents, boolean keepInside) {
+            this.shown = shown;
+            this.contents = contents;
+            this.keepInside = keepInside;
         }
-        if (!ask.isDropItem()) {
-            // The piece is not given back — a creative break, or a plugin that
-            // said so — but what was IN it was never the piece's to lose. It
-            // spills, as a chest's contents do whoever breaks the chest.
-            spill(world, where, contents);
-            return;
+    }
+
+    // ---- growing --------------------------------------------------------
+
+    /** When a piece was put down, in the game's own tick count, on its hitbox. */
+    private final NamespacedKey placedAtKey;
+
+    /** Keeps the set of pieces that can grow. Null until wired. */
+    private ModelGrowth growth;
+
+    public void growth(ModelGrowth growth) {
+        this.growth = growth;
+    }
+
+    /** The piece standing as {@code hitbox}, as the loaded content defines it. */
+    public Optional<ModelInfo> infoOf(Interaction hitbox) {
+        return idOf(hitbox).map(model::get);
+    }
+
+    /** The piece {@code id} as the loaded content defines it. */
+    public Optional<ModelInfo> info(ContentId id) {
+        return Optional.ofNullable(id == null ? null : model.get(id));
+    }
+
+    /**
+     * When {@code hitbox} was put down, in game ticks, recording now for a
+     * piece placed before anybody wrote that down — so a piece that was given
+     * {@code grow:} by a later version of its pack starts counting from the
+     * first time it is asked rather than growing at once.
+     */
+    long placedAt(Interaction hitbox) {
+        Long stored = hitbox.getPersistentDataContainer().get(placedAtKey, PersistentDataType.LONG);
+        if (stored != null) {
+            return stored;
         }
-        // A configured drop beats what it was holding: a piece that gives
-        // back something other than itself is a decision the pack made, and
-        // the display's own stack is only the default answer.
-        ItemStack configured = model.containsKey(id)
-                ? model.get(id).drop().flatMap(items::create).orElse(null)
-                : null;
-        ItemStack fallback = configured != null
-                ? configured
-                : drop != null ? drop : items.create(modelItem(id)).orElse(null);
-        if (keepInside && fallback != null) {
-            // A shulker-style piece goes back into the item, contents and all.
-            storages.keepInside(fallback, contents);
-            contents = List.of();
+        long now = hitbox.getWorld().getGameTime();
+        hitbox.getPersistentDataContainer().set(placedAtKey, PersistentDataType.LONG, now);
+        return now;
+    }
+
+    /**
+     * Replaces a piece with the one it grows into, in the same block and
+     * facing the same way.
+     *
+     * <p><strong>Not a break.</strong> No {@code ModelBreakEvent}, no
+     * {@code remove} actions, no item given back, and no {@code ModelPlaceEvent}
+     * or {@code place} actions for what replaces it: a sapling becoming a tree
+     * is not somebody breaking a sapling and planting a tree, and a protection
+     * plugin that answered either event would be answering a question nobody
+     * asked. What the piece was HOLDING is a different matter — a disc, a
+     * container's contents — and those are given back on the ground, because
+     * they were never the piece's to lose.
+     *
+     * @return the new piece's hitbox
+     */
+    Interaction grow(Interaction hitbox, ModelInfo from, ModelInfo into) {
+        Float stored = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
+        float yaw = stored != null ? stored : hitbox.getLocation().getYaw();
+        Location where = hitbox.getLocation();
+        Block block = where.getBlock();
+        Dismantled gone = dismantle(hitbox, from);
+        if (where.getWorld() != null) {
+            spill(where.getWorld(), where, gone.contents);
         }
-        if (fallback != null) {
-            world.dropItemNaturally(where.clone().add(0, 0.5, 0), fallback);
-        }
-        spill(world, where, contents);
+        return place(block, into, yaw, null);
     }
 
     /** Puts a container's contents on the ground where it stood. */

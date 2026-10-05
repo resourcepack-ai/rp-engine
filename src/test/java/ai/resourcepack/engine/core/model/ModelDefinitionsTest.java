@@ -516,6 +516,124 @@ class ModelDefinitionsTest {
         assertEquals(20L, info.stateResetTicks());
     }
 
+    // ---- growing ---------------------------------------------------------
+
+    /** A rose in two stages: the first grows into the second. */
+    private void rose(String growBlock) throws IOException {
+        write("mypack/items/rose.yml",
+                "rose:\n  material: PAPER\n  model: rose\n  place:\n" + growBlock
+                        + "rose_stage2:\n  material: PAPER\n  model: rose2\n  place: {}\n");
+    }
+
+    @Test
+    void aPieceCanGrowIntoAnother() throws IOException {
+        rose("    grow:\n      into: mypack:rose_stage2\n      after: 10s\n      chance: 0.5\n      light: 9\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo.Grow grow = one(result, "mypack:rose").grow().orElseThrow();
+
+        assertTrue(result.diagnostics().isEmpty(), result.diagnostics().toString());
+        assertEquals("mypack:rose_stage2", grow.into().toString());
+        assertEquals(200L, grow.afterTicks());
+        assertEquals(0.5, grow.chance());
+        assertEquals(9, grow.minimumLight());
+        assertTrue(one(result, "mypack:rose_stage2").grow().isEmpty(), "the last stage stays");
+    }
+
+    @Test
+    void growingNeedsOnlyWhatItBecomes() throws IOException {
+        rose("    grow:\n      into: mypack:rose_stage2\n");
+
+        ModelInfo.Grow grow = one(parse(), "mypack:rose").grow().orElseThrow();
+
+        assertEquals(0L, grow.afterTicks());
+        assertEquals(1.0, grow.chance());
+        assertEquals(0, grow.minimumLight());
+    }
+
+    @Test
+    void growingIntoSomethingThatIsNotAPlacedModelNeverGrows() throws IOException {
+        // A piece that grew into nothing would be a piece that vanished.
+        rose("    grow:\n      into: mypack:tulip\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:rose").grow().isEmpty());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("mypack:tulip")),
+                result.diagnostics().toString());
+    }
+
+    @Test
+    void growingIntoAnItemThatCannotBePlacedNeverGrows() throws IOException {
+        write("mypack/items/seeds.yml", "seed:\n  material: PAPER\n");
+        rose("    grow:\n      into: mypack:seed\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:rose").grow().isEmpty());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void growingIntoItselfIsRefused() throws IOException {
+        rose("    grow:\n      into: mypack:rose\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:rose").grow().isEmpty());
+        assertEquals(1, result.diagnostics().size());
+    }
+
+    @Test
+    void badGrowValuesFallBackOneByOne() throws IOException {
+        rose("    grow:\n      into: mypack:rose_stage2\n      after: tomorrow\n      chance: 2\n      light: 20\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo.Grow grow = one(result, "mypack:rose").grow().orElseThrow();
+
+        assertEquals(0L, grow.afterTicks());
+        assertEquals(1.0, grow.chance());
+        assertEquals(0, grow.minimumLight());
+        assertEquals(3, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void growWithNoIntoIsRefused() throws IOException {
+        rose("    grow:\n      after: 5s\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:rose").grow().isEmpty());
+        assertEquals(1, result.diagnostics().size());
+    }
+
+    @Test
+    void aCheckGrowsItOnlyOnceEverythingAgrees() {
+        ModelInfo.Grow grow = ModelInfo.Grow.of(ContentId.parse("mypack:rose_stage2").orElseThrow(),
+                200, 0.5, 9);
+
+        assertTrue(grow.ready(200, 9, 0.49), "old enough, bright enough, lucky enough");
+        assertFalse(grow.ready(199, 15, 0.0), "not standing long enough");
+        assertFalse(grow.ready(10_000, 8, 0.0), "too dark");
+        assertFalse(grow.ready(10_000, 15, 0.5), "unlucky: the roll has to be under the chance");
+    }
+
+    @Test
+    void aSureThingAlwaysGrows() {
+        ModelInfo.Grow grow = ModelInfo.Grow.of(ContentId.parse("mypack:b").orElseThrow(), 0, 1, 0);
+
+        assertTrue(grow.ready(0, 0, 0.999_999));
+    }
+
+    @Test
+    void growSurvivesTheOtherCopies() throws IOException {
+        rose("    grow:\n      into: mypack:rose_stage2\n");
+
+        ModelInfo info = one(parse(), "mypack:rose").withSeatOffset(0f, 1f).withJukebox(null);
+
+        assertTrue(info.grow().isPresent());
+    }
+
     @Test
     void nothingLoadedMeansNothingParsed() {
         assertTrue(ModelDefinitions.parse(null, null).model().isEmpty());
