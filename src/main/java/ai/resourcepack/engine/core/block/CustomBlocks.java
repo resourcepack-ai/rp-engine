@@ -106,6 +106,30 @@ public final class CustomBlocks implements Listener {
         this.actions = actions;
     }
 
+    /** Where a block's storage: opens and keeps its contents. */
+    private ai.resourcepack.engine.core.storage.Storages storages;
+
+    public void storages(ai.resourcepack.engine.core.storage.Storages storages) {
+        this.storages = storages;
+    }
+
+    /** Where one block's contents are kept: its chunk, under its position. */
+    private ai.resourcepack.engine.core.storage.StorageHolder holder(Block block) {
+        return ai.resourcepack.engine.core.storage.PdcStorage.forBlock(plugin, block);
+    }
+
+    /**
+     * Takes a container block's contents out of the world as it goes, for the
+     * caller to drop: spilled for a chest, or (for a shulker) to be kept
+     * inside the item it gives back.
+     */
+    private List<ItemStack> emptied(BlockInfo block, Block where) {
+        if (storages == null || block.storage().isEmpty()) {
+            return List.of();
+        }
+        return storages.removed(block.storage().get(), holder(where));
+    }
+
     /**
      * Runs the block's actions for {@code trigger}, with no stack: these are
      * about the block in the world, and a {@code take} must not eat whatever
@@ -283,6 +307,16 @@ public final class CustomBlocks implements Listener {
         }
         BlockInfo block = found.get();
         Block placed = event.getBlockPlaced();
+        if (storages != null && block.storage().isPresent()) {
+            // A shulker-like block put back down: what it carried goes in.
+            byte[] carried = storages.carried(held);
+            if (carried != null) {
+                String position = placed.getX() + "_" + placed.getY() + "_" + placed.getZ();
+                placed.getChunk().getPersistentDataContainer().set(
+                        new org.bukkit.NamespacedKey(plugin, "block-storage/" + position),
+                        org.bukkit.persistence.PersistentDataType.BYTE_ARRAY, carried);
+            }
+        }
         if (block.shape() == BlockInfo.Shape.CUBE) {
             String state = placementState(block, event);
             Optional<Integer> number = states.existing(block, state).or(() -> states.existing(block));
@@ -483,30 +517,50 @@ public final class CustomBlocks implements Listener {
         event.setDropItems(false);
         breaking.stop(event.getPlayer());
         int count = dropCount(event.getBlock());
+        List<ItemStack> contents = emptied(block, event.getBlock());
         // The other half of a door goes first, by us and without physics, so
         // the game never removes it on its own and drops the copper door
         // underneath.
         otherHalf(event.getBlock()).ifPresent(half -> half.setType(Material.AIR, false));
         play(block, event.getBlock());
         act(event.getPlayer(), block, ItemAction.Trigger.REMOVE);
-        if (event.getPlayer().getGameMode() == GameMode.CREATIVE) {
-            return;
-        }
-        // The wrong tool breaks it and gives nothing, which is what vanilla
-        // does with stone and a shovel.
-        if (!BlockBreaking.isCorrectTool(block,
-                event.getPlayer().getInventory().getItemInMainHand())) {
-            return;
-        }
-        drop(block, event.getBlock(), count);
+        boolean gives = event.getPlayer().getGameMode() != GameMode.CREATIVE
+                // The wrong tool breaks it and gives nothing, which is what
+                // vanilla does with stone and a shovel.
+                && BlockBreaking.isCorrectTool(block, event.getPlayer().getInventory().getItemInMainHand());
+        drop(block, event.getBlock(), gives ? count : 0, contents);
     }
 
-    private void drop(BlockInfo block, Block where, int count) {
-        ContentId dropped = block.drop().orElse(block.id());
-        items.create(dropped).ifPresent(stack -> {
-            stack.setAmount(Math.max(1, count));
-            where.getWorld().dropItemNaturally(where.getLocation().add(0.5, 0.5, 0.5), stack);
-        });
+    /**
+     * Drops what breaking a block gives, and whatever it held: inside the
+     * dropped item for a shulker that gives itself back, on the ground for
+     * anything else - never lost, whoever broke it with what.
+     */
+    private void drop(BlockInfo block, Block where, int count, List<ItemStack> contents) {
+        org.bukkit.Location at = where.getLocation().add(0.5, 0.5, 0.5);
+        boolean kept = false;
+        if (count > 0) {
+            ContentId dropped = block.drop().orElse(block.id());
+            Optional<ItemStack> made = items.create(dropped);
+            if (made.isPresent()) {
+                ItemStack stack = made.get();
+                stack.setAmount(Math.max(1, count));
+                if (!contents.isEmpty() && storages != null && dropped.equals(block.id())
+                        && block.storage().map(spec -> spec.type()
+                        == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER).orElse(false)) {
+                    storages.keepInside(stack, contents);
+                    kept = true;
+                }
+                where.getWorld().dropItemNaturally(at, stack);
+            }
+        }
+        if (!kept) {
+            for (ItemStack content : contents) {
+                if (content != null && !content.getType().isAir()) {
+                    where.getWorld().dropItemNaturally(at, content);
+                }
+            }
+        }
     }
 
     /** Two for a double slab, which is two slabs; one for anything else. */
@@ -569,11 +623,10 @@ public final class CustomBlocks implements Listener {
                 continue;
             }
             int count = dropCount(block);
+            List<ItemStack> contents = emptied(found.get(), block);
             otherHalf(block).ifPresent(half -> half.setType(Material.AIR, false));
             block.setType(Material.AIR, false);
-            if (ThreadLocalRandom.current().nextFloat() < yield) {
-                drop(found.get(), block, count);
-            }
+            drop(found.get(), block, ThreadLocalRandom.current().nextFloat() < yield ? count : 0, contents);
         }
     }
 
@@ -746,6 +799,15 @@ public final class CustomBlocks implements Listener {
         }
         boolean used = act(event.getPlayer(), block, ItemAction.Trigger.INTERACT);
         ItemStack held = event.getItem();
+        if (!used && storages != null && block.storage().isPresent()) {
+            Block clicked = event.getClickedBlock();
+            used = storages.open(event.getPlayer(), block.storage().get(), block.id(), holder(clicked),
+                    block.name().orElse(null), clicked.getLocation().add(0.5, 0.5, 0.5));
+            if (!cube) {
+                // A shaped container (a cabinet door) opens rather than swings.
+                event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+            }
+        }
         if (!used && block.behaviour().stripInto().isPresent() && held != null
                 && held.getType().name().endsWith("_AXE")) {
             used = turnInto(event.getClickedBlock(), block.behaviour().stripInto().get());
