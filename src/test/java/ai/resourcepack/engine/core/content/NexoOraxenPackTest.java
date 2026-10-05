@@ -1021,4 +1021,173 @@ class NexoOraxenPackTest {
         assertArrayEquals(new byte[] {7}, zip.get(equipment + "humanoid/forest_helmet.png"));
         assertArrayEquals(new byte[] {8}, zip.get(equipment + "humanoid_leggings/oak_leggings.png"));
     }
+
+    // ---- their behaviour ---------------------------------------------------
+
+    private static java.util.List<String> steps(ItemInfo item, ai.resourcepack.engine.api.ItemAction.Trigger trigger) {
+        return item.actions(trigger).stream().map(Object::toString).toList();
+    }
+
+    @Test
+    void nexoCommandsAndClickActionsBecomeActions() throws IOException {
+        write("nexo_pack/items.yml", """
+                wand:
+                  itemname: Wand
+                  material: STICK
+                  ItemFlags:
+                    - HIDE_ENCHANTS
+                  Mechanics:
+                    commands:
+                      cooldown: 5s
+                      permission: my.wand
+                      one_usage: true
+                      console:
+                        - "effect give %p% speed 5"
+                      player:
+                        - "/spawn"
+                      opped_player:
+                        - "give diamond_sword 1"
+                    soulbound:
+                      lose_chance: 0
+                bell:
+                  itemname: Bell
+                  material: PAPER
+                  Pack:
+                    model: nexo_pack:item/bell
+                  Mechanics:
+                    furniture:
+                      clickActions:
+                        - conditions: []
+                          actions:
+                            - '[console] say <player> rang the bell'
+                            - '{source=AMBIENT volume=0.5 pitch=1.2} [sound] minecraft:block.bell.use'
+                            - '[message] <gold>Ding!'
+                        - conditions:
+                            - '#player.world.name == "world"'
+                          actions:
+                            - '[actionbar] only in the overworld'
+                      storage:
+                        rows: 3
+                      jukebox:
+                        volume: 1
+                """);
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        ItemInfo wand = items.get(id("nexo_pack:wand"));
+        var right = ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK;
+        assertEquals(java.util.List.of("permission: my.wand", "cooldown: 5.0", "console: effect give {player} speed 5",
+                "run: spawn", "take: 1"), steps(wand, right));
+        assertEquals(steps(wand, right), steps(wand, ai.resourcepack.engine.api.ItemAction.Trigger.LEFT_CLICK));
+        assertTrue(wand.keepOnDeath());
+        assertEquals(java.util.List.of("HIDE_ENCHANTS"), wand.stats().flags());
+        assertTrue(warned(report, "wand", "opped_player"));
+
+        ItemInfo bell = items.get(id("nexo_pack:bell"));
+        assertEquals(java.util.List.of("console: say {player} rang the bell",
+                        "sound: minecraft:block.bell.use 0.5 1.2", "message: &6Ding!"),
+                steps(bell, ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT));
+        assertTrue(warned(report, "bell", "player.world.name"));
+        assertTrue(warned(report, "bell", "furniture storage was skipped"));
+        assertTrue(warned(report, "bell", "furniture jukebox was skipped"));
+    }
+
+    @Test
+    void oraxenEventsCustomAndLegacyFoodBecomeActions() throws IOException {
+        write("oraxen_pack/items.yml", """
+                lamp:
+                  displayname: Lamp
+                  material: PAPER
+                  mechanics:
+                    furniture:
+                      events:
+                        - click: RIGHT
+                          actions:
+                            - command: "say <player> lit it"
+                              executor: console
+                            - message: "<yellow>Click"
+                              conditions:
+                                - 'player.hasPermission("lamp.chat")'
+                        - click: LEFT
+                          actions:
+                            - command: "say left"
+                pie:
+                  displayname: Pie
+                  material: PAPER
+                  mechanics:
+                    food:
+                      hunger: 6
+                      saturation: 4
+                      effects:
+                        SPEED:
+                          duration: 10
+                          amplifier: 0
+                      replacement:
+                        minecraft_type: BOWL
+                    custom:
+                      hello:
+                        event: "CLICK:right:all"
+                        cooldown: 2000
+                        conditions:
+                          - '#player.hasPermission("pie.hello")'
+                        actions:
+                          - "[message] hello"
+                      dead:
+                        event: "DEATH"
+                        actions:
+                          - "[message] gone"
+                    hat: {}
+                """);
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        ItemInfo lamp = items.get(id("oraxen_pack:lamp"));
+        assertEquals(java.util.List.of("console: say {player} lit it", "permission: lamp.chat", "message: &eClick"),
+                steps(lamp, ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT));
+        assertTrue(warned(report, "lamp", "left-click event"));
+
+        ItemInfo pie = items.get(id("oraxen_pack:pie"));
+        assertEquals(6, pie.stats().food().orElseThrow().nutrition());
+        assertEquals(java.util.List.of("effect: SPEED 10 1", "console: give {player} minecraft:bowl"),
+                steps(pie, ai.resourcepack.engine.api.ItemAction.Trigger.CONSUME));
+        assertEquals(java.util.List.of("permission: pie.hello", "cooldown: 2.0", "message: hello"),
+                steps(pie, ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK));
+        assertTrue(pie.hat());
+        assertTrue(warned(report, "pie", "DEATH"));
+    }
+
+    @Test
+    void aNexoCustomBlocksClickActionsAreItsInteract() throws IOException {
+        write("nexo_pack/blocks.yml", """
+                button:
+                  itemname: Button
+                  material: PAPER
+                  Pack:
+                    model: nexo_pack:block/button
+                  Mechanics:
+                    custom_block:
+                      type: NOTEBLOCK
+                      custom_variation: 3
+                      clickActions:
+                        - conditions:
+                            - '#player.hasPermission("button.press")'
+                          actions:
+                            - '[console] say pressed'
+                """);
+
+        var block = ai.resourcepack.engine.core.block.BlockDefinitions.parse(load()).blocks()
+                .get(id("nexo_pack:button"));
+        assertEquals(java.util.List.of("permission: button.press", "console: say pressed"),
+                block.actions().get(ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT).stream()
+                        .map(Object::toString).toList());
+    }
+
+    @Test
+    void cooldownsAreReadInEitherPluginsUnits() {
+        assertEquals(5d, NexoOraxenActions.cooldown("5s").orElseThrow());
+        assertEquals(0.5, NexoOraxenActions.cooldown("10t").orElseThrow());
+        assertEquals(90d, NexoOraxenActions.cooldown("1m30s").orElseThrow());
+        assertEquals(2d, NexoOraxenActions.cooldown("2000").orElseThrow(), "a bare number is Oraxen's milliseconds");
+        assertTrue(NexoOraxenActions.cooldown("0").isEmpty());
+    }
 }
