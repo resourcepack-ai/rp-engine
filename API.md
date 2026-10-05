@@ -584,9 +584,9 @@ Three sources are asked, in this order:
    number means that number and must not be overruled by a built-in that
    happens to share its name.
 2. **The engine's built-ins** — `player`, `health`, `health_max`,
-   `health_percent`, `food`, `level`, `xp`, `xp_points`, `xp_needed`, `ping`,
-   `world`, `x`, `y`, `z`, `direction`, `time`, `day`, `gamemode`, `online`,
-   `max_online`, `air`, `uuid`, `displayname`, `name`. These are the questions the server can already answer
+   `health_percent`, `food`, `level`, `xp`, `ping`, `world`, `x`, `y`, `z`,
+   `direction`, `time`, `day`, `gamemode`, `online`, `max_online`, `air`,
+   `uuid`, `displayname`, `name`. These are the questions the server can already answer
    about a player, so an overlay using them works with no code at all.
    (`name` is a second spelling of `player`.)
 3. **PlaceholderAPI**, if it is installed.
@@ -628,13 +628,7 @@ engine.dialogs().close(player);
 engine.dialogs().ids();                    // what this server has
 engine.dialogs().info(id);                 // what a pack said one is
 engine.dialogs().canShow(player, id);      // would show get as far as the client?
-engine.dialogs().info(id).flatMap(DialogInfo::command);   // "shop" when players open it with /shop
 ```
-
-A dialog may name a command players open it with themselves (`command:` in
-its file, or set in Studio); the engine registers it on the server and takes it
-back out when the dialog goes. `DialogInfo.command()` and `permission()` say
-what it is.
 
 ### Values on it
 
@@ -657,18 +651,6 @@ engine.dialogs().set(player, "coins", String.valueOf(balance));
 engine.dialogs().set(player, "coins", null);   // remove it
 engine.dialogs().value(player, "coins");       // what you last set
 ```
-
-A LIST — rows drawn in Studio, one per item, row k reading `{warps_k}` — is
-filled all at once. Rows past the end are hidden, their clicks with them:
-
-```java
-engine.dialogs().list(player, "warps", List.of("Spawn", "Shop", "Arena"));
-engine.dialogs().listRows(player, "warps", List.of(Map.of("", "Spawn", "note", "Where you start")));
-```
-
-`list` sets `warps_1`… and `warps_count` through `set`, and removes the items a
-longer list set before. The command that opens a dialog can give a whole list
-too, `warps=Spawn,Shop,Arena`, for that opening alone.
 
 A placeholder is looked up in five places, and the first answer wins:
 

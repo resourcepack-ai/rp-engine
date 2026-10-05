@@ -180,59 +180,6 @@ public interface Dialogs {
     }
 
     /**
-     * Fills a LIST in this player's dialogs: a list called {@code warps}, drawn
-     * in Studio as rows, shows {@code values} one to a row and hides the rows
-     * past the end. Sets {@code warps_1}, {@code warps_2}… and
-     * {@code warps_count} through {@link #set}, and removes the items a longer
-     * list set before. A null or empty list empties it.
-     *
-     * <pre>
-     * engine.dialogs().list(player, "warps", List.of("Spawn", "Shop", "Arena"));
-     * engine.dialogs().show(player, "studio:warps");
-     * </pre>
-     */
-    default void list(Player viewer, String name, java.util.List<String> values) {
-        java.util.List<Map<String, String>> rows = new java.util.ArrayList<>();
-        if (values != null) {
-            for (String value : values) {
-                rows.add(Map.of("", value == null ? "" : value));
-            }
-        }
-        listRows(viewer, name, rows);
-    }
-
-    /**
-     * A list whose rows have more than one field — a warp's name and what it is
-     * for. Each map's {@code ""} entry is the row's own value
-     * ({@code {warps_3}}, which decides whether the row shows at all) and every
-     * other entry a field of it: {@code "note"} is {@code {warps_3_note}}, which
-     * the row's template writes as {@code {warps_note}}.
-     */
-    default void listRows(Player viewer, String name, java.util.List<Map<String, String>> rows) {
-        if (viewer == null || name == null || name.isEmpty()) {
-            return;
-        }
-        int before = value(viewer, name + "_count").map(c -> {
-            try {
-                return Integer.parseInt(c.trim());
-            } catch (NumberFormatException notACount) {
-                return 0;
-            }
-        }).orElse(0);
-        int count = rows == null ? 0 : rows.size();
-        for (int k = 1; k <= count; k++) {
-            for (Map.Entry<String, String> field : rows.get(k - 1).entrySet()) {
-                String key = field.getKey() == null || field.getKey().isEmpty() ? name + "_" + k : name + "_" + k + "_" + field.getKey();
-                set(viewer, key, field.getValue());
-            }
-        }
-        for (int k = count + 1; k <= before; k++) {
-            set(viewer, name + "_" + k, null);
-        }
-        set(viewer, name + "_count", String.valueOf(count));
-    }
-
-    /**
      * One of the player's own settings: the value a Studio dialog's bound
      * switch, slider or choice shows them, which they set by clicking it. Kept
      * on the player, across restarts. PlaceholderAPI reads the same value as

@@ -142,14 +142,6 @@ public final class Placeholders {
                 return String.valueOf(viewer.getLevel());
             case "xp":
                 return String.valueOf(Math.round(viewer.getExp() * 100));
-            case "xp_points":
-                // The points into this level, out of xp_needed: the pair a bar
-                // whose count reads "37/42" is filled from. The game keeps the
-                // progress as a fraction of the level, so the points are that
-                // fraction of what the level takes, rounded.
-                return String.valueOf(Math.round(viewer.getExp() * viewer.getExpToLevel()));
-            case "xp_needed":
-                return String.valueOf(viewer.getExpToLevel());
             case "ping":
                 return String.valueOf(viewer.getPing());
             case "gamemode":
@@ -271,7 +263,7 @@ public final class Placeholders {
     public static final java.util.List<String> BUILT_IN = java.util.List.of(
             "player", "name", "displayname", "uuid", "world", "x", "y", "z",
             "health", "health_max", "health_percent", "food", "level", "xp",
-            "xp_points", "xp_needed", "ping", "gamemode", "online", "max_online", "air", "direction",
+            "ping", "gamemode", "online", "max_online", "air", "direction",
             "time", "day");
 
     /** Whether anything here can answer this name for this player. For a preview. */

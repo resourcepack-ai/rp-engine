@@ -66,9 +66,6 @@ public final class DialogsImpl implements Dialogs {
      */
     private volatile DialogSlots slots = new DialogSlots(null);
 
-    /** The commands dialogs are opened with ({@code /shop}); null until {@link #attach}. */
-    private volatile DialogCommands commands;
-
     /**
      * The dialog each player was last shown, and what it was opened with — so
      * a click that changes one of their values can open it again, drawn in the
@@ -151,31 +148,6 @@ public final class DialogsImpl implements Dialogs {
         if (supported) {
             datapack.write(this.dialogs.values());
         }
-        // And the commands dialogs are opened with: /shop for one that says so.
-        DialogCommands opened = commands;
-        if (opened != null) {
-            opened.sync(this.dialogs.values());
-        }
-    }
-
-    /** The command a dialog is opened with, as registered — {@code /shop} — or empty. */
-    public Optional<String> commandOf(ContentId id) {
-        DialogCommands opened = commands;
-        return opened == null || id == null ? Optional.empty() : opened.label(id);
-    }
-
-    /** Whether a dialog asked for a command the server already had, and so went without. */
-    public boolean commandTaken(DialogInfo info) {
-        DialogCommands opened = commands;
-        return opened != null && info != null && info.command().map(opened::taken).orElse(false);
-    }
-
-    /** Takes the dialogs' commands back out of the server: the plugin is going. */
-    public void detach() {
-        DialogCommands opened = commands;
-        if (opened != null) {
-            opened.clear();
-        }
     }
 
     @Override
@@ -257,9 +229,6 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
-        // A Studio dialog's live progress bars, filled from the numbers the
-        // pass above has just put in their markers: DialogBars.
-        json = DialogBars.fill(json);
         // The player's own items in a Studio dialog's inventory slots, the one
         // they have picked up lit, and no item tooltip this server would refuse
         // the dialog over: DialogItems.
@@ -573,9 +542,7 @@ public final class DialogsImpl implements Dialogs {
      * {@link #setSetting} for it.
      */
     private String filled(Player viewer, String json, Map<String, String> values) {
-        boolean placeholders = DialogPlaceholders.any(json);
-        boolean rows = DialogRows.any(json);
-        if (!placeholders && !rows) {
+        if (!DialogPlaceholders.any(json)) {
             return json;
         }
         Map<String, String> given = new java.util.HashMap<>();
@@ -587,7 +554,7 @@ public final class DialogsImpl implements Dialogs {
             });
         }
         Map<String, String> plugins = published == null ? Map.of() : published.values(viewer);
-        java.util.function.Function<String, Optional<String>> direct = name -> {
+        return DialogPlaceholders.fill(json, name -> {
             String mine = given.get(name.toLowerCase(java.util.Locale.ROOT));
             if (mine != null) {
                 return Optional.of(mine);
@@ -596,16 +563,7 @@ public final class DialogsImpl implements Dialogs {
             return stored.isPresent()
                     ? stored
                     : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, plugins);
-        };
-        // Last, a row of a list (DialogRows): an item of a list given whole to
-        // the opener, or nothing for a row past the end of a list of known length.
-        java.util.function.Function<String, Optional<String>> lookup = name -> {
-            Optional<String> found = direct.apply(name);
-            return found.isPresent() ? found : DialogRows.item(name, given, direct);
-        };
-        String out = placeholders ? DialogPlaceholders.fill(json, lookup) : json;
-        // An empty row of a list keeps no click and no tooltip.
-        return rows ? DialogRows.strip(out, lookup) : out;
+        });
     }
 
     /** What players have picked up in dialogs whose items move, and the containers slots can show. */
@@ -620,8 +578,6 @@ public final class DialogsImpl implements Dialogs {
      */
     public void attach(org.bukkit.plugin.Plugin plugin) {
         this.slots = new DialogSlots(plugin);
-        // Dialogs that name a command are opened with it — only where they can open.
-        this.commands = supported ? new DialogCommands(plugin, this) : null;
     }
 
     @Override
