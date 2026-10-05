@@ -47,8 +47,15 @@ public final class FontAssets implements PackContributor {
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
         List<String> providers = new ArrayList<>();
 
-        IconDefinitions.Result icons = IconDefinitions.parse(loaded);
-        for (IconInfo icon : icons.icons().values()) {
+        // The same files the server counted frames from, so the build and the
+        // server allocate the same codepoints. See IconDefinitions.
+        IconDefinitions.Result icons = IconDefinitions.parse(loaded, into::source);
+        // In codepoint order: the result is a map whose iteration order is
+        // nobody's promise, and this file is hashed into the pack's SHA-1.
+        List<IconInfo> ordered = new ArrayList<>(icons.icons().values());
+        ordered.sort(java.util.Comparator.comparingInt(IconInfo::codepoint));
+        java.util.Set<String> gifs = new java.util.TreeSet<>();
+        for (IconInfo icon : ordered) {
             if (!bundle.namespaces().contains(icon.id().namespace())) {
                 continue;
             }
@@ -56,11 +63,23 @@ public final class FontAssets implements PackContributor {
             String textureNamespace = location.substring(0, location.indexOf(':'));
             String texturePathPart = location.substring(location.indexOf(':') + 1);
             String texture = texturePath(textureNamespace, texturePathPart);
-            if (missing(texture, icon.id(), "fonts", into)) {
+            if (isGif(icon)) {
+                String source = gifSource(location);
+                if (!into.has(texture) && !writeStrip(icon, source, texture, into)) {
+                    continue;
+                }
+                gifs.add(source);
+            } else if (missing(texture, icon.id(), "fonts", into)) {
                 continue;
             }
             providers.add(bitmap(textureNamespace, texturePathPart,
                     icon.height(), icon.ascent(), chars(icon)));
+        }
+        // The GIFs themselves are source, not something the client reads: the
+        // strip beside each is what the font draws. Shipping both would make
+        // every player download the animation twice.
+        for (String gif : gifs) {
+            into.drop(gif);
         }
 
         boolean anyScreen = false;
@@ -152,12 +171,77 @@ public final class FontAssets implements PackContributor {
      * folder it ships beside its configuration.
      */
     public static String textureOf(IconInfo icon) {
-        String file = icon.file();
+        return textureOf(icon.id().namespace(), icon.file());
+    }
+
+    /**
+     * As {@link #textureOf(IconInfo)}, for an icon not yet built. A GIF keeps
+     * its {@code .gif} here, so the PNG the font is pointed at is the strip
+     * written beside it, {@code <name>.gif.png}.
+     */
+    static String textureOf(String namespace, String file) {
         if (file.indexOf(':') > 0) {
             return file.endsWith(".png") ? file.substring(0, file.length() - 4) : file;
         }
-        return icon.id().namespace() + ":font/" + file;
+        return namespace + ":font/" + file;
     }
+
+    /** Whether an icon is drawn from a GIF, and so from a strip the build writes. */
+    static boolean isGif(IconInfo icon) {
+        return icon.file().endsWith(".gif");
+    }
+
+    /** Where a GIF icon's GIF is in the bundle, from its texture location. */
+    static String gifSource(String location) {
+        int colon = location.indexOf(':');
+        return "assets/" + location.substring(0, colon) + "/textures/" + location.substring(colon + 1);
+    }
+
+    /**
+     * Draws a GIF icon's frames into the strip its glyphs are cut from.
+     *
+     * <p>Exactly as many frames as the icon was allocated codepoints for, which
+     * the server worked out from the same file; a strip with a different number
+     * of rows would cut every frame at the wrong height.
+     *
+     * @return whether the strip was written
+     */
+    private static boolean writeStrip(IconInfo icon, String source, String strip, Contribution into) {
+        java.util.Optional<GifFrames> frames = into.read(source)
+                .flatMap(bytes -> GifFrames.decode(bytes, icon.frames()));
+        String origin = icon.id().namespace() + "/fonts";
+        if (frames.isEmpty()) {
+            into.error(origin, icon.id().path(), "No readable GIF at " + source + ".");
+            return false;
+        }
+        GifFrames gif = frames.get();
+        if (gif.count() != icon.rows()) {
+            into.error(origin, icon.id().path(), source + " has " + gif.count() + " frames where "
+                    + icon.rows() + " were counted. Reload, and if it persists the file is changing under the build.");
+            return false;
+        }
+        if (gif.width() > MAX_GLYPH_SIDE || gif.height() > MAX_GLYPH_SIDE) {
+            // Scaled rather than refused: a GIF found online is very often a
+            // few hundred pixels, and an icon is drawn at `height` whatever its
+            // pixels are, so the only thing lost is detail nobody would see.
+            into.warn(origin, icon.id().path(), source + " is " + gif.width() + " by " + gif.height()
+                    + ". A font glyph can be at most " + MAX_GLYPH_SIDE + " on a side, so each frame was "
+                    + "scaled down to fit. Scale it yourself for control over how.");
+        }
+        try {
+            into.add(strip, gif.strip(MAX_GLYPH_SIDE));
+            return true;
+        } catch (java.io.IOException e) {
+            into.error(origin, icon.id().path(), "Could not write the frames of " + source + ". " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The largest a glyph may be on either side: the page the game packs font
+     * glyphs onto is 256 square, and a glyph that does not fit is not drawn.
+     */
+    static final int MAX_GLYPH_SIDE = 256;
 
     private static String texturePath(String namespace, String path) {
         return "assets/" + namespace + "/textures/" + path + ".png";
@@ -190,9 +274,16 @@ public final class FontAssets implements PackContributor {
      * means nothing is drawn from it. So each icon on a sheet is the same PNG
      * with every cell but its own empty, and nothing is ever cropped - the
      * sheet ships once, and the picture is exactly what was drawn.
+     *
+     * <p>An animated icon is the same rule with more than one cell filled:
+     * frame {@code k} is the cell {@code k} after the icon's own, at the
+     * codepoint {@code k} after its own. So one provider declares every frame
+     * of a strip, and the strip is cut once.
      */
     static String chars(IconInfo icon) {
         StringBuilder rows = new StringBuilder();
+        int first = icon.cell();
+        int last = icon.cell() + icon.frames() - 1;
         int cell = 1;
         for (int row = 0; row < icon.rows(); row++) {
             if (row > 0) {
@@ -200,7 +291,7 @@ public final class FontAssets implements PackContributor {
             }
             rows.append('"');
             for (int column = 0; column < icon.columns(); column++, cell++) {
-                rows.append(escape(cell == icon.cell() ? icon.codepoint() : 0));
+                rows.append(escape(cell >= first && cell <= last ? icon.codepoint() + (cell - first) : 0));
             }
             rows.append('"');
         }
