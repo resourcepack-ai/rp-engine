@@ -311,7 +311,12 @@ public final class ModelPlacementListener implements Listener {
         // contents: the bytes move onto the hitbox as they are, and the stack
         // the display shows is stripped of them. Left on the display, they
         // would come back out on the next break as a second copy of everything.
-        byte[] carried = storages == null ? null : storages.carried(shown);
+        // Only when this piece keeps contents of its own: a pack that changed
+        // the type since leaves them on the stack, which a break hands back.
+        byte[] carried = storages == null
+                || !info.storage().map(one -> one.type().keepsContents()).orElse(false)
+                ? null
+                : storages.carried(shown);
         if (carried != null) {
             storages.withoutContents(shown);
         }
@@ -380,7 +385,7 @@ public final class ModelPlacementListener implements Listener {
                 i.getPersistentDataContainer().set(displaysKey, PersistentDataType.STRING,
                         String.join(",", partIds));
             }
-            if (carried != null && info.storage().map(one -> one.type().keepsContents()).orElse(false)) {
+            if (carried != null) {
                 i.getPersistentDataContainer().set(storages.contentsKey(), PersistentDataType.BYTE_ARRAY, carried);
             }
             // When it went down, on every piece and not only the ones that
