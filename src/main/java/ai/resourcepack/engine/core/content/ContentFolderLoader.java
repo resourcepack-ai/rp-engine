@@ -81,6 +81,10 @@ public final class ContentFolderLoader {
             // ModelEngine's layout: a folder of .bbmodel blueprints. Read as
             // content rather than as definitions, below.
             "blueprints",
+            // BetterModel's: its models/ (read as blueprints, alongside
+            // ItemsAdder's art there), players/ (its player animations, read
+            // as emotes) and build/, the pack it generated, which is output.
+            "players", "build",
             // CraftEngine's layout: configuration/ is read by its translator,
             // resourcepack/ is copied by the builder, and subpacks/ holds
             // more of both. blueprint/ is its own Blockbench folder, which
@@ -299,14 +303,19 @@ public final class ContentFolderLoader {
                 && holdsNexoOraxenConfig(folder, diagnostics, origin);
         boolean craftEngineOnly = !Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen
                 && craftEngine.packs.containsKey(namespace);
-        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly) {
+        // ModelEngine's and BetterModel's plugin folders: Blockbench files and
+        // nothing that would be a pack.yml.
+        boolean modelsOnly = !Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly
+                && (holdsBbmodels(folder.resolve("blueprints")) || holdsBbmodels(folder.resolve("models"))
+                || holdsBbmodels(folder.resolve("players")));
+        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly && !modelsOnly) {
             diagnostics.add(Diagnostic.error(origin,
                     "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
             return;
         }
 
         DefinitionNode packNode;
-        if (itemsAdder || nexoOraxen || craftEngineOnly) {
+        if (itemsAdder || nexoOraxen || craftEngineOnly || modelsOnly) {
             // An ItemsAdder pack folder is their contents/<namespace>/, which
             // has no pack.yml in it. Everything pack.yml would have said has a
             // sensible default, so one is not demanded of somebody whose only
@@ -360,7 +369,53 @@ public final class ContentFolderLoader {
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
         loadNexoOraxenConfigs(root, folder, claimed, definitions, diagnostics);
         loadCraftEngine(craftEngine, claimed, definitions, diagnostics);
-        loadBlueprints(root, folder, claimed, definitions, diagnostics);
+        // An ItemsAdder pack keeps its own art in models/, so only a pack
+        // that is not one reads BetterModel's .bbmodel files from there.
+        loadBlueprints(root, folder, claimed, definitions, diagnostics, !itemsAdder);
+        loadPlayerAnimations(root, folder, claimed, definitions, diagnostics);
+    }
+
+    /** Whether a folder holds a {@code .bbmodel} anywhere under it. */
+    private static boolean holdsBbmodels(Path folder) {
+        if (!Files.isDirectory(folder)) {
+            return false;
+        }
+        try (java.util.stream.Stream<Path> files = Files.walk(folder)) {
+            return files.anyMatch(file -> file.getFileName().toString().endsWith(".bbmodel"));
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * BetterModel's player animations, as emotes; see
+     * {@link BetterModelPlayers}.
+     */
+    private void loadPlayerAnimations(Path root, Path folder, Namespace namespace,
+                                      List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
+        Path players = folder.resolve("players");
+        if (!Files.isDirectory(players)) {
+            return;
+        }
+        Set<ContentId> seen = new HashSet<>();
+        for (Path file : blueprintFiles(players, diagnostics, relative(root, players))) {
+            String origin = relative(root, file);
+            String name = file.getFileName().toString();
+            String stem = name.substring(0, name.length() - ".bbmodel".length()).toLowerCase(Locale.ROOT);
+            byte[] bytes;
+            try {
+                bytes = Files.readAllBytes(file);
+            } catch (java.io.IOException e) {
+                diagnostics.add(Diagnostic.warning(origin, "Could not be read: " + e.getMessage()));
+                continue;
+            }
+            for (Map.Entry<String, Map<String, Object>> emote
+                    : BetterModelPlayers.emotes(bytes, stem, origin, diagnostics).entrySet()) {
+                DefinitionNode document = DefinitionNode.of(Map.of(emote.getKey(), emote.getValue()));
+                define(ContentKind.EMOTE, namespace, document, emote.getKey(), origin, seen, definitions,
+                        diagnostics);
+            }
+        }
     }
 
     /** This pack's CraftEngine content, translated; see {@link CraftEngine}. */
@@ -392,34 +447,45 @@ public final class ContentFolderLoader {
      */
     private void loadBlueprints(Path root, Path folder, Namespace namespace,
                                 List<ContentDefinition> definitions,
-                                List<Diagnostic> diagnostics) {
-        Path blueprints = folder.resolve("blueprints");
-        if (!Files.isDirectory(blueprints)) {
-            return;
-        }
+                                List<Diagnostic> diagnostics, boolean readModelsFolder) {
         Set<ContentId> seen = new HashSet<>();
-        for (Path file : blueprintFiles(blueprints, diagnostics, relative(root, blueprints))) {
-            String origin = relative(root, file);
-            String name = file.getFileName().toString();
-            String path = name.substring(0, name.length() - ".bbmodel".length())
-                    .toLowerCase(Locale.ROOT);
-            if (!ContentId.isValidPath(path)) {
-                diagnostics.add(Diagnostic.warning(origin, path,
-                        "A blueprint's file name is its id, and this one is not a valid one. "
-                                + "Use lowercase a-z, digits, and _ . - / only."));
+        // ModelEngine keeps them in blueprints/, BetterModel in models/.
+        for (String where : readModelsFolder ? List.of("blueprints", "models") : List.of("blueprints")) {
+            Path blueprints = folder.resolve(where);
+            if (!Files.isDirectory(blueprints)) {
                 continue;
             }
+            for (Path file : blueprintFiles(blueprints, diagnostics, relative(root, blueprints))) {
+                String origin = relative(root, file);
+                String name = file.getFileName().toString();
+                String path = name.substring(0, name.length() - ".bbmodel".length())
+                        .toLowerCase(Locale.ROOT);
+                if (!ContentId.isValidPath(path)) {
+                    diagnostics.add(Diagnostic.warning(origin, path,
+                            "A blueprint's file name is its id, and this one is not a valid one. "
+                                    + "Use lowercase a-z, digits, and _ . - / only."));
+                    continue;
+                }
+                // A pack wanting more says so in items/ under the same id, and
+                // that wins, because a definition somebody wrote beats one
+                // derived from a file name.
+                ContentId id = ContentId.of(namespace.name(), path).orElse(null);
+                if (id != null && definitions.stream().anyMatch(written -> written.id().equals(id))) {
+                    continue;
+                }
+                // The model is named by where it is under the folder, so one in
+                // a subfolder is found; the id is the file's name alone.
+                String relativeModel = blueprints.relativize(file).toString().replace('\\', '/');
+                relativeModel = relativeModel.substring(0, relativeModel.length() - ".bbmodel".length());
 
-            // An item of the plainest kind: a thing that wears the model. A
-            // pack wanting more says so in items/ under the same id, and that
-            // wins, because a definition somebody wrote beats one derived from
-            // a file name.
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("material", "PAPER");
-            item.put("model", path);
-            DefinitionNode document = DefinitionNode.of(Map.of(path, item));
-            define(ContentKind.ITEM, namespace, document, path, origin, seen,
-                    definitions, diagnostics);
+                // An item of the plainest kind: a thing that wears the model.
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("material", "PAPER");
+                item.put("model", relativeModel);
+                DefinitionNode document = DefinitionNode.of(Map.of(path, item));
+                define(ContentKind.ITEM, namespace, document, path, origin, seen,
+                        definitions, diagnostics);
+            }
         }
     }
 
