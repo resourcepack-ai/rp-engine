@@ -146,6 +146,56 @@ class IconsTest {
         assertEquals("sword", sword.file());
     }
 
+    // ---- chat --------------------------------------------------------------
+
+    @Test
+    void aliasesAndAPermissionAreRead() throws IOException {
+        write("mypack/fonts/a.yml", """
+                heart:
+                  aliases: ["<3", ":heart:", "two words", "<3"]
+                  permission: mypack.icon.heart
+                """);
+
+        IconDefinitions.Result result = parse();
+        IconInfo heart = one(result, "mypack:heart");
+
+        assertEquals(List.of("<3", ":heart:"), heart.aliases());
+        assertEquals("mypack.icon.heart", heart.permission().orElseThrow());
+        // A word with a space in it could never match a word on its own.
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("two words")));
+    }
+
+    @Test
+    void anAliasTwoIconsShareBelongsToTheFirstAndTheOtherIsTold() throws IOException {
+        write("mypack/fonts/a.yml", "heart:\n  aliases: [\"<3\"]\nlove:\n  aliases: [\"<3\", \"xo\"]\n");
+
+        IconDefinitions.Result result = parse();
+
+        assertEquals(List.of("<3"), one(result, "mypack:heart").aliases());
+        assertEquals(List.of("xo"), one(result, "mypack:love").aliases());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("already mypack:heart's")));
+    }
+
+    @Test
+    void anIconWithNoChatKeysHasNoAliasesAndNoPermission() throws IOException {
+        write("mypack/fonts/a.yml", "sword: {}\n");
+
+        IconInfo sword = one(parse(), "mypack:sword");
+
+        assertTrue(sword.aliases().isEmpty());
+        assertTrue(sword.permission().isEmpty());
+    }
+
+    @Test
+    void theEnginesOwnIconsTypeTheirAliasesInChat() throws IOException {
+        write("mypack/fonts/a.yml", "heart:\n  aliases: [\"<3\"]\n");
+        IconsImpl icons = new IconsImpl();
+        icons.replace(parse().icons());
+
+        assertEquals("hi " + one(parse(), "mypack:heart").character(),
+                new ChatIcons(icons, true).replace("hi <3"));
+    }
+
     // ---- the font file -------------------------------------------------
 
     @Test

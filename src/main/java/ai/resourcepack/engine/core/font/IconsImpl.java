@@ -53,6 +53,9 @@ public final class IconsImpl implements Icons {
 
     private volatile Map<ContentId, IconInfo> icons = Map.of();
 
+    /** What chat matches, built once per reload rather than once per message. */
+    private volatile ChatShortcuts shortcuts = ChatShortcuts.EMPTY;
+
     public IconsImpl() {
         this(System::currentTimeMillis);
     }
@@ -65,7 +68,14 @@ public final class IconsImpl implements Icons {
 
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, IconInfo> loaded) {
-        this.icons = loaded == null ? Map.of() : Map.copyOf(loaded);
+        Map<ContentId, IconInfo> next = loaded == null ? Map.of() : Map.copyOf(loaded);
+        this.shortcuts = ChatShortcuts.of(next.values());
+        this.icons = next;
+    }
+
+    /** What chat matches: every icon's name and aliases. */
+    ChatShortcuts shortcuts() {
+        return shortcuts;
     }
 
     @Override

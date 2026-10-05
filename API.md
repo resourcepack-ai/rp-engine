@@ -773,6 +773,10 @@ once a tick shows every frame of anything up to 20 fps. A looping icon is timed
 from the epoch and a one-shot from server start. The PlaceholderAPI form is
 `%rpengine_icon_<namespace:id>%`, which is always the current frame.
 
+`IconInfo.aliases()` and `permission()` are what the pack said about typing the
+icon in chat. The engine's own chat handling honours both; `format` does not,
+because a config file is not somebody typing.
+
 ## Events
 
 All cancellable unless the row says otherwise.
