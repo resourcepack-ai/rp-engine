@@ -130,6 +130,29 @@ class StudioContentTest {
     }
 
     @Test
+    void aPushedDialogKeepsEverythingItArrivedWithAcrossARestart(@TempDir Path dir) {
+        // A dialog's variables and item icons were dropped by save(), so after
+        // a restart /rp var refused its bound switches and its pack items drew
+        // as the question mark.
+        String manifest = """
+                {"packId":"ian8vezm",
+                 "dialogs":[{"id":"settings","name":"Settings",
+                   "json":{"type":"minecraft:notice","title":"Settings"},
+                   "vars":[{"name":"show_sidebar","values":["on","off"]}],
+                   "itemIcons":{"sword_model":1600}}]}
+                """;
+        StudioContent content = read(dir, manifest);
+        ContentId id = ContentId.parse("studio:settings").orElseThrow();
+        content.save(LOG);
+
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        ai.resourcepack.engine.api.DialogInfo after = reloaded.dialogs().get(id);
+        assertEquals(java.util.List.of("on", "off"), after.variables().get("show_sidebar"));
+        assertEquals(1600, after.itemIcons().get("sword_model"));
+    }
+
+    @Test
     void aBadManifestIsRefusedRatherThanEmptying(@TempDir Path dir) {
         StudioContent content = read(dir, MANIFEST);
         assertFalse(content.updateFromJson("not json at all").ok());

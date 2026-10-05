@@ -1264,6 +1264,23 @@ public final class StudioContent {
             // Back to a tree so gson writes the object rather than a string
             // holding one. Still unread: parsing is not looking.
             dialog.json = com.google.gson.JsonParser.parseString(entry.getValue().json());
+            // Everything else it arrived with, too. The variables and the item
+            // icons were left out here for as long as they existed, so after a
+            // restart /rp var refused every bound switch of a pushed dialog (it
+            // declared nothing) and the pack's own items in live slots drew as
+            // the question mark, until the next push.
+            if (!entry.getValue().variables().isEmpty()) {
+                dialog.vars = new ArrayList<>();
+                entry.getValue().variables().forEach((name, values) -> {
+                    DialogVariable v = new DialogVariable();
+                    v.name = name;
+                    v.values = new ArrayList<>(values);
+                    dialog.vars.add(v);
+                });
+            }
+            if (!entry.getValue().itemIcons().isEmpty()) {
+                dialog.itemIcons = new LinkedHashMap<>(entry.getValue().itemIcons());
+            }
             manifest.dialogs.add(dialog);
         }
         manifest.armor3d = new ArrayList<>();
