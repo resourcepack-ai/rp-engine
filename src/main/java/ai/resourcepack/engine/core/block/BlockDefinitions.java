@@ -149,6 +149,7 @@ public final class BlockDefinitions {
             block = block.withShape(shape, roles, takes);
         }
         block = states(block, body, origin, where, diagnostics);
+        block = behaviour(block, body, origin, where, diagnostics);
         Optional<String> itemTexture = body.string("item-texture").or(() -> body.string("item_texture"));
         if (itemTexture.isPresent()) {
             block = block.withItemTexture(itemTexture.get().trim());
@@ -450,6 +451,28 @@ public final class BlockDefinitions {
             }
         }
 
+        // random: [a, b, c] is one look picked when it is placed, the way
+        // vanilla turns flowers and lily pads.
+        Object randomRaw = body.raw("random");
+        List<?> randomList = randomRaw instanceof List ? (List<?>) randomRaw : List.of();
+        if (randomList.size() > 1 && block.shape() == BlockInfo.Shape.CUBE) {
+            List<String> picks = new ArrayList<>();
+            for (int i = 0; i < randomList.size(); i++) {
+                picks.add(String.valueOf(i));
+                Object entry = randomList.get(i);
+                if (entry instanceof Map) {
+                    DefinitionNode pick = DefinitionNode.of((Map<?, ?>) entry);
+                    appearances.add(BlockInfo.Appearance.of("variant=" + i,
+                            ai.resourcepack.engine.core.item.ItemDefinitions.model(pick),
+                            pick.integer("x").orElse(0), pick.integer("y").orElse(0),
+                            pick.bool("uvlock").orElse(Boolean.FALSE)));
+                } else if (entry != null) {
+                    appearances.add(BlockInfo.Appearance.of("variant=" + i, String.valueOf(entry), 0, 0, false));
+                }
+            }
+            properties.add(BlockInfo.Property.random("variant", picks));
+        }
+
         // stages: [a, b, c] is a growing block's short form: an age property
         // with one value per stage, each drawn by its model.
         List<String> stages = body.strings("stages");
@@ -484,6 +507,52 @@ public final class BlockDefinitions {
         }
         BlockInfo stated = block.withStates(properties, appearances, cycle);
         return growth(stated, body, origin, where, diagnostics);
+    }
+
+    /**
+     * {@code strip:}, {@code click-into:}, {@code falls:} and
+     * {@code blast-resistant:}: what a block does that a vanilla one would.
+     */
+    private static BlockInfo behaviour(BlockInfo block, DefinitionNode body, String origin, String where,
+                                       List<Diagnostic> diagnostics) {
+        ContentId strip = null;
+        ContentId stripDrop = null;
+        Optional<DefinitionNode> stripNode = body.node("strip");
+        if (stripNode.isPresent()) {
+            strip = id(stripNode.get().string("into").orElse(null), block, "strip.into", origin, where, diagnostics);
+            stripDrop = id(stripNode.get().string("drop").orElse(null), block, "strip.drop", origin, where,
+                    diagnostics);
+        } else {
+            strip = id(body.string("strip").orElse(null), block, "strip", origin, where, diagnostics);
+        }
+        ContentId clickInto = id(body.string("click-into").or(() -> body.string("click_into")).orElse(null), block,
+                "click-into", origin, where, diagnostics);
+        boolean falls = body.bool("falls").orElse(Boolean.FALSE);
+        boolean blastProof = body.bool("blast-resistant").or(() -> body.bool("blast_resistant"))
+                .orElse(Boolean.FALSE);
+        if (strip == null && clickInto == null && !falls && !blastProof) {
+            return block;
+        }
+        if (falls && (block.shape() != BlockInfo.Shape.CUBE || block.base() == BlockInfo.Base.TRIPWIRE)) {
+            diagnostics.add(Diagnostic.warning(origin, where, "falls: only a solid cube falls, so it does not."));
+            falls = false;
+        }
+        return block.withBehaviour(new BlockInfo.Behaviour(strip, stripDrop, clickInto, falls, blastProof));
+    }
+
+    /** A block or item id, qualified by the block's own namespace when written bare. */
+    private static ContentId id(String written, BlockInfo block, String key, String origin, String where,
+                                List<Diagnostic> diagnostics) {
+        if (written == null || written.isBlank()) {
+            return null;
+        }
+        String value = written.trim();
+        Optional<ContentId> parsed = ContentId.parse(value.contains(":") ? value
+                : block.id().namespace() + ":" + value);
+        if (parsed.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where, key + ": " + written + " is not an id, so it was skipped."));
+        }
+        return parsed.orElse(null);
     }
 
     /**
