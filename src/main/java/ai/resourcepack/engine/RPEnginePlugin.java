@@ -542,6 +542,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // duplication rules as a placed cabinet does now.
         storages = new ai.resourcepack.engine.core.storage.Storages(this, sounds);
         placements.storages(storages);
+        placements.sounds(sounds);
         // A piece that is a jukebox asks this what a disc plays: a material
         // on every version, a data component from 1.21. See Discs.
         placements.discs(ai.resourcepack.engine.core.model.Discs.forServer(compatibility, sounds, getLogger()));
@@ -1159,6 +1160,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // entities it is written onto still exist: onDisable runs before
             // the server saves its worlds, so this lands in the save.
             storages.closeAll();
+        }
+        if (placements != null) {
+            // Pending door-shuts. A piece left open stays open over a restart
+            // and is booked again when its chunk loads.
+            placements.stop();
         }
         if (seats != null) {
             // Everybody gets up before the plugin goes. A marker stand is not

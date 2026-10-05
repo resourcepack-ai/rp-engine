@@ -590,6 +590,78 @@ The record is sent once, when it goes in, as vanilla's is: somebody who walks up
 halfway through hears nothing until the next disc, and a restart does not resume
 it. The disc is still in the piece either way.
 
+### States: lamps, doors and screens
+
+A click can change a piece. Each entry under `states:` is one more look a click
+cycles into, after the piece as you defined it — so one entry is a switch, and
+three are a television with three channels:
+
+```yaml
+lamp:
+  material: PAPER
+  model: lamp
+  place:
+    light: 0                    # dark as placed
+    states:
+      - model: mypack:lamp_on   # an item id whose model to wear. Leave out to keep it
+        light: 15               # light in this state. Leave out for the piece's own
+        sound: minecraft:block.lever.click   # played on arriving in this state
+
+door:
+  material: PAPER
+  model: door
+  place:
+    solid: true
+    base-sound: minecraft:block.wooden_door.close   # played on going back to the start
+    reset-after: 5s             # shuts itself 5 seconds after the last click
+    states:
+      - turn: 90                # degrees added to the way it faces
+        offset: [-0.4, 0, 0.4]  # blocks it moves: right, up, forward
+        solid: false
+        sound: minecraft:block.wooden_door.open
+```
+
+Right-click goes to the next state, and after the last one back to the start.
+**Anything a state leaves out is the piece as defined** — a state that only says
+`light: 15` keeps its model, its collision and its angle.
+
+| Key | In a state |
+|---|---|
+| `model` | An item whose model it wears (or a model id with no item of its own) |
+| `light` | 0-15. `0` is dark |
+| `solid` | Whether a barrier stands in it, as the piece's own `solid:` |
+| `turn` | Degrees added to the way it faces. A hinged door |
+| `offset` | `[right, up, forward]` in blocks, the same directions as a [seat's](#sitting-on-one) `x`, `y` and `z`, so it moves along the piece however it was put down. A sliding door |
+| `sound` | Played on arriving in this state |
+
+Beside `states:`, `reset-after:` takes it back to the start that long after the
+last click — `10t` ticks, `10s` seconds, `2m` minutes, and a bare number is
+ticks — and `base-sound:` is what going back sounds like, by click or by timer.
+
+A piece **turns about its own centre and then moves**, so a door hinged at one
+edge is a quarter `turn` plus an `offset` that puts that edge back where it was.
+It swings over a quarter of a second rather than jumping. Its hitbox stays where
+it was put, and so does what a vehicle drives into.
+
+The state is kept on the piece, so a lamp left on is still on after a restart. A
+piece that resets itself and was left open when its chunk unloaded starts its
+countdown again when the chunk comes back.
+
+Light and collision follow the same rules as the piece's own: a solid state
+gives no light, because the barrier and the light would have to be the same
+block; and **only a block the piece put there is ever changed**, so if somebody
+has put a block of their own in the space a model stands in, the model leaves it
+alone and goes without being solid or lit in that state.
+
+On an [animated](#animating-one) piece `light`, `solid` and `sound` work, and
+`model`, `turn` and `offset` do not — its parts are posed by its animation, and
+the load says so. Give it a right-click animation as well and both happen on a
+click: the state changes and the animation plays.
+
+A piece with states takes a plain click; sneaking on one that is also a seat
+sits. A container takes every click before its states would, and a jukebox
+takes the ones that put a disc in or take one out.
+
 ## Armour
 
 Any item can be worn, with its own art:
