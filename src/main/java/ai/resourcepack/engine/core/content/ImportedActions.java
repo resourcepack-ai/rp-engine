@@ -26,6 +26,10 @@ final class ImportedActions {
 
     private final Map<String, List<Map<String, Object>>> byTrigger = new LinkedHashMap<>();
 
+    /** Per trigger, the one permission its gated steps sit behind, and those steps. */
+    private final Map<String, String> gate = new LinkedHashMap<>();
+    private final Map<String, List<Map<String, Object>>> gated = new LinkedHashMap<>();
+
     /** One step on one trigger, after any already there. */
     ImportedActions add(String trigger, String verb, Object argument) {
         byTrigger.computeIfAbsent(trigger, key -> new ArrayList<>()).add(step(verb, argument));
@@ -40,15 +44,49 @@ final class ImportedActions {
         return this;
     }
 
+    /**
+     * Steps that run only for somebody with {@code permission}.
+     *
+     * <p>A {@code permission} step stops everything after it, so gated steps
+     * go after every ungated one on the trigger, behind one permission step.
+     * That holds one permission per trigger; a second, different one cannot
+     * be said without a branch, and is refused.
+     *
+     * @return false when the trigger is already gated by another permission,
+     *         and these steps were not added
+     */
+    boolean addGated(String trigger, String permission, List<Map<String, Object>> steps) {
+        if (permission == null) {
+            addAll(trigger, steps);
+            return true;
+        }
+        if (steps.isEmpty()) {
+            return true;
+        }
+        String already = gate.putIfAbsent(trigger, permission);
+        if (already != null && !already.equals(permission)) {
+            return false;
+        }
+        gated.computeIfAbsent(trigger, key -> new ArrayList<>()).addAll(steps);
+        return true;
+    }
+
     boolean isEmpty() {
-        return byTrigger.isEmpty();
+        return byTrigger.isEmpty() && gated.isEmpty();
     }
 
     /** Puts these into {@code body} as its {@code actions:}, after any it already has. */
     void into(Map<String, Object> body) {
-        if (byTrigger.isEmpty()) {
+        if (isEmpty()) {
             return;
         }
+        for (Map.Entry<String, List<Map<String, Object>>> entry : gated.entrySet()) {
+            List<Map<String, Object>> steps = byTrigger.computeIfAbsent(entry.getKey(), key -> new ArrayList<>());
+            steps.add(step("permission", gate.get(entry.getKey())));
+            steps.addAll(entry.getValue());
+        }
+        gated.clear();
+        gate.clear();
         Map<String, Object> actions = new LinkedHashMap<>();
         Object existing = body.get("actions");
         if (existing instanceof Map) {
