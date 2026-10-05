@@ -139,6 +139,14 @@ public final class ModelPlacementListener implements Listener {
         this.storages = storages;
     }
 
+    /** Plays discs in a piece that is a jukebox. Null until wired. */
+    private PieceJukebox jukeboxes;
+
+    /** How this server tells a music disc from anything else; see {@link Discs}. */
+    public void discs(Discs discs) {
+        this.jukeboxes = discs == null ? null : new PieceJukebox(plugin, discs);
+    }
+
     public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
         this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
     }
@@ -456,6 +464,15 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        // A disc in hand goes in; a disc already in comes out. Anything else
+        // is not a jukebox click and carries on down the chain.
+        if (piece != null && piece.jukebox().isPresent() && jukeboxes != null && !sitInstead
+                && jukeboxes.click(clicker, hitbox, piece.jukebox().get())) {
+            event.setCancelled(true);
+            refreshLook(hitbox, piece);
+            return;
+        }
+
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
@@ -474,6 +491,104 @@ public final class ModelPlacementListener implements Listener {
         if (piece != null && piece.sittable()) {
             seats.sit(clicker, seatOf(hitbox, piece));
         }
+    }
+
+    // ---- what it looks like --------------------------------------------
+
+    /**
+     * Whether anything can put a different model on this piece's display
+     * after it is placed.
+     */
+    private static boolean changesLook(ModelInfo info) {
+        return info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent();
+    }
+
+    /**
+     * The item (or model) whose model this piece should be wearing right now.
+     *
+     * <p>Worked out from what the piece holds and nothing else, rather than
+     * remembered: a playing gramophone is the playing model however it came to
+     * be playing, and restoring after the disc comes out is the same question
+     * asked again.
+     */
+    private ContentId lookOf(Interaction hitbox, ModelInfo info) {
+        Optional<ContentId> playing = info.jukebox().flatMap(ModelInfo.Jukebox::playingModel);
+        if (playing.isPresent() && jukeboxes != null && jukeboxes.holding(hitbox)) {
+            return playing.get();
+        }
+        return info.item();
+    }
+
+    /**
+     * The model id an item renders through, or the id itself if it is not an
+     * item — which is how a pack names a model with no item of its own.
+     */
+    private ContentId modelOf(ContentId itemOrModel) {
+        return items.info(itemOrModel).map(ai.resourcepack.engine.api.ItemInfo::modelId).orElse(itemOrModel);
+    }
+
+    /**
+     * Puts on the display whatever {@link #lookOf} says.
+     *
+     * <p>Only on a still piece. An animated one is several displays each
+     * wearing a part, and a whole-piece model swapped onto every part would
+     * be the whole model drawn once per bone.
+     */
+    private void refreshLook(Interaction hitbox, ModelInfo info) {
+        ItemDisplay display = stillDisplay(hitbox);
+        if (display == null || !changesLook(info)) {
+            return;
+        }
+        ItemStack stack = display.getItemStack();
+        if (stack == null || stack.getType().isAir()) {
+            return;
+        }
+        items.wearModel(stack, modelOf(lookOf(hitbox, info)));
+        display.setItemStack(stack);
+    }
+
+    /** The one display of a still piece, or null for an animated one or a missing one. */
+    private ItemDisplay stillDisplay(Interaction hitbox) {
+        if (hitbox.getPersistentDataContainer().has(rigModelKey, PersistentDataType.STRING)) {
+            return null;
+        }
+        List<String> ids = displayIdsOf(hitbox);
+        if (ids.size() != 1) {
+            return null;
+        }
+        try {
+            Entity display = Bukkit.getEntity(UUID.fromString(ids.get(0)));
+            return display instanceof ItemDisplay ? (ItemDisplay) display : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Whether this piece is an animated one, several displays the animator poses. */
+    private boolean isRig(ModelInfo info) {
+        RigStore.Rig rig = rigs == null ? null : rigs.get(info.id().toString());
+        return rig != null && rig.parts != null && !rig.parts.isEmpty();
+    }
+
+    /**
+     * What a pack asked of an animated piece that only a still one can do.
+     *
+     * <p>Run after a reload has registered the rigs, which is the first moment
+     * anybody knows which pieces animate — the definition parser does not.
+     */
+    public List<ai.resourcepack.engine.api.Diagnostic> rigDiagnostics() {
+        List<ai.resourcepack.engine.api.Diagnostic> found = new ArrayList<>();
+        for (ModelInfo info : model.values()) {
+            if (!isRig(info)) {
+                continue;
+            }
+            if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent()) {
+                found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                        "jukebox playing-model: does nothing on an animated piece, whose look is its "
+                                + "parts. It plays without changing."));
+            }
+        }
+        return found;
     }
 
     // ---- storage -------------------------------------------------------
@@ -608,6 +723,12 @@ public final class ModelPlacementListener implements Listener {
                 : storages.removed(storage, storageOf(hitbox));
         boolean keepInside = storage != null
                 && storage.type() == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER;
+        // A disc is never broken with its jukebox, and the music stops with
+        // it. Whatever the pack now says, because the disc is somebody's.
+        if (jukeboxes != null && jukeboxes.holding(hitbox)) {
+            jukeboxes.eject(hitbox, info == null ? 1f
+                    : info.jukebox().map(ModelInfo.Jukebox::volume).orElse(1f));
+        }
 
         // Every display, because an animated piece is several and one left
         // behind is a limb standing in an empty block.
@@ -634,6 +755,12 @@ public final class ModelPlacementListener implements Listener {
             display.remove();
         }
         animator.untrackHitbox(hitbox.getUniqueId());
+        if (drop != null && info != null && changesLook(info)) {
+            // The display may be wearing a lamp's lit model or a gramophone's
+            // playing one. What goes back in a hand is the piece as it is
+            // sold, so it is put back in its own model first.
+            items.wearModel(drop, modelOf(info.item()));
+        }
 
         // Anybody sitting on it stands up first. A seat that outlives its
         // chair is an invisible thing a player can stand on for ever.

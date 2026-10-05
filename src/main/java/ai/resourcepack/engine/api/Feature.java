@@ -237,7 +237,23 @@ public enum Feature {
             McVersion.of(1, 21, 9),
             "Player heads in dialogs",
             "A Studio dialog's live player head is left empty. The rest of the dialog, "
-                    + "its live words included, works as usual.");
+                    + "its live words included, works as usual."),
+
+    /**
+     * Any item made playable in a jukebox by the {@code jukebox_playable}
+     * component, rather than only the vanilla discs.
+     *
+     * <p>Not visible: there is no such component before 1.21, so every disc an
+     * older server can hold IS a vanilla one, and those play in a placed
+     * jukebox on every version. Nothing is missing; the fork is only which way
+     * the engine asks an item what it plays.
+     */
+    JUKEBOX_SONGS(
+            McVersion.of(1, 21, 0),
+            "Custom music discs in placed jukeboxes",
+            "Handled: there are no custom discs before this version, and every vanilla disc "
+                    + "plays in a placed jukebox as usual.",
+            false);
 
     private final McVersion since;
     private final String label;
