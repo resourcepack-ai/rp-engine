@@ -2,6 +2,7 @@ package ai.resourcepack.engine.core.block;
 
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.api.Items;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -60,6 +61,22 @@ public final class CustomBlocks implements Listener {
         this.states = states;
         this.breaking = new BlockBreaking(plugin);
         this.log = log;
+    }
+
+    /** What a block's own actions do when it is placed, clicked or mined. */
+    private ai.resourcepack.engine.core.item.ActionRunner actions;
+
+    public void actions(ai.resourcepack.engine.core.item.ActionRunner actions) {
+        this.actions = actions;
+    }
+
+    /**
+     * Runs the block's actions for {@code trigger}, with no stack: these are
+     * about the block in the world, and a {@code take} must not eat whatever
+     * the player happens to be holding.
+     */
+    private boolean act(org.bukkit.entity.Player player, BlockInfo block, ItemAction.Trigger trigger) {
+        return actions != null && player != null && actions.run(player, block.id(), trigger, null);
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -123,6 +140,7 @@ public final class CustomBlocks implements Listener {
             Block placed = event.getBlockPlaced();
             placed.setBlockData(dataFor(block.get(), number), false);
             play(block.get(), placed);
+            act(event.getPlayer(), block.get(), ItemAction.Trigger.PLACE);
         });
     }
 
@@ -193,6 +211,7 @@ public final class CustomBlocks implements Listener {
         event.setDropItems(false);
         breaking.stop(event.getPlayer());
         play(block.get(), event.getBlock());
+        act(event.getPlayer(), block.get(), ItemAction.Trigger.REMOVE);
         if (event.getPlayer().getGameMode() == GameMode.CREATIVE) {
             return;
         }
@@ -273,9 +292,25 @@ public final class CustomBlocks implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
-                && at(event.getClickedBlock()).isPresent()) {
-            event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+        Optional<BlockInfo> block = at(event.getClickedBlock());
+        if (block.isEmpty()) {
+            return;
+        }
+        event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+        // Once per click, not once per hand, and not when sneaking with
+        // something in hand: that is how vanilla says "place against it"
+        // rather than "use it", and a chest keeps the same rule.
+        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND
+                || (event.getPlayer().isSneaking() && event.getItem() != null)) {
+            return;
+        }
+        if (act(event.getPlayer(), block.get(), ItemAction.Trigger.INTERACT)) {
+            // A cancel stops the held item being used on it too, so a block
+            // that is a button does not also get a block placed against it.
+            event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
         }
     }
 }

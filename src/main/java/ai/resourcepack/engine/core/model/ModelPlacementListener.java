@@ -113,6 +113,25 @@ public final class ModelPlacementListener implements Listener {
     private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
             ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
 
+    /** What a piece's own actions do when it is put down, clicked or broken. */
+    private ai.resourcepack.engine.core.item.ActionRunner actions;
+
+    public void actions(ai.resourcepack.engine.core.item.ActionRunner actions) {
+        this.actions = actions;
+    }
+
+    /**
+     * Runs the piece's actions for {@code trigger}.
+     *
+     * <p>With no stack: the click is on the piece, not on whatever the player
+     * is holding, so a {@code take} step must not eat their held item.
+     *
+     * @return whether a {@code cancel} step asked for the click's own effect to be stopped
+     */
+    private boolean act(Player player, ContentId id, ai.resourcepack.engine.api.ItemAction.Trigger trigger) {
+        return actions != null && player != null && actions.run(player, modelItem(id), trigger, null);
+    }
+
     public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
         this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
     }
@@ -228,6 +247,7 @@ public final class ModelPlacementListener implements Listener {
             held.setAmount(held.getAmount() - 1);
         }
         player.swingMainHand();
+        act(player, info.id(), ai.resourcepack.engine.api.ItemAction.Trigger.PLACE);
     }
 
     /** Snaps the player's yaw the way this piece asked to be faced. */
@@ -394,6 +414,13 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        // The pack's own click actions come first, and a cancel in them is
+        // the author saying this piece is a button rather than a chair.
+        if (act(event.getPlayer(), id.get(), ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)) {
+            event.setCancelled(true);
+            return;
+        }
+
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
@@ -528,6 +555,9 @@ public final class ModelPlacementListener implements Listener {
         }
         bedrock.rigRemoved(hitbox.getUniqueId());
         hitbox.remove();
+        // After it is gone, so an action that gives something back or runs a
+        // command about the space finds it empty, as a broken piece is.
+        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE);
 
         if (!ask.isDropItem() || world == null) {
             return;
