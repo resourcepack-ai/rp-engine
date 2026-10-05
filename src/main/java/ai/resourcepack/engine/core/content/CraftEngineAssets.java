@@ -370,14 +370,31 @@ final class CraftEngineAssets {
 
     // ---- recipes ----------------------------------------------------------------------
 
-    private static final Set<String> UNSUPPORTED = Set.of("smithing_transform", "smithing_trim", "brewing",
-            "shaped_transform", "shapeless_transform", "dye", "crafting_dye");
+    /** Dyeing an item a colour, which no recipe of ours can do. */
+    private static final Set<String> UNSUPPORTED = Set.of("dye", "crafting_dye");
 
     private static void recipe(CraftEngine.Library library, CraftEngine.Entry entry, List<CraftEngine.Output> out,
                                List<Diagnostic> diagnostics) {
         String declared = CraftEngineItems.type(entry.body.get("type"));
         String type;
         switch (declared) {
+            case "smithing_transform":
+            case "smithing_trim":
+            case "brewing":
+                stationRecipe(library, entry, declared, out, diagnostics);
+                return;
+            case "shaped_transform":
+            case "shapeless_transform":
+                // The same grid, with one ingredient marked as the source the
+                // result inherits from. Ours has no inheriting, so it crafts a
+                // fresh result; worth having rather than dropping the recipe.
+                diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                        "is a " + declared + " recipe. It comes across as an ordinary "
+                                + declared.substring(0, declared.indexOf('_')) + " recipe: the result is made "
+                                + "fresh rather than carrying the source ingredient's data, and the source has to "
+                                + "be unworn and unenchanted to match."));
+                type = declared.startsWith("shaped") ? "shaped" : "shapeless";
+                break;
             case "shaped":
             case "crafting_shaped":
                 type = "shaped";
@@ -398,8 +415,8 @@ final class CraftEngineAssets {
             default:
                 diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
                         (declared.isEmpty() ? "names no type" : "is a " + declared + " recipe")
-                                + (UNSUPPORTED.contains(declared) ? ", and RP Engine recipes are crafting, cooking and "
-                                + "stonecutting only" : "") + ", so it was skipped."));
+                                + (UNSUPPORTED.contains(declared) ? ", which dyes an item and has no RP Engine "
+                                + "equivalent" : "") + ", so it was skipped."));
                 return;
         }
         Map<String, Object> recipe = new LinkedHashMap<>();
@@ -475,6 +492,97 @@ final class CraftEngineAssets {
                             + "works."));
         }
         out.add(new CraftEngine.Output(ContentKind.RECIPE, entry.path(), recipe, entry.origin));
+    }
+
+    /**
+     * A smithing or brewing recipe, which names its slots: {@code template_type},
+     * {@code base} and {@code addition} at a smithing table (with a
+     * {@code pattern} for a trim), {@code container} or {@code input} and
+     * {@code ingredient} or {@code reagent} at a brewing stand.
+     */
+    private static void stationRecipe(CraftEngine.Library library, CraftEngine.Entry entry, String declared,
+                                      List<CraftEngine.Output> out, List<Diagnostic> diagnostics) {
+        Map<String, Object> recipe = new LinkedHashMap<>();
+        List<String> unreadable = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        boolean smithing = declared.startsWith("smithing");
+        if (smithing) {
+            recipe.put("type", declared.equals("smithing_trim") ? "smithing_trim" : "smithing");
+            stationSlot(library, entry, "template", new String[]{"template_type", "template"}, recipe, unreadable,
+                    missing);
+            stationSlot(library, entry, "base", new String[]{"base"}, recipe, unreadable, missing);
+            stationSlot(library, entry, "addition", new String[]{"addition"}, recipe, unreadable, missing);
+        } else {
+            recipe.put("type", "brewing");
+            stationSlot(library, entry, "base", new String[]{"container", "input"}, recipe, unreadable, missing);
+            stationSlot(library, entry, "ingredient", new String[]{"ingredient", "ingredients", "reagent"}, recipe,
+                    unreadable, missing);
+        }
+
+        if (declared.equals("smithing_trim")) {
+            String pattern = string(entry.body.get("pattern"));
+            if (pattern != null) recipe.put("pattern", pattern.indexOf(':') < 0 ? "minecraft:" + pattern : pattern);
+        } else {
+            Object result = get(entry.body, "result", "output");
+            String resultId = result instanceof Map<?, ?> detail
+                    ? string(CraftEngineYaml.cast(detail).get("id")) : string(result);
+            Double count = result instanceof Map<?, ?> detail
+                    ? number(CraftEngineYaml.cast(detail).get("count")) : null;
+            String reference = resultId == null ? null : library.reference(resultId, "minecraft");
+            if (resultId == null) {
+                missing.add("result");
+            } else if (reference == null) {
+                diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                        "makes " + resultId + ", which is not an item a loaded pack or the game has, so the recipe "
+                                + "was skipped."));
+                return;
+            } else {
+                recipe.put("result", reference);
+                if (count != null && count.intValue() > 1) recipe.put("amount", count.intValue());
+            }
+            if (smithing && entry.body.containsKey("merge_components") && !truthy(entry.body.get("merge_components"))) {
+                recipe.put("copy-data", false);
+            }
+        }
+
+        if (!missing.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                    "has no " + String.join(", ", missing) + ". An RP Engine " + (smithing ? "smithing" : "brewing")
+                            + " recipe needs " + (smithing ? "a template, a base and an addition" : "a container, an "
+                            + "ingredient and a result") + ", so it was skipped."));
+            return;
+        }
+        if (!unreadable.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                    "the ingredient" + (unreadable.size() == 1 ? " " : "s ") + String.join(", ", unreadable)
+                            + (unreadable.size() == 1 ? " is" : " are") + " not one item of a loaded pack or the "
+                            + "game (a tag, a choice of several, or another plugin's item), so the recipe was "
+                            + "skipped rather than made without it."));
+            return;
+        }
+        List<String> skipped = new ArrayList<>();
+        for (String key : List.of("visual_result", "functions", "function", "conditions", "condition",
+                "transform_processors", "post_processors", "merge_enchantments")) {
+            if (entry.body.get(key) != null) skipped.add(key);
+        }
+        if (!skipped.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                    String.join(", ", skipped) + " have no RP Engine equivalent and were skipped. The recipe still "
+                            + "works."));
+        }
+        out.add(new CraftEngine.Output(ContentKind.RECIPE, entry.path(), recipe, entry.origin));
+    }
+
+    /** One named slot of a station recipe, copied across as {@code ours}. */
+    private static void stationSlot(CraftEngine.Library library, CraftEngine.Entry entry, String ours, String[] keys,
+                                    Map<String, Object> recipe, List<String> unreadable, List<String> missing) {
+        Object declared = get(entry.body, keys);
+        if (declared == null) {
+            missing.add(ours);
+            return;
+        }
+        String reference = ingredient(library, declared, unreadable);
+        if (reference != null) recipe.put(ours, reference);
     }
 
     /** One ingredient as RP Engine writes it, or null (named in {@code unreadable}) when it is not one item. */
