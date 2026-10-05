@@ -39,8 +39,14 @@ public final class DialogInfo {
     private final String name;
     private final boolean pushed;
     private final Map<String, List<String>> variables;
+    private final Map<String, Integer> itemIcons;
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables) {
+        this(id, json, name, pushed, variables, Map.of());
+    }
+
+    private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
+                       Map<String, Integer> itemIcons) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -54,6 +60,15 @@ public final class DialogInfo {
             });
         }
         this.variables = Map.copyOf(copy);
+        Map<String, Integer> icons = new LinkedHashMap<>();
+        if (itemIcons != null) {
+            itemIcons.forEach((k, v) -> {
+                if (k != null && v != null) {
+                    icons.put(k, v);
+                }
+            });
+        }
+        this.itemIcons = Map.copyOf(icons);
     }
 
     /** One loaded from a content folder. */
@@ -74,6 +89,15 @@ public final class DialogInfo {
     /** One that arrived with a pushed Studio pack and declares variables — see {@link #variables()}. */
     public static DialogInfo pushed(ContentId id, String json, String name, Map<String, List<String>> variables) {
         return new DialogInfo(id, json, name, true, variables);
+    }
+
+    /**
+     * One that arrived with a pushed Studio pack, declares variables, and shows
+     * live item slots — see {@link #itemIcons()}.
+     */
+    public static DialogInfo pushed(ContentId id, String json, String name, Map<String, List<String>> variables,
+                                    Map<String, Integer> itemIcons) {
+        return new DialogInfo(id, json, name, true, variables, itemIcons);
     }
 
     public ContentId id() {
@@ -116,6 +140,18 @@ public final class DialogInfo {
      */
     public Map<String, List<String>> variables() {
         return variables;
+    }
+
+    /**
+     * Which picture draws each of its pack's own items in this dialog's live
+     * item slots: the {@code custom_model_data} string a stack of the item
+     * carries, to a cell of the icon sheet the same push's pack ships. A stack
+     * whose string is here is drawn as itself rather than as the "no picture"
+     * icon. Empty for a dialog with no live slots, or a pack with no items of
+     * its own.
+     */
+    public Map<String, Integer> itemIcons() {
+        return itemIcons;
     }
 
     @Override

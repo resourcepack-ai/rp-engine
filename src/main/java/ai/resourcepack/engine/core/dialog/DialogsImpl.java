@@ -233,7 +233,7 @@ public final class DialogsImpl implements Dialogs {
         // they have picked up lit, and no item tooltip this server would refuse
         // the dialog over: DialogItems.
         slots.shown(viewer, id, followed);
-        json = DialogItems.fill(json, slots.reader(viewer), slots.held(viewer, id).orElse(null));
+        json = DialogItems.fill(json, slots.reader(viewer), slots.held(viewer, id).orElse(null), info.itemIcons());
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
         Set<ContentId> instant = instantPages(viewer, id, info.json());

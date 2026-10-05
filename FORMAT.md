@@ -2811,8 +2811,11 @@ in Studio is: the picture rides the resource pack, the JSON rides here.
 **A Studio dialog can show the player's own inventory.** Its slots arrive empty,
 and as the engine opens the dialog it puts in what that player is holding: each
 item's picture (from an icon font the pack carries), its count, and its own
-tooltip — on Paper the whole item, on Spigot its name and lore. An item wearing a
-model of its own is drawn as a question mark, with its real tooltip. The
+tooltip — on Paper the whole item, on Spigot its name and lore. An item of the
+pushed pack's own is drawn as itself — the pack carries its picture, and the
+dialog says which one is whose by the stack's `custom_model_data` string — and
+any other item wearing a model of its own (another plugin's) is drawn as a
+question mark, with its real tooltip. The
 inventory is the one at the moment the dialog opens. Nothing has to be declared
 for this; it is in the dialog Studio sends. It can show their ender chest the
 same way.

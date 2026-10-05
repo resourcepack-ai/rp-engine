@@ -133,6 +133,25 @@ class DialogItemsTest {
     }
 
     @Test
+    void aPacksOwnItemIsDrawnAsItselfWhenItsDialogSaysWhere() {
+        int cell = DialogItemIcons.HELD - DialogItemIcons.BASE + 3;
+        DialogItems.Shown chair = new DialogItems.Shown("minecraft:paper", 1, true, hover("minecraft:paper", 1), false, "oak_chair");
+        String drawn = DialogItems.icon(chair, "minecraft:dialog_items_0", Map.of("oak_chair", cell)).get(0).get("text").getAsString();
+        assertEquals(String.valueOf((char) (DialogItemIcons.BASE + cell)), drawn);
+        // No entry, or a cell that is not one of the pack's: the "no picture" icon.
+        for (Map<String, Integer> icons : List.of(Map.<String, Integer>of(), Map.of("oak_chair", 5), Map.of("oak_chair", DialogItems.TWIN_BASE - DialogItemIcons.BASE))) {
+            String none = DialogItems.icon(chair, "minecraft:dialog_items_0", icons).get(0).get("text").getAsString();
+            assertEquals(String.valueOf((char) DialogItemIcons.BASE), none, icons.toString());
+        }
+        // A vanilla stack is its own icon, whatever the map says.
+        DialogItems.Shown paper = new DialogItems.Shown("minecraft:paper", 1, false, hover("minecraft:paper", 1), false, null);
+        assertEquals(String.valueOf(DialogItemIcons.glyph("paper")),
+                DialogItems.icon(paper, "minecraft:dialog_items_0", Map.of("paper", cell)).get(0).get("text").getAsString());
+        assertTrue(DialogItems.packCell(cell));
+        assertTrue(!DialogItems.packCell(DialogItemIcons.HELD - DialogItemIcons.BASE));
+    }
+
+    @Test
     void anItemTheServerDoesNotKnowIsTakenOutOfItsTooltip() {
         String json = "{\"body\":[{\"contents\":{\"extra\":["
                 + "{\"text\":\"\\ue004\",\"hover_event\":{\"action\":\"show_item\",\"id\":\"minecraft:copper_helmet\",\"count\":1},"

@@ -12,6 +12,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -94,10 +95,23 @@ public final class DialogItems {
      * picture the icon font does not have), its hover, ready to send, and
      * whether it is the stack they have picked up.
      */
-    public record Shown(String id, int count, boolean custom, JsonObject hover, boolean held) {
+    public record Shown(String id, int count, boolean custom, JsonObject hover, boolean held, String model) {
         public Shown(String id, int count, boolean custom, JsonObject hover) {
-            this(id, count, custom, hover, false);
+            this(id, count, custom, hover, false, null);
         }
+
+        public Shown(String id, int count, boolean custom, JsonObject hover, boolean held) {
+            this(id, count, custom, hover, held, null);
+        }
+    }
+
+    /**
+     * Whether a cell of a pack's icon sheet is one of the pack's own items':
+     * after the highlight, before the digits' twins — every one of which the
+     * pack's sheet draws as a 17-wide picture (Studio's {@code composeItemSheet}).
+     */
+    public static boolean packCell(int cell) {
+        return cell > DialogItemIcons.HELD - DialogItemIcons.BASE && cell < TWIN_BASE - DialogItemIcons.BASE;
     }
 
     /** Whether a dialog has anything here to do — so a dialog with none costs one scan. */
@@ -117,10 +131,21 @@ public final class DialogItems {
      * would refuse taken out.
      */
     public static String fill(String json, Function<DialogSlots.Key, ItemStack> reader, DialogSlots.Key held) {
+        return fill(json, reader, held, Map.of());
+    }
+
+    /**
+     * {@link #fill(String, Function, DialogSlots.Key)}, with the pictures of the
+     * pack's own items — {@link ai.resourcepack.engine.api.DialogInfo#itemIcons()}
+     * — so a stack of one is drawn as itself.
+     */
+    public static String fill(String json, Function<DialogSlots.Key, ItemStack> reader, DialogSlots.Key held,
+                              Map<String, Integer> icons) {
         if (!any(json) || reader == null) {
             return json;
         }
-        return fill(json, key -> shown(reader, key, key.equals(held)), DialogItems::known);
+        Map<String, Integer> pictures = icons == null ? Map.of() : icons;
+        return fill(json, key -> shown(reader, key, key.equals(held)), DialogItems::known, pictures);
     }
 
     /**
@@ -130,6 +155,11 @@ public final class DialogItems {
      * this cannot parse is passed on as it came, for the game to judge.
      */
     static String fill(String json, Function<DialogSlots.Key, Shown> slots, Predicate<String> known) {
+        return fill(json, slots, known, Map.of());
+    }
+
+    static String fill(String json, Function<DialogSlots.Key, Shown> slots, Predicate<String> known,
+                       Map<String, Integer> icons) {
         if (!any(json)) {
             return json;
         }
@@ -140,25 +170,25 @@ public final class DialogItems {
             return json;
         }
         boolean[] changed = {false};
-        JsonElement out = walk(root, slots, known, changed);
+        JsonElement out = walk(root, slots, known, icons, changed);
         return changed[0] ? GSON.toJson(out) : json;
     }
 
     private static JsonElement walk(JsonElement e, Function<DialogSlots.Key, Shown> slots, Predicate<String> known,
-                                    boolean[] changed) {
+                                    Map<String, Integer> icons, boolean[] changed) {
         if (e.isJsonArray()) {
             JsonArray next = new JsonArray();
             for (JsonElement child : e.getAsJsonArray()) {
                 DialogSlots.Key slot = marker(child, ITEM);
                 if (slot == null) {
-                    next.add(walk(child, slots, known, changed));
+                    next.add(walk(child, slots, known, icons, changed));
                     continue;
                 }
                 changed[0] = true;
                 String font = child.getAsJsonObject().has("font") ? child.getAsJsonObject().get("font").getAsString() : null;
                 Shown shown = font == null ? null : slots.apply(slot);
                 if (shown != null) {
-                    for (JsonObject part : icon(shown, font)) {
+                    for (JsonObject part : icon(shown, font, icons)) {
                         next.add(part);
                     }
                 }
@@ -170,7 +200,7 @@ public final class DialogItems {
         }
         JsonObject next = new JsonObject();
         for (java.util.Map.Entry<String, JsonElement> entry : e.getAsJsonObject().entrySet()) {
-            next.add(entry.getKey(), walk(entry.getValue(), slots, known, changed));
+            next.add(entry.getKey(), walk(entry.getValue(), slots, known, icons, changed));
         }
         DialogSlots.Key slot = marker(next, SLOT);
         if (slot != null) {
@@ -228,7 +258,20 @@ public final class DialogItems {
      * then the step back over the icon.
      */
     static List<JsonObject> icon(Shown shown, String font) {
-        char glyph = shown.custom() ? (char) DialogItemIcons.BASE : DialogItemIcons.glyph(shown.id());
+        return icon(shown, font, Map.of());
+    }
+
+    /**
+     * {@link #icon(Shown, String)}, for a dialog whose pack drew its own items:
+     * a stack wearing a model of its own is drawn as the picture {@code icons}
+     * names for its {@code custom_model_data} string, and as the "no picture"
+     * icon only when it names none.
+     */
+    static List<JsonObject> icon(Shown shown, String font, Map<String, Integer> icons) {
+        Integer own = shown.custom() && shown.model() != null && icons != null ? icons.get(shown.model()) : null;
+        char glyph = !shown.custom() ? DialogItemIcons.glyph(shown.id())
+                : own != null && packCell(own) ? (char) (DialogItemIcons.BASE + own)
+                : (char) DialogItemIcons.BASE;
         JsonObject picture = new JsonObject();
         // A stack picked up: the light, a step back over it, then the item on it.
         picture.addProperty("text", shown.held()
@@ -265,7 +308,8 @@ public final class DialogItems {
             return null;
         }
         String id = stack.getType().getKey().toString();
-        return new Shown(id, stack.getAmount(), wearsOwnModel(stack), hover(stack, id), held);
+        boolean custom = wearsOwnModel(stack);
+        return new Shown(id, stack.getAmount(), custom, hover(stack, id), held, custom ? modelString(stack) : null);
     }
 
     /**
@@ -343,6 +387,19 @@ public final class DialogItems {
             // Older than item models: custom model data was the only way.
         }
         return false;
+    }
+
+    /**
+     * The string a Studio item handed out as itself carries — the first of its
+     * {@code custom_model_data} strings — or null. Read through a version arm:
+     * the component is 1.21.4's.
+     */
+    static String modelString(ItemStack stack) {
+        try {
+            return DialogItemModels.firstString(stack);
+        } catch (RuntimeException | LinkageError e) {
+            return null;
+        }
     }
 
     /** Whether this server has an item by that id — what its dialog codec will accept in a tooltip. */
