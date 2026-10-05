@@ -27,7 +27,8 @@ import java.util.Optional;
  *
  * <h2>What comes across, and what does not</h2>
  *
- * <p>Items, blocks and font images translate, including the parts of an item
+ * <p>Items, blocks, font images and sounds ({@link ItemsAdderSound})
+ * translate, including the parts of an item
  * that are really vanilla underneath: material, name, lore, enchants,
  * attributes, durability, stack size, permission, armour slot, and the two
  * behaviours that have an equivalent here — a liquid bucket and furniture.
@@ -60,7 +61,27 @@ final class ItemsAdder {
                 || document.node("font_images").isPresent()
                 || document.node("blocks").isPresent()
                 || document.node("entities").isPresent()
+                || document.raw("sounds") instanceof Map
+                || document.node("minecraft_lang_overwrite").isPresent()
                 || !armours(document).isEmpty());
+    }
+
+    /**
+     * What one file of a pack may need from another: armour sets, which an
+     * item names by id, and the English text of {@code minecraft_lang_overwrite},
+     * which a sound's subtitle names by key. Gathered from every file before
+     * any is translated, because a pack is free to keep either in a file of
+     * its own.
+     */
+    static final class Shared {
+        final Map<String, DefinitionNode> armours = new LinkedHashMap<>();
+        final Map<String, String> lang = new LinkedHashMap<>();
+
+        Shared add(DefinitionNode document) {
+            armours(document).forEach(armours::putIfAbsent);
+            ItemsAdderSound.lang(document).forEach(lang::putIfAbsent);
+            return this;
+        }
     }
 
     /**
@@ -97,14 +118,15 @@ final class ItemsAdder {
      */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics) {
-        return translate(document, namespace, origin, diagnostics, armours(document));
+        return translate(document, namespace, origin, diagnostics, new Shared().add(document));
     }
 
-    /** @param armours every armour set in the pack, by name; see {@link #armours} */
+    /** @param shared what the whole pack declares; see {@link Shared} */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics,
-            Map<String, DefinitionNode> armours) {
+            Shared shared) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
+        Map<String, DefinitionNode> armours = shared.armours;
 
         document.node("items").ifPresent(items -> {
             Map<String, Object> translated = new LinkedHashMap<>();
@@ -162,6 +184,15 @@ final class ItemsAdder {
                 out.put(ContentKind.RECIPE, translated);
             }
         });
+
+        if (document.raw("sounds") instanceof Map) {
+            Map<String, Object> translated = ItemsAdderSound.translate(
+                    document.node("sounds").orElse(DefinitionNode.empty()), namespace, origin, diagnostics,
+                    shared.lang);
+            if (!translated.isEmpty()) {
+                out.put(ContentKind.SOUND, translated);
+            }
+        }
 
         return out;
     }
