@@ -249,6 +249,29 @@ packs use one name.
 Off by default. A name that is not an icon is left exactly as typed, so
 `10:30`, `:)` and a URL all survive.
 
+An icon can list more ways to type it, and can be kept for some players:
+
+```yaml
+# fonts/icons.yml
+heart:
+  file: heart
+  aliases: ["<3", ":love:"]       # also typed as these
+  permission: mypack.icon.heart   # who may type it, by an alias or by :heart:
+```
+
+**An alias is matched as a word on its own** — a space or the end of the line on
+both sides — so `<3` becomes the heart in `I <3 you` and not in `<33`, `a<3`,
+`<3!` or the end of a link. It is matched exactly as written, punctuation and
+all, and cannot contain a space. When two icons list the same alias, the first
+by id keeps it and the load says so.
+
+`permission` is on top of `rpengine.chat.icons`, not instead of it. Without
+one, anybody who may use chat icons may use that icon. Somebody without it sees
+what they typed go out as typed.
+
+An animated icon is its **first frame** in chat — a chat line is drawn once, so
+nothing ever sends it the next one. See [Animated icons](#animated-icons).
+
 Two more flags, both of them things vanilla nearly does already:
 
 ```yaml
