@@ -115,6 +115,25 @@ public final class DialogPackets {
         }
     }
 
+    /**
+     * What the server's codec says is wrong with a dialog, or null when it reads
+     * it — or when there is no codec to ask (Spigot), which is not a verdict.
+     */
+    public static String refusal(String json) {
+        if (bridge() == null) return null;
+        try {
+            decode(json);
+            return null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Throwable cause = e;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
+            String message = cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
+            return message.length() > 300 ? message.substring(0, 300) + "…" : message;
+        }
+    }
+
     public static boolean show(Player viewer, String json) {
         lastRefusal = null;
         Bridge b = bridge();
