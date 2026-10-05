@@ -137,7 +137,16 @@ public final class ItemAction {
         COOLDOWN,
 
         /** Stops here unless the user has this permission. */
-        PERMISSION;
+        PERMISSION,
+
+        /**
+         * {@code particle: <type> [count] [spread]}: particles at the block or
+         * piece the action is about, or at the player when it is about a held
+         * item. Types are the game's names ({@code flame},
+         * {@code happy_villager}); one that needs extra data (a colour, a
+         * block) draws nothing.
+         */
+        PARTICLE;
 
         /** The name an author writes, or empty if it is not one of these. */
         public static Optional<Kind> parse(String written) {

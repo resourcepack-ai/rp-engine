@@ -1077,7 +1077,8 @@ class CraftEnginePackTest {
         String bow = item(report, "gems:bow").model().orElseThrow();
         assertTrue(bow.contains("minecraft:item/bow"), bow);
         assertTrue(warned(report, "gems:bow", "only the first"));
-        assertTrue(warned(report, "gems:events", "particle"));
+        assertEquals(java.util.List.of("particle: minecraft:heart 8"),
+                steps(item(report, "gems:events").actions(ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK)));
         assertTrue(warned(report, "gems:events", "compostable_item"));
     }
 
@@ -1415,11 +1416,10 @@ class CraftEnginePackTest {
         LoadReport report = load();
         ItemInfo wand = item(report, "gems:wand");
         assertEquals(java.util.List.of("permission: gems.wand", "console: effect give {player} speed 5",
-                        "sound: minecraft:entity.player.levelup 0.5"),
+                        "sound: minecraft:entity.player.levelup 0.5", "particle: minecraft:heart 8"),
                 steps(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK)));
         assertEquals(java.util.List.of("effect: REGENERATION 5 2"),
                 steps(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.CONSUME)));
-        assertTrue(warned(report, "gems:wand", "particle"));
         assertTrue(warned(report, "gems:wand", "step"));
 
         ItemInfo bell = item(report, "gems:bell");

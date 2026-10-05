@@ -135,8 +135,9 @@ public final class CustomBlocks implements Listener {
      * about the block in the world, and a {@code take} must not eat whatever
      * the player happens to be holding.
      */
-    private boolean act(Player player, BlockInfo block, ItemAction.Trigger trigger) {
-        return actions != null && player != null && actions.run(player, block.id(), trigger, null);
+    private boolean act(Player player, BlockInfo block, ItemAction.Trigger trigger, Block where) {
+        return actions != null && player != null && actions.run(player, block.id(), trigger, null,
+                where == null ? null : where.getLocation().add(0.5, 0.5, 0.5));
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -328,7 +329,7 @@ public final class CustomBlocks implements Listener {
         }
         play(block, placed);
         lightUp(placed, block);
-        act(event.getPlayer(), block, ItemAction.Trigger.PLACE);
+        act(event.getPlayer(), block, ItemAction.Trigger.PLACE, placed);
     }
 
     /** The faces a block's light is put beside, in the order they are tried. */
@@ -611,7 +612,7 @@ public final class CustomBlocks implements Listener {
         // underneath.
         otherHalf(event.getBlock()).ifPresent(half -> half.setType(Material.AIR, false));
         play(block, event.getBlock());
-        act(event.getPlayer(), block, ItemAction.Trigger.REMOVE);
+        act(event.getPlayer(), block, ItemAction.Trigger.REMOVE, event.getBlock());
         boolean gives = event.getPlayer().getGameMode() != GameMode.CREATIVE
                 // The wrong tool breaks it and gives nothing, which is what
                 // vanilla does with stone and a shovel.
@@ -886,7 +887,7 @@ public final class CustomBlocks implements Listener {
                 || (event.getPlayer().isSneaking() && event.getItem() != null)) {
             return;
         }
-        boolean used = act(event.getPlayer(), block, ItemAction.Trigger.INTERACT);
+        boolean used = act(event.getPlayer(), block, ItemAction.Trigger.INTERACT, event.getClickedBlock());
         ItemStack held = event.getItem();
         if (!used && storages != null && block.storage().isPresent()) {
             Block clicked = event.getClickedBlock();

@@ -830,7 +830,8 @@ class ItemsAdderPackTest {
         assertEquals(List.of("HIDE_ATTRIBUTES"), wand.stats().flags());
         assertTrue(warned(loaded, "interact.right_shift"), "a sneaking click has no trigger");
         assertTrue(warned(loaded, "held"));
-        assertTrue(warned(loaded, "play_particle"));
+        assertEquals(List.of("particle: heart 8"),
+                written(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.ATTACK)));
     }
 
     @Test
