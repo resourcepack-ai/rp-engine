@@ -215,6 +215,11 @@ public final class PackBuilder {
         }
 
         @Override
+        public java.util.Optional<byte[]> read(String zipPath) {
+            return java.util.Optional.ofNullable(zip.get(zipPath));
+        }
+
+        @Override
         public void drop(String zipPath) {
             zip.remove(zipPath);
             writtenBy.remove(zipPath);

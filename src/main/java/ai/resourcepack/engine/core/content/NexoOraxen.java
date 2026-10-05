@@ -32,7 +32,7 @@ import java.util.Optional;
  *       Oraxen's legacy list and newer map), the art ({@code Pack.model}, or
  *       the first texture layer as a flat sprite) and the vanilla components
  *       that have a property here: durability, stack size, food, glint, and
- *       {@code equippable} as an armour slot.</li>
+ *       custom armour, its slot and its layer art.</li>
  *   <li>Furniture, as a {@code place:} block: solidity, the hitbox at its
  *       origin, the first seat in full, the light at its origin, the facing
  *       rule, the surfaces it may go on, a uniform scale and the drop.</li>
@@ -97,6 +97,14 @@ final class NexoOraxen {
     static Map<ContentKind, Map<String, Object>> translate(DefinitionNode document,
                                                              String namespace, String origin,
                                                              List<Diagnostic> diagnostics) {
+        return translate(document, namespace, origin, diagnostics, ArmourLayers.NONE);
+    }
+
+    /** @param layers the armour layer PNGs in the pack, which both plugins find by name */
+    static Map<ContentKind, Map<String, Object>> translate(DefinitionNode document,
+                                                             String namespace, String origin,
+                                                             List<Diagnostic> diagnostics,
+                                                             ArmourLayers layers) {
         Map<String, Object> items = new LinkedHashMap<>();
         Map<String, Object> blocks = new LinkedHashMap<>();
         for (String id : document.keys()) {
@@ -116,7 +124,9 @@ final class NexoOraxen {
                 blocks.put(id, block(item, blockMechanic, mechanics.node(blockMechanic).orElseThrow(),
                         id, namespace, origin, diagnostics));
             } else {
-                items.put(id, item(item, id, namespace, origin, diagnostics));
+                Map<String, Object> translated = item(item, id, namespace, origin, diagnostics);
+                armour(item, id, namespace, origin, diagnostics, translated, layers);
+                items.put(id, translated);
             }
         }
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
@@ -273,7 +283,7 @@ final class NexoOraxen {
                     }
                     break;
                 case "equippable":
-                    equippable(components.node(key).orElse(DefinitionNode.empty()), id, origin, diagnostics, out);
+                    // Read with the armour art, which is found by name; see armour.
                     break;
                 default:
                     skipped.add(key);
@@ -287,29 +297,136 @@ final class NexoOraxen {
     }
 
     /**
-     * {@code equippable.slot}, which is RP Engine's {@code armor}.
+     * Custom armour: the slot, and the layer art, which RP Engine's
+     * {@code armor} and {@code armor-art} are.
      *
-     * <p>The slot comes across; the art cannot, because their equipment model
-     * ({@code asset_id} on Nexo, {@code model} on Oraxen) is a layer file of
-     * theirs at a path of theirs, and the importer reads definitions rather
-     * than moving PNGs. So the warning says exactly where the art goes.
+     * <p>Both plugins pair a set's art with its pieces by name rather than by
+     * anything written in the item. The set is named by
+     * {@code equippable.asset_id} (Nexo) or {@code equippable.model} (Oraxen),
+     * by {@code trim_pattern} on the older trim-based armour, or failing all
+     * three by the item id less its last word ({@code ruby_helmet} is the
+     * {@code ruby} set); its art is {@code Pack.CustomArmor.layer1}/{@code
+     * layer2} when written, and otherwise whichever {@code ruby_armor_layer_1.png}
+     * and {@code _2.png} the pack ships. An item with no {@code equippable} is
+     * armour exactly when that art exists and its id ends in a piece's name,
+     * which is when both plugins give it the component themselves.
+     *
+     * <p>That is the same art in every era of theirs - component, trims, the
+     * old leather shaders - so all of them come across the same way.
+     *
+     * <p>What does not: an elytra's wings, which are not drawn on a body, and
+     * a 3D helmet, which has no layer art and is worn as a hat, as it is there.
      */
-    private static void equippable(DefinitionNode equippable, String id, String origin,
-                                   List<Diagnostic> diagnostics, Map<String, Object> out) {
-        String declared = equippable.string("slot").orElse("");
-        String slot = armourSlot(declared);
+    private static void armour(DefinitionNode item, String id, String namespace, String origin,
+                               List<Diagnostic> diagnostics, Map<String, Object> out, ArmourLayers layers) {
+        DefinitionNode equippable = section(item, "Components")
+                .flatMap(components -> components.node("equippable")).orElse(null);
+        String material = item.string("material").orElse("PAPER").trim().toUpperCase(Locale.ROOT);
+        String declaredSlot = equippable == null ? null : equippable.string("slot").orElse(null);
+        String asset = equippable == null ? null
+                : equippable.string("asset_id").or(() -> equippable.string("model")).orElse(null);
+        String set = bare(asset).or(() -> item.string("trim_pattern").flatMap(NexoOraxen::bare))
+                .orElse(pieceSlot(id) == null ? null : id.substring(0, id.lastIndexOf('_')));
+
+        if (material.equals("ELYTRA") || id.endsWith("_elytra") || (set != null && set.endsWith("_elytra"))) {
+            if (equippable != null || layers.find(set, 1).isPresent()) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "is an elytra. Its wings art was not carried across: RP Engine draws worn items on a "
+                                + "player's body only, so it is worn as its material is."));
+            }
+            return;
+        }
+
+        String slot;
+        if (declaredSlot != null) {
+            slot = armourSlot(declaredSlot);
+            if (slot == null) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "equippable.slot " + declaredSlot + " is not head, chest, legs or feet, which are the slots "
+                                + "RP Engine armour is worn in, so it was skipped."));
+                return;
+            }
+        } else {
+            slot = pieceSlot(id) != null ? pieceSlot(id) : materialSlot(material);
+        }
         if (slot == null) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "equippable.slot " + declared + " is not head, chest, legs or feet, which are the slots "
-                            + "RP Engine armour is worn in, so it was skipped."));
+            return;
+        }
+
+        int layer = ArmourLayers.layerOf(slot);
+        DefinitionNode custom = section(item, "Pack").flatMap(pack -> pack.node("CustomArmor")
+                .or(() -> pack.node("custom_armor"))).orElse(DefinitionNode.empty());
+        // A written layer in another namespace (Nexo's own examples say
+        // nexo:...) is only worth a warning when the same file is not also
+        // found by its name.
+        List<Diagnostic> written = new ArrayList<>();
+        Optional<String> art = custom.string("layer" + layer).or(() -> custom.string("layer_" + layer))
+                .flatMap(path -> localPath(path, namespace, id, origin, written, "Pack.CustomArmor.layer" + layer))
+                .or(() -> layers.find(set, layer));
+        if (art.isEmpty()) diagnostics.addAll(written);
+        if (art.isPresent()) {
+            out.put("armor", slot);
+            out.put("armor-art", art.get());
+            return;
+        }
+        if (equippable == null) {
+            // No component and no art: an item that happens to be called
+            // something_boots, and neither plugin would make it armour.
+            return;
+        }
+        if (asset == null && !slot.equals(materialSlot(material))) {
+            if (slot.equals("head")) {
+                // A head piece with no equipment asset shows its item model on
+                // the head, which is how both plugins do a 3D helmet - and what
+                // a hat is here.
+                out.put("hat", true);
+                return;
+            }
+        } else if (asset == null) {
+            // Real armour with no art of its own draws its own.
             return;
         }
         out.put("armor", slot);
-        String layer = slot.equals("legs") ? "humanoid_leggings" : "humanoid";
+        String folder = slot.equals("legs") ? "humanoid_leggings" : "humanoid";
         diagnostics.add(Diagnostic.warning(origin, id,
-                "is worn as armor: " + slot + ". RP Engine draws worn armour from "
-                        + "assets/textures/entity/equipment/" + layer + "/" + id + ".png; put the layer art there, "
-                        + "because Nexo/Oraxen's own equipment model is not read."));
+                "is worn as armor: " + slot + ", but no layer art was found for it"
+                        + (set == null ? "" : " (" + set + "_armor_layer_" + layer + ".png, as both plugins name it)")
+                        + ". Ship that PNG in the pack, or put the art at assets/textures/entity/equipment/"
+                        + folder + "/" + id + ".png."));
+    }
+
+    /** {@code nexo:ruby} to {@code ruby}: the set a name refers to, whatever namespace it was written in. */
+    private static Optional<String> bare(String name) {
+        if (name == null || name.isBlank()) return Optional.empty();
+        String value = name.trim().toLowerCase(Locale.ROOT);
+        return Optional.of(value.substring(value.indexOf(':') + 1));
+    }
+
+    /** The slot an id's last word names, as both plugins read {@code ruby_helmet}. */
+    private static String pieceSlot(String id) {
+        int underscore = id.lastIndexOf('_');
+        if (underscore <= 0) return null;
+        switch (id.substring(underscore + 1).toLowerCase(Locale.ROOT)) {
+            case "helmet":
+                return "head";
+            case "chestplate":
+                return "chest";
+            case "leggings":
+                return "legs";
+            case "boots":
+                return "feet";
+            default:
+                return null;
+        }
+    }
+
+    /** The slot a vanilla armour material is already worn in, or null for anything else. */
+    private static String materialSlot(String material) {
+        if (material.endsWith("_HELMET")) return "head";
+        if (material.endsWith("_CHESTPLATE")) return "chest";
+        if (material.endsWith("_LEGGINGS")) return "legs";
+        if (material.endsWith("_BOOTS")) return "feet";
+        return null;
     }
 
     private static String armourSlot(String slot) {

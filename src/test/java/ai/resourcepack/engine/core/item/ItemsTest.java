@@ -323,4 +323,39 @@ class ItemsTest {
 
         assertEquals(first, second);
     }
+
+    @Test
+    void armorArtIsServedAtTheEquipmentPathAndSaysWhenTheServerCannotDrawIt() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", """
+                crown:
+                  material: PAPER
+                  armor: head
+                  armor-art: armour/crown_layer.png
+                greaves:
+                  material: PAPER
+                  armor: legs
+                  armor-art: armour/nothing_here
+                shipped:
+                  material: PAPER
+                  armor: chest
+                  armor-art: armour/crown_layer
+                """);
+        write("mypack/assets/textures/armour/crown_layer.png", "layer");
+        write("mypack/assets/textures/entity/equipment/humanoid/shipped.png", "mine");
+
+        BuildReport report = new PackBuilder().with(new ItemAssets(null, false)).build(content, out, load());
+        Map<String, String> zip = read(report, "main");
+        assertEquals("layer", zip.get("assets/mypack/textures/entity/equipment/humanoid/crown.png"));
+        // One shipped at the equipment path on purpose is left alone.
+        assertEquals("mine", zip.get("assets/mypack/textures/entity/equipment/humanoid/shipped.png"));
+        List<Diagnostic> warnings = report.diagnostics(Diagnostic.Severity.WARNING);
+        assertTrue(warnings.stream().anyMatch(w -> w.message().contains("armour/nothing_here.png")));
+        assertEquals(1, warnings.stream().filter(w -> w.message().contains("nothing_here")
+                || w.message().contains("humanoid_leggings/greaves")).count(), "one missing picture, said once");
+        // Below 1.21.4 the art is packed, and the build names what will be
+        // worn with vanilla art instead.
+        assertTrue(warnings.stream().anyMatch(w -> w.message().contains("vanilla art")
+                && w.where().orElse("").contains("mypack:crown")));
+    }
 }

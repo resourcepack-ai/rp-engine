@@ -59,7 +59,30 @@ final class ItemsAdder {
                 && (document.node("items").isPresent()
                 || document.node("font_images").isPresent()
                 || document.node("blocks").isPresent()
-                || document.node("entities").isPresent());
+                || document.node("entities").isPresent()
+                || !armours(document).isEmpty());
+    }
+
+    /**
+     * The armour art a document declares, by name: {@code equipments:} (4.0.10
+     * and up), and the older {@code armors_rendering:}, renamed
+     * {@code legacy_armor_renderings:} in 4.0.9. All three give a set its
+     * {@code layer_1} and {@code layer_2}, which is all RP Engine needs of one.
+     *
+     * <p>Gathered from every file in a pack before any item is read, because
+     * an item names its set by id and a pack is free to keep its armour in
+     * one file and its items in another.
+     */
+    static Map<String, DefinitionNode> armours(DefinitionNode document) {
+        Map<String, DefinitionNode> out = new LinkedHashMap<>();
+        for (String section : List.of("equipments", "legacy_armor_renderings", "armors_rendering")) {
+            document.node(section).ifPresent(sets -> {
+                for (String name : sets.keys()) {
+                    sets.node(name).ifPresent(set -> out.putIfAbsent(name, set));
+                }
+            });
+        }
+        return out;
     }
 
     /** The namespace it declares, which is what its ids belong to. */
@@ -74,6 +97,13 @@ final class ItemsAdder {
      */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics) {
+        return translate(document, namespace, origin, diagnostics, armours(document));
+    }
+
+    /** @param armours every armour set in the pack, by name; see {@link #armours} */
+    static Map<ContentKind, Map<String, Object>> translate(
+            DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics,
+            Map<String, DefinitionNode> armours) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
 
         document.node("items").ifPresent(items -> {
@@ -81,7 +111,9 @@ final class ItemsAdder {
             for (String id : items.keys()) {
                 items.node(id).ifPresent(item -> {
                     if (item.bool("enabled").orElse(Boolean.TRUE)) {
-                        translated.put(id, item(item, id, origin, diagnostics));
+                        Map<String, Object> body = item(item, id, origin, diagnostics);
+                        armour(item, id, origin, diagnostics, body, armours);
+                        translated.put(id, body);
                     }
                 });
             }
@@ -347,12 +379,6 @@ final class ItemsAdder {
         enchantments(item).ifPresent(enchants -> out.put("enchantments", enchants));
         attributes(item, id, origin, diagnostics).ifPresent(attributes -> out.put("attributes", attributes));
 
-        item.node("specific_properties")
-                .flatMap(properties -> properties.node("armor"))
-                .flatMap(armor -> armor.string("slot"))
-                .map(ItemsAdder::armourSlot)
-                .ifPresent(slot -> out.put("armor", slot));
-
         item.node("behaviours").ifPresent(behaviours -> {
             behaviours.node("liquid_bucket")
                     .flatMap(bucket -> bucket.string("name"))
@@ -466,6 +492,133 @@ final class ItemsAdder {
             }
         }
         return out.toString();
+    }
+
+    /**
+     * Custom armour: which slot, and the layer art it is worn with, as
+     * {@code armor} and {@code armor-art}.
+     *
+     * <p>Two spellings. The current one is {@code equipment: {id: ns:set}} on
+     * the item, the slot following its material unless {@code slot} says
+     * otherwise; the older one is {@code specific_properties.armor} with a
+     * {@code slot} and a {@code custom_armor: set}. Either names a set from
+     * {@link #armours}, whose {@code layer_1} is the body and boots and whose
+     * {@code layer_2} is the leggings - exactly the two sheets vanilla's
+     * {@code humanoid} and {@code humanoid_leggings} layers are, so the PNG is
+     * used as it is and only has to be served where the game reads it.
+     *
+     * <p>What does not come across, each a warning: a layer's animation
+     * (a strip of frames a worn layer cannot play) and emissive layer (which
+     * needed ItemsAdder's shaders), a {@code use_color} tint, and colour-only
+     * armour, which has no art to carry and is worn as plain leather.
+     */
+    private static void armour(DefinitionNode item, String id, String origin, List<Diagnostic> diagnostics,
+                               Map<String, Object> out, Map<String, DefinitionNode> armours) {
+        String material = item.string("material")
+                .or(() -> item.node("resource").flatMap(resource -> resource.string("material")))
+                .orElse("").trim().toUpperCase(Locale.ROOT);
+        Optional<DefinitionNode> equipment = item.node("equipment");
+        if (equipment.isPresent()) {
+            String declared = equipment.get().string("slot").orElse(null);
+            String slot = declared == null ? materialSlot(material) : armourSlot(declared);
+            if (slot == null || !List.of("head", "chest", "legs", "feet").contains(slot)) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "is equipped in " + (declared == null ? "the slot of its material" : declared)
+                                + ", which is not head, chest, legs or feet, the slots RP Engine armour is worn in, "
+                                + "so it was skipped."));
+                return;
+            }
+            Optional<String> set = equipment.get().string("id");
+            if (set.isEmpty()) {
+                // No art of its own. On the head that is ItemsAdder's 3D
+                // helmet, which shows its model there whatever its material
+                // (their wiki builds one on IRON_HELMET) - a hat here.
+                // Anywhere else it is real armour drawing its own.
+                if (slot.equals("head")) {
+                    out.put("hat", true);
+                }
+                return;
+            }
+            wear(id, slot, set.get(), armours, origin, diagnostics, out);
+            return;
+        }
+
+        Optional<DefinitionNode> legacy = item.node("specific_properties").flatMap(properties -> properties.node("armor"));
+        if (legacy.isEmpty() || legacy.get().string("slot").isEmpty()) {
+            return;
+        }
+        String slot = armourSlot(legacy.get().string("slot").get());
+        Optional<String> set = legacy.get().string("custom_armor");
+        if (set.isPresent()) {
+            wear(id, slot, set.get(), armours, origin, diagnostics, out);
+            return;
+        }
+        if (legacy.get().string("color").isEmpty()) {
+            // A slot and nothing to draw. Real armour already draws its own,
+            // and making it ours would swap that for a missing picture.
+            if (!slot.equals(materialSlot(material))) {
+                out.put("armor", slot);
+            }
+        } else {
+            out.put("armor", slot);
+            out.put("armor-texture", "minecraft:leather");
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "is colour-only armour (specific_properties.armor.color), which ItemsAdder tints out of leather. "
+                            + "RP Engine cannot tint a layer, so it is worn as plain leather; draw a layer and name it "
+                            + "with custom_armor to keep the look."));
+        }
+    }
+
+    /** One piece of a named set: the slot, and the set's layer for that slot. */
+    private static void wear(String id, String slot, String set, Map<String, DefinitionNode> armours,
+                             String origin, List<Diagnostic> diagnostics, Map<String, Object> out) {
+        out.put("armor", slot);
+        String name = set.trim().substring(set.trim().indexOf(':') + 1);
+        DefinitionNode rendering = armours.get(name);
+        String layer = slot.equals("legs") ? "layer_2" : "layer_1";
+        String folder = slot.equals("legs") ? "humanoid_leggings" : "humanoid";
+        String fallback = " Put the art at assets/textures/entity/equipment/" + folder + "/" + id + ".png instead.";
+        if (rendering == null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "is drawn from the armour " + set + ", which no equipments: or armors_rendering: section in "
+                            + "this pack declares, so it has no layer art." + fallback));
+            return;
+        }
+        Optional<String> art = rendering.string(layer);
+        if (art.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "is worn in " + slot + ", which draws " + layer + ", and the armour " + name + " has none."
+                            + fallback));
+            return;
+        }
+        if (rendering.node("animation").isPresent()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "wears the animated armour " + name + ". Its " + layer + " is a strip of frames, which a worn "
+                            + "layer cannot play, so it was not carried across." + fallback
+                            + " A single frame of it is what to put there."));
+            return;
+        }
+        String path = art.get().trim();
+        out.put("armor-art", path.endsWith(".png") ? path.substring(0, path.length() - 4) : path);
+        if (rendering.bool("use_color").orElse(Boolean.FALSE)) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "the armour " + name + " is tinted with its color (use_color), which RP Engine cannot do to a "
+                            + "layer; it is worn as drawn."));
+        }
+        if (rendering.raw("emissive_1") != null || rendering.raw("emissive_2") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "the armour " + name + "'s emissive layers needed ItemsAdder's shaders and were skipped; "
+                            + "it is worn without the glow."));
+        }
+    }
+
+    /** The slot a vanilla armour material is already worn in, or null for anything else. */
+    private static String materialSlot(String material) {
+        if (material.endsWith("_HELMET")) return "head";
+        if (material.endsWith("_CHESTPLATE")) return "chest";
+        if (material.endsWith("_LEGGINGS")) return "legs";
+        if (material.endsWith("_BOOTS")) return "feet";
+        return null;
     }
 
     /** {@code helmet} to {@code head}, and so on. */

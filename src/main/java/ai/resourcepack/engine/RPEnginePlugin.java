@@ -1386,7 +1386,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // The allocator only on the versions that address models by number;
         // null tells the writer this server names them instead.
         ItemAssets itemAssets = new ItemAssets(
-                compatibility.itemEra().needsNumbers() ? modelNumbers : null);
+                compatibility.itemEra().needsNumbers() ? modelNumbers : null,
+                compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART));
         BuildReport builtReport = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))

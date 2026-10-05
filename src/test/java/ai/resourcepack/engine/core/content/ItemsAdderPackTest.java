@@ -1,6 +1,9 @@
 package ai.resourcepack.engine.core.content;
 
 import ai.resourcepack.engine.api.BlockInfo;
+import ai.resourcepack.engine.api.BuildReport;
+import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.EntityInfo;
@@ -20,8 +23,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -324,5 +332,144 @@ class ItemsAdderPackTest {
                 .anyMatch(d -> d.id().toString().equals("renamed:ruby")));
         assertTrue(loaded.diagnostics().stream()
                 .anyMatch(d -> d.message().contains("the folder wins")));
+    }
+
+    // ---- armour --------------------------------------------------------------
+
+    @TempDir
+    Path out;
+
+    private void bytes(String path, byte[] data) throws IOException {
+        Path file = content.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.write(file, data);
+    }
+
+    private boolean warned(LoadReport report, String id, String text) {
+        return report.diagnostics().stream().anyMatch(d -> d.message().contains(text)
+                && d.where().map(id::equals).orElse(false));
+    }
+
+    private Map<String, byte[]> build(LoadReport report) throws IOException {
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(built.pack("main").orElseThrow().file()))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                entries.put(entry.getName(), zip.readAllBytes());
+            }
+        }
+        return entries;
+    }
+
+    @Test
+    void currentArmourWearsItsEquipmentsLayersFromAnotherFile() throws IOException {
+        // The wiki's own tutorial, with the set kept in its own file.
+        write("my_armor_tutorial/equipments.yml", """
+                info:
+                  namespace: my_armor_tutorial
+                equipments:
+                  my_armor_1:
+                    type: armor
+                    layer_1: armor/my_armor_1/layer_1
+                    layer_2: armor/my_armor_1/layer_2
+                """);
+        write("my_armor_tutorial/items.yml", """
+                info:
+                  namespace: my_armor_tutorial
+                items:
+                  my_armor_1_chestplate:
+                    name: My Armor 1 Chestplate
+                    material: IRON_CHESTPLATE
+                    equipment:
+                      id: my_armor_tutorial:my_armor_1
+                  my_armor_1_leggings:
+                    material: IRON_LEGGINGS
+                    equipment:
+                      id: my_armor_tutorial:my_armor_1
+                  my_armor_1_helmet_3d:
+                    material: IRON_HELMET
+                    resource:
+                      material: PAPER
+                      model_path: armor/my_armor_1_helmet_3d
+                    equipment: {}
+                """);
+        byte[] body = {1, 2, 3};
+        byte[] legs = {4, 5, 6};
+        bytes("my_armor_tutorial/textures/armor/my_armor_1/layer_1.png", body);
+        bytes("my_armor_tutorial/textures/armor/my_armor_1/layer_2.png", legs);
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        ItemInfo chest = items.get(ContentId.parse("my_armor_tutorial:my_armor_1_chestplate").orElseThrow());
+        assertEquals("chest", chest.armor().orElseThrow(), "the slot follows the material");
+        ItemInfo leggings = items.get(ContentId.parse("my_armor_tutorial:my_armor_1_leggings").orElseThrow());
+        assertEquals("legs", leggings.armor().orElseThrow());
+        // A helmet with no set shows its model on the head: a hat here.
+        ItemInfo hat = items.get(ContentId.parse("my_armor_tutorial:my_armor_1_helmet_3d").orElseThrow());
+        assertTrue(hat.armor().isEmpty());
+        assertTrue(hat.hat());
+
+        Map<String, byte[]> zip = build(report);
+        assertArrayEquals(body, zip.get(
+                "assets/my_armor_tutorial/textures/entity/equipment/humanoid/my_armor_1_chestplate.png"));
+        assertArrayEquals(legs, zip.get(
+                "assets/my_armor_tutorial/textures/entity/equipment/humanoid_leggings/my_armor_1_leggings.png"),
+                "leggings are drawn from layer_2");
+    }
+
+    @Test
+    void legacyArmourRenderingsComeAcrossAndSayWhatTheyLose() throws IOException {
+        write("myitems/armor.yml", """
+                info:
+                  namespace: myitems
+                armors_rendering:
+                  myarmor:
+                    color: "#d60000"
+                    layer_1: armor/myarmor/layer_1.png
+                    layer_2: armor/myarmor/layer_2
+                    use_color: true
+                legacy_armor_renderings:
+                  shiny:
+                    color: "#00d600"
+                    layer_1: armor/shiny/layer_1
+                    layer_2: armor/shiny/layer_2
+                    animation:
+                      interpolation: true
+                items:
+                  myarmor_boots:
+                    resource:
+                      generate: true
+                      textures: [item/myarmor/boots]
+                    specific_properties:
+                      armor:
+                        slot: FEET
+                        custom_armor: myarmor
+                  shiny_helmet:
+                    specific_properties:
+                      armor: { slot: head, custom_armor: shiny }
+                  plain_chestplate:
+                    specific_properties:
+                      armor: { slot: chest, color: '#ff0001' }
+                  lost_leggings:
+                    specific_properties:
+                      armor: { slot: legs, custom_armor: nowhere }
+                """);
+        bytes("myitems/resourcepack/assets/myitems/textures/armor/myarmor/layer_1.png", new byte[] {9});
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        assertEquals("feet", items.get(ContentId.parse("myitems:myarmor_boots").orElseThrow()).armor().orElseThrow());
+        assertTrue(warned(report, "myarmor_boots", "use_color"));
+        assertTrue(warned(report, "shiny_helmet", "strip of frames"));
+        ItemInfo plain = items.get(ContentId.parse("myitems:plain_chestplate").orElseThrow());
+        assertEquals("minecraft:leather", plain.armorTexture().orElseThrow());
+        assertTrue(warned(report, "plain_chestplate", "plain leather"));
+        assertTrue(warned(report, "lost_leggings", "nowhere"));
+
+        // Art kept in a resourcepack/ folder is found where it was copied.
+        Map<String, byte[]> zip = build(report);
+        assertArrayEquals(new byte[] {9},
+                zip.get("assets/myitems/textures/entity/equipment/humanoid/myarmor_boots.png"));
     }
 }

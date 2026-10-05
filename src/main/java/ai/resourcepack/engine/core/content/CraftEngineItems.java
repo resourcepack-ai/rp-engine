@@ -587,11 +587,11 @@ final class CraftEngineItems {
             out.put("armor", slot);
             out.put("armor-texture", location.substring(0, location.indexOf(':')) + ":" + path.substring(prefix.length()));
         } else if (type.equals("trim")) {
-            diagnostics.add(Diagnostic.warning(equipment.origin, equipment.id,
-                    "draws " + layer + " from " + location + ", outside textures/entity/equipment/" + layer
-                            + "/, which is the only place worn armour art can come from here. Move the PNG there and "
-                            + "it is worn; until then " + entry.id + " is worn as its material is."));
-            return;
+            // A trim layer names a whole texture path rather than an
+            // equipment name, so the build serves that PNG at the item's own
+            // equipment path.
+            out.put("armor", slot);
+            out.put("armor-art", location);
         } else {
             out.put("armor", slot);
             out.put("armor-texture", location);
