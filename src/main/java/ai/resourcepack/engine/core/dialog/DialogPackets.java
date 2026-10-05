@@ -53,6 +53,54 @@ public final class DialogPackets {
         return b.direct.invoke(null, b.result.invoke(result));
     }
 
+    private record ItemBridge(Method asNmsCopy, Object codec, Method encodeStart, Method result, Object ops) {}
+
+    private static ItemBridge itemBridge;
+    private static boolean itemProbed;
+
+    private static synchronized ItemBridge itemBridge() {
+        if (itemProbed) return itemBridge;
+        itemProbed = true;
+        try {
+            String craft = Bukkit.getServer().getClass().getPackageName();
+            Class<?> dynamicOps = Class.forName("com.mojang.serialization.DynamicOps");
+            Class<?> provider = Class.forName("net.minecraft.core.HolderLookup$Provider");
+            Object registries = Class.forName(craft + ".CraftRegistry").getMethod("getMinecraftRegistry").invoke(null);
+            Object jsonOps = Class.forName("com.mojang.serialization.JsonOps").getField("INSTANCE").get(null);
+            Object ops = Class.forName("net.minecraft.resources.RegistryOps")
+                    .getMethod("create", dynamicOps, provider).invoke(null, jsonOps, registries);
+            Object codec = Class.forName("net.minecraft.world.item.ItemStack").getField("CODEC").get(null);
+            itemBridge = new ItemBridge(
+                    Class.forName(craft + ".inventory.CraftItemStack").getMethod("asNMSCopy", org.bukkit.inventory.ItemStack.class),
+                    codec,
+                    Class.forName("com.mojang.serialization.Encoder").getMethod("encodeStart", dynamicOps, Object.class),
+                    Class.forName("com.mojang.serialization.DataResult").getMethod("getOrThrow"),
+                    ops);
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+            Bukkit.getLogger().fine("[RPEngine] Item tooltips in dialogs fall back to name and lore ("
+                    + e.getClass().getSimpleName() + ").");
+        }
+        return itemBridge;
+    }
+
+    /**
+     * An item stack as the game writes one — {@code id}, {@code count} and every
+     * {@code components} entry — or null where the server's codec cannot be
+     * reached. What a dialog's item tooltip is made of: the same JSON
+     * {@code show_item} carries, so the tooltip is the inventory's own.
+     */
+    public static com.google.gson.JsonObject itemJson(org.bukkit.inventory.ItemStack stack) {
+        ItemBridge b = stack == null ? null : itemBridge();
+        if (b == null) return null;
+        try {
+            Object nms = b.asNmsCopy.invoke(null, stack);
+            Object encoded = b.result.invoke(b.encodeStart.invoke(b.codec, b.ops, nms));
+            return encoded instanceof com.google.gson.JsonObject json ? json : null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
+
     public static boolean show(Player viewer, String json) {
         Bridge b = bridge();
         if (b == null) return false;
