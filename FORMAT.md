@@ -1715,11 +1715,24 @@ section names, and `template` / `arguments` / `overrides` / `merges` with
 | `recipes.<id>` shaped, shapeless, smelting, blasting, smoking, campfire_cooking, stonecutting | a recipe |
 | `recipes.<id>` smithing_transform (`template_type`, `base`, `addition`, `merge_components`) · smithing_trim (`pattern`) · brewing (`container`, `ingredient`, `result`) | `smithing` (`copy-data`) · `smithing_trim` · `brewing` |
 | `recipes.<id>` shaped_transform · shapeless_transform | `shaped` · `shapeless`, the result made fresh rather than inheriting the source's data, with a warning |
+| `events` on an item, block or furniture, in either of CraftEngine's shapes | `actions` (below) |
 | `sounds.<id>` | a sound |
 | `enable: false` (pack or entry) | skipped, as theirs is |
 
+**Events become actions.** On an item, `right_click` (and `use`, `use_on`,
+`use_item_on`), `left_click`, `attack`, `consume`, `block_break`, `break`,
+`pick_up`, `shoot` and, on one that places something, `place` keep their
+meaning; on a block or furniture, `right_click` is its `interact`, `break` its
+`remove` and `place` its `place`. The functions `command` (`as_player` is
+`run`, otherwise `console`; `<arg:player.name>` is `{player}`), `message`
+(`overlay` is the action bar), `actionbar`, `play_sound`, `potion_effect`,
+`cancel_event`, `set_count` taking from the stack, and a `run` with no delay
+come across. A `permission` condition is a `permission` step; any other
+condition is a branch, which actions do not have, so what it guards is skipped.
+
 What does not come across is named in a warning with the id: anything that
-changes a vanilla item or block, behaviours and events, block states beyond the
+changes a vanilla item or block, behaviours, events and functions with no
+trigger or step here, block states beyond the
 first, item model definitions that switch between models (the default one is
 worn), extra furniture elements, hitboxes and seats, dye recipes, smithing recipes
 missing their template or addition, recipes with a tag or a choice of

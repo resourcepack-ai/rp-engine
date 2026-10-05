@@ -957,6 +957,8 @@ class CraftEnginePackTest {
                     material: paper
                     events:
                       - on: right_click
+                        type: particle
+                        particle: minecraft:heart
                     behavior:
                       type: compostable_item
                 """);
@@ -968,7 +970,7 @@ class CraftEnginePackTest {
         String bow = item(report, "gems:bow").model().orElseThrow();
         assertTrue(bow.contains("minecraft:item/bow"), bow);
         assertTrue(warned(report, "gems:bow", "only the first"));
-        assertTrue(warned(report, "gems:events", "events"));
+        assertTrue(warned(report, "gems:events", "particle"));
         assertTrue(warned(report, "gems:events", "compostable_item"));
     }
 
@@ -1223,5 +1225,106 @@ class CraftEnginePackTest {
             }
         }
         return entries;
+    }
+
+    // ---- events -------------------------------------------------------------
+
+    private static java.util.List<String> steps(java.util.List<ai.resourcepack.engine.api.ItemAction> actions) {
+        return actions == null ? java.util.List.of() : actions.stream().map(Object::toString).toList();
+    }
+
+    @Test
+    void eventsOnItemsBlocksAndFurnitureBecomeActions() throws IOException {
+        write("gems/pack.yml", "namespace: gems\n");
+        write("gems/configuration/things.yml", """
+                items:
+                  gems:wand:
+                    material: stick
+                    events:
+                      - on: right_click
+                        conditions:
+                          - type: permission
+                            permission: gems.wand
+                        functions:
+                          - type: command
+                            command: "effect give <arg:player.name> speed 5"
+                          - type: play_sound
+                            sound: minecraft:entity.player.levelup
+                            volume: 0.5
+                          - type: particle
+                            particle: minecraft:heart
+                      - on: consume
+                        type: potion_effect
+                        potion_effect: minecraft:regeneration
+                        duration: 100
+                        amplifier: 1
+                      - on: step
+                        type: message
+                        message: "stepped"
+                  gems:bell:
+                    material: paper
+                    model: minecraft:item/custom/bell
+                    behavior:
+                      type: furniture_item
+                      furniture:
+                        variants:
+                          ground:
+                            elements:
+                              - item: gems:bell
+                        events:
+                          right_click:
+                            - type: command
+                              command: "say <arg:player.name> rang"
+                              as_player: true
+                            - type: message
+                              message: "<gold>Ding"
+                              overlay: true
+                          break:
+                            - type: run
+                              delay: 20
+                              functions:
+                                - type: message
+                                  message: later
+                blocks:
+                  gems:button:
+                    state:
+                      auto_state: note_block
+                      model:
+                        path: minecraft:block/custom/button
+                    events:
+                      - on: right_click
+                        functions:
+                          - type: message
+                            message: "<red>pressed"
+                          - type: cancel_event
+                        conditions:
+                          - type: is_sneaking
+                      - on: break
+                        functions:
+                          - type: command
+                            command: "say broken"
+                """);
+
+        LoadReport report = load();
+        ItemInfo wand = item(report, "gems:wand");
+        assertEquals(java.util.List.of("permission: gems.wand", "console: effect give {player} speed 5",
+                        "sound: minecraft:entity.player.levelup 0.5"),
+                steps(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK)));
+        assertEquals(java.util.List.of("effect: REGENERATION 5 2"),
+                steps(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.CONSUME)));
+        assertTrue(warned(report, "gems:wand", "particle"));
+        assertTrue(warned(report, "gems:wand", "step"));
+
+        ItemInfo bell = item(report, "gems:bell");
+        assertEquals(java.util.List.of("run: say {player} rang", "actionbar: &6Ding"),
+                steps(bell.actions(ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)));
+        assertTrue(warned(report, "gems:bell", "delay"));
+
+        var button = ai.resourcepack.engine.core.block.BlockDefinitions.parse(report).blocks().get(id("gems:button"));
+        assertTrue(steps(button.actions().get(ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)).isEmpty(),
+                "a condition that is not a permission is a branch");
+        assertEquals(java.util.List.of("console: say broken"),
+                steps(button.actions().get(ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE)));
+        assertTrue(warned(report, "gems:button", "is_sneaking"));
     }
 }
