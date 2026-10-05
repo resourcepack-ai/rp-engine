@@ -490,6 +490,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 // What plugins publish for a player. The overlays' own store:
                 // one set of values per player, printed by a HUD and a dialog.
                 overlayRuntime);
+        // The keys a backpack's and a player's dialog storage are kept under.
+        dialogs.attach(this);
+        // An item's `dialog:` action opens one, and its slots can show the item.
+        actionRunner.dialogs(dialogs);
         // The rig carrier, so anything whose model animates wears the rig
         // rather than one still display: a vehicle, and an emote carrying a
         // model only part of which moves. ONE of them, built here rather than

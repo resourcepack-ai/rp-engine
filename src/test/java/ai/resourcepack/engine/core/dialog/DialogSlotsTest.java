@@ -28,10 +28,24 @@ class DialogSlotsTest {
     }
 
     @Test
-    void onlyTheContainersAPlayerHasAreFilled() {
-        assertTrue(DialogSlots.known("inv"));
-        assertTrue(DialogSlots.known("ender"));
-        assertTrue(!DialogSlots.known("somebodys"));
+    void knowsTheContainersItFills() {
+        for (String name : new String[] {"inv", "ender", "item", "player.vault", "player.bag_2", "api.bank", "api.shop-1"}) {
+            assertTrue(DialogSlots.known(name), name);
+        }
+        for (String name : new String[] {"somebodys", "player.", "api.", "player.Vault", "player.a.b", "api." + "x".repeat(25), "items", null}) {
+            assertTrue(!DialogSlots.known(name), String.valueOf(name));
+        }
+        assertEquals(Optional.of(new DialogSlots.Key("player.vault", 40)), DialogSlots.Key.parse("player.vault/40"));
+        assertEquals(Optional.of(new DialogSlots.Key("item", 3)), DialogSlots.Key.parse("item/3"));
+    }
+
+    @Test
+    void aPluginsContainerNeedsAName() {
+        DialogSlots slots = new DialogSlots(null);
+        assertTrue(slots.register("bank", viewer -> null));
+        assertTrue(!slots.register("Bank", viewer -> null));
+        assertTrue(!slots.register("", viewer -> null));
+        assertTrue(slots.register("bank", null));
     }
 
     @Test

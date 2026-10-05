@@ -8,7 +8,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import org.bukkit.Material;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -112,23 +111,20 @@ public final class DialogItems {
     }
 
     /**
-     * The JSON with this player's items in its slots and every item tooltip
-     * this server would refuse taken out.
+     * The JSON with this player's items in its slots — read through
+     * {@code reader}, which opens each of their containers once — the slot they
+     * have picked a stack up from drawn lit, and every item tooltip this server
+     * would refuse taken out.
      */
-    public static String fill(String json, Player viewer) {
-        return fill(json, viewer, null);
-    }
-
-    /** {@link #fill(String, Player)}, with the slot they have picked a stack up from drawn lit. */
-    public static String fill(String json, Player viewer, DialogSlots.Key held) {
-        if (!any(json) || viewer == null) {
+    public static String fill(String json, Function<DialogSlots.Key, ItemStack> reader, DialogSlots.Key held) {
+        if (!any(json) || reader == null) {
             return json;
         }
-        return fill(json, key -> shown(viewer, key, key.equals(held)), DialogItems::known);
+        return fill(json, key -> shown(reader, key, key.equals(held)), DialogItems::known);
     }
 
     /**
-     * {@link #fill(String, Player)}, told what each slot holds and which item
+     * {@link #fill(String, Function, DialogSlots.Key)}, told what each slot holds and which item
      * ids exist rather than asking a server. Returns the input itself when
      * there is nothing to change, or when the JSON cannot be read — a dialog
      * this cannot parse is passed on as it came, for the game to judge.
@@ -258,10 +254,10 @@ public final class DialogItems {
     }
 
     /** What the player keeps in a slot, or null for nothing. */
-    private static Shown shown(Player viewer, DialogSlots.Key slot, boolean held) {
+    private static Shown shown(Function<DialogSlots.Key, ItemStack> reader, DialogSlots.Key slot, boolean held) {
         ItemStack stack;
         try {
-            stack = DialogSlots.get(viewer, slot);
+            stack = reader.apply(slot);
         } catch (RuntimeException e) {
             return null;
         }

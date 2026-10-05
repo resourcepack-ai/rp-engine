@@ -205,4 +205,20 @@ public interface Dialogs {
     default boolean setSetting(Player viewer, String name, String value) {
         return false;
     }
+
+    /**
+     * Shows a container of your own in Studio dialogs: every grid of slots set
+     * to show the container "from a plugin" called {@code name} shows what
+     * {@code container} holds for whoever opens the dialog, and — where the grid
+     * lets items move — lets them move items in and out of it. See
+     * {@link DialogContainer}. Registering a name again replaces it; a null
+     * container takes it away.
+     *
+     * @param name lower-case letters, digits, {@code _} and {@code -}, up to 24 —
+     *             what the author types in Studio
+     * @return false when the name is not one a container can have
+     */
+    default boolean container(String name, DialogContainer container) {
+        return false;
+    }
 }

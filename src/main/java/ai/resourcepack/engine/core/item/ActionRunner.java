@@ -47,10 +47,17 @@ public final class ActionRunner {
 
     private final Items items;
     private final Sounds sounds;
+    /** What a {@code dialog} step opens with. Null until the dialogs exist, and on a test. */
+    private volatile ai.resourcepack.engine.core.dialog.DialogsImpl dialogs;
 
     public ActionRunner(Items items, Sounds sounds) {
         this.items = items;
         this.sounds = sounds;
+    }
+
+    /** Gives {@code dialog} steps the dialogs to open. */
+    public void dialogs(ai.resourcepack.engine.core.dialog.DialogsImpl dialogs) {
+        this.dialogs = dialogs;
     }
 
     /**
@@ -144,8 +151,45 @@ public final class ActionRunner {
             case PARTICLE:
                 particle(player, step, at);
                 break;
+            case DIALOG:
+                dialog(player, step, stack);
+                break;
             default:
                 break;
+        }
+    }
+
+    /**
+     * Opens a dialog for the user: {@code dialog: <id> [name=value ...]}. When
+     * its slots show the item's own contents the item is a backpack, and the
+     * stack used is the one they show — see
+     * {@link ai.resourcepack.engine.core.dialog.DialogSlots#openFrom}.
+     */
+    private void dialog(Player player, ItemAction step, ItemStack stack) {
+        ai.resourcepack.engine.core.dialog.DialogsImpl open = dialogs;
+        String[] words = step.words();
+        Optional<ContentId> id = words.length == 0 ? Optional.empty() : ContentId.parse(words[0]);
+        if (open == null || id.isEmpty()) {
+            return;
+        }
+        if (!open.canShow(player, id.get())) {
+            player.sendMessage(ChatColor.GRAY + (open.supported()
+                    ? "That dialog is not one you can open here."
+                    : "Dialogs need Minecraft 1.21.6 or newer."));
+            return;
+        }
+        Map<String, String> values = new java.util.LinkedHashMap<>();
+        for (int i = 1; i < words.length; i++) {
+            int eq = words[i].indexOf('=');
+            if (eq > 0) {
+                values.put(words[i].substring(0, eq), text(player, words[i].substring(eq + 1)));
+            }
+        }
+        switch (open.showFrom(player, id.get(), values, stack)) {
+            case STACKED -> player.sendMessage(ChatColor.GRAY + "Hold just one to open it.");
+            case NOT_HELD -> player.sendMessage(ChatColor.GRAY + "Hold it in your hand to open it.");
+            default -> {
+            }
         }
     }
 
