@@ -174,6 +174,10 @@ final class NexoOraxen {
                 if (NexoOraxenActions.ITEM_MECHANICS.contains(mechanic)) {
                     continue;
                 }
+                if (mechanic.equals("toggle_light") && mechanics.node("furniture").isPresent()) {
+                    // The furniture's switched light; see NexoOraxenFurniture.
+                    continue;
+                }
                 // Oraxen's custom durability predates the vanilla component
                 // and means the same number of uses.
                 if (mechanic.equals("durability") && body.integer("value").isPresent()) {
@@ -665,12 +669,6 @@ final class NexoOraxen {
                 .orElse("STRICT").trim().toUpperCase(Locale.ROOT);
         place.put("facing", restricted.equals("VERY_STRICT") ? "cardinal"
                 : restricted.equals("NONE") ? "free" : "diagonal");
-        if (furniture.bool("rotatable").orElse(Boolean.FALSE)) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "rotatable: turning a placed piece by clicking it has no RP Engine equivalent. It is placed "
-                            + "facing the player, on the facings restricted_rotation allows."));
-        }
-
         surface(furniture, id, origin, diagnostics, place);
         scale(furniture, id, origin, diagnostics, place);
 
@@ -678,9 +676,11 @@ final class NexoOraxen {
                         .or(() -> firstLoot(drop)))
                 .ifPresent(drop -> place.put("drop", qualified(drop, namespace)));
 
+        NexoOraxenFurniture.behaviours(item, furniture, id, namespace, origin, diagnostics, place);
+
         List<String> skipped = new ArrayList<>();
         for (String key : furniture.keys()) {
-            if (FURNITURE_KEYS.contains(key)) continue;
+            if (FURNITURE_KEYS.contains(key) || NexoOraxenFurniture.KEYS.contains(key)) continue;
             if (BEHAVIOUR_REASONS.containsKey(key)) {
                 diagnostics.add(Diagnostic.warning(origin, id,
                         "furniture " + key + " was skipped: " + BEHAVIOUR_REASONS.get(key) + "."));
@@ -702,19 +702,17 @@ final class NexoOraxen {
      * whether to move.
      */
     private static final Map<String, String> BEHAVIOUR_REASONS = Map.of(
-            "storage", "a container that keeps what is put in it is a store of somebody's items, which RP Engine "
-                    + "does not keep for a placed piece or a block",
-            "jukebox", "playing music discs is a whole game rather than a property of a piece; ItemUseEvent and "
-                    + "ModelInteractEvent are what to build one on",
-            "door", "opening and closing swaps the piece between two states, and an RP Engine piece has one",
-            "beds", "sleeping in a placed piece is not something RP Engine pieces do",
-            "bed", "sleeping in a placed piece is not something RP Engine pieces do",
-            "evolution", "a piece that grows over time would be a piece with state, and an RP Engine piece has "
-                    + "none",
-            "connectable", "pieces that change shape to join their neighbours have more than one state, and an "
-                    + "RP Engine piece has one",
-            "farmland", "a piece that grows over time would be a piece with state, and an RP Engine piece has "
-                    + "none");
+            "beds", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
+            "bed", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
+            "connectable", "a piece that changes shape to join the pieces beside it has no equivalent here",
+            "farmland_required", "a piece here goes on any floor it may",
+            "farmblock_required", "a piece here goes on any floor it may",
+            "farmland", "a piece here goes on any floor it may",
+            "text_entity", "text floating over a piece is not something RP Engine pieces carry",
+            "text_entities", "text floating over a piece is not something RP Engine pieces carry",
+            "modelengine_id", "a ModelEngine model is ModelEngine's to draw; import its .bbmodel and give the "
+                    + "item that model instead",
+            "blocklocker", "BlockLocker protection is that plugin's own business");
 
     /** Furniture keys that are translated, or that only say how their plugin renders it. */
     private static final List<String> FURNITURE_KEYS = List.of(
@@ -820,10 +818,6 @@ final class NexoOraxen {
         if (nexo.isPresent()) {
             lights.addAll(nexo.get().strings("light"));
             lights.addAll(nexo.get().strings("lights"));
-            if (nexo.get().bool("toggleable").orElse(Boolean.FALSE)) {
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        "a light switched by clicking has no RP Engine equivalent; it is always on."));
-            }
         } else {
             lights.addAll(furniture.strings("lights"));
         }
