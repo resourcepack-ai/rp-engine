@@ -445,7 +445,7 @@ class NexoOraxenPackTest {
         assertEquals(ModelInfo.Surface.FLOOR, bench.surface());
         assertEquals(1.5f, bench.scale());
         assertTrue(warned(report, "bench", "translation"));
-        assertTrue(warned(report, "bench", "jukebox"));
+        assertTrue(placed(report, "pack:bench").jukebox().isPresent(), "a jukebox comes across");
         assertTrue(warned(report, "bench", "both solid and a light"));
     }
 
@@ -510,7 +510,7 @@ class NexoOraxenPackTest {
         assertEquals(2f, chair.scale());
         assertEquals("pack:chair", chair.drop().orElseThrow().toString());
         assertTrue(warned(report, "chair", "2 seats"));
-        assertTrue(warned(report, "chair", "rotatable"));
+        assertEquals(7, placed(report, "pack:chair").states().size(), "rotatable turns it by clicks, an eighth at a time");
         assertTrue(warned(report, "chair", "armour-stand offset"));
 
         ModelInfo coach = placed(report, "pack:coach");
@@ -524,6 +524,86 @@ class NexoOraxenPackTest {
         ModelInfo lamp = placed(report, "pack:lamp");
         assertEquals((float) (0.5 - 1 + NexoOraxen.ORAXEN_SEAT_LIFT), lamp.seat(), 0.001f);
         assertEquals(14, lamp.light());
+    }
+
+    @Test
+    void nexoDoorsStatesLightSwitchesAndEvolutionBecomeStatesAndGrowth() throws IOException {
+        write("pack/furniture.yml", """
+                large_door:
+                  material: PAPER
+                  Pack: { model: pack:furniture/door }
+                  Mechanics:
+                    furniture:
+                      hitbox: { barriers: ["0,0,0"] }
+                      properties: { translation: "0,1,0" }
+                      door:
+                        open_sound: block.wooden_door.open
+                        close_sound: block.wooden_door.close
+                        toggle_hitbox_on_open: true
+                        automatic_close_delay: 3s
+                        open_properties: { translation: "-0.85,1,0" }
+                tv:
+                  material: PAPER
+                  Pack: { model: pack:furniture/tv }
+                  Mechanics:
+                    furniture:
+                      states:
+                        channel_one: { type: ITEM_MODEL, item_model: pack:furniture/tv_one }
+                        channel_two: { type: CUSTOM_MODEL_DATA, value: 2 }
+                lamp:
+                  material: PAPER
+                  Pack: { model: pack:furniture/lamp }
+                  Mechanics:
+                    furniture:
+                      lights:
+                        toggleable: true
+                        toggled_item_model: pack:furniture/lamp_on
+                        light: 0,0,0 14
+                crate:
+                  material: PAPER
+                  Pack: { model: pack:furniture/crate }
+                  Mechanics:
+                    furniture:
+                      storage: { type: PERSONAL, rows: 4, title: Locker }
+                rose_stage1:
+                  material: PAPER
+                  Pack: { model: pack:plants/rose_1 }
+                  Mechanics:
+                    furniture:
+                      evolution: { delay: 10s, probability: 0.5, light_boost: true, next_stage: rose_stage2 }
+                rose_stage2:
+                  material: PAPER
+                  Pack: { model: pack:plants/rose_2 }
+                  Mechanics:
+                    furniture: {}
+                """);
+
+        LoadReport report = load();
+        ModelInfo door = placed(report, "pack:large_door");
+        ModelInfo.State open = door.states().get(0);
+        assertEquals(90f, open.turn());
+        assertEquals(-0.85f, open.offsetX(), 0.001f);
+        assertEquals(0f, open.offsetY(), 0.001f);
+        assertFalse(open.solid().orElseThrow(), "the barrier goes when it opens");
+        assertEquals(60, door.stateResetTicks());
+        assertEquals("block.wooden_door.close", door.baseSound().orElseThrow());
+
+        ModelInfo tv = placed(report, "pack:tv");
+        assertEquals(2, tv.states().size());
+        assertEquals("pack:furniture/tv_one", tv.states().get(0).model().orElseThrow().toString());
+        assertTrue(warned(report, "tv", "CUSTOM_MODEL_DATA"));
+
+        ModelInfo lamp = placed(report, "pack:lamp");
+        assertEquals(0, lamp.light(), "a switched lamp is placed dark");
+        assertEquals(14, lamp.states().get(0).light().orElseThrow());
+
+        assertEquals(ai.resourcepack.engine.api.StorageSpec.Type.PERSONAL,
+                placed(report, "pack:crate").storage().orElseThrow().type());
+
+        ModelInfo.Grow grow = placed(report, "pack:rose_stage1").grow().orElseThrow();
+        assertEquals("pack:rose_stage2", grow.into().toString());
+        assertEquals(200, grow.afterTicks());
+        assertEquals(0.5, grow.chance(), 0.0001);
     }
 
     // ---- custom blocks ------------------------------------------------------
@@ -1334,8 +1414,9 @@ class NexoOraxenPackTest {
                         "sound: minecraft:block.bell.use 0.5 1.2", "message: &6Ding!"),
                 steps(bell, ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT));
         assertTrue(warned(report, "bell", "player.world.name"));
-        assertTrue(warned(report, "bell", "furniture storage was skipped"));
-        assertTrue(warned(report, "bell", "furniture jukebox was skipped"));
+        assertFalse(warned(report, "bell", "furniture storage was skipped"));
+        assertTrue(placed(report, "nexo_pack:bell").storage().isPresent());
+        assertTrue(placed(report, "nexo_pack:bell").jukebox().isPresent());
     }
 
     @Test
