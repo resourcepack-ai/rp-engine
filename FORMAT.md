@@ -145,16 +145,7 @@ needs its own `-`; two keys in one entry is a missing dash, and that is a load
 error rather than a step that quietly never runs.
 
 Triggers: `right_click`, `left_click`, `attack`, `drop`, `consume`,
-`block_break`, `shoot`, `break` (durability ran out), `pickup`, and three about
-the thing standing in the world rather than the stack in a hand: `place` (put
-down), `interact` (right-clicked where it stands) and `remove` (punched out or
-mined by a player). Those three fire for an item with a [`place:`](#placing-a-model)
-block and for a [custom block](#custom-blocks), whose definition takes the same
-`actions:`; on any other item they are a load warning, because they never can.
-On `interact`, `cancel` stops the click's own effect (the seat, or a block
-placed against it); `place` and `remove` run once it is down or gone and cannot
-be cancelled; and `take` does nothing in any of them, because the click is on
-the piece, not on whatever the player holds.
+`block_break`, `shoot`, `break` (durability ran out), `pickup`.
 
 `break` fires after the item is already gone and cannot be cancelled — that is
 vanilla's shape, not ours. It is still worth having for the sound and the
@@ -173,7 +164,6 @@ Neither is worth it for a trigger.
 | `run` | Runs a command as the user, with the user's own permissions. |
 | `sound` | `mypack:chime`, or a vanilla key like `minecraft:block.anvil.land`. Optional volume and pitch. |
 | `effect` | `SPEED 10 2` — type, seconds, level. Level is 1-based, as it reads. |
-| `particle` | `flame 12 0.3` — type, count, spread. At the block or piece the action is about, or at the user for a held item. A type that needs a colour or a block draws nothing. |
 | `give` | `mypack:ruby 3`. What will not fit drops on the floor. |
 | `take` | Takes this many off the stack. |
 | `cancel` | Cancels the vanilla use, so a wand built on a bucket does not fill with water. |
@@ -210,12 +200,8 @@ sword:
     - attack_speed: -2.4
     - max_health: { amount: 4, operation: add, slot: hand }
   food: { nutrition: 6, saturation: 7.2, always: false }
-  flags: [HIDE_ENCHANTS, HIDE_ATTRIBUTES]   # lines of the tooltip to hide
 ```
 
-- `flags` are Bukkit's item flag names, in either case. `HIDE_POTION_EFFECTS`
-  and `HIDE_ADDITIONAL_TOOLTIP` (its name from 1.20.5) are each read as the
-  other, and a flag the server does not have is a console line, not an error.
 - Names are **vanilla's, unprefixed** — `sharpness`, `attack_damage` — because
   that is what is written on the wiki you are reading them off.
 - An attribute is `name: amount` for the usual case, or a block with an
@@ -249,29 +235,6 @@ packs use one name.
 
 Off by default. A name that is not an icon is left exactly as typed, so
 `10:30`, `:)` and a URL all survive.
-
-An icon can list more ways to type it, and can be kept for some players:
-
-```yaml
-# fonts/icons.yml
-heart:
-  file: heart
-  aliases: ["<3", ":love:"]       # also typed as these
-  permission: mypack.icon.heart   # who may type it, by an alias or by :heart:
-```
-
-**An alias is matched as a word on its own** — a space or the end of the line on
-both sides — so `<3` becomes the heart in `I <3 you` and not in `<33`, `a<3`,
-`<3!` or the end of a link. It is matched exactly as written, punctuation and
-all, and cannot contain a space. When two icons list the same alias, the first
-by id keeps it and the load says so.
-
-`permission` is on top of `rpengine.chat.icons`, not instead of it. Without
-one, anybody who may use chat icons may use that icon. Somebody without it sees
-what they typed go out as typed.
-
-An animated icon is its **first frame** in chat — a chat line is drawn once, so
-nothing ever sends it the next one. See [Animated icons](#animated-icons).
 
 Two more flags, both of them things vanilla nearly does already:
 
@@ -514,249 +477,6 @@ because the way this feature usually rots is a world full of invisible stands
 somebody can stand on.
 
 One player per model, and a model with a seat keeps its hitbox.
-
-### Storing things in one
-
-A cabinet, a wardrobe, a bin, a crate:
-
-```yaml
-cabinet:
-  material: PAPER
-  model: cabinet
-  name: "&6Oak Cabinet"
-  place:
-    storage:
-      type: chest        # chest | personal | enderchest | disposal | shulker
-      rows: 3            # 1-6
-      title: "Cabinet"   # & colour codes. Default: the item's name, else "Storage"
-      open-sound: minecraft:block.chest.open
-      close-sound: minecraft:block.chest.close
-```
-
-`storage: true` is a three-row chest, and `storage: personal` is that type with
-everything else left alone. Right-click to open it.
-
-| Type | Whose contents | When it is broken |
-|---|---|---|
-| `chest` | The piece's. Everybody who opens it sees the same inventory, live | Spills on the ground |
-| `personal` | Each player's own, shared by every piece of that kind — every wardrobe opens the same wardrobe for the same person, and nobody else ever sees in | Nothing to spill: it was never the piece's |
-| `enderchest` | The player's own vanilla ender chest | Nothing |
-| `disposal` | Nobody's. **What goes in is deleted when it closes** | Nothing |
-| `shulker` | The piece's, like a chest | Gives back the item **with the contents inside it**. Put it down again and they are back |
-
-**Two players in one chest see each other's moves**, because there is only
-ever one inventory for it while anybody has it open. That is the guard against
-the duplication bug every chest plugin has had once, and it is why opening a
-storage piece is never two copies racing to be saved.
-
-**Breaking one with somebody looking in closes their screen first**, and only
-then spills what was inside — and a break another plugin cancels spills
-nothing. A creative-mode break, which does not give the piece back, still spills
-the contents, as breaking a chest does.
-
-A shulker-style piece always gives back itself, so it ignores `drop:`. Empty,
-it is the same item as a new one and stacks with them.
-
-`personal` is keyed by the item's id. Rename `mypack:wardrobe` and everybody's
-wardrobe is a new, empty one; the old contents are still on the player, under
-the old id, if you change it back.
-
-`rows:` can be changed after people have filled things. A cabinet made
-smaller opens big enough for what is already in it, and shrinks once the
-extra rows are emptied, rather than deleting them.
-
-A piece that is a seat and a container opens on a plain click and **sits on a
-sneaking one**. The pack's own `interact` actions run before either, and a
-`cancel` in them stops it opening.
-
-The contents are kept on the piece itself, in the world, so they survive a
-restart, move with a copied region and go back with a rolled-back one. There is
-no file of them anywhere.
-
-### A jukebox
-
-A gramophone, a radio, a boombox:
-
-```yaml
-gramophone:
-  material: PAPER
-  model: gramophone
-  place:
-    jukebox:
-      volume: 1.0                       # 1 is a vanilla jukebox, heard ~64 blocks away
-      pitch: 1.0                        # 0.5-2
-      permission: mypack.jukebox.use    # leave out and anybody may
-      playing-model: mypack:gramophone_on   # what it looks like while a disc is in it
-```
-
-`jukebox: true` is one with every default. Right-click it holding a music disc
-to put the disc in — it leaves your hand, unless you are in creative — and the
-record plays at the piece. Right-click again and the disc pops out of the top
-and the music stops for everybody who could hear it. Breaking the piece does the
-same: **a disc is never broken with its jukebox.**
-
-Every vanilla disc works on every version. From Minecraft 1.21, so does any item
-a datapack made playable — but Bukkit does not say which sound a datapack's song
-plays, so such a disc goes in and plays nothing unless this server has a
-[sound](#sounds) with **the song's own id**, in which case it plays that. The
-console says so once per song.
-
-`playing-model` is an item id whose model the piece wears while a disc is in it
-(or a model id with no item of its own), and it goes back to its own model when
-the disc comes out. It does nothing on an [animated](#animating-one) piece,
-whose look is its moving parts; the load says so.
-
-A click with no disc in it and none in hand is not a jukebox click, so a
-gramophone that is also a seat is still sat on. Sneaking on one that is a seat
-always sits.
-
-The record is sent once, when it goes in, as vanilla's is: somebody who walks up
-halfway through hears nothing until the next disc, and a restart does not resume
-it. The disc is still in the piece either way.
-
-### States: lamps, doors and screens
-
-A click can change a piece. Each entry under `states:` is one more look a click
-cycles into, after the piece as you defined it — so one entry is a switch, and
-three are a television with three channels:
-
-```yaml
-lamp:
-  material: PAPER
-  model: lamp
-  place:
-    light: 0                    # dark as placed
-    states:
-      - model: mypack:lamp_on   # an item id whose model to wear. Leave out to keep it
-        light: 15               # light in this state. Leave out for the piece's own
-        sound: minecraft:block.lever.click   # played on arriving in this state
-
-door:
-  material: PAPER
-  model: door
-  place:
-    solid: true
-    base-sound: minecraft:block.wooden_door.close   # played on going back to the start
-    reset-after: 5s             # shuts itself 5 seconds after the last click
-    states:
-      - turn: 90                # degrees added to the way it faces
-        offset: [-0.4, 0, 0.4]  # blocks it moves: right, up, forward
-        solid: false
-        sound: minecraft:block.wooden_door.open
-```
-
-Right-click goes to the next state, and after the last one back to the start.
-**Anything a state leaves out is the piece as defined** — a state that only says
-`light: 15` keeps its model, its collision and its angle.
-
-| Key | In a state |
-|---|---|
-| `model` | An item whose model it wears (or a model id with no item of its own) |
-| `light` | 0-15. `0` is dark |
-| `solid` | Whether a barrier stands in it, as the piece's own `solid:` |
-| `turn` | Degrees added to the way it faces. A hinged door |
-| `offset` | `[right, up, forward]` in blocks, the same directions as a [seat's](#sitting-on-one) `x`, `y` and `z`, so it moves along the piece however it was put down. A sliding door |
-| `sound` | Played on arriving in this state |
-
-Beside `states:`, `reset-after:` takes it back to the start that long after the
-last click — `10t` ticks, `10s` seconds, `2m` minutes, and a bare number is
-ticks — and `base-sound:` is what going back sounds like, by click or by timer.
-
-A piece **turns about its own centre and then moves**, so a door hinged at one
-edge is a quarter `turn` plus an `offset` that puts that edge back where it was.
-It swings over a quarter of a second rather than jumping. Its hitbox stays where
-it was put, and so does what a vehicle drives into.
-
-The state is kept on the piece, so a lamp left on is still on after a restart. A
-piece that resets itself and was left open when its chunk unloaded starts its
-countdown again when the chunk comes back.
-
-Light and collision follow the same rules as the piece's own: a solid state
-gives no light, because the barrier and the light would have to be the same
-block; and **only a block the piece put there is ever changed**, so if somebody
-has put a block of their own in the space a model stands in, the model leaves it
-alone and goes without being solid or lit in that state.
-
-On an [animated](#animating-one) piece `light`, `solid` and `sound` work, and
-`model`, `turn` and `offset` do not — its parts are posed by its animation, and
-the load says so. Give it a right-click animation as well and both happen on a
-click: the state changes and the animation plays.
-
-A piece with states takes a plain click; sneaking on one that is also a seat
-sits. A container takes every click before its states would, and a jukebox
-takes the ones that put a disc in or take one out.
-
-### Joining up: sofas and counters
-
-```yaml
-sofa:
-  material: PAPER
-  model: sofa
-  place:
-    connects: true      # or name any of them: { straight: ..., left: ..., right: ..., inner: ..., outer: ... }
-```
-
-Pieces of the same kind put side by side join like a sofa: `straight` with
-one either side, `left` at the end with one only on its right, `right` at the
-other end, `inner` and `outer` at a corner. Each is an item (or a model) to
-wear, and `connects: true` names them after the piece: `sofa_straight`,
-`sofa_left`, and so on. A joining piece faces one of four ways.
-
-Corners follow the game's own rule for stairs - a piece whose back touches one
-turned a quarter is an inner corner, its front an outer one - and the corner
-model is turned the way the game turns its own corner stairs, so one drawn like
-the game's inner and outer stair turns the right way. Putting a piece down or
-taking one away re-reads the row around it.
-
-### Growing
-
-A piece can turn into another piece over time — a sapling into a tree, a crop
-through its stages:
-
-```yaml
-rose:
-  material: PAPER
-  model: rose
-  place:
-    grow:
-      into: mypack:rose_stage2   # the item whose placed piece replaces this one
-      after: 10s                 # the least time it stands first. t, s, m; bare = ticks
-      chance: 0.5                # the chance per check once that has passed. Default 1
-      light: 9                   # the least light at its block. Leave out for any
-
-rose_stage2:
-  material: PAPER
-  model: rose2
-  place:
-    grow:
-      into: mypack:rose_stage3
-      after: 2m
-
-rose_stage3:
-  material: PAPER
-  model: rose3
-  place: {}                      # the last stage stays
-```
-
-Each piece is checked about once a second. Once it has stood for `after`, each
-check has `chance` of growing it, so `after: 10s` with `chance: 0.5` grows a
-couple of seconds after the ten, on average, and not all at once across a field.
-The new piece goes in the same block, facing the same way, and starts its own
-clock.
-
-`into` has to be an item with a `place:` block. If it is not, the load says so
-and the piece never grows — a piece that grew into nothing would just vanish.
-
-**Growing is not breaking and planting**: no break or place event, no `remove`
-or `place` actions, and nothing given back for the piece itself. What it was
-holding is different, because that was never the piece's to lose — a disc, a
-container's contents — and lands on the ground.
-
-A piece is only checked while its chunk is loaded. The time keeps counting while
-nobody is there, so one that has been left long enough grows at the first check
-after somebody comes back — one stage, because the next starts its own clock
-then. The time is the game's tick count, not the time of day, so `/time set` and
-a frozen daylight cycle do not stop anything growing.
 
 ## Armour
 
@@ -1741,7 +1461,7 @@ A block you can place, mine and stand on — an ore, a machine, a crate.
 ```yaml
 # blocks/ores.yml
 ruby_ore:
-  base: note_block     # note_block | mushroom_stem | tripwire (a plant)
+  base: note_block     # note_block | mushroom_stem
   model: ruby_ore      # assets/models/ruby_ore.bbmodel
   hardness: 3.0        # stone is 1.5
   tool: pickaxe        # what has to be held for the drop
@@ -1750,9 +1470,7 @@ ruby_ore:
 ```
 
 Give the item that places it a name with `name:` and `lore:`, written as on an
-item; without them it carries the base block's own name. `actions:` are written
-as on an item too, and are that item's: see [Making an item do
-something](#making-an-item-do-something) for `place`, `interact` and `remove`.
+item; without them it carries the base block's own name.
 
 **A block is an item too.** `/rp give mypack:ruby_ore` hands you the thing that
 places it; nothing declares that item, because a block you cannot obtain is not
@@ -1763,176 +1481,11 @@ ten-stage crack overlay, because hardness belongs to a block's TYPE in
 Minecraft and every custom block is a note block underneath. The wrong tool
 still breaks it and gives nothing, the way stone and a shovel do.
 
-**`light:` (0-15) makes it glow**, with a real light block the engine keeps in
-an empty space beside it - above it where it can - and takes away when the block
-goes. Light belongs to a block's type and a note block's gives none, so that is
-the honest way to do it; the glow is a level dimmer on the far side than a
-lamp's own. `shape: bulb` below is the other: a block that lights up when
-redstone switches it.
-
-**A custom block cannot change its sound.** That belongs to the block's type
-too. `sound:` plays something of yours *over* the base block's own.
-
-### Turning, and states
-
-A block can face the player, lie along an axis, or be in one of several states,
-each drawn its own way:
-
-```yaml
-kiln:
-  model: kiln
-  rotate: horizontal   # horizontal (a furnace) | all (a dispenser) | axis (a log)
-
-safe:
-  model: safe
-  properties:
-    facing: facing        # facing | facing-all | axis | boolean | a list of values
-    open: boolean
-  appearances:            # a state, or part of one, and the model it wears
-    "open=true": safe_open
-    "facing=east": { y: 90 }               # the block's own model, turned
-    "facing=east,open=true": { model: safe_open, y: 90 }
-  click: open             # a right-click turns this property to its next value
-```
-
-`rotate:` is the short form, and turns the one model the way the game turns a
-furnace, a dispenser or a log; the model should face north. The long form names
-`properties:` and draws `appearances:` - the most specific appearance that
-matches a state wins, and a state no appearance matches is the block's own
-model. `facing`, `facing-all` and `axis` are decided when it is placed (facing
-the player, or along the face it was put against); every other property starts
-at its first value and changes by `click:`, by growing, or by an action.
-
-**Every state is a state of the pool.** A block facing four ways is four of the
-49; one that also opens is eight. That is the whole price, and `/rp blocks`
-says what is left.
-
-A block written with one state and given a property later keeps its number for
-the state it was always in, so the ones already in a world are unchanged.
-
-`random:` picks one look each time it is placed, the way vanilla turns flowers:
-
-```yaml
-cobbles:
-  random:
-    - cobbles_a
-    - { model: cobbles_a, y: 90 }
-    - cobbles_b
-```
-
-### Plants
-
-`base: tripwire` (or `plant`) is cut string: no collision, broken at a touch,
-which is what a flower, a fern or a pebble wants.
-
-```yaml
-daisy:
-  base: plant
-  model: daisy           # a cross model, usually: parent minecraft:block/cross
-```
-
-**How many depends on Paper.** A tripwire's connections follow the string beside
-it in an update nothing can refuse, so on an ordinary server only two plants
-fit. Paper's `block-updates.disable-tripwire-updates: true` in
-`config/paper-global.yml` freezes them, and then thirty-two do - Nexo, Oraxen
-and ItemsAdder all ask for the same setting. The engine reads it at start
-(`blocks.tripwire-frozen` in the config overrides it). Only *disarmed* tripwire
-is used, which no ordinary string is ever left as, so tripwire traps keep their
-look.
-
-### Growing
-
-```yaml
-tomato:
-  base: plant
-  stages: [tomato_0, tomato_1, tomato_2]   # an age property, one model per stage
-  grow:
-    every: 2m            # about this long a stage (30s, 5m, 600t)
-    light: 9             # the least light it grows in
-    bone-meal: true      # bone meal moves it a stage
-```
-
-`grow:` steps a property (`age`, or the one named by `property:`) to its next
-value until the last. The engine keeps the list of blocks that can still grow in
-each chunk's own data, so nothing is lost on a restart, and only loaded chunks
-grow, as in vanilla.
-
-### Stairs, slabs, doors and other shapes
-
-A note block is a full cube to the game however it is painted. For anything
-else, a custom block **takes over a whole vanilla block type**, and the game
-itself does everything that kind of block does:
-
-```yaml
-ruby_stairs:
-  shape: stairs          # stairs | slab | door | trapdoor | grate | bulb
-  texture: block/ruby    # every face; or textures: { top, bottom, side }
-
-oak_gate:
-  shape: door
-  textures: { top: block/gate_top, bottom: block/gate_bottom }
-  item-texture: item/gate   # a door's item is a flat picture
-```
-
-The parts are made from your textures exactly as the game makes its own - a
-stair's straight run and both corners, a door's eight halves - so a stair joins
-its neighbours into corners, a slab stacks into a double slab, and a door opens
-by hand and by redstone. Name your own models for the parts with
-`models: { straight: ..., inner: ..., outer: ... }` instead.
-
-| Shape | What it is | Parts |
-|---|---|---|
-| `stairs` | A stair | `straight`, `inner`, `outer` |
-| `slab` | A slab, and two of them stacked | `bottom`, `top`, `double` |
-| `door` | A two-high door | `bottom_left`, `bottom_left_open`, `bottom_right`, ... `top_right_open` |
-| `trapdoor` | A trapdoor | `bottom`, `top`, `open` |
-| `grate` | A solid block you can see through: leaves, glass | `block` |
-| `bulb` | A block that lights up when redstone switches it | `off`, `on` |
-
-**What it costs is that kind of vanilla block.** The kinds taken are waxed copper,
-because it never changes on its own and is rarely built with - the same pool
-Oraxen's and CraftEngine's packs take - and slabs first take the petrified oak
-slab, which no survival player can get at all. So each shape holds **four** (five
-for slabs), handed out in the order weathered, exposed, oxidized, fresh. Doors,
-trapdoors, grates and bulbs exist from 1.21. A bulb's light is its age's: 15,
-12, 8 or 4.
-
-A builder's own waxed copper of a kind that was taken keeps working: placed, it
-goes down as the same copper without wax, which looks identical, marked waxed in
-the chunk so it never ages, and gives back the waxed item. Honeycomb and an axe
-wax and unwax it as usual, and waxed copper in a newly generated chunk (trial
-chambers) is turned into twins too. **Waxed copper already standing in a world
-from before the kind was taken takes the custom look**, because nothing can tell
-it apart from a custom block.
-
-`base: minecraft:spruce_stairs` takes a kind you name instead of being handed
-one - every spruce stair on the server becomes yours, so name one nobody uses.
-
-### What else a block does
-
-```yaml
-palm_log:
-  rotate: axis
-  strip: { into: stripped_palm_log, drop: bark }   # what an axe makes of it
-lamp_off:
-  click-into: lamp_on      # a right-click turns it into another block
-ash:
-  falls: true              # falls like sand
-vault_door:
-  blast-resistant: true    # explosions leave it standing
-crate:
-  storage: { type: chest, rows: 3, title: Crate }  # as a placed model's
-```
-
-`storage:` takes the same kinds a placed model does (see [Storing things in
-one](#storing-things-in-one)), kept in the chunk under the block's position;
-breaking it, or blowing it up, spills what is inside, and a `shulker` keeps it
-inside the item instead.
-
-An explosion gives back a custom block rather than the note block underneath,
-and a piston will not push a custom door or plant, which it would otherwise
-break into the vanilla item.
-
+**A custom block cannot give off light, and cannot change its sound.** Both
+belong to the block's type rather than its state. `sound:` plays something of
+yours *over* the base block's own, which is the honest half of it; for light,
+use a [placed model](#placing-a-model), which puts a real light block in its
+anchor.
 
 ### What a custom block really is
 
@@ -2060,55 +1613,18 @@ What comes across:
 | `equipments.<id>` · `armors_rendering.<id>` · `legacy_armor_renderings.<id>` | the layer art those name, from any file in the pack |
 | `behaviours.liquid_bucket` | `liquid` |
 | `behaviours.furniture` | `place:`, with its light, solidity and seat |
-| `behaviours.block` (or `specific_properties.block`) on an item | a custom block, with its name, lore, model (or the cube generated from its textures), hardness, tool and place sound |
-| `placed_model.type` `REAL_NOTE` · `REAL` · `REAL_WIRE` · `REAL_TRANSPARENT` | a note block · `base: mushroom_stem` · a plant (`base: tripwire`) · `shape: grate` |
-| `directional_mode` `LOG` · `FURNACE` · `DROPPER`/`ALL`, and `<id>_<face>` items | `rotate: axis` · `horizontal` · `all`, each face's item model as that direction's look |
-| `custom_variants` (with `weight`) · `no_explosion` | `random:` · `blast-resistant` |
-| `placed_block.interact.replace_block` (`to`) | `click-into`, so on/off pairs switch |
-| `loots.blocks.<name>`, in any file of the pack | the block's `drop`, when the table's first item is one of the pack's and certain |
-| `item_flags` | `flags` |
-| `events` | `actions` (below) |
 | `font_images.<id>` | an icon |
-| `sounds.<id>` (`path`, and `settings`' subtitle, volume, pitch and stream) | a sound, its subtitle key looked up in the pack's `minecraft_lang_overwrite` |
-| `resourcepack/assets/<namespace>/sounds.json` (before 4.0.12) | a sound per event, the audio left where it is |
-| `recipes.crafting_table` · `cooking` · `campfire_cooking` · `stonecutter` | `shaped`, the cookers (one per `machines` entry), `campfire`, `stonecutting` |
-| `recipes.smithing` | `smithing` |
-| `recipes.anvil_repair` (`item` mended with `ingredient`) | `anvil` with `repair: 25%`, which is how theirs repairs |
-| `recipes.brewing` (ItemsAdderAdditions'; `base`, `ingredient`, `result`) | `brewing`, with `minecraft:awkward_potion` read as `potion/awkward` |
 | `enabled: false` | skipped, as theirs is |
 
-A bare lowercase id in a recipe (`base: my_sword`) is the file's own, as theirs
-reads it; anything with a capital is a vanilla material.
-
-**Events become actions.** `interact.right` and `.left` are `right_click` and
-`left_click` (a bare `interact` is both), `attack`, `eat`/`drink` (`consume`),
-`drop`, `pickup`, `item_break` (`break`), `block_break` and `bow_shot`
-(`shoot`) keep their meaning, and `placed_block` and `placed_furniture` with
-`interact`, `break` and `place` are the block's or furniture's own `interact`,
-`remove` and `place`. Inside them, `play_sound`, `execute_commands`
-(`as_console` is `console`, otherwise `run`), `potion_effect`, `give_item`
-(a vanilla item is handed over with the game's own `give`),
-`decrement_amount` (`take`), `cancel`, and ItemsAdderAdditions' `message` and
-`actionbar` come across, and `play_particle` and `shoot_particle` are a
-`particle` step (a shot particle as a puff where it happens). A permission every
-action in an event shares becomes
-a `permission` step at its front.
-
-What does not, each of them a warning naming the id rather than a silence: their
-**entities** and **recipes** beyond what the tables above say, which are a
-different feature rather than a different spelling; a brewing recipe's
-`brew_time`, `fuel_cost` and `on_complete`; events with no trigger
-here (holding, wearing, fishing, a sneaking click, their guns and books);
-actions with no step (damage, dropping experience,
-anything with a `delay`, a permission only some actions ask for); loot by
-chance, mob and fishing loot; and an item's own `drop`. Of their armour, an
-animated layer (a strip of frames, which a worn layer cannot play) is not
-carried, `use_color` tints and emissive layers are dropped, and colour-only
-armour, which has no art, is worn as plain leather. Of their sounds, one that
-picks between several files keeps the first, and `weight`,
-`attenuation_distance`, `preload` and `jukebox` are dropped. A block's
-`light_level` becomes its `light`, and `TILE` and `FIRE` blocks, which draw with an entity, come across as
-full blocks.
+What does not, each of them a warning naming the id rather than a silence:
+**custom blocks**, which are not a feature here and are not going to be; their
+**entities** and **recipes**, which are a different feature rather than a
+different spelling and want writing as `entities/` and `recipes/`; and the
+parts of an item that are their plugin's own behaviour rather than a property
+of the item — `events`, `drop`, `item_flags`. Of their armour, an animated
+layer (a strip of frames, which a worn layer cannot play) is not carried,
+`use_color` tints and emissive layers are dropped, and colour-only armour, which
+has no art, is worn as plain leather.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder
@@ -2149,45 +1665,18 @@ section names, and `template` / `arguments` / `overrides` / `merges` with
 | `settings.keep_on_death_chance: 1` | `keep-on-death` |
 | `blocks.<id>`, or `block_item` with the block inline | a custom block, carrying the item's name and lore |
 | `state.auto_state` · `texture(s)`/`model` · `settings.hardness` · `correct_tools`/`required_break_power` · `sounds.place` · `loot` | `base` · `model` · `hardness` · `tool` · `sound` · `drop` |
-| `states.properties` · `appearances` · `variants` | `properties` · `appearances`, state for state, each appearance's turn (`x`, `y`, `uvlock`) kept |
-| a block whose appearances are a stair's, slab's, door's or trapdoor's `state:` (`stairs_block`, `slab_block`, `door_block`, `trapdoor_block`) | that `shape:`, on **the same vanilla block** the pack took, so those already in a world stay |
-| `auto_state` `tripwire`/`sugar_cane`/`sapling`/..., or a plant behaviour | a plant (`base: tripwire`) |
-| `leaves_block`, or a leaves `auto_state` | `shape: grate` |
-| `crop_block` · `stem_block` · `sapling_block` (`grow_speed`, `light_requirement`) | `grow:` on `age` / `stage` |
-| `falling_block` · `strippable_block` (`stripped`) · `simple_storage_block` · `lamp_block` | `falls` · `strip` · `storage` · `shape: bulb` |
-| a right-click `cycle_block_property` | `click:` |
 | `furniture`, or `furniture_item` with it inline | `place:`, with its surface, facing, hitbox, solidity, seat, light, scale and drop |
 | `images.<id>` (a grid is one icon per cell, `<id>_<row>_<column>`) | an icon |
 | `emoji.<id>` keywords written `:word:` | an icon called `word` |
 | `recipes.<id>` shaped, shapeless, smelting, blasting, smoking, campfire_cooking, stonecutting | a recipe |
-| `recipes.<id>` smithing_transform (`template_type`, `base`, `addition`, `merge_components`) · smithing_trim (`pattern`) · brewing (`container`, `ingredient`, `result`) | `smithing` (`copy-data`) · `smithing_trim` · `brewing` |
-| `recipes.<id>` shaped_transform · shapeless_transform | `shaped` · `shapeless`, the result made fresh rather than inheriting the source's data, with a warning |
-| `events` on an item, block or furniture, in either of CraftEngine's shapes | `actions` (below) |
 | `sounds.<id>` | a sound |
 | `enable: false` (pack or entry) | skipped, as theirs is |
 
-**Events become actions.** On an item, `right_click` (and `use`, `use_on`,
-`use_item_on`), `left_click`, `attack`, `consume`, `block_break`, `break`,
-`pick_up`, `shoot` and, on one that places something, `place` keep their
-meaning; on a block or furniture, `right_click` is its `interact`, `break` its
-`remove` and `place` its `place`. The functions `command` (`as_player` is
-`run`, otherwise `console`; `<arg:player.name>` is `{player}`), `message`
-(`overlay` is the action bar), `actionbar`, `play_sound`, `potion_effect`,
-`cancel_event`, `particle`, `set_count` taking from the stack, and a `run` with
-no delay come across. A `permission` condition is a `permission` step; any other
-condition is a branch, which actions do not have, so what it guards is skipped.
-An entity entry is attribute values and tags for an existing mob type, with no
-model or spawn, so there is no RP Engine entity in it, and the load says so.
-
-What does not come across is named in a warning with the id, with the reason:
-anything that changes a vanilla item or block, the block behaviours with no
-equivalent (fences, fence gates, buttons, pressure plates, spreading, drawers,
-seats on blocks, particles), what a sapling or stem becomes when it has grown,
-a state's own settings (a different light per state), events and functions with
-no trigger or step here, entities, item model definitions that switch between models (the default one is
-worn), extra furniture elements, hitboxes and seats, dye recipes, smithing recipes
-missing their template or addition, recipes with a tag or a choice of
-ingredients, categories, jukebox
+What does not come across is named in a warning with the id: anything that
+changes a vanilla item or block, behaviours and events, block states beyond the
+first, item model definitions that switch between models (the default one is
+worn), extra furniture elements, hitboxes and seats, smithing and brewing
+recipes, recipes with a tag or a choice of ingredients, categories, jukebox
 songs, and the sections that are not content (loot tables on their own,
 paintings, advancements, features).
 
@@ -2216,39 +1705,7 @@ so a rig somebody already has works without being re-authored.
 
 The generated item is a plain one on paper. An `items/` definition under the
 same id beats it, which is how a blueprint gains a material, a name, a
-`place:` block or anything else. A blueprint in a subfolder is found where it
-is; its id is still its file's name.
-
-**Their plugin folder needs no `pack.yml`.** A folder of `.bbmodel` files is
-plainly Model Engine's or BetterModel's, and loads as one.
-
-## A BetterModel folder
-
-**Drop it in and it loads.** BetterModel's plugin folder - `models/`,
-`players/`, its `config.yml` and the `build/` it generated - is read where it
-lies:
-
-```
-bettermodel/
-  models/knight.bbmodel       ->  bettermodel:knight, an item wearing it
-  players/steve.bbmodel       ->  every animation in it, an emote: /emote roll
-  players/dance.bbmodel       ->  dance_<animation>
-```
-
-`models/` are blueprints exactly as Model Engine's are: BetterModel's bone tags
-are Model Engine's (`h_`, `hi_`, `b_`, `ob_`, `p_`, `tag_`), which are this
-engine's. `build/` is its output and is ignored.
-
-**`players/` animations become emotes.** BetterModel's player rig faces the way
-the emote rig does and its keyframes mean what an emote's do, so the numbers
-carry over; its bone tags map to the emote bones (`ph` head, `pra`/`prfa` the
-right arm and forearm, `pll`/`plfl` the left leg and shin, `player_root` the
-whole figure). Two things differ and the load says so: their torso is three
-bones (hip, waist, chest) where the emote rig has one, so the most specific that
-moves is the body; and their arms and head ride the torso, where ours stand on
-their own. Held-item and cape bones, and Molang in a keyframe, are not carried.
-Emotes from `steve.bbmodel` are named after the animation, any other file's are
-prefixed with its name, because emote names are shared by the whole server.
+`place:` block or anything else.
 
 ## pack.yml
 
@@ -2369,11 +1826,6 @@ audio — which is more people than most server owners expect.
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
 
-The build writes one `sounds.json` and one `lang/en_us.json` per namespace. A
-pack that also ships its own at the same path (in `assets/`, or a
-`resourcepack/` folder) has the two merged rather than replaced; where both name
-the same key, the definition here wins.
-
 **`length` is how long the file runs, in seconds**, and it exists for one
 reason: Minecraft has no looping sound. A sound event is a one-shot, so
 anything that plays continuously is the server re-playing a short file on a
@@ -2444,104 +1896,6 @@ anything that saved the character — a glyph written into a sign or a book is a
 different picture after the next reload. Stable codepoints would need a file
 mapping ID to number that must never be lost or reordered, which is exactly the
 problem the item scheme was designed to delete.
-
-### Animated icons
-
-An icon can have frames. Draw them as a **strip**, stacked top to bottom, every
-frame the same size:
-
-```yaml
-loading:
-  file: loading            # assets/textures/font/loading.png, 8 frames tall
-  height: 9
-  ascent: 8
-  animation:
-    frames: 8              # the PNG's height has to divide by this, as for a grid's rows
-    fps: 10                # 10 if left out; 1 to 20
-    loop: true             # true if left out
-```
-
-Or hand it a **GIF**, and the build draws the strip for you:
-
-```yaml
-dance:
-  gif: dance.gif           # assets/textures/font/dance.gif
-  height: 11
-  ascent: 9
-```
-
-A GIF plays at its own speed (the average of its frame delays) unless
-`animation.fps` says otherwise, and `animation.frames` can keep only the first
-few of its frames. It is read the way a browser plays it: each frame drawn onto
-the one before at its offset, and cleared or put back as the file says. A frame
-larger than 256 pixels on a side is scaled down to fit, with a warning, because
-the game draws nothing for a glyph bigger than that. The GIF itself does not
-ship — the strip beside it, `dance.gif.png`, is what players download. A `gif:`
-with a namespace is a resource location, like `file:`.
-
-**An icon has at most 64 frames**, because every frame is a character of its
-own out of the 6,400 that icons, screens and HUDs share. A longer GIF keeps its
-first 64 and says so; a strip that claims more is drawn as its first frame.
-`fps` goes no higher than 20, which is once a tick — nothing the server sends
-changes faster than that. `animation:` is for a strip or a GIF, not a `grid:`
-sheet.
-
-**Where an animated icon moves, and where it does not.** This matters, so here
-it is plainly. The server animates an icon by sending the next frame's
-character, which means an icon moves only in text that is **sent again as time
-passes**:
-
-- a scoreboard, a tab list, a hologram or a menu that shows
-  `%rpengine_icon_mypack:dance%` through PlaceholderAPI — each refresh asks
-  again and gets the frame that is showing now, so it moves as fast as that
-  plugin refreshes;
-- a plugin's own text redrawn with `Icons.characterNow` or `Icons.formatNow`.
-
-It does **not** move in anything sent once. A chat message, an item name, a
-sign, a book, a dialog, `/rp say`: those are drawn once and show the **first
-frame** for good. `:mypack:dance:` in chat is the first frame, and so is
-`Icons.format`.
-
-That is a choice, and this is why. Nexo and Oraxen animate a glyph in the
-client instead, with a replacement for the game's text shader that recognises a
-special colour and flips through the frames itself — which moves everywhere,
-chat included. RP Engine does not ship a text shader, because a pack can carry
-only one, and ResourcePack AI Studio's packs (which can be sent to the same
-players) already replace that shader for their own overlays and player heads.
-Whichever pack was on top would silently break the other's, and the one that
-lost would look like a bug nobody could find. Picking frames on the server
-cannot collide with anything.
-
-A frame's width is how far the text after it moves along, and the game measures
-it to the last pixel drawn in that frame. So a frame narrower than the others
-nudges what follows it. Draw every frame across the same width — a pixel in the
-far column at the lowest alpha you can save is enough — if that matters.
-
-`loop: false` plays once and stays on the last frame, **timed from when the
-server started**: there is no moment a frame-picking server can call "when you
-looked", so a one-shot icon has played by the time most people see it. It is
-there for the icon that should settle — a fill that ends full — rather than for
-an effect.
-
-### Glyphs from Nexo and Oraxen
-
-Their glyph files load as they are, from `glyphs/`:
-
-| Theirs | Ours |
-|---|---|
-| `texture` · `height` · `ascent` | `file` · `height` · `ascent` |
-| `rows` · `columns` (multi-bitmap) | one icon per cell, `<id>_1` to `<id>_N` |
-| `reference` · `index` | that cell of the sheet it names, in the same file |
-| Oraxen `animation: {frames, fps}` | `animation`, the whole strip |
-| Nexo `gif` · `frame_count` | `gif` · `animation.frames` |
-| `placeholders`, Oraxen `chat.placeholders` | `aliases` |
-| `permission`, Oraxen `chat.permission` | `permission` |
-
-Their animated glyphs move where ours do and not in chat — see above for why.
-What is not carried is named in a warning: tab completion, a fixed `char`, a
-font of their own, `is_emoji`, a GIF's `offset`, and placeholders on a
-multi-bitmap glyph (it became several icons, and a placeholder cannot type all
-of them).
 
 ## Screens and HUDs
 
@@ -2830,7 +2184,6 @@ ruby_from_cube:
 
 sapphire_from_lapis:
   type: smelting            # blasting | smoking | campfire | stonecutting
-                            # (smithing, brewing and anvil are below)
   result: mypack:sapphire
   ingredient: LAPIS_LAZULI
   experience: 0.5
@@ -2840,73 +2193,7 @@ sapphire_from_lapis:
 **Ingredients and results can be either.** A content ID matches that exact item
 — an ordinary diamond will not satisfy a recipe calling for `mypack:ruby`, even
 though a ruby is a diamond underneath. A vanilla material name matches loosely,
-the way a vanilla ingredient should. `minecraft:diamond` is the material too.
-A third spelling, **a vanilla potion**, is the material, a slash and the potion
-type: `potion/awkward`, `splash_potion/healing`. It is what a brewing recipe
-usually starts from.
-
-### Smithing, brewing and anvils
-
-```yaml
-ruby_sword:
-  type: smithing
-  template: NETHERITE_UPGRADE_SMITHING_TEMPLATE
-  base: mypack:obsidian_sword
-  addition: mypack:ruby
-  result: mypack:ruby_sword
-  copy-data: true           # the default: carry the base's enchantments, wear and trim
-
-ruby_trim:
-  type: smithing_trim       # no result: the base comes out trimmed
-  template: mypack:ruby_template
-  base: mypack:ruby_chestplate
-  addition: AMETHYST_SHARD
-  pattern: minecraft:silence
-
-ruby_tonic:
-  type: brewing
-  base: potion/awkward      # the bottle slots
-  ingredient: mypack:ruby_dust
-  result: mypack:ruby_tonic
-
-sharpen:
-  type: anvil
-  base: mypack:dull_blade   # the left slot; one is used
-  addition: mypack:whetstone  # optional; without it the right slot must be empty
-  addition-amount: 1
-  result: mypack:sharp_blade
-  cost: 3                   # levels; defaults to 1
-
-mend_ruby_sword:
-  type: anvil
-  base: mypack:ruby_sword
-  addition: mypack:ruby
-  repair: 25%               # per ruby, or a number of durability points
-```
-
-**A smithing recipe matches the item, not its condition.** The base of an
-upgrade is usually something somebody has been using, so a worn or enchanted
-`mypack:obsidian_sword` still counts — an exact match would refuse it. The
-result is always the recipe's own item, with the base's enchantments, wear and
-trim carried across unless `copy-data: false`. Before 1.20 the smithing table
-has two slots, so the template is not asked for; trim recipes need 1.20.
-
-**A trim's pattern** is needed from 1.21.5, where the recipe names it. Leave it
-out and a vanilla trim template stands for its own (`SENTRY_ARMOR_TRIM_...` is
-`minecraft:sentry`); a custom template needs one written. Before 1.21.5 the
-game takes the pattern from the template, so only a vanilla trim template
-trims anything there and `pattern` is ignored.
-
-**Brewing needs Paper.** Bukkit has no brewing recipe; Paper adds yours to the
-game's own brewing table, so it brews exactly as vanilla brewing does. On
-Spigot the load says how many brewing recipes were left out.
-
-**An anvil recipe is the engine's own** — there is no anvil recipe in the game.
-It costs `cost` levels, uses one of the base and `addition-amount` of the
-addition, and wears the anvil the way vanilla use does. A repair mends the base
-by `repair` for every `addition-amount` of the addition, using as many as it
-takes, as a vanilla material repair does. Take the result with the mouse; the
-number keys and dropping do nothing on an anvil recipe.
+the way a vanilla ingredient should.
 
 **A recipe ID is not a content ID.** It lives outside the ID space, so a recipe
 may be called `ruby_cube` while an item is called `ruby_cube` — which is the

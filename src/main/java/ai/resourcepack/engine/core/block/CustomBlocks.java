@@ -2,46 +2,32 @@ package ai.resourcepack.engine.core.block;
 
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.api.Items;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
-import org.bukkit.block.data.Bisected;
-import org.bukkit.block.data.type.Slab;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockPhysicsEvent;
-import org.bukkit.event.block.BlockPistonExtendEvent;
-import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.NotePlayEvent;
-import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
  * Custom blocks, in the world.
  *
- * <p>A custom cube is a vanilla block in a state nothing else uses (see
+ * <p>A custom block is a vanilla block in a state nothing else uses (see
  * {@link BlockInfo}), which means three jobs: put the right state down when
  * somebody places one, work out which block a state is when somebody breaks
  * one, and <strong>stop the game touching the state in between</strong>.
@@ -57,12 +43,6 @@ import java.util.logging.Logger;
  * The events are still cancelled, for the things they DO stop: the note
  * playing, and a right-click cycling the note, which would change what the
  * block is.
- *
- * <p><strong>A shaped block is the opposite case.</strong> It is a whole vanilla
- * block type - a stair, a door - and the game is meant to touch its state:
- * that is what makes a stair turn its corners and a door open. So for those
- * nothing is cancelled; this only gives back the right item, takes over
- * breaking, and keeps an axe from scraping the wax off what is underneath.
  */
 public final class CustomBlocks implements Listener {
 
@@ -74,23 +54,6 @@ public final class CustomBlocks implements Listener {
 
     private volatile Map<ContentId, BlockInfo> blocks = Map.of();
 
-    /** A block of ours standing somewhere, and which of its states it is in. */
-    public record Placed(BlockInfo block, String state) {
-    }
-
-    /**
-     * Every allocated state, by its identity in the world
-     * ({@code note_block|note=3,powered=false}).
-     *
-     * <p>A map rather than a search because {@link #at} runs on every physics
-     * update of every note block on the server, and a block with eight states
-     * is eight entries.
-     */
-    private volatile Map<String, Placed> byIdentity = Map.of();
-
-    /** Every vanilla block type taken over, and the block that took it. */
-    private volatile Map<Material, BlockInfo> byMaterial = Map.of();
-
     public CustomBlocks(Plugin plugin, Items items, BlockStates states, Logger log) {
         this.plugin = plugin;
         this.items = items;
@@ -99,51 +62,9 @@ public final class CustomBlocks implements Listener {
         this.log = log;
     }
 
-    /** What a block's own actions do when it is placed, clicked or mined. */
-    private ai.resourcepack.engine.core.item.ActionRunner actions;
-
-    public void actions(ai.resourcepack.engine.core.item.ActionRunner actions) {
-        this.actions = actions;
-    }
-
-    /** Where a block's storage: opens and keeps its contents. */
-    private ai.resourcepack.engine.core.storage.Storages storages;
-
-    public void storages(ai.resourcepack.engine.core.storage.Storages storages) {
-        this.storages = storages;
-    }
-
-    /** Where one block's contents are kept: its chunk, under its position. */
-    private ai.resourcepack.engine.core.storage.StorageHolder holder(Block block) {
-        return ai.resourcepack.engine.core.storage.PdcStorage.forBlock(plugin, block);
-    }
-
-    /**
-     * Takes a container block's contents out of the world as it goes, for the
-     * caller to drop: spilled for a chest, or (for a shulker) to be kept
-     * inside the item it gives back.
-     */
-    private List<ItemStack> emptied(BlockInfo block, Block where) {
-        if (storages == null || block.storage().isEmpty()) {
-            return List.of();
-        }
-        return storages.removed(block.storage().get(), holder(where));
-    }
-
-    /**
-     * Runs the block's actions for {@code trigger}, with no stack: these are
-     * about the block in the world, and a {@code take} must not eat whatever
-     * the player happens to be holding.
-     */
-    private boolean act(Player player, BlockInfo block, ItemAction.Trigger trigger, Block where) {
-        return actions != null && player != null && actions.run(player, block.id(), trigger, null,
-                where == null ? null : where.getLocation().add(0.5, 0.5, 0.5));
-    }
-
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, BlockInfo> loaded) {
         this.blocks = loaded == null ? Map.of() : Map.copyOf(loaded);
-        reindex();
     }
 
     /** Every block id, in the order the pack declared them. */
@@ -157,8 +78,7 @@ public final class CustomBlocks implements Listener {
     }
 
     /**
-     * Allocates a state to every state of every cube, and a vanilla block to
-     * every other shape, and says what did not fit.
+     * Allocates a state to every block, and says how many are left.
      *
      * <p>At load rather than at first placement: an owner should find out that
      * their pack does not fit while they are looking at the console, not when
@@ -167,125 +87,19 @@ public final class CustomBlocks implements Listener {
     public void allocate() {
         boolean allocated = false;
         for (BlockInfo block : blocks.values()) {
-            if (block.shape() != BlockInfo.Shape.CUBE) {
-                boolean had = states.existingShaped(block).isPresent();
-                Optional<String> taken = states.shapedFor(block, CustomBlocks::exists);
-                if (taken.isEmpty()) {
-                    log.warning(shapedProblem(block));
-                } else if (!had) {
-                    allocated = true;
-                }
-                continue;
-            }
-            int missing = 0;
-            for (String state : block.states()) {
-                if (states.existing(block, state).isPresent()) {
-                    continue;
-                }
-                if (states.numberFor(block, state).isEmpty()) {
-                    missing++;
+            if (states.existing(block).isEmpty()) {
+                if (states.numberFor(block).isEmpty()) {
+                    log.warning("No " + block.base().name().toLowerCase(java.util.Locale.ROOT)
+                            + " states left for " + block.id()
+                            + ". It loads as an item but cannot be placed.");
                 } else {
                     allocated = true;
                 }
-            }
-            if (missing > 0) {
-                boolean none = states.existing(block).isEmpty();
-                log.warning("No " + block.base().name().toLowerCase(Locale.ROOT) + " states left for "
-                        + block.id() + (none ? ". It loads as an item but cannot be placed."
-                        : ": " + missing + " of its " + block.states().size()
-                        + " states have none, and it is placed in its first state instead."));
             }
         }
         if (allocated) {
             states.save(log);
         }
-        reindex();
-    }
-
-    /** Why a shaped block has no vanilla block to be, said usefully. */
-    private String shapedProblem(BlockInfo block) {
-        String shape = block.shape().name().toLowerCase(Locale.ROOT);
-        Optional<String> before = states.existingShaped(block);
-        if (before.isPresent()) {
-            return block.id() + " is a " + shape + " made of " + before.get()
-                    + ", which this server version does not have. It loads as an item but cannot be placed.";
-        }
-        if (block.takes().isPresent()) {
-            return block.id() + " asks for " + block.takes().get() + ", which is taken by another block or does "
-                    + "not exist on this server. It loads as an item but cannot be placed.";
-        }
-        long available = BlockStates.pool(block.shape()).stream().filter(CustomBlocks::exists).count();
-        if (available == 0) {
-            return block.id() + " is a " + shape + ", and this server version has none of the blocks a "
-                    + shape + " is made of (" + String.join(", ", BlockStates.pool(block.shape()))
-                    + "; they arrived in 1.21). It loads as an item but cannot be placed.";
-        }
-        return "Every " + shape + " this server can make is taken (" + available + " of them), so " + block.id()
-                + " loads as an item but cannot be placed. Name a vanilla " + shape + " to take with base:.";
-    }
-
-    /** Whether this server has a block called that. */
-    static boolean exists(String name) {
-        Material material = Material.matchMaterial(name);
-        return material != null && material.isBlock();
-    }
-
-    /**
-     * The material the item that places {@code block} is made of.
-     *
-     * <p>A cube's item is its base block, so vanilla decides where it may go;
-     * a shaped block's item is the very block it took over, so vanilla places
-     * it exactly as it places that block - turned, joined, doubled - and
-     * there is nothing left to correct afterwards. One that has no block to be
-     * is paper, so it cannot put down a block it is not.
-     */
-    public String itemMaterial(BlockInfo block) {
-        if (block.shape() == BlockInfo.Shape.CUBE) {
-            switch (block.base()) {
-                case MUSHROOM_STEM:
-                    return "MUSHROOM_STEM";
-                case TRIPWIRE:
-                    // String places tripwire, so vanilla decides where a plant may go.
-                    return "STRING";
-                default:
-                    return "NOTE_BLOCK";
-            }
-        }
-        return states.existingShaped(block).filter(CustomBlocks::exists)
-                .map(name -> name.toUpperCase(Locale.ROOT)).orElse("PAPER");
-    }
-
-    private void reindex() {
-        Map<String, Placed> identities = new HashMap<>();
-        Map<Material, BlockInfo> materials = new HashMap<>();
-        for (BlockInfo block : blocks.values()) {
-            if (block.shape() != BlockInfo.Shape.CUBE) {
-                states.existingShaped(block).map(Material::matchMaterial)
-                        .ifPresent(material -> materials.put(material, block));
-                continue;
-            }
-            String base = baseName(block.base());
-            for (String state : block.states()) {
-                states.existing(block, state).ifPresent(number -> {
-                    Placed before = identities.put(base + "|" + BlockStates.identityOf(block.base(), number),
-                            new Placed(block, state));
-                    if (before != null && !before.block().id().equals(block.id())) {
-                        // Only possible for plants given out while tripwire was
-                        // frozen, on a server that has since thawed it.
-                        log.warning(block.id() + " and " + before.block().id() + " look the same to this server: "
-                                + "they were made while Paper froze tripwire updates, and it no longer does. Turn "
-                                + "block-updates.disable-tripwire-updates back on in config/paper-global.yml.");
-                    }
-                });
-            }
-        }
-        this.byIdentity = Map.copyOf(identities);
-        this.byMaterial = Map.copyOf(materials);
-    }
-
-    /** Every vanilla block type taken over right now. */
-    public java.util.Set<Material> takenMaterials() {
-        return byMaterial.keySet();
     }
 
     // ---- placing ---------------------------------------------------------
@@ -296,252 +110,29 @@ public final class CustomBlocks implements Listener {
      * <p>The item is a real block underneath, so vanilla has already decided
      * whether it may go there, played the sound and taken it off the stack.
      * All that is left is the state, which is why this is a listener rather
-     * than a placement routine of our own - and for a shaped block not even
-     * that, because the item IS the block it takes over.
+     * than a placement routine of our own.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
         ItemStack held = event.getItemInHand();
-        Optional<BlockInfo> found = items.idOf(held).flatMap(this::info);
-        if (found.isEmpty()) {
+        Optional<BlockInfo> block = items.idOf(held).flatMap(this::info);
+        if (block.isEmpty()) {
             return;
         }
-        BlockInfo block = found.get();
-        Block placed = event.getBlockPlaced();
-        if (storages != null && block.storage().isPresent()) {
-            // A shulker-like block put back down: what it carried goes in.
-            byte[] carried = storages.carried(held);
-            if (carried != null) {
-                String position = placed.getX() + "_" + placed.getY() + "_" + placed.getZ();
-                placed.getChunk().getPersistentDataContainer().set(
-                        new org.bukkit.NamespacedKey(plugin, "block-storage/" + position),
-                        org.bukkit.persistence.PersistentDataType.BYTE_ARRAY, carried);
-            }
-        }
-        if (block.shape() == BlockInfo.Shape.CUBE) {
-            String state = placementState(block, event);
-            Optional<Integer> number = states.existing(block, state).or(() -> states.existing(block));
-            if (number.isEmpty()) {
-                return;
-            }
-            placed.setBlockData(dataFor(block, number.get()), false);
-            fallIfLoose(placed, block);
-        }
-        play(block, placed);
-        lightUp(placed, block);
-        act(event.getPlayer(), block, ItemAction.Trigger.PLACE, placed);
-    }
-
-    /** The faces a block's light is put beside, in the order they are tried. */
-    private static final BlockFace[] LIGHT_FACES = {BlockFace.UP, BlockFace.NORTH, BlockFace.EAST,
-            BlockFace.SOUTH, BlockFace.WEST, BlockFace.DOWN};
-
-    /**
-     * Gives a block with {@code light:} its glow: a light block in the first
-     * empty space beside it, marked in the chunk as ours so only ours is ever
-     * taken away. See {@link BlockInfo#light()}.
-     */
-    private void lightUp(Block where, BlockInfo block) {
-        if (block.light() <= 0) {
-            return;
-        }
-        for (BlockFace face : LIGHT_FACES) {
-            Block beside = where.getRelative(face);
-            if (beside.getType() != Material.AIR && beside.getType() != Material.CAVE_AIR) {
-                continue;
-            }
-            beside.setType(Material.LIGHT, false);
-            BlockData data = beside.getBlockData();
-            if (data instanceof org.bukkit.block.data.Levelled) {
-                ((org.bukkit.block.data.Levelled) data).setLevel(block.light());
-                beside.setBlockData(data, false);
-            }
-            markLight(beside, true);
-            return;
-        }
-    }
-
-    /** Takes away the light a block of ours put beside it. */
-    private void douse(Block where) {
-        for (BlockFace face : LIGHT_FACES) {
-            Block beside = where.getRelative(face);
-            if (beside.getType() == Material.LIGHT && lightMarked(beside)) {
-                beside.setType(Material.AIR, false);
-                markLight(beside, false);
-            }
-        }
-    }
-
-    private org.bukkit.NamespacedKey lightKey() {
-        return new org.bukkit.NamespacedKey(plugin, "block-light");
-    }
-
-    private boolean lightMarked(Block block) {
-        int[] marks = block.getChunk().getPersistentDataContainer().get(lightKey(),
-                org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY);
-        if (marks == null) {
-            return false;
-        }
-        int packed = packLight(block);
-        for (int mark : marks) {
-            if (mark == packed) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void markLight(Block block, boolean on) {
-        org.bukkit.persistence.PersistentDataContainer data = block.getChunk().getPersistentDataContainer();
-        int[] marks = data.get(lightKey(), org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY);
-        java.util.Set<Integer> set = new java.util.TreeSet<>();
-        if (marks != null) {
-            for (int mark : marks) {
-                set.add(mark);
-            }
-        }
-        if (on) {
-            set.add(packLight(block));
-        } else {
-            set.remove(packLight(block));
-        }
-        if (set.isEmpty()) {
-            data.remove(lightKey());
-        } else {
-            data.set(lightKey(), org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY,
-                    set.stream().mapToInt(Integer::intValue).toArray());
-        }
-    }
-
-    private static int packLight(Block block) {
-        return (block.getX() & 15) | (block.getZ() & 15) << 4
-                | (block.getY() - block.getWorld().getMinHeight()) << 8;
-    }
-
-    /**
-     * A block with {@code falls: true} and nothing under it becomes a falling
-     * block of itself, as sand does. It lands as the same state, so it is
-     * still ours where it comes down.
-     */
-    private void fallIfLoose(Block where, BlockInfo block) {
-        if (!block.behaviour().falls()) {
-            return;
-        }
-        Block below = where.getRelative(BlockFace.DOWN);
-        if (!below.getType().isAir() && !below.isLiquid()) {
-            return;
-        }
-        BlockData data = where.getBlockData();
-        where.setType(Material.AIR, false);
-        org.bukkit.entity.FallingBlock falling = where.getWorld().spawnFallingBlock(
-                where.getLocation().add(0.5, 0, 0.5), data);
-        // Where it cannot land it would drop a plain note block; nothing is
-        // better than the wrong thing.
-        falling.setDropItem(false);
-    }
-
-    /**
-     * Turns the block standing at {@code where} into another of ours, in that
-     * one's placed state: a log stripped by an axe, a lamp switched on.
-     */
-    public boolean turnInto(Block where, ContentId target) {
-        Optional<BlockInfo> into = info(target);
-        if (into.isEmpty()) {
-            return false;
-        }
-        BlockInfo block = into.get();
-        if (block.shape() != BlockInfo.Shape.CUBE) {
-            Optional<Material> material = states.existingShaped(block).map(Material::matchMaterial);
-            material.ifPresent(type -> where.setType(type, false));
-            return material.isPresent();
-        }
-        return setState(where, block, block.defaultState());
-    }
-
-    /**
-     * The state a cube is placed in: facing the player, along the face it was
-     * put against, and every other property at its first value.
-     */
-    private static String placementState(BlockInfo block, BlockPlaceEvent event) {
-        String state = block.defaultState();
-        Player player = event.getPlayer();
-        for (BlockInfo.Property property : block.properties()) {
-            switch (property.kind()) {
-                case FACING:
-                    state = block.with(state, property.name(),
-                            player.getFacing().getOppositeFace().name().toLowerCase(Locale.ROOT));
-                    break;
-                case FACING_ALL:
-                    state = block.with(state, property.name(), facingAll(player));
-                    break;
-                case AXIS:
-                    BlockFace against = event.getBlockPlaced().getFace(event.getBlockAgainst());
-                    state = block.with(state, property.name(), axisOf(against));
-                    break;
-                case RANDOM:
-                    state = block.with(state, property.name(), property.values().get(
-                            ThreadLocalRandom.current().nextInt(property.values().size())));
-                    break;
-                default:
-                    break;
-            }
-        }
-        return state;
-    }
-
-    /** Where the player was looking from, as a dispenser decides it. */
-    static String facingAll(Player player) {
-        float pitch = player.getLocation().getPitch();
-        if (pitch > 45f) {
-            return "up";
-        }
-        if (pitch < -45f) {
-            return "down";
-        }
-        return player.getFacing().getOppositeFace().name().toLowerCase(Locale.ROOT);
-    }
-
-    /** The axis a face lies across, as a log decides it. */
-    static String axisOf(BlockFace face) {
-        if (face == null) {
-            return "y";
-        }
-        switch (face) {
-            case EAST:
-            case WEST:
-                return "x";
-            case NORTH:
-            case SOUTH:
-                return "z";
-            default:
-                return "y";
-        }
+        states.existing(block.get()).ifPresent(number -> {
+            Block placed = event.getBlockPlaced();
+            placed.setBlockData(dataFor(block.get(), number), false);
+            play(block.get(), placed);
+        });
     }
 
     /** The state a number means, as block data. */
     private BlockData dataFor(BlockInfo block, int number) {
+        String base = block.base() == BlockInfo.Base.MUSHROOM_STEM ? "mushroom_stem" : "note_block";
         // The instrument is deliberately not stated: the game owns it, and
         // every value of it means the same block. See BlockStates.
         return plugin.getServer().createBlockData(
-                "minecraft:" + baseName(block.base()) + "[" + BlockStates.identityOf(block.base(), number) + "]");
-    }
-
-    private static String baseName(BlockInfo.Base base) {
-        return base.name().toLowerCase(Locale.ROOT);
-    }
-
-    /**
-     * Puts a cube into another of its states, as a click or an action does.
-     *
-     * @return false when that state has no spare state of its own to be
-     */
-    public boolean setState(Block where, BlockInfo block, String state) {
-        Optional<Integer> number = states.existing(block, state);
-        if (number.isEmpty() || block.shape() != BlockInfo.Shape.CUBE) {
-            return false;
-        }
-        where.setBlockData(dataFor(block, number.get()), false);
-        return true;
+                "minecraft:" + base + "[" + BlockStates.identityOf(block.base(), number) + "]");
     }
 
     /**
@@ -592,217 +183,51 @@ public final class CustomBlocks implements Listener {
      * <p>The drop is handled here rather than through a loot table because
      * there is no loot table for "a note block in state 412": to the game this
      * is an ordinary note block, and its own drop is what has to be replaced.
-     * The same goes for a shaped block, whose own drop would be the plain
-     * copper stair underneath.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
-        Optional<BlockInfo> found = at(event.getBlock());
-        if (found.isEmpty()) {
+        Optional<BlockInfo> block = at(event.getBlock());
+        if (block.isEmpty()) {
             return;
         }
-        BlockInfo block = found.get();
         event.setDropItems(false);
         breaking.stop(event.getPlayer());
-        int count = dropCount(event.getBlock());
-        List<ItemStack> contents = emptied(block, event.getBlock());
-        douse(event.getBlock());
-        // The other half of a door goes first, by us and without physics, so
-        // the game never removes it on its own and drops the copper door
-        // underneath.
-        otherHalf(event.getBlock()).ifPresent(half -> half.setType(Material.AIR, false));
-        play(block, event.getBlock());
-        act(event.getPlayer(), block, ItemAction.Trigger.REMOVE, event.getBlock());
-        boolean gives = event.getPlayer().getGameMode() != GameMode.CREATIVE
-                // The wrong tool breaks it and gives nothing, which is what
-                // vanilla does with stone and a shovel.
-                && BlockBreaking.isCorrectTool(block, event.getPlayer().getInventory().getItemInMainHand());
-        drop(block, event.getBlock(), gives ? count : 0, contents);
-    }
-
-    /**
-     * Drops what breaking a block gives, and whatever it held: inside the
-     * dropped item for a shulker that gives itself back, on the ground for
-     * anything else - never lost, whoever broke it with what.
-     */
-    private void drop(BlockInfo block, Block where, int count, List<ItemStack> contents) {
-        org.bukkit.Location at = where.getLocation().add(0.5, 0.5, 0.5);
-        boolean kept = false;
-        if (count > 0) {
-            ContentId dropped = block.drop().orElse(block.id());
-            Optional<ItemStack> made = items.create(dropped);
-            if (made.isPresent()) {
-                ItemStack stack = made.get();
-                stack.setAmount(Math.max(1, count));
-                if (!contents.isEmpty() && storages != null && dropped.equals(block.id())
-                        && block.storage().map(spec -> spec.type()
-                        == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER).orElse(false)) {
-                    storages.keepInside(stack, contents);
-                    kept = true;
-                }
-                where.getWorld().dropItemNaturally(at, stack);
-            }
+        play(block.get(), event.getBlock());
+        if (event.getPlayer().getGameMode() == GameMode.CREATIVE) {
+            return;
         }
-        if (!kept) {
-            for (ItemStack content : contents) {
-                if (content != null && !content.getType().isAir()) {
-                    where.getWorld().dropItemNaturally(at, content);
-                }
-            }
+        // The wrong tool breaks it and gives nothing, which is what vanilla
+        // does with stone and a shovel.
+        if (!BlockBreaking.isCorrectTool(block.get(),
+                event.getPlayer().getInventory().getItemInMainHand())) {
+            return;
         }
-    }
-
-    /** Two for a double slab, which is two slabs; one for anything else. */
-    private static int dropCount(Block block) {
-        BlockData data = block.getBlockData();
-        return data instanceof Slab && ((Slab) data).getType() == Slab.Type.DOUBLE ? 2 : 1;
-    }
-
-    /** The other half of a two-block-tall block of ours, if this is one. */
-    private Optional<Block> otherHalf(Block block) {
-        BlockData data = block.getBlockData();
-        Optional<BlockInfo> found = at(block);
-        if (!(data instanceof Bisected) || found.isEmpty() || found.get().shape() != BlockInfo.Shape.DOOR) {
-            return Optional.empty();
-        }
-        Block other = ((Bisected) data).getHalf() == Bisected.Half.BOTTOM
-                ? block.getRelative(BlockFace.UP) : block.getRelative(BlockFace.DOWN);
-        return other.getType() == block.getType() ? Optional.of(other) : Optional.empty();
-    }
-
-    /**
-     * An explosion takes ours like anything else, but gives back ours.
-     *
-     * <p>Left to the game, a creeper turns a ruby ore into a note block item and
-     * a custom door into a copper one. Each of ours is taken out of the
-     * explosion's list, removed here and dropped at the explosion's own odds.
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onEntityExplode(EntityExplodeEvent event) {
-        explode(event.blockList(), event.getYield());
-    }
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onBlockExplode(BlockExplodeEvent event) {
-        explode(event.blockList(), event.getYield());
-    }
-
-    private void explode(List<Block> blocks, float yield) {
-        for (Iterator<Block> each = blocks.iterator(); each.hasNext(); ) {
-            Block block = each.next();
-            Optional<BlockInfo> found = at(block);
-            if (found.isEmpty()) {
-                continue;
-            }
-            each.remove();
-            if (found.get().behaviour().blastProof()) {
-                // Out of the list and left standing.
-                continue;
-            }
-            if (found.get().shape() == BlockInfo.Shape.DOOR
-                    && block.getBlockData() instanceof Bisected
-                    && ((Bisected) block.getBlockData()).getHalf() == Bisected.Half.TOP) {
-                // The bottom half drops the door; the top only goes with it.
-                otherHalf(block).ifPresent(half -> {
-                    if (!blocks.contains(half)) {
-                        half.setType(Material.AIR, false);
-                    }
-                });
-                block.setType(Material.AIR, false);
-                continue;
-            }
-            int count = dropCount(block);
-            List<ItemStack> contents = emptied(found.get(), block);
-            douse(block);
-            otherHalf(block).ifPresent(half -> half.setType(Material.AIR, false));
-            block.setType(Material.AIR, false);
-            drop(found.get(), block, ThreadLocalRandom.current().nextFloat() < yield ? count : 0, contents);
-        }
-    }
-
-    /**
-     * A piston would break a door of ours and drop the copper one, so it does
-     * not move one. Everything else of ours moves as the block underneath
-     * does: a note block keeps its state when pushed, a stair is a stair.
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onPistonExtend(BlockPistonExtendEvent event) {
-        if (movesADoor(event.getBlocks(), event.getBlock().getRelative(event.getDirection()))) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onPistonRetract(BlockPistonRetractEvent event) {
-        if (movesADoor(event.getBlocks(), null)) {
-            event.setCancelled(true);
-        }
-    }
-
-    private boolean movesADoor(List<Block> moved, Block head) {
-        for (Block block : moved) {
-            if (at(block).filter(CustomBlocks::breaksWhenPushed).isPresent()) {
-                return true;
-            }
-        }
-        return head != null && at(head).filter(CustomBlocks::breaksWhenPushed).isPresent();
-    }
-
-    /** A door and a plant are broken by a piston, as their base blocks are, rather than moved. */
-    private static boolean breaksWhenPushed(BlockInfo block) {
-        return block.shape() == BlockInfo.Shape.DOOR || block.base() == BlockInfo.Base.TRIPWIRE
-                && block.shape() == BlockInfo.Shape.CUBE;
-    }
-
-    /**
-     * Water washes string away and drops it, so it does not flow into a plant
-     * of ours: a flower in a riverbank stays, as one does in vanilla.
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onFlow(org.bukkit.event.block.BlockFromToEvent event) {
-        if (event.getToBlock().getType() == Material.TRIPWIRE && at(event.getToBlock()).isPresent()) {
-            event.setCancelled(true);
-        }
-    }
-
-    /**
-     * Walking through a plant tries to trip it. Where the game asks first, the
-     * answer is no; where it does not, the powered flag it changes is not part
-     * of what the plant is (see {@link BlockStates#tripwireFrozen()}).
-     */
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onTread(PlayerInteractEvent event) {
-        if (event.getAction() == Action.PHYSICAL && event.getClickedBlock() != null
-                && event.getClickedBlock().getType() == Material.TRIPWIRE && at(event.getClickedBlock()).isPresent()) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-    public void onEntityTread(org.bukkit.event.entity.EntityInteractEvent event) {
-        if (event.getBlock().getType() == Material.TRIPWIRE && at(event.getBlock()).isPresent()) {
-            event.setCancelled(true);
-        }
+        ContentId dropped = block.get().drop().orElse(block.get().id());
+        items.create(dropped).ifPresent(stack ->
+                event.getBlock().getWorld().dropItemNaturally(
+                        event.getBlock().getLocation().add(0.5, 0.5, 0.5), stack));
     }
 
     /** Which of ours is standing here, if any. */
     public Optional<BlockInfo> at(Block block) {
-        return placedAt(block).map(Placed::block);
-    }
-
-    /** Which of ours is standing here, and in which of its states. */
-    public Optional<Placed> placedAt(Block block) {
         if (block == null) {
             return Optional.empty();
         }
-        Material type = block.getType();
-        BlockInfo.Base base = baseOf(type);
+        BlockInfo.Base base = baseOf(block.getType());
         if (base == null) {
-            BlockInfo shaped = byMaterial.get(type);
-            return shaped == null ? Optional.empty() : Optional.of(new Placed(shaped, ""));
+            return Optional.empty();
         }
         String identity = BlockStates.identityOfData(base, block.getBlockData().getAsString());
-        return Optional.ofNullable(byIdentity.get(baseName(base) + "|" + identity));
+        for (BlockInfo candidate : blocks.values()) {
+            if (candidate.base() != base) {
+                continue;
+            }
+            Optional<Integer> number = states.existing(candidate);
+            if (number.isPresent() && BlockStates.identityOf(base, number.get()).equals(identity)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
     }
 
     private static BlockInfo.Base baseOf(Material material) {
@@ -811,9 +236,6 @@ public final class CustomBlocks implements Listener {
         }
         if (material == Material.MUSHROOM_STEM) {
             return BlockInfo.Base.MUSHROOM_STEM;
-        }
-        if (material == Material.TRIPWIRE) {
-            return BlockInfo.Base.TRIPWIRE;
         }
         return null;
     }
@@ -827,24 +249,13 @@ public final class CustomBlocks implements Listener {
      * which is why the instrument is not part of a block's identity. It stops
      * the rest: the powered flag flicking with redstone, which IS part of the
      * identity, and a note block being pushed around by an update it should
-     * not have got. Cancelled only for our cubes, so vanilla note blocks still
-     * work on the same server - and never for a shaped block, whose updates
-     * are how a stair finds its corners.
+     * not have got. Cancelled only for ours, so vanilla note blocks still work
+     * on the same server.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPhysics(BlockPhysicsEvent event) {
-        if (baseOf(event.getBlock().getType()) == null) {
-            return;
-        }
-        Optional<BlockInfo> found = at(event.getBlock());
-        if (found.isPresent()) {
+        if (at(event.getBlock()).isPresent()) {
             event.setCancelled(true);
-            if (found.get().behaviour().falls()) {
-                Block block = event.getBlock();
-                // Next tick: a block cannot be replaced from inside its own update.
-                plugin.getServer().getScheduler().runTask(plugin, () -> at(block)
-                        .ifPresent(still -> fallIfLoose(block, still)));
-            }
         }
     }
 
@@ -858,77 +269,13 @@ public final class CustomBlocks implements Listener {
 
     /**
      * Stops a right-click cycling the note, which would change which block it
-     * is — the single most visible way this feature breaks — and turns the
-     * block's own {@code click:} property instead, if it has one.
+     * is — the single most visible way this feature breaks.
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return;
-        }
-        Optional<Placed> found = placedAt(event.getClickedBlock());
-        if (found.isEmpty()) {
-            return;
-        }
-        BlockInfo block = found.get().block();
-        boolean cube = block.shape() == BlockInfo.Shape.CUBE;
-        if (cube) {
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
+                && at(event.getClickedBlock()).isPresent()) {
             event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
-        } else if (event.getItem() != null && event.getItem().getType().name().endsWith("_AXE")) {
-            // An axe scrapes the wax off copper, which would turn a custom
-            // stair back into a plain one in front of the player.
-            event.setCancelled(true);
-            return;
-        }
-        // Once per click, not once per hand, and not when sneaking with
-        // something in hand: that is how vanilla says "place against it"
-        // rather than "use it", and a chest keeps the same rule.
-        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND
-                || (event.getPlayer().isSneaking() && event.getItem() != null)) {
-            return;
-        }
-        boolean used = act(event.getPlayer(), block, ItemAction.Trigger.INTERACT, event.getClickedBlock());
-        ItemStack held = event.getItem();
-        if (!used && storages != null && block.storage().isPresent()) {
-            Block clicked = event.getClickedBlock();
-            used = storages.open(event.getPlayer(), block.storage().get(), block.id(), holder(clicked),
-                    block.name().orElse(null), clicked.getLocation().add(0.5, 0.5, 0.5));
-            if (!cube) {
-                // A shaped container (a cabinet door) opens rather than swings.
-                event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
-            }
-        }
-        if (!used && block.behaviour().stripInto().isPresent() && held != null
-                && held.getType().name().endsWith("_AXE")) {
-            used = turnInto(event.getClickedBlock(), block.behaviour().stripInto().get());
-            if (used) {
-                Block clicked = event.getClickedBlock();
-                clicked.getWorld().playSound(clicked.getLocation().add(0.5, 0.5, 0.5),
-                        org.bukkit.Sound.ITEM_AXE_STRIP, 1f, 1f);
-                if (event.getPlayer().getGameMode() != GameMode.CREATIVE) {
-                    Optional.ofNullable(block.behaviour().stripDrop()).flatMap(items::create).ifPresent(stack ->
-                            clicked.getWorld().dropItemNaturally(clicked.getLocation().add(0.5, 1, 0.5), stack));
-                }
-                event.getPlayer().swingMainHand();
-            }
-        }
-        if (!used && block.behaviour().clicksInto().isPresent()) {
-            used = turnInto(event.getClickedBlock(), block.behaviour().clicksInto().get());
-            if (used) {
-                event.getPlayer().swingMainHand();
-            }
-        }
-        if (!used && cube && block.cycle().isPresent()) {
-            String next = block.next(found.get().state(), block.cycle().get());
-            used = setState(event.getClickedBlock(), block, next);
-            if (used) {
-                event.getPlayer().swingMainHand();
-            }
-        }
-        if (used) {
-            // A cancel stops the held item being used on it too, so a block
-            // that is a button does not also get a block placed against it.
-            event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
         }
     }
 }

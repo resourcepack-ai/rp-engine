@@ -197,9 +197,6 @@ final class CraftEngineItems {
             }
             if (blockId != null) {
                 if (blockId.equals(entry.id)) {
-                    // The item's own events ride with it into the block.
-                    CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.ITEM,
-                            true, entry.id, entry.origin, diagnostics, item);
                     blockText.put(blockId, item);
                     if (item.get("model") != null) blockItemModel.put(blockId, String.valueOf(item.get("model")));
                     continue;
@@ -228,12 +225,8 @@ final class CraftEngineItems {
                 } else {
                     usedFurniture.add(furnitureId);
                     item.put("place", place(library, entry, body, rules, diagnostics));
-                    CraftEngineEvents.translate(get(body, "event", "events"), CraftEngineEvents.Owner.FURNITURE,
-                            true, entry.id, entry.origin, diagnostics, item);
                 }
             }
-            CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.ITEM,
-                    item.containsKey("place"), entry.id, entry.origin, diagnostics, item);
             written.add(entry.id);
             out.add(new CraftEngine.Output(ContentKind.ITEM, entry.path(), item, entry.origin));
         }
@@ -271,8 +264,6 @@ final class CraftEngineItems {
             item.put("material", "PAPER");
             item.put("copy-model", reference);
             item.put("place", place(library, piece, piece.body, null, diagnostics));
-            CraftEngineEvents.translate(get(piece.body, "event", "events"), CraftEngineEvents.Owner.FURNITURE,
-                    true, piece.id, piece.origin, diagnostics, item);
             out.add(new CraftEngine.Output(ContentKind.ITEM, piece.path(), item, piece.origin));
             diagnostics.add(Diagnostic.warning(piece.origin, piece.id,
                     "is furniture no item places, so it came across as an item of its own, " + library.ours(piece)
@@ -301,6 +292,11 @@ final class CraftEngineItems {
         settings(library, entry, settings, material, out, diagnostics);
         art(entry, body, material, out, library.generated, diagnostics);
 
+        if (get(body, "event", "events") != null) {
+            diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
+                    "events are CraftEngine's own scripting; re-author what they do as RP Engine actions:. "
+                            + "The item itself still loads."));
+        }
         for (String key : List.of("updater", "client_bound_data", "client_bound_material", "client_bound_model",
                 "custom_model_data", "item_model", "override_data")) {
             if (get(body, key) != null) {
@@ -990,6 +986,11 @@ final class CraftEngineItems {
                     "furniture settings " + String.join(", ", skipped) + " have no RP Engine equivalent and were "
                             + "skipped. The piece itself still places."));
         }
+        if (get(furniture, "event", "events") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "furniture events are CraftEngine's own scripting and were skipped. The piece itself still "
+                            + "places."));
+        }
         return place;
     }
 
@@ -1282,10 +1283,30 @@ final class CraftEngineItems {
         if (itemText != null) {
             if (itemText.get("name") != null) out.put("name", itemText.get("name"));
             if (itemText.get("lore") != null) out.put("lore", itemText.get("lore"));
-            if (itemText.get("actions") != null) out.put("actions", itemText.get("actions"));
         }
 
-        CraftEngineBlocks.translate(library, entry, out, diagnostics);
+        Map<String, Object> state = map(get(entry.body, "state", "states"));
+        Map<String, Object> appearance = state;
+        if (state != null) {
+            Map<String, Object> properties = map(state.get("properties"));
+            Map<String, Object> appearances = map(get(state, "appearance", "appearances"));
+            if (properties != null && !properties.isEmpty()) {
+                String first = appearances == null || appearances.isEmpty() ? null : appearances.keySet().iterator().next();
+                appearance = first == null ? state : map(appearances.get(first));
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "has the block state properties " + String.join(", ", properties.keySet()) + ". An RP Engine "
+                                + "block has one state, so it came across as "
+                                + (first == null ? "its default" : "its " + first + " appearance") + "."));
+            } else if (appearances != null && appearances.size() == 1) {
+                appearance = map(appearances.values().iterator().next());
+            }
+        }
+        if (appearance == null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "has no state, so there is nothing to draw it with; it renders as a plain note block."));
+            appearance = new LinkedHashMap<>();
+        }
+        blockAppearance(entry, appearance, out, library.generated, diagnostics);
         if (itemModel != null && out.get("model") != null && !itemModel.equals(String.valueOf(out.get("model")))) {
             diagnostics.add(Diagnostic.warning(origin, id,
                     "the item that places it has a model of its own. In RP Engine a block's item wears the "
@@ -1311,8 +1332,10 @@ final class CraftEngineItems {
         }
         sound(entry, map(settings.get("sounds")), out, diagnostics);
         Double luminance = number(settings.get("luminance"));
-        if (luminance != null && luminance > 0 && !"bulb".equals(out.get("shape"))) {
-            out.put("light", luminance.intValue());
+        if (luminance != null && luminance > 0) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "luminance: a custom block cannot give off light here - it belongs to the block's type, not "
+                            + "its state. A placed model can."));
         }
         List<String> skipped = new ArrayList<>();
         for (Map.Entry<String, Object> setting : settings.entrySet()) {
@@ -1336,34 +1359,112 @@ final class CraftEngineItems {
             drop(library, entry, map(loot), out, false, diagnostics);
         }
 
-        clickCycles(entry, out);
-        CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.BLOCK, true, id,
-                origin, diagnostics, out);
+        List<String> behaviours = new ArrayList<>();
+        for (Object raw : list(get(entry.body, "behavior", "behaviors"))) {
+            Map<String, Object> behaviour = map(raw);
+            if (behaviour != null) behaviours.add(type(behaviour.get("type")));
+        }
+        if (!behaviours.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "the block behaviours " + String.join(", ", behaviours) + " are CraftEngine's own and were "
+                            + "skipped. The block itself still places."));
+        }
+        if (get(entry.body, "event", "events") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "block events are CraftEngine's own scripting and were skipped."));
+        }
         return out;
     }
 
-    /**
-     * A right-click event that only turns one of the block's properties over
-     * ({@code cycle_block_property}, as a lamp or a safe does) is the block's
-     * own {@code click:} here, which needs no action at all.
-     */
-    private static void clickCycles(CraftEngine.Entry entry, Map<String, Object> out) {
-        for (Object raw : list(get(entry.body, "event", "events"))) {
-            Map<String, Object> event = map(raw);
-            if (event == null) continue;
-            // YAML reads a bare on: as true, which CraftEngine's own reader allows for.
-            boolean rightClick = false;
-            for (String on : strings(event.containsKey("on") ? event.get("on") : event.get("true"))) {
-                rightClick |= on.endsWith("right_click") || on.endsWith("use_on") || on.endsWith("use");
+    /** The vanilla blocks an {@code auto_state} draws from, as RP Engine's two bases. */
+    private static void blockAppearance(CraftEngine.Entry entry, Map<String, Object> appearance,
+                                        Map<String, Object> out, Map<String, Map<String, Object>> generatedModels,
+                                        List<Diagnostic> diagnostics) {
+        String id = entry.id;
+        String origin = entry.origin;
+        Object auto = get(appearance, "auto_state");
+        String group = auto instanceof Map<?, ?> detail
+                ? String.valueOf(CraftEngineYaml.cast(detail).getOrDefault("type", "solid"))
+                : auto == null ? null : auto.toString();
+        if (group != null) {
+            group = group.toLowerCase(Locale.ROOT);
+            switch (group) {
+                case "solid":
+                case "note_block":
+                    break;
+                case "mushroom":
+                case "mushroom_stem":
+                case "brown_mushroom_block":
+                case "red_mushroom_block":
+                    out.put("base", "mushroom_stem");
+                    break;
+                default:
+                    diagnostics.add(Diagnostic.warning(origin, id,
+                            "auto_state " + group + " is not a full block, and RP Engine custom blocks are full "
+                                    + "cubes inside a note block. It came across as one; a placed model suits a "
+                                    + "plant or a decoration better."));
             }
-            if (!rightClick) continue;
-            for (Object function : list(get(event, "function", "functions"))) {
-                Map<String, Object> step = map(function);
-                if (step != null && type(step.get("type")).equals("cycle_block_property")
-                        && string(step.get("property")) != null) {
-                    out.putIfAbsent("click", string(step.get("property")));
+        } else if (string(appearance.get("state")) != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "takes the vanilla state " + appearance.get("state") + " for itself; RP Engine hands out the "
+                            + "state, in a note block."));
+        }
+        if (truthy(appearance.get("transparent"))) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "transparent: true draws nothing; RP Engine draws the block's model, so it was skipped."));
+        }
+        for (String key : List.of("x", "y", "z", "uvlock")) {
+            Object turn = appearance.get(key);
+            if (turn != null && !"0".equals(turn.toString()) && !"false".equals(turn.toString())) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "its model is turned (" + key + "), which an RP Engine block model is not; turn the "
+                                + "model itself."));
+                break;
+            }
+        }
+        if (get(appearance, "entity_render", "entity_renderer") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "entity_renderer draws display entities on the block, which RP Engine blocks do not have."));
+        }
+        List<String> textures = strings(get(appearance, "texture", "textures"));
+        if (!textures.isEmpty()) {
+            out.put("model", cube(textures));
+            return;
+        }
+        Object model = get(appearance, "model", "models");
+        if (model instanceof List<?> weighted) {
+            if (weighted.size() > 1) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "picks one of " + weighted.size() + " models at random; RP Engine draws the first."));
+            }
+            model = weighted.isEmpty() ? null : weighted.get(0);
+        }
+        if (model instanceof String path) {
+            out.put("model", known(location(path), generatedModels));
+        } else if (map(model) != null) {
+            Map<String, Object> declared = map(model);
+            List<String> modelTextures = strings(get(declared, "texture", "textures"));
+            Map<String, Object> generation = map(declared.get("generation"));
+            if (!modelTextures.isEmpty()) {
+                out.put("model", cube(modelTextures));
+            } else if (generation != null) {
+                out.put("model", generated(generation));
+            } else if (string(get(declared, "path", "model")) != null) {
+                out.put("model", known(location(string(get(declared, "path", "model"))), generatedModels));
+            }
+            for (String key : List.of("x", "y", "z")) {
+                Double turn = number(declared.get(key));
+                if (turn != null && turn != 0) {
+                    diagnostics.add(Diagnostic.warning(origin, id,
+                            "its model is turned (" + key + ": " + trim(turn) + "), which an RP Engine block model "
+                                    + "is not; turn the model itself."));
+                    break;
                 }
             }
+        } else if (get(appearance, "blueprint") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "blueprint is CraftEngine's own Blockbench reader; save the .bbmodel into assets/models/ and "
+                            + "set the block's model: to it."));
         }
     }
 

@@ -14,7 +14,6 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
@@ -101,8 +100,6 @@ public final class ModelPlacementListener implements Listener {
         this.displayKey = new NamespacedKey(plugin, "model-display");
         this.solidKey = new NamespacedKey(plugin, "model-solid");
         this.lightKey = new NamespacedKey(plugin, "model-light");
-        this.stateKey = new NamespacedKey(plugin, "model-state");
-        this.placedAtKey = new NamespacedKey(plugin, "model-placed");
         this.rigs = rigs;
         this.animator = animator;
         this.spawns = new RigSpawn(host, animator);
@@ -115,66 +112,6 @@ public final class ModelPlacementListener implements Listener {
     /** Who to tell when a piece comes or goes, for players the displays do not reach. */
     private ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
             ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
-
-    /** What a piece's own actions do when it is put down, clicked or broken. */
-    private ai.resourcepack.engine.core.item.ActionRunner actions;
-
-    public void actions(ai.resourcepack.engine.core.item.ActionRunner actions) {
-        this.actions = actions;
-    }
-
-    /**
-     * Runs the piece's actions for {@code trigger}.
-     *
-     * <p>With no stack: the click is on the piece, not on whatever the player
-     * is holding, so a {@code take} step must not eat their held item.
-     *
-     * @return whether a {@code cancel} step asked for the click's own effect to be stopped
-     */
-    private boolean act(Player player, ContentId id, ai.resourcepack.engine.api.ItemAction.Trigger trigger) {
-        return act(player, id, trigger, null);
-    }
-
-    /** As above, about the piece standing at {@code at}, where a particle step draws. */
-    private boolean act(Player player, ContentId id, ai.resourcepack.engine.api.ItemAction.Trigger trigger,
-                        Location at) {
-        return actions != null && player != null && actions.run(player, modelItem(id), trigger, null,
-                at == null ? null : at.clone().add(0, 0.5, 0));
-    }
-
-    /** Opens a piece that holds items. Null until wired, and then a piece is just a piece. */
-    private ai.resourcepack.engine.core.storage.Storages storages;
-
-    public void storages(ai.resourcepack.engine.core.storage.Storages storages) {
-        this.storages = storages;
-    }
-
-    /**
-     * Which of its {@code states:} a piece is in, on its hitbox, so a lamp left
-     * on is still on after a restart. Absent is 0, the piece as defined.
-     */
-    private final NamespacedKey stateKey;
-
-    /** A piece's pending {@code reset-after}, by hitbox. One per piece, replaced on every click. */
-    private final Map<UUID, org.bukkit.scheduler.BukkitTask> resets = new java.util.HashMap<>();
-
-    /** How long a door takes to swing, in ticks. Short: it is a click, not a cutscene. */
-    private static final int SWING_TICKS = 5;
-
-    /** This server's own sounds, for a state's sound named by a content id. */
-    private ai.resourcepack.engine.api.Sounds sounds;
-
-    public void sounds(ai.resourcepack.engine.api.Sounds sounds) {
-        this.sounds = sounds;
-    }
-
-    /** Plays discs in a piece that is a jukebox. Null until wired. */
-    private PieceJukebox jukeboxes;
-
-    /** How this server tells a music disc from anything else; see {@link Discs}. */
-    public void discs(Discs discs) {
-        this.jukeboxes = discs == null ? null : new PieceJukebox(plugin, discs);
-    }
 
     public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
         this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
@@ -291,8 +228,6 @@ public final class ModelPlacementListener implements Listener {
             held.setAmount(held.getAmount() - 1);
         }
         player.swingMainHand();
-        act(player, info.id(), ai.resourcepack.engine.api.ItemAction.Trigger.PLACE,
-                target.getLocation().add(0.5, 0, 0.5));
     }
 
     /** Snaps the player's yaw the way this piece asked to be faced. */
@@ -316,19 +251,6 @@ public final class ModelPlacementListener implements Listener {
         ItemStack shown = source != null && source.getType() != Material.AIR
                 ? asOne(source)
                 : items.create(info.item()).orElse(null);
-        // A shulker-style piece put down from an item that was carrying its
-        // contents: the bytes move onto the hitbox as they are, and the stack
-        // the display shows is stripped of them. Left on the display, they
-        // would come back out on the next break as a second copy of everything.
-        // Only when this piece keeps contents of its own: a pack that changed
-        // the type since leaves them on the stack, which a break hands back.
-        byte[] carried = storages == null
-                || !info.storage().map(one -> one.type().keepsContents()).orElse(false)
-                ? null
-                : storages.carried(shown);
-        if (carried != null) {
-            storages.withoutContents(shown);
-        }
 
         // An animated piece is several displays the server retimes rather than
         // one still one. Everything below — the hitbox, the barrier, the
@@ -394,20 +316,12 @@ public final class ModelPlacementListener implements Listener {
                 i.getPersistentDataContainer().set(displaysKey, PersistentDataType.STRING,
                         String.join(",", partIds));
             }
-            if (carried != null) {
-                i.getPersistentDataContainer().set(storages.contentsKey(), PersistentDataType.BYTE_ARRAY, carried);
+            if (info.solid()) {
+                i.getPersistentDataContainer().set(solidKey, PersistentDataType.BYTE, (byte) 1);
+            } else if (info.light() > 0) {
+                i.getPersistentDataContainer().set(lightKey, PersistentDataType.BYTE, (byte) 1);
             }
-            // When it went down, on every piece and not only the ones that
-            // grow: a pack that gives a piece `grow:` later then counts from
-            // the real placement. The game's tick count rather than its clock,
-            // because /time set and a frozen daylight cycle both move or stop
-            // the clock, and a crop on a server with the sun turned off would
-            // never grow.
-            i.getPersistentDataContainer().set(placedAtKey, PersistentDataType.LONG, world.getGameTime());
         });
-        if (growth != null && info.grow().isPresent()) {
-            growth.track(hitbox);
-        }
 
         // Before the place trigger, so its animation reaches the Bedrock copy.
         bedrock.rigPlaced(hitbox, info.id().toString());
@@ -416,79 +330,23 @@ public final class ModelPlacementListener implements Listener {
             animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, null);
         }
 
-        anchor(hitbox, info.solid(), info.light());
-        if (!info.connects().isEmpty()) {
-            // It and the pieces it now joins take their places in the row.
-            rejoin(target);
-        }
-        return hitbox;
-    }
-
-    /**
-     * Makes the block a piece stands in what it should be: a barrier, a light
-     * of some level, or nothing of ours.
-     *
-     * <p>One method for placing a piece and for every state it is clicked
-     * into, because a lamp switched on after it was placed has to get its light
-     * the same way one placed lit does, and lose it the same way when it is
-     * switched off.
-     *
-     * <p><strong>Only ever a block WE put there, or air.</strong> A display
-     * entity does not collide, so a player can put their own light or block in
-     * the space a model occupies, and a state change that wrote over it would
-     * delete it. So what is ours is recorded on the hitbox (the solid and light
-     * keys), a recorded block that is not there any more is forgotten rather
-     * than trusted, and anything else standing there is left alone — at the
-     * cost of the piece not being solid or lit in that state.
-     *
-     * <p>A barrier and a light would have to be the same block, so a solid
-     * state gives no light: the barrier wins.
-     */
-    private void anchor(Interaction hitbox, boolean solid, int light) {
-        org.bukkit.persistence.PersistentDataContainer data = hitbox.getPersistentDataContainer();
-        Block block = hitbox.getLocation().getBlock();
-        boolean ourBarrier = data.has(solidKey, PersistentDataType.BYTE) && block.getType() == Material.BARRIER;
-        boolean ourLight = data.has(lightKey, PersistentDataType.BYTE) && block.getType() == Material.LIGHT;
-        if (!ourBarrier) {
-            data.remove(solidKey);
-        }
-        if (!ourLight) {
-            data.remove(lightKey);
-        }
-        boolean free = block.getType().isAir() || ourBarrier || ourLight;
-
-        if (solid) {
-            if (ourBarrier || !free) {
-                return;
-            }
+        if (info.solid()) {
             // A display entity has no collision whatsoever. This is the only
             // way to make a table something you cannot walk through.
-            data.remove(lightKey);
-            block.setType(Material.BARRIER, false);
-            data.set(solidKey, PersistentDataType.BYTE, (byte) 1);
-        } else if (light > 0) {
-            if (!free) {
-                return;
-            }
+            target.setType(Material.BARRIER, false);
+        } else if (info.light() > 0) {
             // A display entity emits nothing either, so a lamp needs a real
-            // light block standing in its anchor.
-            data.remove(solidKey);
-            if (!ourLight) {
-                block.setType(Material.LIGHT, false);
+            // light block standing in its anchor. Only where there is no
+            // barrier: one block cannot be both, and a solid piece has already
+            // spent it.
+            target.setType(Material.LIGHT, false);
+            org.bukkit.block.data.BlockData data = target.getBlockData();
+            if (data instanceof org.bukkit.block.data.Levelled) {
+                ((org.bukkit.block.data.Levelled) data).setLevel(info.light());
+                target.setBlockData(data, false);
             }
-            org.bukkit.block.data.BlockData blockData = block.getBlockData();
-            if (blockData instanceof org.bukkit.block.data.Levelled) {
-                ((org.bukkit.block.data.Levelled) blockData).setLevel(light);
-                block.setBlockData(blockData, false);
-            }
-            data.set(lightKey, PersistentDataType.BYTE, (byte) 1);
-        } else {
-            if (ourBarrier || ourLight) {
-                block.setType(Material.AIR, false);
-            }
-            data.remove(solidKey);
-            data.remove(lightKey);
         }
+        return hitbox;
     }
 
     /**
@@ -536,55 +394,6 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
-        // The pack's own click actions come first, and a cancel in them is
-        // the author saying this piece is a button rather than a chair.
-        if (act(event.getPlayer(), id.get(), ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT,
-                hitbox.getLocation())) {
-            event.setCancelled(true);
-            return;
-        }
-
-        ModelInfo piece = model.get(id.get());
-        Player clicker = event.getPlayer();
-        // Sneaking on a piece that is also a seat sits; everything a plain
-        // click does below gives way to that. A cabinet you keep sitting in
-        // and a chair you can never open are both broken, and the sneak is how
-        // a player says which one they meant.
-        boolean sitInstead = piece != null && piece.sittable() && clicker.isSneaking();
-
-        // A container takes a plain click, and nothing after it runs: a
-        // storage piece that also seated people on the same click would open
-        // and sit at once.
-        if (piece != null && piece.storage().isPresent() && storages != null && !sitInstead) {
-            event.setCancelled(true);
-            openStorage(clicker, hitbox, piece);
-            return;
-        }
-
-        // A disc in hand goes in; a disc already in comes out. Anything else
-        // is not a jukebox click and carries on down the chain.
-        if (piece != null && piece.jukebox().isPresent() && jukeboxes != null && !sitInstead
-                && jukeboxes.click(clicker, hitbox, piece.jukebox().get())) {
-            event.setCancelled(true);
-            refreshLook(hitbox, piece);
-            return;
-        }
-
-        // The next state: the lamp goes on, the door swings. An animated
-        // piece's own right-click animation plays as well, because that is
-        // how a rig door shows itself opening — a rig cannot be turned or
-        // re-modelled whole the way a still piece can.
-        if (piece != null && !piece.states().isEmpty() && !sitInstead) {
-            event.setCancelled(true);
-            int next = piece.nextState(stateOf(hitbox));
-            enterState(hitbox, piece, next);
-            scheduleReset(hitbox, piece, next);
-            if (animator != null && animator.hasTrigger(id.get().toString(), RigAnimations.TRIGGER_RIGHT_CLICK)) {
-                animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, clicker);
-            }
-            return;
-        }
-
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
@@ -600,465 +409,9 @@ public final class ModelPlacementListener implements Listener {
         // thing to do about that. Everything else a click might mean is still
         // a decision about somebody's server, which is what the event is for —
         // and a listener that cancels gets its way before this runs.
-        if (piece != null && piece.sittable()) {
-            seats.sit(clicker, seatOf(hitbox, piece));
-        }
-    }
-
-    // ---- what it looks like --------------------------------------------
-
-    /**
-     * Whether anything can put a different model on this piece's display
-     * after it is placed.
-     */
-    private static boolean changesLook(ModelInfo info) {
-        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent() || !info.connects().isEmpty()) {
-            return true;
-        }
-        for (ModelInfo.State state : info.states()) {
-            if (state.model().isPresent()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * The item (or model) whose model this piece should be wearing right now.
-     *
-     * <p>Worked out from what the piece holds and nothing else, rather than
-     * remembered: a playing gramophone is the playing model however it came to
-     * be playing, and restoring after the disc comes out is the same question
-     * asked again.
-     */
-    private ContentId lookOf(Interaction hitbox, ModelInfo info) {
-        Optional<ContentId> playing = info.jukebox().flatMap(ModelInfo.Jukebox::playingModel);
-        if (playing.isPresent() && jukeboxes != null && jukeboxes.holding(hitbox)) {
-            return playing.get();
-        }
-        Optional<ContentId> stated = info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model);
-        if (stated.isPresent()) {
-            return stated.get();
-        }
-        Connection joined = connection(hitbox, info);
-        if (joined != null) {
-            return info.connects().getOrDefault(joined.shape, info.item());
-        }
-        return info.item();
-    }
-
-    // ---- joining the pieces beside it ----------------------------------
-
-    /** A shape in a row of joining pieces, and the quarter turns its look takes on top of the piece's own. */
-    private record Connection(String shape, int quarterTurns) {
-    }
-
-    /**
-     * Where a joining piece is in its row, or null when it stands alone.
-     *
-     * <p>The rule is the game's own for stairs, so a corner model drawn as the
-     * game draws its inner and outer stairs turns the right way: a piece whose
-     * front or back touches one of its kind turned a quarter is a corner - the
-     * back an inner one, the front an outer one - turned back a quarter when
-     * that neighbour faces its left. Otherwise it is the middle of a row with
-     * one of its kind on each side, the {@code left} end with one only on its
-     * right, the {@code right} end with one only on its left. Facing is the way
-     * the piece was put down (its stored yaw), not any turn a state adds.
-     */
-    private Connection connection(Interaction hitbox, ModelInfo info) {
-        if (info.connects().isEmpty()) {
-            return null;
-        }
-        Block at = hitbox.getLocation().getBlock();
-        BlockFace facing = facingOf(hitbox);
-        BlockFace front = neighbourFacing(at.getRelative(facing), info);
-        if (front != null && axisOf(front) != axisOf(facing)) {
-            return new Connection("outer", front == counterClockwise(facing) ? -1 : 0);
-        }
-        BlockFace back = neighbourFacing(at.getRelative(facing.getOppositeFace()), info);
-        if (back != null && axisOf(back) != axisOf(facing)) {
-            return new Connection("inner", back == counterClockwise(facing) ? -1 : 0);
-        }
-        boolean left = sameRow(at.getRelative(counterClockwise(facing)), info, facing);
-        boolean right = sameRow(at.getRelative(clockwise(facing)), info, facing);
-        if (left && right) {
-            return new Connection("straight", 0);
-        }
-        if (right) {
-            return new Connection("left", 0);
-        }
-        if (left) {
-            return new Connection("right", 0);
-        }
-        return null;
-    }
-
-    /** Whether a piece of the same kind, facing the same way, stands in {@code block}. */
-    private boolean sameRow(Block block, ModelInfo info, BlockFace facing) {
-        return neighbourFacing(block, info) == facing;
-    }
-
-    /** Which way the piece of {@code info}'s kind standing in {@code block} faces, or null. */
-    private BlockFace neighbourFacing(Block block, ModelInfo info) {
-        Interaction other = findAt(block);
-        if (other == null || idOf(other).filter(info.id()::equals).isEmpty()) {
-            return null;
-        }
-        return facingOf(other);
-    }
-
-    /** The way a piece faces, from the yaw it was placed with. Yaw 0 faces south. */
-    private BlockFace facingOf(Interaction hitbox) {
-        Float yaw = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
-        int quarter = Math.floorMod(Math.round((yaw == null ? hitbox.getLocation().getYaw() : yaw) / 90f), 4);
-        switch (quarter) {
-            case 1:
-                return BlockFace.WEST;
-            case 2:
-                return BlockFace.NORTH;
-            case 3:
-                return BlockFace.EAST;
-            default:
-                return BlockFace.SOUTH;
-        }
-    }
-
-    private static BlockFace clockwise(BlockFace face) {
-        switch (face) {
-            case NORTH:
-                return BlockFace.EAST;
-            case EAST:
-                return BlockFace.SOUTH;
-            case SOUTH:
-                return BlockFace.WEST;
-            default:
-                return BlockFace.NORTH;
-        }
-    }
-
-    private static BlockFace counterClockwise(BlockFace face) {
-        return clockwise(clockwise(clockwise(face)));
-    }
-
-    private static boolean axisOf(BlockFace face) {
-        return face == BlockFace.NORTH || face == BlockFace.SOUTH;
-    }
-
-    /**
-     * Re-reads the shape of every joining piece in and around {@code block},
-     * after one was put down or taken away there.
-     */
-    private void rejoin(Block block) {
-        for (BlockFace face : new BlockFace[] {BlockFace.SELF, BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH,
-                BlockFace.WEST}) {
-            Interaction piece = findAt(block.getRelative(face));
-            if (piece == null) {
-                continue;
-            }
-            ModelInfo info = idOf(piece).map(model::get).orElse(null);
-            if (info != null && !info.connects().isEmpty()) {
-                refreshLook(piece, info);
-            }
-        }
-    }
-
-    /**
-     * The model id an item renders through, or the id itself if it is not an
-     * item — which is how a pack names a model with no item of its own.
-     */
-    private ContentId modelOf(ContentId itemOrModel) {
-        return items.info(itemOrModel).map(ai.resourcepack.engine.api.ItemInfo::modelId).orElse(itemOrModel);
-    }
-
-    /**
-     * Puts on the display whatever {@link #lookOf} says.
-     *
-     * <p>Only on a still piece. An animated one is several displays each
-     * wearing a part, and a whole-piece model swapped onto every part would
-     * be the whole model drawn once per bone.
-     */
-    private void refreshLook(Interaction hitbox, ModelInfo info) {
-        ItemDisplay display = stillDisplay(hitbox);
-        if (display == null || !changesLook(info)) {
-            return;
-        }
-        ItemStack stack = display.getItemStack();
-        if (stack == null || stack.getType().isAir()) {
-            return;
-        }
-        items.wearModel(stack, modelOf(lookOf(hitbox, info)));
-        display.setItemStack(stack);
-        if (!info.connects().isEmpty() && info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model).isEmpty()) {
-            // A corner is its model turned a quarter more or less than the
-            // piece; anything else wears the piece's own heading.
-            Connection joined = connection(hitbox, info);
-            Float yaw = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
-            float base = yaw == null ? hitbox.getLocation().getYaw() : yaw;
-            display.setRotation(base + 90f * (joined == null ? 0 : joined.quarterTurns), 0f);
-        }
-    }
-
-    /** The one display of a still piece, or null for an animated one or a missing one. */
-    private ItemDisplay stillDisplay(Interaction hitbox) {
-        if (hitbox.getPersistentDataContainer().has(rigModelKey, PersistentDataType.STRING)) {
-            return null;
-        }
-        List<String> ids = displayIdsOf(hitbox);
-        if (ids.size() != 1) {
-            return null;
-        }
-        try {
-            Entity display = Bukkit.getEntity(UUID.fromString(ids.get(0)));
-            return display instanceof ItemDisplay ? (ItemDisplay) display : null;
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    /** Whether this piece is an animated one, several displays the animator poses. */
-    private boolean isRig(ModelInfo info) {
-        RigStore.Rig rig = rigs == null ? null : rigs.get(info.id().toString());
-        return rig != null && rig.parts != null && !rig.parts.isEmpty();
-    }
-
-    /**
-     * What a pack asked of an animated piece that only a still one can do.
-     *
-     * <p>Run after a reload has registered the rigs, which is the first moment
-     * anybody knows which pieces animate — the definition parser does not.
-     */
-    public List<ai.resourcepack.engine.api.Diagnostic> rigDiagnostics() {
-        List<ai.resourcepack.engine.api.Diagnostic> found = new ArrayList<>();
-        for (ModelInfo info : model.values()) {
-            if (!isRig(info)) {
-                continue;
-            }
-            if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent()) {
-                found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
-                        "jukebox playing-model: does nothing on an animated piece, whose look is its "
-                                + "parts. It plays without changing."));
-            }
-            for (int i = 0; i < info.states().size(); i++) {
-                ModelInfo.State state = info.states().get(i);
-                if (state.model().isPresent() || state.moves()) {
-                    found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
-                            "state " + (i + 1) + ": model, turn and offset do nothing on an animated piece, "
-                                    + "whose parts are posed by its animation. Its light, solid and sound "
-                                    + "still change; give it a right-click animation to show the change."));
-                }
-            }
-        }
-        return found;
-    }
-
-    // ---- states ----------------------------------------------------------
-
-    /** Which state a piece is in. 0, the piece as defined, if it never said. */
-    private int stateOf(Interaction hitbox) {
-        Integer stored = hitbox.getPersistentDataContainer().get(stateKey, PersistentDataType.INTEGER);
-        return stored == null ? 0 : stored;
-    }
-
-    /**
-     * Puts a piece into state {@code index}: its block, its model, its angle
-     * and position, and the sound of getting there.
-     *
-     * <p>Everything is set from the state rather than changed from the last
-     * one, so going from any state to any other is the same call and a piece
-     * whose pack changed under it lands somewhere coherent.
-     */
-    private void enterState(Interaction hitbox, ModelInfo info, int index) {
-        if (index == 0) {
-            hitbox.getPersistentDataContainer().remove(stateKey);
-        } else {
-            hitbox.getPersistentDataContainer().set(stateKey, PersistentDataType.INTEGER, index);
-        }
-        boolean solid = info.solidIn(index);
-        anchor(hitbox, solid, solid ? 0 : info.lightIn(index));
-        refreshLook(hitbox, info);
-        pose(hitbox, info, info.state(index).orElse(null));
-        String sound = index == 0
-                ? info.baseSound().orElse(null)
-                : info.state(index).flatMap(ModelInfo.State::sound).orElse(null);
-        ai.resourcepack.engine.core.sound.SoundAt.play(sounds, hitbox.getLocation().add(0, 0.5, 0), sound,
-                org.bukkit.SoundCategory.BLOCKS, 1f, 1f);
-    }
-
-    /**
-     * Turns and moves a still piece's display for a state.
-     *
-     * <p>Through the display's transformation rather than its yaw, for two
-     * reasons. The translation of a transformation is in the display's OWN
-     * frame — right, up, forward of the piece as placed — which is exactly the
-     * frame a state's offset is written in, so a sliding door slides along
-     * itself whichever way it was put down; and a transformation change is
-     * interpolated by the client, so a door swings rather than teleporting
-     * open. The turn goes in the left rotation, after the translation, so a
-     * piece turns about its own centre and THEN moves — which is how a hinge is
-     * written: a quarter turn, and an offset to put the edge back on the hinge.
-     *
-     * <p>The yaw stored on the hitbox is left alone. It is what vehicles turn
-     * the model's boxes by, and the hitbox does not swing with the door.
-     */
-    private void pose(Interaction hitbox, ModelInfo info, ModelInfo.State state) {
-        boolean anyMoves = false;
-        for (ModelInfo.State one : info.states()) {
-            anyMoves |= one.moves();
-        }
-        if (!anyMoves) {
-            // Never touched, so a plain lamp's display is exactly what place()
-            // made of it.
-            return;
-        }
-        ItemDisplay display = stillDisplay(hitbox);
-        if (display == null) {
-            return;
-        }
-        Transformation now = display.getTransformation();
-        org.joml.Vector3f translation = state == null
-                ? new org.joml.Vector3f()
-                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ()).mul(info.scale());
-        // Adding to a yaw is a NEGATIVE turn about y: the display is drawn
-        // turned by -yaw, so this composes into -(yaw + turn).
-        org.joml.Quaternionf turn = state == null
-                ? new org.joml.Quaternionf()
-                : new org.joml.Quaternionf().rotateY((float) Math.toRadians(-state.turn()));
-        display.setInterpolationDelay(0);
-        display.setInterpolationDuration(SWING_TICKS);
-        display.setTransformation(new Transformation(translation, turn, now.getScale(), now.getRightRotation()));
-    }
-
-    /**
-     * Books the piece's return to the piece as defined, replacing any return
-     * already booked. A door clicked twice shuts after the second click, not
-     * the first.
-     */
-    private void scheduleReset(Interaction hitbox, ModelInfo info, int index) {
-        UUID uuid = hitbox.getUniqueId();
-        org.bukkit.scheduler.BukkitTask pending = resets.remove(uuid);
-        if (pending != null) {
-            pending.cancel();
-        }
-        if (index == 0 || info.stateResetTicks() <= 0) {
-            return;
-        }
-        ContentId id = info.id();
-        resets.put(uuid, Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            resets.remove(uuid);
-            Entity entity = Bukkit.getEntity(uuid);
-            ModelInfo current = model.get(id);
-            // Gone, unloaded, or already back: nothing to do. An unloaded one
-            // is booked again when its chunk comes back; see onLoad.
-            if (entity instanceof Interaction && entity.isValid() && current != null
-                    && stateOf((Interaction) entity) != 0) {
-                enterState((Interaction) entity, current, 0);
-            }
-        }, info.stateResetTicks()));
-    }
-
-    /**
-     * A piece left in a state that resets itself, coming back with its chunk,
-     * gets its reset booked again — from now, because how long it was away is
-     * not something an unloaded chunk counted.
-     */
-    @EventHandler
-    public void onLoad(org.bukkit.event.world.EntitiesLoadEvent event) {
-        for (Entity entity : event.getEntities()) {
-            adopt(entity);
-        }
-    }
-
-    /**
-     * Everything already standing in a loaded chunk, as {@link #onLoad} would
-     * have seen it. For startup and reload: the chunks round spawn are loaded
-     * before this plugin is, so their load events have been and gone.
-     */
-    public void adoptLoaded() {
-        for (World world : Bukkit.getWorlds()) {
-            for (Interaction hitbox : world.getEntitiesByClass(Interaction.class)) {
-                adopt(hitbox);
-            }
-        }
-    }
-
-    private void adopt(Entity entity) {
-        if (!(entity instanceof Interaction)) {
-            return;
-        }
-        Interaction hitbox = (Interaction) entity;
-        ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
-        if (info == null) {
-            return;
-        }
-        if (info.stateResetTicks() > 0) {
-            int state = stateOf(hitbox);
-            if (state != 0 && !resets.containsKey(hitbox.getUniqueId())) {
-                scheduleReset(hitbox, info, state);
-            }
-        }
-        if (growth != null && info.grow().isPresent()) {
-            growth.track(hitbox);
-        }
-    }
-
-    /** Every booked reset forgotten. The plugin is going, and its tasks with it. */
-    public void stop() {
-        for (org.bukkit.scheduler.BukkitTask task : resets.values()) {
-            task.cancel();
-        }
-        resets.clear();
-    }
-
-    // ---- storage -------------------------------------------------------
-
-    /**
-     * Where a piece's own contents live: on its hitbox.
-     *
-     * <p>Keyed by the hitbox's uuid, which is what makes every player who
-     * opens this piece share one live inventory, and what the unload handler
-     * closes by.
-     */
-    private ai.resourcepack.engine.core.storage.StorageHolder storageOf(Interaction hitbox) {
-        return new ai.resourcepack.engine.core.storage.PdcStorage(storageKey(hitbox.getUniqueId()),
-                hitbox.getPersistentDataContainer(), storages.contentsKey(), plugin.getLogger());
-    }
-
-    private static String storageKey(UUID hitbox) {
-        return "piece/" + hitbox;
-    }
-
-    private void openStorage(Player player, Interaction hitbox, ModelInfo info) {
-        // The item's own name when the pack did not give the screen one, so a
-        // cabinet called "Oak Cabinet" in your hand is called that when open.
-        String title = items.info(info.item()).flatMap(ai.resourcepack.engine.api.ItemInfo::name)
-                .orElse("Storage");
-        storages.open(player, info.storage().get(), info.item(), storageOf(hitbox), title,
-                hitbox.getLocation().add(0, 0.5, 0));
-    }
-
-    /**
-     * Whatever a piece's chunk is taking away is saved and closed while it is
-     * still there to save onto.
-     *
-     * <p>Reachable only by a viewer who has wandered off — opening needs a
-     * click within reach — but a teleport with a screen open is exactly that,
-     * and the save after this would land on an entity that no longer exists.
-     */
-    @EventHandler
-    public void onUnload(org.bukkit.event.world.EntitiesUnloadEvent event) {
-        for (Entity entity : event.getEntities()) {
-            if (entity instanceof Interaction
-                    && entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)) {
-                if (storages != null) {
-                    storages.close(storageKey(entity.getUniqueId()));
-                }
-                // Not checked while its chunk is away. The time still counts,
-                // so it may grow at the first check after it comes back — one
-                // stage, because what it grows into starts its own clock then.
-                if (growth != null) {
-                    growth.forget(entity.getUniqueId());
-                }
-            }
+        ModelInfo info = model.get(id.get());
+        if (info != null && info.sittable()) {
+            seats.sit(event.getPlayer(), seatOf(hitbox, info));
         }
     }
 
@@ -1127,87 +480,6 @@ public final class ModelPlacementListener implements Listener {
 
         Location where = hitbox.getLocation();
         World world = where.getWorld();
-        Dismantled gone = dismantle(hitbox, model.get(id));
-        if (model.get(id) != null && !model.get(id).connects().isEmpty()) {
-            // The pieces it was joined to close up behind it.
-            rejoin(where.getBlock());
-        }
-        // After it is gone, so an action that gives something back or runs a
-        // command about the space finds it empty, as a broken piece is.
-        act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE, where);
-
-        if (world == null) {
-            return;
-        }
-        if (!ask.isDropItem()) {
-            // The piece is not given back — a creative break, or a plugin that
-            // said so — but what was IN it was never the piece's to lose. It
-            // spills, as a chest's contents do whoever breaks the chest.
-            spill(world, where, gone.contents);
-            return;
-        }
-        // A configured drop beats what it was holding: a piece that gives
-        // back something other than itself is a decision the pack made, and
-        // the display's own stack is only the default answer.
-        ItemStack configured = model.containsKey(id)
-                ? model.get(id).drop().flatMap(items::create).orElse(null)
-                : null;
-        ItemStack fallback = configured != null
-                ? configured
-                : gone.shown != null ? gone.shown : items.create(modelItem(id)).orElse(null);
-        List<ItemStack> contents = gone.contents;
-        if (gone.keepInside && fallback != null) {
-            // A shulker-style piece goes back into the item, contents and all.
-            storages.keepInside(fallback, contents);
-            contents = List.of();
-        }
-        if (fallback != null) {
-            world.dropItemNaturally(where.clone().add(0, 0.5, 0), fallback);
-        }
-        spill(world, where, contents);
-    }
-
-    /**
-     * Takes a piece out of the world and hands back what it leaves: every
-     * display, the hitbox, the block it put down, anybody sitting on it, a
-     * pending reset, a disc (dropped at once) and a container's contents
-     * (returned, for the caller to spill or pack).
-     *
-     * <p>Shared by breaking and growing, which differ only in what is given
-     * back afterwards and which events are fired — neither of which is here.
-     */
-    private Dismantled dismantle(Interaction hitbox, ModelInfo info) {
-        Location where = hitbox.getLocation();
-
-        // What it was holding, taken out FIRST: every view of it is closed and
-        // emptied before anything else happens, so nobody can take something
-        // out of a cabinet whose contents are about to be on the floor. After
-        // the cancel check above, so a break somebody refused spills nothing.
-        // A piece that has contents but whose definition no longer says it is
-        // a container (the pack changed) spills them like a chest rather than
-        // taking them away with it.
-        ai.resourcepack.engine.api.StorageSpec storage = info == null ? null : info.storage().orElse(null);
-        if (storage == null && storages != null
-                && hitbox.getPersistentDataContainer().has(storages.contentsKey(), PersistentDataType.BYTE_ARRAY)) {
-            storage = ai.resourcepack.engine.api.StorageSpec.chest();
-        }
-        List<ItemStack> contents = storage == null || storages == null
-                ? List.of()
-                : storages.removed(storage, storageOf(hitbox));
-        boolean keepInside = storage != null
-                && storage.type() == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER;
-        // A disc is never broken with its jukebox, and the music stops with
-        // it. Whatever the pack now says, because the disc is somebody's.
-        if (jukeboxes != null && jukeboxes.holding(hitbox)) {
-            jukeboxes.eject(hitbox, info == null ? 1f
-                    : info.jukebox().map(ModelInfo.Jukebox::volume).orElse(1f));
-        }
-
-        // A door due to shut itself has nothing to shut.
-        org.bukkit.scheduler.BukkitTask reset = resets.remove(hitbox.getUniqueId());
-        if (reset != null) {
-            reset.cancel();
-        }
 
         // Every display, because an animated piece is several and one left
         // behind is a limb standing in an empty block.
@@ -1234,12 +506,6 @@ public final class ModelPlacementListener implements Listener {
             display.remove();
         }
         animator.untrackHitbox(hitbox.getUniqueId());
-        if (drop != null && info != null && changesLook(info)) {
-            // The display may be wearing a lamp's lit model or a gramophone's
-            // playing one. What goes back in a hand is the piece as it is
-            // sold, so it is put back in its own model first.
-            items.wearModel(drop, modelOf(info.item()));
-        }
 
         // Anybody sitting on it stands up first. A seat that outlives its
         // chair is an invisible thing a player can stand on for ever.
@@ -1261,99 +527,22 @@ public final class ModelPlacementListener implements Listener {
             anchor.setType(Material.AIR, false);
         }
         bedrock.rigRemoved(hitbox.getUniqueId());
-        if (growth != null) {
-            growth.forget(hitbox.getUniqueId());
-        }
         hitbox.remove();
-        return new Dismantled(drop, contents, keepInside);
-    }
 
-    /** What taking a piece apart left over, for the caller to give back or spill. */
-    private static final class Dismantled {
-
-        /** What its display was holding, back in its own model; null for a rig. */
-        final ItemStack shown;
-        /** What was in it, for a container whose contents were its own. */
-        final List<ItemStack> contents;
-        /** Whether those go back inside the item rather than on the ground. */
-        final boolean keepInside;
-
-        Dismantled(ItemStack shown, List<ItemStack> contents, boolean keepInside) {
-            this.shown = shown;
-            this.contents = contents;
-            this.keepInside = keepInside;
+        if (!ask.isDropItem() || world == null) {
+            return;
         }
-    }
-
-    // ---- growing --------------------------------------------------------
-
-    /** When a piece was put down, in the game's own tick count, on its hitbox. */
-    private final NamespacedKey placedAtKey;
-
-    /** Keeps the set of pieces that can grow. Null until wired. */
-    private ModelGrowth growth;
-
-    public void growth(ModelGrowth growth) {
-        this.growth = growth;
-    }
-
-    /** The piece standing as {@code hitbox}, as the loaded content defines it. */
-    public Optional<ModelInfo> infoOf(Interaction hitbox) {
-        return idOf(hitbox).map(model::get);
-    }
-
-    /** The piece {@code id} as the loaded content defines it. */
-    public Optional<ModelInfo> info(ContentId id) {
-        return Optional.ofNullable(id == null ? null : model.get(id));
-    }
-
-    /**
-     * When {@code hitbox} was put down, in game ticks, recording now for a
-     * piece placed before anybody wrote that down — so a piece that was given
-     * {@code grow:} by a later version of its pack starts counting from the
-     * first time it is asked rather than growing at once.
-     */
-    long placedAt(Interaction hitbox) {
-        Long stored = hitbox.getPersistentDataContainer().get(placedAtKey, PersistentDataType.LONG);
-        if (stored != null) {
-            return stored;
-        }
-        long now = hitbox.getWorld().getGameTime();
-        hitbox.getPersistentDataContainer().set(placedAtKey, PersistentDataType.LONG, now);
-        return now;
-    }
-
-    /**
-     * Replaces a piece with the one it grows into, in the same block and
-     * facing the same way.
-     *
-     * <p><strong>Not a break.</strong> No {@code ModelBreakEvent}, no
-     * {@code remove} actions, no item given back, and no {@code ModelPlaceEvent}
-     * or {@code place} actions for what replaces it: a sapling becoming a tree
-     * is not somebody breaking a sapling and planting a tree, and a protection
-     * plugin that answered either event would be answering a question nobody
-     * asked. What the piece was HOLDING is a different matter — a disc, a
-     * container's contents — and those are given back on the ground, because
-     * they were never the piece's to lose.
-     *
-     * @return the new piece's hitbox
-     */
-    Interaction grow(Interaction hitbox, ModelInfo from, ModelInfo into) {
-        Float stored = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
-        float yaw = stored != null ? stored : hitbox.getLocation().getYaw();
-        Location where = hitbox.getLocation();
-        Block block = where.getBlock();
-        Dismantled gone = dismantle(hitbox, from);
-        if (where.getWorld() != null) {
-            spill(where.getWorld(), where, gone.contents);
-        }
-        return place(block, into, yaw, null);
-    }
-
-    /** Puts a container's contents on the ground where it stood. */
-    private static void spill(World world, Location where, List<ItemStack> contents) {
-        for (ItemStack stack : contents) {
-            world.dropItemNaturally(where.clone().add(0, 0.5, 0), stack);
+        // A configured drop beats what it was holding: a piece that gives
+        // back something other than itself is a decision the pack made, and
+        // the display's own stack is only the default answer.
+        ItemStack configured = model.containsKey(id)
+                ? model.get(id).drop().flatMap(items::create).orElse(null)
+                : null;
+        ItemStack fallback = configured != null
+                ? configured
+                : drop != null ? drop : items.create(modelItem(id)).orElse(null);
+        if (fallback != null) {
+            world.dropItemNaturally(where.add(0, 0.5, 0), fallback);
         }
     }
 

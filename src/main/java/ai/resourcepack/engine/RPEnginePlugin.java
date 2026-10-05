@@ -179,8 +179,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
     private ModelPlacementListener placements;
-    private ai.resourcepack.engine.core.storage.Storages storages;
-    private ai.resourcepack.engine.core.model.ModelGrowth growth;
     private Recipes recipes;
     private SyncClient sync;
     private StudioRelay studio;
@@ -240,7 +238,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean started;
 
     private CustomBlocks blocks;
-    private ai.resourcepack.engine.core.block.BlockGrowth blockGrowth;
     private BlockStates blockStates;
 
     private LiquidPools pools;
@@ -303,13 +300,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
-
-    /**
-     * Runs content actions, for an item in hand and for a placed model or a
-     * custom block in the world alike. One runner, so a cooldown is one
-     * cooldown whichever of them started it.
-     */
-    private ActionRunner actionRunner;
     /**
      * What the content folder said, kept apart from what a push added.
      *
@@ -425,7 +415,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         modelNumbers = new ModelNumbers(getDataFolder());
         modelNumbers.load(getLogger());
         items = new ItemsImpl(this, compatibility, modelNumbers);
-        actionRunner = new ActionRunner(items, sounds);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
         // so it is what they get.
@@ -526,21 +515,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 rigCarrier, emotes(), sounds);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
-        // Before anything reads a plant's state: how many plants tripwire
-        // holds depends on whether Paper freezes it. See BlockStates.
-        BlockStates.tripwireFrozen(tripwireFrozen());
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
-        blocks.actions(actionRunner);
         getServer().getPluginManager().registerEvents(blocks, this);
-        // Waxed copper of a kind a shaped block took over stays the builder's.
-        getServer().getPluginManager().registerEvents(
-                new ai.resourcepack.engine.core.block.VanillaCopper(this, items, blocks), this);
-        // Crops and saplings: blocks with grow:, remembered in their chunks.
-        blockGrowth = new ai.resourcepack.engine.core.block.BlockGrowth(this, blocks);
-        getServer().getPluginManager().registerEvents(blockGrowth, this);
-        blockGrowth.start();
 
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
@@ -548,21 +526,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         placements.bedrock(bedrock);
-        placements.actions(actionRunner);
-        // Containers. One service for everything that holds items, so a custom
-        // block that grows a `storage:` later goes through the same save and
-        // duplication rules as a placed cabinet does now.
-        storages = new ai.resourcepack.engine.core.storage.Storages(this, sounds);
-        placements.storages(storages);
-        blocks.storages(storages);
-        placements.sounds(sounds);
-        // A piece that is a jukebox asks this what a disc plays: a material
-        // on every version, a data component from 1.21. See Discs.
-        placements.discs(ai.resourcepack.engine.core.model.Discs.forServer(compatibility, sounds, getLogger()));
-        // The loaded pieces that `grow:` into others. Filled from the world by
-        // every load (see rebuild), so it is never the source of truth.
-        growth = new ai.resourcepack.engine.core.model.ModelGrowth(this, placements);
-        placements.growth(growth);
         // What a placed model is to a vehicle: whether it stops one, what it is
         // shaped like, and how big its own definition draws it.
         //
@@ -594,7 +557,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 return placements.scaleOf(id);
             }
         });
-        recipes = new Recipes(this, items, compatibility);
+        recipes = new Recipes(this, items);
         // The action bar fades, so an overlay somebody is wearing has to be
         // re-sent. Started here rather than lazily on the first show: a loop
         // over an empty map costs nothing, and a lazy start is one more thing
@@ -602,16 +565,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         overlayRuntime.start(this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
-        getServer().getPluginManager().registerEvents(storages, this);
-        growth.start();
         getServer().getPluginManager().registerEvents(seats, this);
         // Separately, because the event it wants is in a different package on
         // older servers and so cannot be an annotated method. See Seats.
         seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
-        // Smithing results and anvil recipes are decided in events; see
-        // RecipeStations. Registered once, holding whatever the last load gave.
-        getServer().getPluginManager().registerEvents(recipes.stations(), this);
         getServer().getPluginManager().registerEvents(vehicles, this);
         // The control arm is a listener of its own on the click fallback and
         // has nothing to handle on the Paper one. Registered either way, so
@@ -638,7 +596,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
-                new ItemListener(this, items, actionRunner,
+                new ItemListener(this, items, new ActionRunner(items, sounds),
                         new LiquidBuckets(liquids, pools, liquidBiomes, getLogger())), this);
         // Off unless a server asks for it: a plugin that starts rewriting
         // what people type in chat the moment it is installed is a plugin
@@ -681,7 +639,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // All four go through `optional`, which is what keeps a server that
         // has none of them from ever loading their classes. See its note.
         if (optional("PlaceholderAPI",
-                () -> Placeholders.register(this, registry, emotes(), items, icons, seats, sessions, group,
+                () -> Placeholders.register(this, registry, emotes(), items, seats, sessions, group,
                         (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name)))) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
         }
@@ -1131,9 +1089,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (heartbeat != null) {
             heartbeat.stop();
         }
-        if (blockGrowth != null) {
-            blockGrowth.stop();
-        }
         if (vehicles != null) {
             vehicles.stop();
         }
@@ -1175,20 +1130,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (pools != null) {
             pools.save(getLogger());
-        }
-        if (storages != null) {
-            // Every open container is written back and closed while the
-            // entities it is written onto still exist: onDisable runs before
-            // the server saves its worlds, so this lands in the save.
-            storages.closeAll();
-        }
-        if (growth != null) {
-            growth.stop();
-        }
-        if (placements != null) {
-            // Pending door-shuts. A piece left open stays open over a restart
-            // and is booked again when its chunk loads.
-            placements.stop();
         }
         if (seats != null) {
             // Everybody gets up before the plugin goes. A marker stand is not
@@ -1318,29 +1259,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * rebuild is how the registry ends up disagreeing with the zip somebody is
      * holding.
      */
-    /**
-     * Whether this server freezes tripwire, which decides how many plants it
-     * holds: {@code blocks.tripwire-frozen} if it says, otherwise Paper's own
-     * {@code block-updates.disable-tripwire-updates}, read from the file
-     * because no API answers it on every version this runs on.
-     */
-    private boolean tripwireFrozen() {
-        String said = getConfig().getString("blocks.tripwire-frozen", "auto").trim().toLowerCase(java.util.Locale.ROOT);
-        if (said.equals("true") || said.equals("false")) {
-            return Boolean.parseBoolean(said);
-        }
-        java.io.File paper = new java.io.File(getServer().getWorldContainer(), "config/paper-global.yml");
-        if (!paper.isFile()) {
-            return false;
-        }
-        boolean frozen = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(paper)
-                .getBoolean("block-updates.disable-tripwire-updates", false);
-        if (frozen) {
-            getLogger().info("Paper freezes tripwire, so plants (base: tripwire) have 32 states rather than 2.");
-        }
-        return frozen;
-    }
-
     private void rebuild(CommandSender to) {
         rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP, true);
     }
@@ -1385,22 +1303,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the sort of tax that makes a format feel like paperwork.
         BlockDefinitions.Result parsedBlocks = BlockDefinitions.parse(loaded);
         report(to, "blocks", parsedBlocks.diagnostics());
-        // Allocated before the items are made, because a shaped block's item
-        // IS the vanilla block it was handed: a stair is placed by a stair.
-        blocks.replace(parsedBlocks.blocks());
-        blocks.allocate();
         Map<ContentId, ItemInfo> withBlocks = new LinkedHashMap<>(parsedItems.items());
-        List<ItemInfo> blockItems = new ArrayList<>();
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
-                    blocks.itemMaterial(block),
-                    block.name().orElse(null), block.lore(), block.itemTexture().orElse(""),
-                    block.itemTexture().isPresent() ? null : block.model(),
-                    null, null, null, 0, false, false)
-                    .withActions(block.actions()));
-            if (!parsedItems.items().containsKey(block.id())) {
-                blockItems.add(withBlocks.get(block.id()));
-            }
+                    block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
+                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false));
         }
         items.replace(withBlocks);
         // Numbers before anything asks for one, and all at once, so the
@@ -1409,16 +1316,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // few map writes nobody reads; keeping it unconditional means the
         // numbers exist and are stable if the server is ever moved back.
         modelNumbers.assignAll(withBlocks.keySet());
+        blocks.replace(parsedBlocks.blocks());
+        blocks.allocate();
 
         ModelDefinitions.Result parsedModels = ModelDefinitions.parse(loaded, parsedItems.items(),
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
         placementCatalogue = parsedModels.model();
-        // Which loaded pieces grow, and which are mid-way through a reset,
-        // asked of the world again: this load may have changed both, and the
-        // chunks round spawn loaded before this plugin did.
-        growth.rescan();
 
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
         report(to, "entities", parsedEntities.diagnostics());
@@ -1445,11 +1350,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredSounds = parsedSounds.sounds();
         sounds.replace(authoredSounds);
 
-        // With the content folder, because a GIF icon's frame count is its
-        // number of codepoints and only the GIF knows it. The build reads the
-        // same files the same way, so the two agree.
-        IconDefinitions.Result parsedIcons = IconDefinitions.parse(loaded,
-                ai.resourcepack.engine.core.pack.PackFiles.folder(content));
+        IconDefinitions.Result parsedIcons = IconDefinitions.parse(loaded);
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
 
@@ -1486,8 +1387,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // null tells the writer this server names them instead.
         ItemAssets itemAssets = new ItemAssets(
                 compatibility.itemEra().needsNumbers() ? modelNumbers : null,
-                compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART))
-                .withBlockItems(blockItems);
+                compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART));
         BuildReport builtReport = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
@@ -1509,9 +1409,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // merge would not do. Studio's rigs are keyed by their own pack ids
         // and are untouched by this.
         registerAuthoredRigs(itemAssets.rigs());
-        // Only now is it known which placed pieces animate, and a few
-        // `place:` settings mean nothing on one that does.
-        report(to, "model", placements.rigDiagnostics());
 
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.
@@ -1700,19 +1597,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
         for (ContentId id : icons.ids()) {
-            // One Bedrock glyph per frame, each its own cell of the strip. A
-            // Bedrock player is sent the same characters a Java one is, so a
-            // scoreboard showing frame five to both has to have a frame five
-            // here too, or it is a missing-glyph box on every other redraw.
-            icons.info(id).ifPresent(icon -> {
-                for (int frame = 0; frame < icon.frames(); frame++) {
-                    bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
-                            icon.codepoint(frame),
-                            ai.resourcepack.engine.core.item.Geometry.zipPathOf(
-                                    ai.resourcepack.engine.core.font.FontAssets.textureOf(icon)),
-                            icon.rows(), icon.columns(), icon.cell() + frame));
-                }
-            });
+            icons.info(id).ifPresent(icon -> bedrockIcons.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Icon(
+                    icon.codepoint(),
+                    ai.resourcepack.engine.core.item.Geometry.zipPathOf(
+                            ai.resourcepack.engine.core.font.FontAssets.textureOf(icon)),
+                    icon.rows(), icon.columns(), icon.cell())));
         }
         try {
             ai.resourcepack.engine.core.bedrock.BedrockContent.Result result =

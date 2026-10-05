@@ -105,19 +105,6 @@ public final class ItemAssets implements PackContributor {
     private final Map<String, ModelRigs.Rig> rigs = new LinkedHashMap<>();
 
     /**
-     * Items no definition file declares: the one each custom block is placed
-     * by, which the plugin makes from the block. Without these written the
-     * item in a player's hand named a model the pack did not have.
-     */
-    private java.util.Collection<ItemInfo> blockItems = List.of();
-
-    /** The items custom blocks are placed by, written beside the declared ones. */
-    public ItemAssets withBlockItems(java.util.Collection<ItemInfo> items) {
-        this.blockItems = items == null ? List.of() : List.copyOf(items);
-        return this;
-    }
-
-    /**
      * The rigs this build found, keyed by model id.
      *
      * <p>A by-product rather than a file: everything else a contributor
@@ -145,13 +132,6 @@ public final class ItemAssets implements PackContributor {
                 // Copied. The files are already written under the id it
                 // points at, and writing them again here would be two packs
                 // fighting over one path.
-                continue;
-            }
-            writeItem(item, into);
-        }
-        for (ItemInfo item : blockItems) {
-            if (!bundle.namespaces().contains(item.id().namespace()) || parsed.items().containsKey(item.id())
-                    || (item.model().isEmpty() && item.texture().isEmpty())) {
                 continue;
             }
             writeItem(item, into);

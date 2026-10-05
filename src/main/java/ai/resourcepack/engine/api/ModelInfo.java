@@ -68,229 +68,6 @@ public final class ModelInfo {
         FIXED
     }
 
-    /**
-     * A piece that plays music discs: a gramophone, a radio, a jukebox that
-     * does not look like a jukebox.
-     *
-     * <p>Right-click with a disc to put it in, right-click again to take it
-     * out. A display entity cannot be a jukebox block, so the disc is kept on
-     * the piece and the record is played at it, exactly as the barrier stands
-     * in for collision and the light block for light.
-     */
-    public static final class Jukebox {
-
-        private final float volume;
-        private final float pitch;
-        private final String permission;
-        private final ContentId playingModel;
-
-        private Jukebox(float volume, float pitch, String permission, ContentId playingModel) {
-            this.volume = volume;
-            this.pitch = pitch;
-            this.permission = permission;
-            this.playingModel = playingModel;
-        }
-
-        /**
-         * @param volume       1 is a vanilla jukebox: heard about 64 blocks away
-         * @param pitch        1 is the record as recorded
-         * @param permission   who may put a disc in or take one out, or null for anybody
-         * @param playingModel what the piece looks like while a disc is in it, or
-         *                     null to look the same
-         */
-        public static Jukebox of(float volume, float pitch, String permission, ContentId playingModel) {
-            return new Jukebox(volume, pitch,
-                    permission == null || permission.isBlank() ? null : permission.trim(), playingModel);
-        }
-
-        /** How loud, relative to a vanilla jukebox. */
-        public float volume() {
-            return volume;
-        }
-
-        /** How fast, 1 being as recorded. */
-        public float pitch() {
-            return pitch;
-        }
-
-        /** The permission a player needs to use it, or empty for anybody. */
-        public java.util.Optional<String> permission() {
-            return java.util.Optional.ofNullable(permission);
-        }
-
-        /**
-         * The item (or model) whose model the piece wears while a disc is in
-         * it — the gramophone with its horn turning — or empty to stay as it
-         * is.
-         */
-        public java.util.Optional<ContentId> playingModel() {
-            return java.util.Optional.ofNullable(playingModel);
-        }
-    }
-
-    /**
-     * One look a click cycles a piece into: a lamp switched on, a door swung
-     * open, a television showing something.
-     *
-     * <p>Everything in one is a CHANGE from the piece as defined, and anything
-     * left out is the piece as defined — so a state that only says
-     * {@code light: 14} keeps the model, the collision and the angle it had.
-     * The piece as defined is state 0 and is not one of these.
-     */
-    public static final class State {
-
-        private final ContentId model;
-        private final Integer light;
-        private final Boolean solid;
-        private final float turn;
-        private final float offsetX;
-        private final float offsetY;
-        private final float offsetZ;
-        private final String sound;
-
-        private State(ContentId model, Integer light, Boolean solid, float turn,
-                      float offsetX, float offsetY, float offsetZ, String sound) {
-            this.model = model;
-            this.light = light;
-            this.solid = solid;
-            this.turn = turn;
-            this.offsetX = offsetX;
-            this.offsetY = offsetY;
-            this.offsetZ = offsetZ;
-            this.sound = sound;
-        }
-
-        /**
-         * @param model  the item (or model) whose model to wear, or null to keep it
-         * @param light  0&ndash;15 in this state, or null for the piece's own
-         * @param solid  whether a barrier stands in it in this state, or null
-         *               for the piece's own
-         * @param turn   degrees added to the piece's facing
-         * @param offsetX blocks to the piece's right, as a seat's {@code x}
-         * @param offsetY blocks up
-         * @param offsetZ blocks forward, as a seat's {@code z}
-         * @param sound  played on entering this state, or null for silence
-         */
-        public static State of(ContentId model, Integer light, Boolean solid, float turn,
-                               float offsetX, float offsetY, float offsetZ, String sound) {
-            return new State(model,
-                    light == null ? null : Math.max(0, Math.min(15, light)),
-                    solid, turn, offsetX, offsetY, offsetZ,
-                    sound == null || sound.isBlank() ? null : sound.trim());
-        }
-
-        /** What it looks like in this state, or empty to look as defined. */
-        public java.util.Optional<ContentId> model() {
-            return java.util.Optional.ofNullable(model);
-        }
-
-        /** The light it gives off in this state, or empty for the piece's own. */
-        public java.util.Optional<Integer> light() {
-            return java.util.Optional.ofNullable(light);
-        }
-
-        /** Whether it is solid in this state, or empty for the piece's own. */
-        public java.util.Optional<Boolean> solid() {
-            return java.util.Optional.ofNullable(solid);
-        }
-
-        /** Degrees added to the piece's yaw: a hinged door's swing. */
-        public float turn() {
-            return turn;
-        }
-
-        /** Blocks to the piece's right. A sliding door's slide. */
-        public float offsetX() {
-            return offsetX;
-        }
-
-        /** Blocks up. */
-        public float offsetY() {
-            return offsetY;
-        }
-
-        /** Blocks forward. */
-        public float offsetZ() {
-            return offsetZ;
-        }
-
-        /** The sound it makes arriving in this state. */
-        public java.util.Optional<String> sound() {
-            return java.util.Optional.ofNullable(sound);
-        }
-
-        /** Whether the piece is drawn turned or moved in this state. */
-        public boolean moves() {
-            return turn != 0f || offsetX != 0f || offsetY != 0f || offsetZ != 0f;
-        }
-    }
-
-    /**
-     * A piece that becomes another piece over time: a sapling into a tree, a
-     * crop through its stages. What Nexo and Oraxen call evolution.
-     */
-    public static final class Grow {
-
-        private final ContentId into;
-        private final long afterTicks;
-        private final double chance;
-        private final int minimumLight;
-
-        private Grow(ContentId into, long afterTicks, double chance, int minimumLight) {
-            this.into = into;
-            this.afterTicks = afterTicks;
-            this.chance = chance;
-            this.minimumLight = minimumLight;
-        }
-
-        /**
-         * @param into         the item whose placed piece replaces this one
-         * @param afterTicks   how long it must have stood first
-         * @param chance       0&ndash;1, the chance per check once that long has passed
-         * @param minimumLight the light it needs at its block, or 0 for none
-         */
-        public static Grow of(ContentId into, long afterTicks, double chance, int minimumLight) {
-            return new Grow(java.util.Objects.requireNonNull(into, "into"),
-                    Math.max(0L, afterTicks),
-                    Double.isFinite(chance) ? Math.max(0d, Math.min(1d, chance)) : 1d,
-                    Math.max(0, Math.min(15, minimumLight)));
-        }
-
-        /** What it grows into. */
-        public ContentId into() {
-            return into;
-        }
-
-        /** The least time it stands before it may grow, in ticks. */
-        public long afterTicks() {
-            return afterTicks;
-        }
-
-        /** The chance it grows on any one check once it may. */
-        public double chance() {
-            return chance;
-        }
-
-        /** The light it needs at its own block to grow, 0 for any. */
-        public int minimumLight() {
-            return minimumLight;
-        }
-
-        /**
-         * Whether a check grows it.
-         *
-         * <p>The whole rule, here rather than in the task that asks, so it is
-         * one tested method rather than three conditions in a loop.
-         *
-         * @param ticksStanding how long since it was placed
-         * @param light         the light level at its block now
-         * @param roll          a uniform random number in [0, 1)
-         */
-        public boolean ready(long ticksStanding, int light, double roll) {
-            return ticksStanding >= afterTicks && light >= minimumLight && roll < chance;
-        }
-    }
-
     private final ContentId id;
     private final ContentId item;
     private final Facing facing;
@@ -303,13 +80,6 @@ public final class ModelInfo {
     private float seatForward;
     private boolean vehicleCollision = true;
     private ModelShape shape = ModelShape.NONE;
-    private StorageSpec storage;
-    private Jukebox jukebox;
-    private java.util.List<State> states = java.util.List.of();
-    private long stateResetTicks;
-    private String baseSound;
-    private Grow grow;
-    private java.util.Map<String, ContentId> connects = java.util.Map.of();
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -450,9 +220,12 @@ public final class ModelInfo {
      * of this model.
      */
     public ModelInfo withSeatOffset(float side, float forward) {
-        ModelInfo moved = copy();
+        ModelInfo moved = of(id, item, facing, scale, width, height, solid, seat,
+                light, surface, drop);
         moved.seatSide = side;
         moved.seatForward = forward;
+        moved.vehicleCollision = vehicleCollision;
+        moved.shape = shape;
         return moved;
     }
 
@@ -475,55 +248,12 @@ public final class ModelInfo {
     }
 
     /**
-     * The same model, holding items — or not, for null.
-     *
-     * <p>A copy, for the reason {@link #withSeatOffset} gives.
-     */
-    public ModelInfo withStorage(StorageSpec storage) {
-        ModelInfo changed = copy();
-        changed.storage = storage;
-        return changed;
-    }
-
-    /** The same model, playing music discs — or not, for null. */
-    public ModelInfo withJukebox(Jukebox jukebox) {
-        ModelInfo changed = copy();
-        changed.jukebox = jukebox;
-        return changed;
-    }
-
-    /**
-     * The same model, with looks a click cycles through.
-     *
-     * @param states     the states after the piece as defined; empty for none
-     * @param resetTicks how long after the last click it goes back to the piece
-     *                   as defined, in ticks; 0 for never
-     * @param baseSound  played on going back to the piece as defined, or null
-     */
-    public ModelInfo withStates(java.util.List<State> states, long resetTicks, String baseSound) {
-        ModelInfo changed = copy();
-        changed.states = states == null ? java.util.List.of() : java.util.List.copyOf(states);
-        changed.stateResetTicks = Math.max(0L, resetTicks);
-        changed.baseSound = baseSound == null || baseSound.isBlank() ? null : baseSound.trim();
-        return changed;
-    }
-
-    /** The same model, growing into another — or not, for null. */
-    public ModelInfo withGrow(Grow grow) {
-        ModelInfo changed = copy();
-        changed.grow = grow;
-        return changed;
-    }
-
-    /**
      * Everything {@link #of} cannot carry, moved across.
      *
-     * <p>The `with` methods each rebuild through {@code of}, which resets
+     * <p>The three `with` methods each rebuild through {@code of}, which resets
      * whatever the others set — so every one of them has to bring the rest
-     * along, and doing that by hand in each is how one of them ends up
-     * quietly dropping a seat offset. This is the one place that list lives,
-     * and a new field that is not added here is a field the next {@code with}
-     * call throws away.
+     * along, and doing that by hand three times is how one of them ends up
+     * quietly dropping a seat offset. This is the one place that list lives.
      */
     private ModelInfo copy() {
         ModelInfo made = of(id, item, facing, scale, width, height, solid, seat,
@@ -532,13 +262,6 @@ public final class ModelInfo {
         made.seatForward = seatForward;
         made.vehicleCollision = vehicleCollision;
         made.shape = shape;
-        made.storage = storage;
-        made.jukebox = jukebox;
-        made.states = states;
-        made.stateResetTicks = stateResetTicks;
-        made.baseSound = baseSound;
-        made.grow = grow;
-        made.connects = connects;
         return made;
     }
 
@@ -593,104 +316,6 @@ public final class ModelInfo {
      */
     public ModelShape shape() {
         return shape;
-    }
-
-    /**
-     * The container it is, or empty for a piece that holds nothing.
-     *
-     * <p>Opened by right-clicking it. A piece that is also a seat opens on a
-     * plain click and is sat on with a sneaking one, because a chair you cannot
-     * open and a cabinet you keep sitting in are both broken.
-     */
-    public java.util.Optional<StorageSpec> storage() {
-        return java.util.Optional.ofNullable(storage);
-    }
-
-    /** The jukebox it is, or empty for a piece that plays nothing. */
-    public java.util.Optional<Jukebox> jukebox() {
-        return java.util.Optional.ofNullable(jukebox);
-    }
-
-    /**
-     * The looks a click cycles it through, after the piece as defined.
-     *
-     * <p>Index 0 is the piece as defined and is not in this list; state
-     * {@code n} is {@code states().get(n - 1)}. Empty for a piece a click does
-     * not change.
-     */
-    public java.util.List<State> states() {
-        return states;
-    }
-
-    /** State {@code index}, or empty for 0 (the piece as defined) and anything out of range. */
-    public java.util.Optional<State> state(int index) {
-        return index < 1 || index > states.size()
-                ? java.util.Optional.empty()
-                : java.util.Optional.of(states.get(index - 1));
-    }
-
-    /**
-     * The state a click moves a piece in {@code current} to: the next one,
-     * and round to the piece as defined after the last.
-     *
-     * <p>An index this piece no longer has — its pack lost a state since — goes
-     * back to the start, rather than off the end of a list.
-     */
-    public int nextState(int current) {
-        if (states.isEmpty() || current < 0 || current >= states.size()) {
-            return 0;
-        }
-        return current + 1;
-    }
-
-    /** The light it gives off in state {@code index}, 0&ndash;15. */
-    public int lightIn(int index) {
-        return state(index).flatMap(State::light).orElse(light);
-    }
-
-    /**
-     * Whether it is solid in state {@code index}.
-     *
-     * <p>A solid state gives no light whatever {@link #lightIn} says: the
-     * barrier and the light would have to be the same block.
-     */
-    public boolean solidIn(int index) {
-        return state(index).flatMap(State::solid).orElse(solid);
-    }
-
-    /**
-     * How long after the last click a piece goes back to the piece as
-     * defined, in ticks, or 0 for never. A door that shuts itself.
-     */
-    public long stateResetTicks() {
-        return stateResetTicks;
-    }
-
-    /** The sound it makes going back to the piece as defined, or empty. */
-    public java.util.Optional<String> baseSound() {
-        return java.util.Optional.ofNullable(baseSound);
-    }
-
-    /** What it grows into and when, or empty for a piece that stays as it is. */
-    public java.util.Optional<Grow> grow() {
-        return java.util.Optional.ofNullable(grow);
-    }
-
-    /**
-     * The shapes a piece takes beside others of its own kind, as a sofa does:
-     * {@code straight} with one either side, {@code left} and {@code right} at
-     * the ends, {@code inner} and {@code outer} at a corner - each the item
-     * (or model) it wears then. Empty for a piece that stands alone.
-     */
-    public java.util.Map<String, ContentId> connects() {
-        return connects;
-    }
-
-    /** The same model, joining its neighbours. */
-    public ModelInfo withConnects(java.util.Map<String, ContentId> connects) {
-        ModelInfo changed = copy();
-        changed.connects = connects == null ? java.util.Map.of() : java.util.Map.copyOf(connects);
-        return changed;
     }
 
     @Override

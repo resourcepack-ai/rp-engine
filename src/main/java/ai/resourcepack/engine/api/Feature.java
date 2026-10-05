@@ -153,21 +153,6 @@ public enum Feature {
                     + "Models that stay put look exactly the same."),
 
     /**
-     * The three-slot smithing table, with a template beside the base and the
-     * addition, and the armour trims that come with it.
-     *
-     * <p>1.19.4 had both as an experiment behind a datapack flag, and the
-     * table a 1.19.4 server actually shows is the old two-slot one. So below
-     * 1.20 a smithing recipe is registered the old way, without its template,
-     * which is the same upgrade asked for with one item fewer.
-     */
-    SMITHING_TEMPLATES(
-            McVersion.of(1, 20, 0),
-            "Smithing templates and armour trims",
-            "Smithing recipes use the old two-slot smithing table, so their template is not "
-                    + "asked for, and trim recipes are not registered at all."),
-
-    /**
      * Biome colours for tinted liquids, written as a generated datapack.
      *
      * <p>The datapack biome format is not stable across versions the way a
@@ -237,23 +222,7 @@ public enum Feature {
             McVersion.of(1, 21, 9),
             "Player heads in dialogs",
             "A Studio dialog's live player head is left empty. The rest of the dialog, "
-                    + "its live words included, works as usual."),
-
-    /**
-     * Any item made playable in a jukebox by the {@code jukebox_playable}
-     * component, rather than only the vanilla discs.
-     *
-     * <p>Not visible: there is no such component before 1.21, so every disc an
-     * older server can hold IS a vanilla one, and those play in a placed
-     * jukebox on every version. Nothing is missing; the fork is only which way
-     * the engine asks an item what it plays.
-     */
-    JUKEBOX_SONGS(
-            McVersion.of(1, 21, 0),
-            "Custom music discs in placed jukeboxes",
-            "Handled: there are no custom discs before this version, and every vanilla disc "
-                    + "plays in a placed jukebox as usual.",
-            false);
+                    + "its live words included, works as usual.");
 
     private final McVersion since;
     private final String label;

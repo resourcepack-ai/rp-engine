@@ -312,15 +312,3 @@ chat:
 
     # Something worked, where that is worth saying out loud.
     success: "#55ff55"
-
-# Custom blocks.
-blocks:
-  # Plants (blocks with base: tripwire) are cut tripwire, and a tripwire's
-  # connections follow the string beside it unless Paper freezes them with
-  # block-updates.disable-tripwire-updates in config/paper-global.yml. Frozen,
-  # tripwire holds 32 plants; not, it holds 2.
-  #
-  # auto reads Paper's setting. true or false says it outright, for a server
-  # whose Paper config lives somewhere else. Saying true when it is not frozen
-  # makes neighbouring plants turn into each other.
-  tripwire-frozen: auto

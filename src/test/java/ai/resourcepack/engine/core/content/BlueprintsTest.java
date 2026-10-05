@@ -74,15 +74,13 @@ class BlueprintsTest {
 
     /** A pack of theirs has no pack.yml either, and should still load. */
     @Test
-    void aBlueprintFolderLoadsOnItsOwn() throws IOException {
+    void aBlueprintFolderIsNotEnoughOnItsOwn() throws IOException {
         blueprint("mypack/blueprints/golem.bbmodel");
 
-        // No pack.yml: ModelEngine's and BetterModel's plugin folders have
-        // none, and a folder of Blockbench files is plainly one of theirs, the
-        // same as an ItemsAdder or Nexo folder is let in without one.
-        LoadReport loaded = load();
-        assertTrue(!loaded.hasErrors(), loaded.diagnostics().toString());
-        assertTrue(ItemDefinitions.parse(loaded).items().containsKey(ContentId.parse("mypack:golem").orElseThrow()));
+        // No pack.yml and no ItemsAdder config: this is a folder somebody
+        // dropped in the wrong place, and saying so beats claiming a namespace
+        // for it.
+        assertTrue(load().hasErrors());
     }
 
     /** Something written by hand wins over something derived from a file name. */

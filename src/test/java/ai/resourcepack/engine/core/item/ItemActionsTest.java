@@ -192,32 +192,4 @@ class ItemActionsTest {
         assertEquals(0, ItemAction.of(ItemAction.Kind.CANCEL, null).words().length);
         assertFalse(ItemAction.of(ItemAction.Kind.COOLDOWN, "").number().isPresent());
     }
-
-    // ---- the thing in the world ------------------------------------------
-
-    @Test
-    void aPlacedPieceCanBePutDownClickedAndRemoved() {
-        Map<String, Object> actions = new LinkedHashMap<>();
-        actions.put("place", List.of(step("sound", "minecraft:block.wood.place")));
-        actions.put("interact", List.of(step("console", "say {player} rang the bell"), step("cancel", "")));
-        actions.put("remove", List.of(step("message", "&7It is gone.")));
-        Map<ItemAction.Trigger, List<ItemAction>> parsed = parse(DefinitionNode.of(Map.of("actions", actions)));
-
-        assertEquals(ItemAction.Kind.SOUND, parsed.get(ItemAction.Trigger.PLACE).get(0).kind());
-        assertEquals(2, parsed.get(ItemAction.Trigger.INTERACT).size());
-        assertEquals(ItemAction.Kind.MESSAGE, parsed.get(ItemAction.Trigger.REMOVE).get(0).kind());
-        assertTrue(diagnostics.isEmpty(), diagnostics.toString());
-    }
-
-    @Test
-    void standingTriggersOnAnItemThatNeverStandsAreWarnedAbout() {
-        Map<ItemAction.Trigger, List<ItemAction>> parsed = parse(item("interact",
-                List.of(step("message", "hello"))));
-        ItemActions.checkStanding(parsed, false, id, "mypack/items", diagnostics);
-        assertTrue(complained("no place: block"));
-
-        diagnostics.clear();
-        ItemActions.checkStanding(parsed, true, id, "mypack/items", diagnostics);
-        assertTrue(diagnostics.isEmpty(), "a piece that is placed is exactly where it belongs");
-    }
 }

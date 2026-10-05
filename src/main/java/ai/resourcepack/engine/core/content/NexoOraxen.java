@@ -40,12 +40,10 @@ import java.util.Optional;
  *       the place sound and the drop.</li>
  * </ul>
  *
- * <p>Their behaviour mechanics that have an equivalent - click commands,
- * {@code commands}, {@code custom}, the legacy food mechanics, soulbound and
- * hat - become actions and item properties in {@link NexoOraxenActions}. The
- * rest - storage, jukeboxes, doors, connectable furniture, the non-cube block
- * shapes - is not silently guessed at here: the ordinary item still loads,
- * and a warning names the item and why it does not come across.
+ * <p>The two plugins own a great deal more than that - actions, storage,
+ * jukeboxes, connectable furniture, the non-cube block shapes. Those are not
+ * silently guessed at here: the ordinary item still loads, and a warning
+ * names the item and what needs re-authoring.
  */
 final class NexoOraxen {
 
@@ -122,14 +120,9 @@ final class NexoOraxen {
                     break;
                 }
             }
-            if (blockMechanic != null && NexoOraxenBlocks.isDirectionalPart(mechanics.node(blockMechanic).orElseThrow())) {
-                // One direction of another block's set: drawn as part of that
-                // block, not placed as one of its own.
-                continue;
-            }
             if (blockMechanic != null) {
-                blocks.put(id, NexoOraxenBlocks.block(document, item, blockMechanic,
-                        mechanics.node(blockMechanic).orElseThrow(), id, namespace, origin, diagnostics));
+                blocks.put(id, block(item, blockMechanic, mechanics.node(blockMechanic).orElseThrow(),
+                        id, namespace, origin, diagnostics));
             } else {
                 Map<String, Object> translated = item(item, id, namespace, origin, diagnostics);
                 armour(item, id, namespace, origin, diagnostics, translated, layers);
@@ -156,9 +149,6 @@ final class NexoOraxen {
         if (item.bool("unbreakable").orElse(Boolean.FALSE)) out.put("unbreakable", true);
 
         enchantments(item, id, origin, diagnostics).ifPresent(enchants -> out.put("enchantments", enchants));
-        List<String> flags = !item.strings("ItemFlags").isEmpty() ? item.strings("ItemFlags")
-                : !item.strings("itemflags").isEmpty() ? item.strings("itemflags") : item.strings("item_flags");
-        if (!flags.isEmpty()) out.put("flags", flags);
         attributes(item, id, origin, diagnostics).ifPresent(attributes -> out.put("attributes", attributes));
         art(item, id, namespace, origin, diagnostics, out);
         components(item, id, origin, diagnostics, out);
@@ -168,14 +158,6 @@ final class NexoOraxen {
                 DefinitionNode body = mechanics.node(mechanic).orElse(DefinitionNode.empty());
                 if (mechanic.equals("furniture")) {
                     out.put("place", furniture(item, body, id, namespace, origin, diagnostics));
-                    NexoOraxenActions.standing(body, id, origin, diagnostics, out);
-                    continue;
-                }
-                if (NexoOraxenActions.ITEM_MECHANICS.contains(mechanic)) {
-                    continue;
-                }
-                if (mechanic.equals("toggle_light") && mechanics.node("furniture").isPresent()) {
-                    // The furniture's switched light; see NexoOraxenFurniture.
                     continue;
                 }
                 // Oraxen's custom durability predates the vanilla component
@@ -188,11 +170,6 @@ final class NexoOraxen {
                         mechanic + " is a Nexo/Oraxen mechanic rather than an RP Engine item property, so it was skipped. "
                                 + "The item itself still loads."));
             }
-            // Eaten things run their commands on the meal, in both plugins.
-            boolean edible = out.containsKey("food") || mechanics.node("food").isPresent()
-                    || section(item, "Components").map(c -> c.raw("consumable") != null || c.raw("food") != null)
-                    .orElse(Boolean.FALSE);
-            NexoOraxenActions.item(mechanics, id, namespace, edible, origin, diagnostics, out);
         });
         return out;
     }
@@ -241,7 +218,7 @@ final class NexoOraxen {
     }
 
     /** Every texture layer, in the order Nexo/Oraxen would layer them. */
-    static List<String> textures(DefinitionNode pack) {
+    private static List<String> textures(DefinitionNode pack) {
         if (!pack.strings("texture").isEmpty()) return pack.strings("texture");
         if (!pack.strings("textures").isEmpty()) return pack.strings("textures");
         DefinitionNode map = pack.node("textures").orElse(DefinitionNode.empty());
@@ -669,6 +646,12 @@ final class NexoOraxen {
                 .orElse("STRICT").trim().toUpperCase(Locale.ROOT);
         place.put("facing", restricted.equals("VERY_STRICT") ? "cardinal"
                 : restricted.equals("NONE") ? "free" : "diagonal");
+        if (furniture.bool("rotatable").orElse(Boolean.FALSE)) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "rotatable: turning a placed piece by clicking it has no RP Engine equivalent. It is placed "
+                            + "facing the player, on the facings restricted_rotation allows."));
+        }
+
         surface(furniture, id, origin, diagnostics, place);
         scale(furniture, id, origin, diagnostics, place);
 
@@ -676,17 +659,9 @@ final class NexoOraxen {
                         .or(() -> firstLoot(drop)))
                 .ifPresent(drop -> place.put("drop", qualified(drop, namespace)));
 
-        NexoOraxenFurniture.behaviours(item, furniture, id, namespace, origin, diagnostics, place);
-
         List<String> skipped = new ArrayList<>();
         for (String key : furniture.keys()) {
-            if (FURNITURE_KEYS.contains(key) || NexoOraxenFurniture.KEYS.contains(key)) continue;
-            if (BEHAVIOUR_REASONS.containsKey(key)) {
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        "furniture " + key + " was skipped: " + BEHAVIOUR_REASONS.get(key) + "."));
-            } else {
-                skipped.add(key);
-            }
+            if (!FURNITURE_KEYS.contains(key)) skipped.add(key);
         }
         if (!skipped.isEmpty()) {
             diagnostics.add(Diagnostic.warning(origin, id,
@@ -696,28 +671,11 @@ final class NexoOraxen {
         return place;
     }
 
-    /**
-     * Why the behaviour mechanics a furniture or block can carry do not come
-     * across, which is worth more than "no equivalent" to somebody deciding
-     * whether to move.
-     */
-    private static final Map<String, String> BEHAVIOUR_REASONS = Map.of(
-            "beds", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
-            "bed", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
-            "farmland_required", "a piece here goes on any floor it may",
-            "farmblock_required", "a piece here goes on any floor it may",
-            "farmland", "a piece here goes on any floor it may",
-            "text_entity", "text floating over a piece is not something RP Engine pieces carry",
-            "text_entities", "text floating over a piece is not something RP Engine pieces carry",
-            "modelengine_id", "a ModelEngine model is ModelEngine's to draw; import its .bbmodel and give the "
-                    + "item that model instead",
-            "blocklocker", "BlockLocker protection is that plugin's own business");
-
     /** Furniture keys that are translated, or that only say how their plugin renders it. */
     private static final List<String> FURNITURE_KEYS = List.of(
             "hitbox", "hitboxes", "barrier", "barriers", "seat", "seats", "seat_height", "lights", "light",
             "rotatable", "restricted_rotation", "limited_placing", "properties", "display_entity_properties",
-            "drop", "type", "item", "clickActions", "events");
+            "drop", "type", "item");
 
     /**
      * The first seat, all three numbers of it.
@@ -817,6 +775,10 @@ final class NexoOraxen {
         if (nexo.isPresent()) {
             lights.addAll(nexo.get().strings("light"));
             lights.addAll(nexo.get().strings("lights"));
+            if (nexo.get().bool("toggleable").orElse(Boolean.FALSE)) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "a light switched by clicking has no RP Engine equivalent; it is always on."));
+            }
         } else {
             lights.addAll(furniture.strings("lights"));
         }
@@ -965,6 +927,79 @@ final class NexoOraxen {
     // ---- custom blocks ------------------------------------------------------
 
     /**
+     * A custom block is its own RP Engine content id; its item comes with it.
+     *
+     * <p>Nexo's {@code custom_block} and Oraxen's {@code block} (and their
+     * legacy {@code noteblock}/{@code stringblock}/{@code chorusblock}) all
+     * become a full cube in a spare block state here. Their non-cube shapes -
+     * tripwire plants, chorus leaves, Oraxen's stairs, slabs and doors - are
+     * different blocks underneath, which this engine does not have, so they
+     * come across as a cube and say so.
+     */
+    private static Map<String, Object> block(DefinitionNode item, String mechanicName, DefinitionNode mechanic,
+                                             String id, String namespace, String origin,
+                                             List<Diagnostic> diagnostics) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        DefinitionNode pack = section(item, "Pack").orElse(DefinitionNode.empty());
+
+        // A model a file names, or the one Nexo/Oraxen generate out of
+        // parent_model and textures, which has no file to point at.
+        boolean generated = pack.string("model").isEmpty() && !textures(pack).isEmpty();
+        Optional<String> model = mechanic.string("model")
+                .or(() -> mechanic.node("appearance").flatMap(a -> a.string("model")))
+                .or(() -> pack.string("model"));
+        if (generated && (model.isEmpty() || model.get().equals(id)
+                || model.get().endsWith(":" + id) || model.get().endsWith("/" + id))) {
+            String parent = pack.string("parent_model").orElse("block/cube_all").replace("minecraft:", "");
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "is drawn by a model Nexo/Oraxen generate from Pack.parent_model " + parent
+                            + " and its texture. RP Engine blocks take a model file and do not generate one, "
+                            + "so it renders as a plain note block until there is one: write assets/models/" + id
+                            + ".json with \"parent\": \"minecraft:" + parent + "\" and the texture, and set model: "
+                            + id + "."));
+        } else {
+            model.flatMap(value -> localPath(value, namespace, id, origin, diagnostics, "model"))
+                    .ifPresent(value -> out.put("model", value));
+        }
+
+        String type = mechanic.string("type").orElse("").trim().toUpperCase(Locale.ROOT);
+        if (mechanicName.equals("stringblock") || mechanicName.equals("chorusblock")
+                || List.of("STRINGBLOCK", "CHORUSBLOCK", "STRING", "CHORUS", "STAIR", "SLAB", "DOOR", "TRAPDOOR",
+                "GRATE", "BULB").contains(type)) {
+            String kind = type.isEmpty() ? mechanicName : type.toLowerCase(Locale.ROOT);
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    kind + " is not a full block, and RP Engine custom blocks are full cubes inside a note block. "
+                            + "It came across as one; a placed model suits a plant or a decoration better."));
+        }
+        if (type.contains("MUSHROOM")
+                || (mechanicName.equals("block") && type.isEmpty() && mechanic.raw("custom_variation") != null)) {
+            // Oraxen's original block mechanic hid in mushroom stems.
+            out.put("base", "mushroom_stem");
+        }
+
+        breaking(mechanic, id, namespace, origin, diagnostics, out);
+        sound(mechanic, id, origin, diagnostics, out);
+
+        if (mechanic.raw("light") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "light: a custom block cannot give off light here - it belongs to the block's type, not its "
+                            + "state. A placed model can."));
+        }
+        List<String> skipped = new ArrayList<>();
+        for (String name : mechanic.keys()) {
+            if (!BLOCK_KEYS.contains(name)) skipped.add(name);
+        }
+        if (!skipped.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "custom block " + String.join(", ", skipped) + " have no RP Engine equivalent and were skipped."));
+        }
+        return out;
+    }
+
+    private static final List<String> BLOCK_KEYS = List.of("model", "appearance", "hardness", "drop", "sound",
+            "block_sounds", "block-sounds", "type", "custom_variation", "custom-variation", "breaking", "light");
+
+    /**
      * Hardness, tool and drop.
      *
      * <p>Nexo: {@code hardness} and {@code drop: {best_tool, loots}}. Oraxen:
@@ -975,7 +1010,7 @@ final class NexoOraxen {
      * breaks it and gives nothing, which is what an {@code else} without
      * drops meant.
      */
-    static void breaking(DefinitionNode mechanic, String id, String namespace, String origin,
+    private static void breaking(DefinitionNode mechanic, String id, String namespace, String origin,
                                  List<Diagnostic> diagnostics, Map<String, Object> out) {
         List<DefinitionNode> rules = mechanic.nodes("breaking");
         if (!rules.isEmpty()) {
@@ -1054,7 +1089,7 @@ final class NexoOraxen {
      * {@code place: {sound}}. The break, step, hit and fall sounds belong to
      * the base block's type here and are named in a warning.
      */
-    static void sound(DefinitionNode mechanic, String id, String origin, List<Diagnostic> diagnostics,
+    private static void sound(DefinitionNode mechanic, String id, String origin, List<Diagnostic> diagnostics,
                               Map<String, Object> out) {
         mechanic.string("sound").ifPresent(sound -> out.put("sound", sound));
         DefinitionNode sounds = mechanic.node("block_sounds").or(() -> mechanic.node("block-sounds"))
@@ -1083,7 +1118,7 @@ final class NexoOraxen {
         return Optional.empty();
     }
 
-    static String qualified(String id, String namespace) {
+    private static String qualified(String id, String namespace) {
         return id.contains(":") ? id : namespace + ":" + id;
     }
 
