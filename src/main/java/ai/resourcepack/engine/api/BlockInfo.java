@@ -168,7 +168,13 @@ public final class BlockInfo {
             /** x, y or z: the axis of the face it was placed against, as a log is. */
             AXIS,
             /** A list of values; placed as the first, changed by clicking, growing or actions. */
-            VALUES
+            VALUES,
+            /**
+             * A list of values, one picked at random when it is placed: the
+             * way a flower bed or a cobbled path looks hand-laid rather than
+             * stamped.
+             */
+            RANDOM
         }
 
         private final String name;
@@ -193,6 +199,14 @@ public final class BlockInfo {
                 default:
                     throw new IllegalArgumentException("A list of values needs values(): " + kind);
             }
+        }
+
+        /** Engine internal; a property whose value is picked at random when placed. */
+        public static Property random(String name, List<String> values) {
+            if (values == null || values.isEmpty()) {
+                throw new IllegalArgumentException("A property needs at least one value: " + name);
+            }
+            return new Property(name, Kind.RANDOM, List.copyOf(values));
         }
 
         /** Engine internal; a property with values of its own, the first being the one placed. */
@@ -372,6 +386,31 @@ public final class BlockInfo {
     private Map<String, String> roleModels = Map.of();
     private String takes;
     private Growth growth;
+    private Behaviour behaviour = Behaviour.NONE;
+
+    /**
+     * The small things a block does that vanilla blocks do: fall like sand,
+     * shrug off explosions, lose its bark to an axe, switch to another block
+     * when clicked.
+     *
+     * @param strip      what an axe turns it into, or null
+     * @param stripDrop  what stripping it also drops, or null
+     * @param clickInto  what a right-click turns it into, or null
+     * @param falls      whether it falls when nothing holds it up
+     * @param blastProof whether explosions leave it standing
+     */
+    public record Behaviour(ContentId strip, ContentId stripDrop, ContentId clickInto, boolean falls,
+                            boolean blastProof) {
+        public static final Behaviour NONE = new Behaviour(null, null, null, false, false);
+
+        public Optional<ContentId> stripInto() {
+            return Optional.ofNullable(strip);
+        }
+
+        public Optional<ContentId> clicksInto() {
+            return Optional.ofNullable(clickInto);
+        }
+    }
 
     private BlockInfo(ContentId id, Base base, String model, float hardness,
                       String tool, ContentId drop, String sound, String name, List<String> lore,
@@ -426,6 +465,7 @@ public final class BlockInfo {
         to.roleModels = roleModels;
         to.takes = takes;
         to.growth = growth;
+        to.behaviour = behaviour;
         return to;
     }
 
@@ -460,6 +500,18 @@ public final class BlockInfo {
         changed.appearances = appearances == null ? List.of() : List.copyOf(appearances);
         changed.cycle = cycle;
         return changed;
+    }
+
+    /** Engine internal; the same block, behaving. */
+    public BlockInfo withBehaviour(Behaviour behaviour) {
+        BlockInfo changed = copy();
+        changed.behaviour = behaviour == null ? Behaviour.NONE : behaviour;
+        return changed;
+    }
+
+    /** What it does beyond being placed, clicked and mined. */
+    public Behaviour behaviour() {
+        return behaviour;
     }
 
     /** Engine internal; the same block, growing. */
