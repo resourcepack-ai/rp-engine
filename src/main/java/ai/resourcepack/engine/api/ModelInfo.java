@@ -128,6 +128,103 @@ public final class ModelInfo {
         }
     }
 
+    /**
+     * One look a click cycles a piece into: a lamp switched on, a door swung
+     * open, a television showing something.
+     *
+     * <p>Everything in one is a CHANGE from the piece as defined, and anything
+     * left out is the piece as defined — so a state that only says
+     * {@code light: 14} keeps the model, the collision and the angle it had.
+     * The piece as defined is state 0 and is not one of these.
+     */
+    public static final class State {
+
+        private final ContentId model;
+        private final Integer light;
+        private final Boolean solid;
+        private final float turn;
+        private final float offsetX;
+        private final float offsetY;
+        private final float offsetZ;
+        private final String sound;
+
+        private State(ContentId model, Integer light, Boolean solid, float turn,
+                      float offsetX, float offsetY, float offsetZ, String sound) {
+            this.model = model;
+            this.light = light;
+            this.solid = solid;
+            this.turn = turn;
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+            this.offsetZ = offsetZ;
+            this.sound = sound;
+        }
+
+        /**
+         * @param model  the item (or model) whose model to wear, or null to keep it
+         * @param light  0&ndash;15 in this state, or null for the piece's own
+         * @param solid  whether a barrier stands in it in this state, or null
+         *               for the piece's own
+         * @param turn   degrees added to the piece's facing
+         * @param offsetX blocks to the piece's right, as a seat's {@code x}
+         * @param offsetY blocks up
+         * @param offsetZ blocks forward, as a seat's {@code z}
+         * @param sound  played on entering this state, or null for silence
+         */
+        public static State of(ContentId model, Integer light, Boolean solid, float turn,
+                               float offsetX, float offsetY, float offsetZ, String sound) {
+            return new State(model,
+                    light == null ? null : Math.max(0, Math.min(15, light)),
+                    solid, turn, offsetX, offsetY, offsetZ,
+                    sound == null || sound.isBlank() ? null : sound.trim());
+        }
+
+        /** What it looks like in this state, or empty to look as defined. */
+        public java.util.Optional<ContentId> model() {
+            return java.util.Optional.ofNullable(model);
+        }
+
+        /** The light it gives off in this state, or empty for the piece's own. */
+        public java.util.Optional<Integer> light() {
+            return java.util.Optional.ofNullable(light);
+        }
+
+        /** Whether it is solid in this state, or empty for the piece's own. */
+        public java.util.Optional<Boolean> solid() {
+            return java.util.Optional.ofNullable(solid);
+        }
+
+        /** Degrees added to the piece's yaw: a hinged door's swing. */
+        public float turn() {
+            return turn;
+        }
+
+        /** Blocks to the piece's right. A sliding door's slide. */
+        public float offsetX() {
+            return offsetX;
+        }
+
+        /** Blocks up. */
+        public float offsetY() {
+            return offsetY;
+        }
+
+        /** Blocks forward. */
+        public float offsetZ() {
+            return offsetZ;
+        }
+
+        /** The sound it makes arriving in this state. */
+        public java.util.Optional<String> sound() {
+            return java.util.Optional.ofNullable(sound);
+        }
+
+        /** Whether the piece is drawn turned or moved in this state. */
+        public boolean moves() {
+            return turn != 0f || offsetX != 0f || offsetY != 0f || offsetZ != 0f;
+        }
+    }
+
     private final ContentId id;
     private final ContentId item;
     private final Facing facing;
@@ -142,6 +239,9 @@ public final class ModelInfo {
     private ModelShape shape = ModelShape.NONE;
     private StorageSpec storage;
     private Jukebox jukebox;
+    private java.util.List<State> states = java.util.List.of();
+    private long stateResetTicks;
+    private String baseSound;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -325,6 +425,22 @@ public final class ModelInfo {
     }
 
     /**
+     * The same model, with looks a click cycles through.
+     *
+     * @param states     the states after the piece as defined; empty for none
+     * @param resetTicks how long after the last click it goes back to the piece
+     *                   as defined, in ticks; 0 for never
+     * @param baseSound  played on going back to the piece as defined, or null
+     */
+    public ModelInfo withStates(java.util.List<State> states, long resetTicks, String baseSound) {
+        ModelInfo changed = copy();
+        changed.states = states == null ? java.util.List.of() : java.util.List.copyOf(states);
+        changed.stateResetTicks = Math.max(0L, resetTicks);
+        changed.baseSound = baseSound == null || baseSound.isBlank() ? null : baseSound.trim();
+        return changed;
+    }
+
+    /**
      * Everything {@link #of} cannot carry, moved across.
      *
      * <p>The `with` methods each rebuild through {@code of}, which resets
@@ -343,6 +459,9 @@ public final class ModelInfo {
         made.shape = shape;
         made.storage = storage;
         made.jukebox = jukebox;
+        made.states = states;
+        made.stateResetTicks = stateResetTicks;
+        made.baseSound = baseSound;
         return made;
     }
 
@@ -413,6 +532,66 @@ public final class ModelInfo {
     /** The jukebox it is, or empty for a piece that plays nothing. */
     public java.util.Optional<Jukebox> jukebox() {
         return java.util.Optional.ofNullable(jukebox);
+    }
+
+    /**
+     * The looks a click cycles it through, after the piece as defined.
+     *
+     * <p>Index 0 is the piece as defined and is not in this list; state
+     * {@code n} is {@code states().get(n - 1)}. Empty for a piece a click does
+     * not change.
+     */
+    public java.util.List<State> states() {
+        return states;
+    }
+
+    /** State {@code index}, or empty for 0 (the piece as defined) and anything out of range. */
+    public java.util.Optional<State> state(int index) {
+        return index < 1 || index > states.size()
+                ? java.util.Optional.empty()
+                : java.util.Optional.of(states.get(index - 1));
+    }
+
+    /**
+     * The state a click moves a piece in {@code current} to: the next one,
+     * and round to the piece as defined after the last.
+     *
+     * <p>An index this piece no longer has — its pack lost a state since — goes
+     * back to the start, rather than off the end of a list.
+     */
+    public int nextState(int current) {
+        if (states.isEmpty() || current < 0 || current >= states.size()) {
+            return 0;
+        }
+        return current + 1;
+    }
+
+    /** The light it gives off in state {@code index}, 0&ndash;15. */
+    public int lightIn(int index) {
+        return state(index).flatMap(State::light).orElse(light);
+    }
+
+    /**
+     * Whether it is solid in state {@code index}.
+     *
+     * <p>A solid state gives no light whatever {@link #lightIn} says: the
+     * barrier and the light would have to be the same block.
+     */
+    public boolean solidIn(int index) {
+        return state(index).flatMap(State::solid).orElse(solid);
+    }
+
+    /**
+     * How long after the last click a piece goes back to the piece as
+     * defined, in ticks, or 0 for never. A door that shuts itself.
+     */
+    public long stateResetTicks() {
+        return stateResetTicks;
+    }
+
+    /** The sound it makes going back to the piece as defined, or empty. */
+    public java.util.Optional<String> baseSound() {
+        return java.util.Optional.ofNullable(baseSound);
     }
 
     @Override

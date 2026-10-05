@@ -100,6 +100,7 @@ public final class ModelPlacementListener implements Listener {
         this.displayKey = new NamespacedKey(plugin, "model-display");
         this.solidKey = new NamespacedKey(plugin, "model-solid");
         this.lightKey = new NamespacedKey(plugin, "model-light");
+        this.stateKey = new NamespacedKey(plugin, "model-state");
         this.rigs = rigs;
         this.animator = animator;
         this.spawns = new RigSpawn(host, animator);
@@ -137,6 +138,25 @@ public final class ModelPlacementListener implements Listener {
 
     public void storages(ai.resourcepack.engine.core.storage.Storages storages) {
         this.storages = storages;
+    }
+
+    /**
+     * Which of its {@code states:} a piece is in, on its hitbox, so a lamp left
+     * on is still on after a restart. Absent is 0, the piece as defined.
+     */
+    private final NamespacedKey stateKey;
+
+    /** A piece's pending {@code reset-after}, by hitbox. One per piece, replaced on every click. */
+    private final Map<UUID, org.bukkit.scheduler.BukkitTask> resets = new java.util.HashMap<>();
+
+    /** How long a door takes to swing, in ticks. Short: it is a click, not a cutscene. */
+    private static final int SWING_TICKS = 5;
+
+    /** This server's own sounds, for a state's sound named by a content id. */
+    private ai.resourcepack.engine.api.Sounds sounds;
+
+    public void sounds(ai.resourcepack.engine.api.Sounds sounds) {
+        this.sounds = sounds;
     }
 
     /** Plays discs in a piece that is a jukebox. Null until wired. */
@@ -362,11 +382,6 @@ public final class ModelPlacementListener implements Listener {
             if (carried != null && info.storage().map(one -> one.type().keepsContents()).orElse(false)) {
                 i.getPersistentDataContainer().set(storages.contentsKey(), PersistentDataType.BYTE_ARRAY, carried);
             }
-            if (info.solid()) {
-                i.getPersistentDataContainer().set(solidKey, PersistentDataType.BYTE, (byte) 1);
-            } else if (info.light() > 0) {
-                i.getPersistentDataContainer().set(lightKey, PersistentDataType.BYTE, (byte) 1);
-            }
         });
 
         // Before the place trigger, so its animation reaches the Bedrock copy.
@@ -376,23 +391,75 @@ public final class ModelPlacementListener implements Listener {
             animator.trigger(hitbox, RigAnimations.TRIGGER_PLACE, null);
         }
 
-        if (info.solid()) {
+        anchor(hitbox, info.solid(), info.light());
+        return hitbox;
+    }
+
+    /**
+     * Makes the block a piece stands in what it should be: a barrier, a light
+     * of some level, or nothing of ours.
+     *
+     * <p>One method for placing a piece and for every state it is clicked
+     * into, because a lamp switched on after it was placed has to get its light
+     * the same way one placed lit does, and lose it the same way when it is
+     * switched off.
+     *
+     * <p><strong>Only ever a block WE put there, or air.</strong> A display
+     * entity does not collide, so a player can put their own light or block in
+     * the space a model occupies, and a state change that wrote over it would
+     * delete it. So what is ours is recorded on the hitbox (the solid and light
+     * keys), a recorded block that is not there any more is forgotten rather
+     * than trusted, and anything else standing there is left alone — at the
+     * cost of the piece not being solid or lit in that state.
+     *
+     * <p>A barrier and a light would have to be the same block, so a solid
+     * state gives no light: the barrier wins.
+     */
+    private void anchor(Interaction hitbox, boolean solid, int light) {
+        org.bukkit.persistence.PersistentDataContainer data = hitbox.getPersistentDataContainer();
+        Block block = hitbox.getLocation().getBlock();
+        boolean ourBarrier = data.has(solidKey, PersistentDataType.BYTE) && block.getType() == Material.BARRIER;
+        boolean ourLight = data.has(lightKey, PersistentDataType.BYTE) && block.getType() == Material.LIGHT;
+        if (!ourBarrier) {
+            data.remove(solidKey);
+        }
+        if (!ourLight) {
+            data.remove(lightKey);
+        }
+        boolean free = block.getType().isAir() || ourBarrier || ourLight;
+
+        if (solid) {
+            if (ourBarrier || !free) {
+                return;
+            }
             // A display entity has no collision whatsoever. This is the only
             // way to make a table something you cannot walk through.
-            target.setType(Material.BARRIER, false);
-        } else if (info.light() > 0) {
-            // A display entity emits nothing either, so a lamp needs a real
-            // light block standing in its anchor. Only where there is no
-            // barrier: one block cannot be both, and a solid piece has already
-            // spent it.
-            target.setType(Material.LIGHT, false);
-            org.bukkit.block.data.BlockData data = target.getBlockData();
-            if (data instanceof org.bukkit.block.data.Levelled) {
-                ((org.bukkit.block.data.Levelled) data).setLevel(info.light());
-                target.setBlockData(data, false);
+            data.remove(lightKey);
+            block.setType(Material.BARRIER, false);
+            data.set(solidKey, PersistentDataType.BYTE, (byte) 1);
+        } else if (light > 0) {
+            if (!free) {
+                return;
             }
+            // A display entity emits nothing either, so a lamp needs a real
+            // light block standing in its anchor.
+            data.remove(solidKey);
+            if (!ourLight) {
+                block.setType(Material.LIGHT, false);
+            }
+            org.bukkit.block.data.BlockData blockData = block.getBlockData();
+            if (blockData instanceof org.bukkit.block.data.Levelled) {
+                ((org.bukkit.block.data.Levelled) blockData).setLevel(light);
+                block.setBlockData(blockData, false);
+            }
+            data.set(lightKey, PersistentDataType.BYTE, (byte) 1);
+        } else {
+            if (ourBarrier || ourLight) {
+                block.setType(Material.AIR, false);
+            }
+            data.remove(solidKey);
+            data.remove(lightKey);
         }
-        return hitbox;
     }
 
     /**
@@ -473,6 +540,21 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        // The next state: the lamp goes on, the door swings. An animated
+        // piece's own right-click animation plays as well, because that is
+        // how a rig door shows itself opening — a rig cannot be turned or
+        // re-modelled whole the way a still piece can.
+        if (piece != null && !piece.states().isEmpty() && !sitInstead) {
+            event.setCancelled(true);
+            int next = piece.nextState(stateOf(hitbox));
+            enterState(hitbox, piece, next);
+            scheduleReset(hitbox, piece, next);
+            if (animator != null && animator.hasTrigger(id.get().toString(), RigAnimations.TRIGGER_RIGHT_CLICK)) {
+                animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, clicker);
+            }
+            return;
+        }
+
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
@@ -500,7 +582,15 @@ public final class ModelPlacementListener implements Listener {
      * after it is placed.
      */
     private static boolean changesLook(ModelInfo info) {
-        return info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent();
+        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent()) {
+            return true;
+        }
+        for (ModelInfo.State state : info.states()) {
+            if (state.model().isPresent()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -516,7 +606,7 @@ public final class ModelPlacementListener implements Listener {
         if (playing.isPresent() && jukeboxes != null && jukeboxes.holding(hitbox)) {
             return playing.get();
         }
-        return info.item();
+        return info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model).orElse(info.item());
     }
 
     /**
@@ -587,8 +677,153 @@ public final class ModelPlacementListener implements Listener {
                         "jukebox playing-model: does nothing on an animated piece, whose look is its "
                                 + "parts. It plays without changing."));
             }
+            for (int i = 0; i < info.states().size(); i++) {
+                ModelInfo.State state = info.states().get(i);
+                if (state.model().isPresent() || state.moves()) {
+                    found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                            "state " + (i + 1) + ": model, turn and offset do nothing on an animated piece, "
+                                    + "whose parts are posed by its animation. Its light, solid and sound "
+                                    + "still change; give it a right-click animation to show the change."));
+                }
+            }
         }
         return found;
+    }
+
+    // ---- states ----------------------------------------------------------
+
+    /** Which state a piece is in. 0, the piece as defined, if it never said. */
+    private int stateOf(Interaction hitbox) {
+        Integer stored = hitbox.getPersistentDataContainer().get(stateKey, PersistentDataType.INTEGER);
+        return stored == null ? 0 : stored;
+    }
+
+    /**
+     * Puts a piece into state {@code index}: its block, its model, its angle
+     * and position, and the sound of getting there.
+     *
+     * <p>Everything is set from the state rather than changed from the last
+     * one, so going from any state to any other is the same call and a piece
+     * whose pack changed under it lands somewhere coherent.
+     */
+    private void enterState(Interaction hitbox, ModelInfo info, int index) {
+        if (index == 0) {
+            hitbox.getPersistentDataContainer().remove(stateKey);
+        } else {
+            hitbox.getPersistentDataContainer().set(stateKey, PersistentDataType.INTEGER, index);
+        }
+        boolean solid = info.solidIn(index);
+        anchor(hitbox, solid, solid ? 0 : info.lightIn(index));
+        refreshLook(hitbox, info);
+        pose(hitbox, info, info.state(index).orElse(null));
+        String sound = index == 0
+                ? info.baseSound().orElse(null)
+                : info.state(index).flatMap(ModelInfo.State::sound).orElse(null);
+        ai.resourcepack.engine.core.sound.SoundAt.play(sounds, hitbox.getLocation().add(0, 0.5, 0), sound,
+                org.bukkit.SoundCategory.BLOCKS, 1f, 1f);
+    }
+
+    /**
+     * Turns and moves a still piece's display for a state.
+     *
+     * <p>Through the display's transformation rather than its yaw, for two
+     * reasons. The translation of a transformation is in the display's OWN
+     * frame — right, up, forward of the piece as placed — which is exactly the
+     * frame a state's offset is written in, so a sliding door slides along
+     * itself whichever way it was put down; and a transformation change is
+     * interpolated by the client, so a door swings rather than teleporting
+     * open. The turn goes in the left rotation, after the translation, so a
+     * piece turns about its own centre and THEN moves — which is how a hinge is
+     * written: a quarter turn, and an offset to put the edge back on the hinge.
+     *
+     * <p>The yaw stored on the hitbox is left alone. It is what vehicles turn
+     * the model's boxes by, and the hitbox does not swing with the door.
+     */
+    private void pose(Interaction hitbox, ModelInfo info, ModelInfo.State state) {
+        boolean anyMoves = false;
+        for (ModelInfo.State one : info.states()) {
+            anyMoves |= one.moves();
+        }
+        if (!anyMoves) {
+            // Never touched, so a plain lamp's display is exactly what place()
+            // made of it.
+            return;
+        }
+        ItemDisplay display = stillDisplay(hitbox);
+        if (display == null) {
+            return;
+        }
+        Transformation now = display.getTransformation();
+        org.joml.Vector3f translation = state == null
+                ? new org.joml.Vector3f()
+                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ()).mul(info.scale());
+        // Adding to a yaw is a NEGATIVE turn about y: the display is drawn
+        // turned by -yaw, so this composes into -(yaw + turn).
+        org.joml.Quaternionf turn = state == null
+                ? new org.joml.Quaternionf()
+                : new org.joml.Quaternionf().rotateY((float) Math.toRadians(-state.turn()));
+        display.setInterpolationDelay(0);
+        display.setInterpolationDuration(SWING_TICKS);
+        display.setTransformation(new Transformation(translation, turn, now.getScale(), now.getRightRotation()));
+    }
+
+    /**
+     * Books the piece's return to the piece as defined, replacing any return
+     * already booked. A door clicked twice shuts after the second click, not
+     * the first.
+     */
+    private void scheduleReset(Interaction hitbox, ModelInfo info, int index) {
+        UUID uuid = hitbox.getUniqueId();
+        org.bukkit.scheduler.BukkitTask pending = resets.remove(uuid);
+        if (pending != null) {
+            pending.cancel();
+        }
+        if (index == 0 || info.stateResetTicks() <= 0) {
+            return;
+        }
+        ContentId id = info.id();
+        resets.put(uuid, Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            resets.remove(uuid);
+            Entity entity = Bukkit.getEntity(uuid);
+            ModelInfo current = model.get(id);
+            // Gone, unloaded, or already back: nothing to do. An unloaded one
+            // is booked again when its chunk comes back; see onLoad.
+            if (entity instanceof Interaction && entity.isValid() && current != null
+                    && stateOf((Interaction) entity) != 0) {
+                enterState((Interaction) entity, current, 0);
+            }
+        }, info.stateResetTicks()));
+    }
+
+    /**
+     * A piece left in a state that resets itself, coming back with its chunk,
+     * gets its reset booked again — from now, because how long it was away is
+     * not something an unloaded chunk counted.
+     */
+    @EventHandler
+    public void onLoad(org.bukkit.event.world.EntitiesLoadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (!(entity instanceof Interaction)) {
+                continue;
+            }
+            Interaction hitbox = (Interaction) entity;
+            Optional<ContentId> id = idOf(hitbox);
+            ModelInfo info = id.map(model::get).orElse(null);
+            if (info != null && info.stateResetTicks() > 0) {
+                int state = stateOf(hitbox);
+                if (state != 0) {
+                    scheduleReset(hitbox, info, state);
+                }
+            }
+        }
+    }
+
+    /** Every booked reset forgotten. The plugin is going, and its tasks with it. */
+    public void stop() {
+        for (org.bukkit.scheduler.BukkitTask task : resets.values()) {
+            task.cancel();
+        }
+        resets.clear();
     }
 
     // ---- storage -------------------------------------------------------
@@ -728,6 +963,12 @@ public final class ModelPlacementListener implements Listener {
         if (jukeboxes != null && jukeboxes.holding(hitbox)) {
             jukeboxes.eject(hitbox, info == null ? 1f
                     : info.jukebox().map(ModelInfo.Jukebox::volume).orElse(1f));
+        }
+
+        // A door due to shut itself has nothing to shut.
+        org.bukkit.scheduler.BukkitTask reset = resets.remove(hitbox.getUniqueId());
+        if (reset != null) {
+            reset.cancel();
         }
 
         // Every display, because an animated piece is several and one left

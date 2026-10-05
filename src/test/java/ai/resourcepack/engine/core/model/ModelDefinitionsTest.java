@@ -368,6 +368,154 @@ class ModelDefinitionsTest {
         assertTrue(one(parse(), "mypack:chair").jukebox().isEmpty());
     }
 
+    // ---- states ---------------------------------------------------------
+
+    @Test
+    void aStateReadsEverySetting() throws IOException {
+        chair("  place:\n    reset-after: 10s\n    base-sound: minecraft:block.wooden_door.close\n"
+                + "    states:\n"
+                + "      - model: mypack:lamp_on\n        light: 14\n        solid: false\n"
+                + "        turn: 90\n        offset: [-0.85, 0, 0.5]\n"
+                + "        sound: minecraft:block.wooden_door.open\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo info = one(result, "mypack:chair");
+        ModelInfo.State state = info.states().get(0);
+
+        assertTrue(result.diagnostics().isEmpty(), result.diagnostics().toString());
+        assertEquals(1, info.states().size());
+        assertEquals("mypack:lamp_on", state.model().orElseThrow().toString());
+        assertEquals(14, state.light().orElseThrow());
+        assertFalse(state.solid().orElseThrow());
+        assertEquals(90f, state.turn());
+        assertEquals(-0.85f, state.offsetX());
+        assertEquals(0f, state.offsetY());
+        assertEquals(0.5f, state.offsetZ());
+        assertEquals("minecraft:block.wooden_door.open", state.sound().orElseThrow());
+        assertTrue(state.moves());
+        assertEquals(200L, info.stateResetTicks());
+        assertEquals("minecraft:block.wooden_door.close", info.baseSound().orElseThrow());
+    }
+
+    @Test
+    void whatAStateLeavesOutIsThePieceAsDefined() throws IOException {
+        // A Nexo-style door: it swings and stops being solid, and keeps its
+        // model and its (lack of) light.
+        chair("  place:\n    solid: true\n    states:\n      - turn: 90\n        solid: false\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertTrue(info.solidIn(0), "closed, it is the piece as defined");
+        assertFalse(info.solidIn(1), "open, it can be walked through");
+        assertEquals(0, info.lightIn(1));
+        assertTrue(info.states().get(0).model().isEmpty());
+        assertTrue(info.state(1).orElseThrow().light().isEmpty());
+    }
+
+    @Test
+    void aLampThatIsDarkUntilClicked() throws IOException {
+        // Light used to be decided once, at placement. A base of 0 and a lit
+        // state is the case that has to work now.
+        chair("  place:\n    light: 0\n    states:\n      - light: 15\n        model: mypack:lamp_on\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertEquals(0, info.lightIn(0));
+        assertEquals(15, info.lightIn(1));
+        assertFalse(info.states().get(0).moves(), "a lamp swaps its model, it does not move");
+    }
+
+    @Test
+    void aClickCyclesRoundTheStatesAndBackToTheStart() throws IOException {
+        chair("  place:\n    states:\n      - light: 5\n      - light: 10\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertEquals(1, info.nextState(0));
+        assertEquals(2, info.nextState(1));
+        assertEquals(0, info.nextState(2), "after the last comes the piece as defined");
+        assertEquals(0, info.nextState(7), "a state the pack no longer has goes back to the start");
+        assertEquals(0, info.nextState(-1));
+        assertTrue(info.state(0).isEmpty(), "state 0 is the piece as defined, not an entry");
+        assertTrue(info.state(3).isEmpty());
+        assertEquals(10, info.lightIn(2));
+        assertEquals(0, info.lightIn(9), "out of range reads as the piece as defined");
+    }
+
+    @Test
+    void aPieceWithNoStatesStaysPut() throws IOException {
+        chair("  place: {}\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertTrue(info.states().isEmpty());
+        assertEquals(0, info.nextState(0));
+        assertEquals(0L, info.stateResetTicks());
+    }
+
+    @Test
+    void aStateThatIsNotABlockIsSkippedAndSaidSo() throws IOException {
+        chair("  place:\n    states:\n      - on\n      - light: 3\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertEquals(1, one(result, "mypack:chair").states().size());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void statesThatAreNotAListAreRefused() throws IOException {
+        chair("  place:\n    states: on\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:chair").states().isEmpty());
+        assertEquals(1, result.diagnostics().size());
+    }
+
+    @Test
+    void badStateValuesFallBackOneByOne() throws IOException {
+        chair("  place:\n    reset-after: soon\n    states:\n"
+                + "      - light: 40\n        solid: maybe\n        turn: left\n"
+                + "        offset: [1, 2]\n        sound: door opens\n        model: Not An Id\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo info = one(result, "mypack:chair");
+        ModelInfo.State state = info.states().get(0);
+
+        assertEquals(15, state.light().orElseThrow(), "clamped");
+        assertTrue(state.solid().isEmpty());
+        assertFalse(state.moves());
+        assertTrue(state.sound().isEmpty());
+        assertTrue(state.model().isEmpty());
+        assertEquals(0L, info.stateResetTicks());
+        assertEquals(7, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void aTurnIsFoldedIntoOneRevolution() throws IOException {
+        chair("  place:\n    states:\n      - turn: 450\n");
+
+        assertEquals(90f, one(parse(), "mypack:chair").states().get(0).turn());
+    }
+
+    @Test
+    void resetAfterWithNothingToResetIsToldSo() throws IOException {
+        chair("  place:\n    reset-after: 5s\n");
+
+        assertEquals(1, parse().diagnostics().size());
+    }
+
+    @Test
+    void statesSurviveTheOtherCopies() throws IOException {
+        chair("  place:\n    reset-after: 20\n    states:\n      - light: 3\n");
+
+        ModelInfo info = one(parse(), "mypack:chair").withSeatOffset(1f, 0f).withStorage(null);
+
+        assertEquals(1, info.states().size());
+        assertEquals(20L, info.stateResetTicks());
+    }
+
     @Test
     void nothingLoadedMeansNothingParsed() {
         assertTrue(ModelDefinitions.parse(null, null).model().isEmpty());
