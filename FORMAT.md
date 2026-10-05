@@ -1628,6 +1628,10 @@ What comes across:
 | `equipments.<id>` · `armors_rendering.<id>` · `legacy_armor_renderings.<id>` | the layer art those name, from any file in the pack |
 | `behaviours.liquid_bucket` | `liquid` |
 | `behaviours.furniture` | `place:`, with its light, solidity and seat |
+| `behaviours.block` (or `specific_properties.block`) on an item | a custom block, with its name, lore, model (or the cube generated from its textures), hardness, tool and place sound |
+| `loots.blocks.<name>`, in any file of the pack | the block's `drop`, when the table's first item is one of the pack's and certain |
+| `item_flags` | `flags` |
+| `events` | `actions` (below) |
 | `font_images.<id>` | an icon |
 | `sounds.<id>` (`path`, and `settings`' subtitle, volume, pitch and stream) | a sound, its subtitle key looked up in the pack's `minecraft_lang_overwrite` |
 | `resourcepack/assets/<namespace>/sounds.json` (before 4.0.12) | a sound per event, the audio left where it is |
@@ -1640,18 +1644,31 @@ What comes across:
 A bare lowercase id in a recipe (`base: my_sword`) is the file's own, as theirs
 reads it; anything with a capital is a vanilla material.
 
-What does not, each of them a warning naming the id rather than a silence:
-**custom blocks**, which are not a feature here and are not going to be; their
-**entities**, which are a different feature rather than a different spelling
-and want writing as `entities/`; recipe groups other than the ones above, and a
-brewing recipe's `brew_time`, `fuel_cost` and `on_complete`; and the parts of an
-item that are their plugin's own behaviour rather than a property of the item —
-`events`, `drop`, `item_flags`. Of their armour, an animated
-layer (a strip of frames, which a worn layer cannot play) is not carried,
-`use_color` tints and emissive layers are dropped, and colour-only armour, which
-has no art, is worn as plain leather. Of their sounds, one that picks between
-several files keeps the first, and `weight`, `attenuation_distance`, `preload`
-and `jukebox` are dropped.
+**Events become actions.** `interact.right` and `.left` are `right_click` and
+`left_click` (a bare `interact` is both), `attack`, `eat`/`drink` (`consume`),
+`drop`, `pickup`, `item_break` (`break`), `block_break` and `bow_shot`
+(`shoot`) keep their meaning, and `placed_block` and `placed_furniture` with
+`interact`, `break` and `place` are the block's or furniture's own `interact`,
+`remove` and `place`. Inside them, `play_sound`, `execute_commands`
+(`as_console` is `console`, otherwise `run`), `potion_effect`, `give_item`
+(a vanilla item is handed over with the game's own `give`),
+`decrement_amount` (`take`), `cancel`, and ItemsAdderAdditions' `message` and
+`actionbar` come across. A permission every action in an event shares becomes
+a `permission` step at its front.
+
+What does not, each of them a warning naming the id rather than a silence: their
+**entities** and **recipes** beyond what the tables above say, which are a
+different feature rather than a different spelling; a brewing recipe's
+`brew_time`, `fuel_cost` and `on_complete`; events with no trigger
+here (holding, wearing, fishing, a sneaking click, their guns and books);
+actions with no step (particles, damage, replacing blocks, dropping experience,
+anything with a `delay`, a permission only some actions ask for); loot by
+chance, mob and fishing loot; and an item's own `drop`. Of their armour, an
+animated layer (a strip of frames, which a worn layer cannot play) is not
+carried, `use_color` tints and emissive layers are dropped, and colour-only
+armour, which has no art, is worn as plain leather. Of their sounds, one that
+picks between several files keeps the first, and `weight`,
+`attenuation_distance`, `preload` and `jukebox` are dropped.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder
