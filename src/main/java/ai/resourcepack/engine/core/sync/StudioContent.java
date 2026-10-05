@@ -156,6 +156,12 @@ public final class StudioContent {
         com.google.gson.JsonElement json;
         /** The variables its bound controls show, and each one's values. Absent binds nothing. */
         List<DialogVariable> vars;
+        /**
+         * A dialog with live item slots: which icon-sheet cell draws each of
+         * the pack's own items, by the {@code custom_model_data} string a stack
+         * of it carries. Absent when the pack painted none.
+         */
+        Map<String, Integer> itemIcons;
     }
 
     /** A variable a dialog declares: see {@link ai.resourcepack.engine.api.DialogInfo#variables()}. */
@@ -812,8 +818,20 @@ public final class StudioContent {
                     vars.put(v.name, values);
                 }
             }
+            // Only cells the pack's sheet can hold for an item of its own: past
+            // the highlight, before the digits' twins. Anything else is a
+            // character the font does not draw as a 17-wide picture.
+            Map<String, Integer> icons = new LinkedHashMap<>();
+            if (dialog.itemIcons != null) {
+                dialog.itemIcons.forEach((model, cell) -> {
+                    if (model != null && !model.isEmpty() && model.length() <= 128 && cell != null
+                            && ai.resourcepack.engine.core.dialog.DialogItems.packCell(cell)) {
+                        icons.put(model, cell);
+                    }
+                });
+            }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
-                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars)));
+                    ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
