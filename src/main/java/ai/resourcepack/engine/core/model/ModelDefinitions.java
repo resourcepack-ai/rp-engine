@@ -79,6 +79,7 @@ public final class ModelDefinitions {
                     bounds == null ? null : bounds.get(definition.id()), diagnostics)
                     .ifPresent(one -> model.put(one.id(), one));
         }
+        checkGrowth(model, loaded.definitions(ContentKind.ITEM), diagnostics);
         return new Result(Map.copyOf(model), List.copyOf(diagnostics));
     }
 
@@ -209,7 +210,101 @@ public final class ModelDefinitions {
                 .withJukebox(jukebox)
                 .withStates(states(body, origin, where, diagnostics),
                         stateReset(body, origin, where, diagnostics),
-                        soundKey(body, "base-sound", origin, where, diagnostics)));
+                        soundKey(body, "base-sound", origin, where, diagnostics))
+                .withGrow(grow(body, origin, where, diagnostics)));
+    }
+
+    /**
+     * A {@code grow:} block, or null. Whether {@code into} is actually a
+     * placed model is checked once everything is parsed, because it may be
+     * defined further down the same file or in another one.
+     */
+    static ModelInfo.Grow grow(DefinitionNode body, String origin, String where,
+                               List<Diagnostic> diagnostics) {
+        if (!body.has("grow")) {
+            return null;
+        }
+        Optional<DefinitionNode> block = body.node("grow");
+        if (block.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grow: should be a block with at least `into:`. It never grows."));
+            return null;
+        }
+        DefinitionNode grow = block.get();
+        Optional<String> declaredInto = grow.string("into");
+        ContentId into = declaredInto.flatMap(text -> ContentId.parse(text.trim())).orElse(null);
+        if (into == null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grow into: " + declaredInto.orElse("(missing)") + " is not a namespace:id. It never grows."));
+            return null;
+        }
+
+        long after = 0L;
+        Optional<String> declaredAfter = grow.string("after");
+        if (declaredAfter.isPresent()) {
+            java.util.OptionalLong ticks = Durations.ticks(declaredAfter.get());
+            if (ticks.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "grow after: " + declaredAfter.get() + " is not a time like 10s, 200t or 2m. "
+                                + "It may grow at the first check."));
+            } else {
+                after = ticks.getAsLong();
+            }
+        }
+
+        double chance = 1d;
+        if (grow.has("chance")) {
+            Optional<Double> declared = grow.decimal("chance");
+            if (declared.isEmpty() || !(declared.get() > 0) || declared.get() > 1) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "grow chance: " + grow.raw("chance") + " should be above 0 and at most 1. Using 1."));
+            } else {
+                chance = declared.get();
+            }
+        }
+
+        int light = 0;
+        if (grow.has("light")) {
+            Optional<Integer> declared = grow.integer("light");
+            if (declared.isEmpty() || declared.get() < 0 || declared.get() > 15) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "grow light: " + grow.raw("light") + " should be a light level, 0-15. "
+                                + "It grows in any light."));
+            } else {
+                light = declared.get();
+            }
+        }
+        return ModelInfo.Grow.of(into, after, chance, light);
+    }
+
+    /**
+     * Takes {@code grow:} off every piece whose {@code into} is not a placed
+     * model, saying so. A piece that grew into nothing would be a piece that
+     * vanished, which is the one outcome worse than never growing.
+     */
+    private static void checkGrowth(Map<ContentId, ModelInfo> model, List<ContentDefinition> definitions,
+                                    List<Diagnostic> diagnostics) {
+        for (Map.Entry<ContentId, ModelInfo> entry : new ArrayList<>(model.entrySet())) {
+            ModelInfo.Grow grow = entry.getValue().grow().orElse(null);
+            if (grow == null) {
+                continue;
+            }
+            String problem = null;
+            if (grow.into().equals(entry.getKey())) {
+                problem = "grow into: is the piece itself, which would only ever replace itself.";
+            } else if (!model.containsKey(grow.into())) {
+                problem = "grow into: " + grow.into() + " is not an item with a place: block, so there is "
+                        + "nothing to grow into. It never grows.";
+            }
+            if (problem != null) {
+                String origin = definitions.stream()
+                        .filter(one -> one.id().equals(entry.getKey()))
+                        .map(ContentDefinition::origin)
+                        .findFirst().orElse(entry.getKey().toString());
+                diagnostics.add(Diagnostic.warning(origin, entry.getKey().path(), problem));
+                model.put(entry.getKey(), entry.getValue().withGrow(null));
+            }
+        }
     }
 
     /** More than this is a list somebody generated by mistake, not a lamp. */
