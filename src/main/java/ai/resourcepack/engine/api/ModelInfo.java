@@ -68,6 +68,66 @@ public final class ModelInfo {
         FIXED
     }
 
+    /**
+     * A piece that plays music discs: a gramophone, a radio, a jukebox that
+     * does not look like a jukebox.
+     *
+     * <p>Right-click with a disc to put it in, right-click again to take it
+     * out. A display entity cannot be a jukebox block, so the disc is kept on
+     * the piece and the record is played at it, exactly as the barrier stands
+     * in for collision and the light block for light.
+     */
+    public static final class Jukebox {
+
+        private final float volume;
+        private final float pitch;
+        private final String permission;
+        private final ContentId playingModel;
+
+        private Jukebox(float volume, float pitch, String permission, ContentId playingModel) {
+            this.volume = volume;
+            this.pitch = pitch;
+            this.permission = permission;
+            this.playingModel = playingModel;
+        }
+
+        /**
+         * @param volume       1 is a vanilla jukebox: heard about 64 blocks away
+         * @param pitch        1 is the record as recorded
+         * @param permission   who may put a disc in or take one out, or null for anybody
+         * @param playingModel what the piece looks like while a disc is in it, or
+         *                     null to look the same
+         */
+        public static Jukebox of(float volume, float pitch, String permission, ContentId playingModel) {
+            return new Jukebox(volume, pitch,
+                    permission == null || permission.isBlank() ? null : permission.trim(), playingModel);
+        }
+
+        /** How loud, relative to a vanilla jukebox. */
+        public float volume() {
+            return volume;
+        }
+
+        /** How fast, 1 being as recorded. */
+        public float pitch() {
+            return pitch;
+        }
+
+        /** The permission a player needs to use it, or empty for anybody. */
+        public java.util.Optional<String> permission() {
+            return java.util.Optional.ofNullable(permission);
+        }
+
+        /**
+         * The item (or model) whose model the piece wears while a disc is in
+         * it — the gramophone with its horn turning — or empty to stay as it
+         * is.
+         */
+        public java.util.Optional<ContentId> playingModel() {
+            return java.util.Optional.ofNullable(playingModel);
+        }
+    }
+
     private final ContentId id;
     private final ContentId item;
     private final Facing facing;
@@ -81,6 +141,7 @@ public final class ModelInfo {
     private boolean vehicleCollision = true;
     private ModelShape shape = ModelShape.NONE;
     private StorageSpec storage;
+    private Jukebox jukebox;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -256,6 +317,13 @@ public final class ModelInfo {
         return changed;
     }
 
+    /** The same model, playing music discs — or not, for null. */
+    public ModelInfo withJukebox(Jukebox jukebox) {
+        ModelInfo changed = copy();
+        changed.jukebox = jukebox;
+        return changed;
+    }
+
     /**
      * Everything {@link #of} cannot carry, moved across.
      *
@@ -274,6 +342,7 @@ public final class ModelInfo {
         made.vehicleCollision = vehicleCollision;
         made.shape = shape;
         made.storage = storage;
+        made.jukebox = jukebox;
         return made;
     }
 
@@ -339,6 +408,11 @@ public final class ModelInfo {
      */
     public java.util.Optional<StorageSpec> storage() {
         return java.util.Optional.ofNullable(storage);
+    }
+
+    /** The jukebox it is, or empty for a piece that plays nothing. */
+    public java.util.Optional<Jukebox> jukebox() {
+        return java.util.Optional.ofNullable(jukebox);
     }
 
     @Override

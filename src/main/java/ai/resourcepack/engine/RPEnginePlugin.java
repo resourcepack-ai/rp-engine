@@ -542,6 +542,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // duplication rules as a placed cabinet does now.
         storages = new ai.resourcepack.engine.core.storage.Storages(this, sounds);
         placements.storages(storages);
+        // A piece that is a jukebox asks this what a disc plays: a material
+        // on every version, a data component from 1.21. See Discs.
+        placements.discs(ai.resourcepack.engine.core.model.Discs.forServer(compatibility, sounds, getLogger()));
         // What a placed model is to a vehicle: whether it stops one, what it is
         // shaped like, and how big its own definition draws it.
         //
@@ -1436,6 +1439,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // merge would not do. Studio's rigs are keyed by their own pack ids
         // and are untouched by this.
         registerAuthoredRigs(itemAssets.rigs());
+        // Only now is it known which placed pieces animate, and a few
+        // `place:` settings mean nothing on one that does.
+        report(to, "model", placements.rigDiagnostics());
 
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.

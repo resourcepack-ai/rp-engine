@@ -177,6 +177,15 @@ public final class ModelDefinitions {
             drop = null;
         }
 
+        ModelInfo.Jukebox jukebox = jukebox(body, origin, where, diagnostics);
+        if (jukebox != null && storage != null) {
+            // One click, and the container comes first in the chain, so the
+            // jukebox would never hear one. Said rather than silently true.
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "jukebox: is never reached on a piece with storage:, which takes the click first. "
+                            + "It only opens."));
+        }
+
         // Absent is TRUE, unlike `solid` beside it: a vehicle driving through a
         // bollard is wrong in every pack that has one, so the exception is the
         // thing worth writing down. See ModelInfo.vehicleCollision.
@@ -196,7 +205,66 @@ public final class ModelDefinitions {
                 .withSeatOffset(seatSide, seatForward)
                 .withVehicleCollision(vehicleCollision)
                 .withShape(shape)
-                .withStorage(storage));
+                .withStorage(storage)
+                .withJukebox(jukebox));
+    }
+
+    /**
+     * A {@code jukebox:} block, or {@code jukebox: true} for one with every
+     * default. Null for a piece that is not one.
+     */
+    static ModelInfo.Jukebox jukebox(DefinitionNode body, String origin, String where,
+                                     List<Diagnostic> diagnostics) {
+        if (!body.has("jukebox")) {
+            return null;
+        }
+        Optional<DefinitionNode> block = body.node("jukebox");
+        if (block.isEmpty()) {
+            Optional<Boolean> on = body.bool("jukebox");
+            if (on.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "jukebox: should be a block of settings or true. It plays nothing."));
+                return null;
+            }
+            return on.get() ? ModelInfo.Jukebox.of(1f, 1f, null, null) : null;
+        }
+        DefinitionNode jukebox = block.get();
+
+        float volume = 1f;
+        if (jukebox.has("volume")) {
+            Optional<Double> declared = jukebox.decimal("volume");
+            if (declared.isEmpty() || !(declared.get() > 0) || declared.get() > 16) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "jukebox volume: " + jukebox.raw("volume") + " should be a number above 0 and "
+                                + "at most 16. Using 1, a vanilla jukebox."));
+            } else {
+                volume = declared.get().floatValue();
+            }
+        }
+        float pitch = 1f;
+        if (jukebox.has("pitch")) {
+            Optional<Double> declared = jukebox.decimal("pitch");
+            if (declared.isEmpty() || declared.get() < 0.5 || declared.get() > 2) {
+                // The game clamps a sound's pitch to this range anyway; saying
+                // so here beats an author wondering why 3 sounds like 2.
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "jukebox pitch: " + jukebox.raw("pitch") + " should be between 0.5 and 2. "
+                                + "Using 1."));
+            } else {
+                pitch = declared.get().floatValue();
+            }
+        }
+        ContentId playing = null;
+        Optional<String> declaredModel = jukebox.string("playing-model");
+        if (declaredModel.isPresent()) {
+            playing = ContentId.parse(declaredModel.get().trim()).orElse(null);
+            if (playing == null) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "jukebox playing-model: " + declaredModel.get() + " is not a namespace:id. "
+                                + "The piece looks the same while it plays."));
+            }
+        }
+        return ModelInfo.Jukebox.of(volume, pitch, jukebox.string("permission").orElse(null), playing);
     }
 
     /**
