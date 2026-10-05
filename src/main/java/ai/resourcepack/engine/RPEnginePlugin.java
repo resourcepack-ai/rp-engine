@@ -238,6 +238,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean started;
 
     private CustomBlocks blocks;
+    private ai.resourcepack.engine.core.block.BlockGrowth growth;
     private BlockStates blockStates;
 
     private LiquidPools pools;
@@ -523,11 +524,21 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 rigCarrier, emotes(), sounds);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
+        // Before anything reads a plant's state: how many plants tripwire
+        // holds depends on whether Paper freezes it. See BlockStates.
+        BlockStates.tripwireFrozen(tripwireFrozen());
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
         blocks.actions(actionRunner);
         getServer().getPluginManager().registerEvents(blocks, this);
+        // Waxed copper of a kind a shaped block took over stays the builder's.
+        getServer().getPluginManager().registerEvents(
+                new ai.resourcepack.engine.core.block.VanillaCopper(this, items, blocks), this);
+        // Crops and saplings: blocks with grow:, remembered in their chunks.
+        growth = new ai.resourcepack.engine.core.block.BlockGrowth(this, blocks);
+        getServer().getPluginManager().registerEvents(growth, this);
+        growth.start();
 
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
@@ -1102,6 +1113,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (heartbeat != null) {
             heartbeat.stop();
         }
+        if (growth != null) {
+            growth.stop();
+        }
         if (vehicles != null) {
             vehicles.stop();
         }
@@ -1272,6 +1286,29 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * rebuild is how the registry ends up disagreeing with the zip somebody is
      * holding.
      */
+    /**
+     * Whether this server freezes tripwire, which decides how many plants it
+     * holds: {@code blocks.tripwire-frozen} if it says, otherwise Paper's own
+     * {@code block-updates.disable-tripwire-updates}, read from the file
+     * because no API answers it on every version this runs on.
+     */
+    private boolean tripwireFrozen() {
+        String said = getConfig().getString("blocks.tripwire-frozen", "auto").trim().toLowerCase(java.util.Locale.ROOT);
+        if (said.equals("true") || said.equals("false")) {
+            return Boolean.parseBoolean(said);
+        }
+        java.io.File paper = new java.io.File(getServer().getWorldContainer(), "config/paper-global.yml");
+        if (!paper.isFile()) {
+            return false;
+        }
+        boolean frozen = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(paper)
+                .getBoolean("block-updates.disable-tripwire-updates", false);
+        if (frozen) {
+            getLogger().info("Paper freezes tripwire, so plants (base: tripwire) have 32 states rather than 2.");
+        }
+        return frozen;
+    }
+
     private void rebuild(CommandSender to) {
         rebuild(to, started ? ContentLoadEvent.Cause.RELOAD : ContentLoadEvent.Cause.STARTUP, true);
     }
@@ -1316,11 +1353,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the sort of tax that makes a format feel like paperwork.
         BlockDefinitions.Result parsedBlocks = BlockDefinitions.parse(loaded);
         report(to, "blocks", parsedBlocks.diagnostics());
+        // Allocated before the items are made, because a shaped block's item
+        // IS the vanilla block it was handed: a stair is placed by a stair.
+        blocks.replace(parsedBlocks.blocks());
+        blocks.allocate();
         Map<ContentId, ItemInfo> withBlocks = new LinkedHashMap<>(parsedItems.items());
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
-                    block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
-                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false)
+                    blocks.itemMaterial(block),
+                    block.name().orElse(null), block.lore(), block.itemTexture().orElse(""),
+                    block.itemTexture().isPresent() ? null : block.model(),
+                    null, null, null, 0, false, false)
                     .withActions(block.actions()));
         }
         items.replace(withBlocks);
@@ -1330,8 +1373,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // few map writes nobody reads; keeping it unconditional means the
         // numbers exist and are stable if the server is ever moved back.
         modelNumbers.assignAll(withBlocks.keySet());
-        blocks.replace(parsedBlocks.blocks());
-        blocks.allocate();
 
         ModelDefinitions.Result parsedModels = ModelDefinitions.parse(loaded, parsedItems.items(),
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));

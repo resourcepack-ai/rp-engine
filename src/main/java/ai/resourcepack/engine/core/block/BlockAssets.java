@@ -50,27 +50,129 @@ public final class BlockAssets implements PackContributor {
         for (BlockInfo.Base base : BlockInfo.Base.values()) {
             Map<String, String> models = new LinkedHashMap<>();
             for (BlockInfo block : blocks.values()) {
-                if (block.base() != base || !bundle.namespaces().contains(block.id().namespace())) {
+                if (block.shape() != BlockInfo.Shape.CUBE || block.base() != base
+                        || !bundle.namespaces().contains(block.id().namespace())) {
                     continue;
                 }
-                Optional<Integer> number = states.existing(block);
-                if (number.isEmpty()) {
-                    continue;
+                Models written = new Models(block, into);
+                for (String state : block.states()) {
+                    Optional<Integer> number = states.existing(block, state);
+                    if (number.isEmpty()) {
+                        continue;
+                    }
+                    BlockInfo.Appearance drawn = block.appearanceOf(state);
+                    String variant = variant(written.name(drawn.model()), drawn.x(), drawn.y(), drawn.uvlock());
+                    // Every instrument that means this state, all pointing at
+                    // one model — the game changes the instrument on its own
+                    // and that must not change what a player sees.
+                    for (String vanilla : BlockStates.statesFor(base, number.get())) {
+                        models.put(vanilla, variant);
+                    }
                 }
-                String namespace = block.id().namespace();
-                String path = block.id().path();
-                String modelName = namespace + ":block/" + path;
-                // Every instrument that means this block, all pointing at one
-                // model — the game changes the instrument on its own and that
-                // must not change what a player sees.
-                for (String state : BlockStates.statesFor(base, number.get())) {
-                    models.put(state, modelName);
-                }
-                writeModel(block, namespace, path, into);
             }
             if (!models.isEmpty()) {
                 into.add(blockstatePath(base), blockstates(base, models));
             }
+        }
+
+        for (BlockInfo block : blocks.values()) {
+            if (block.shape() == BlockInfo.Shape.CUBE || !bundle.namespaces().contains(block.id().namespace())) {
+                continue;
+            }
+            if (block.model().isEmpty() && block.roleModels().isEmpty() && block.appearances().isEmpty()) {
+                // Nothing to draw it with: the base block's own look, which is
+                // what not writing its blockstate file leaves.
+                continue;
+            }
+            states.existingShaped(block).ifPresent(taken -> into.add(
+                    "assets/minecraft/blockstates/" + taken + ".json", shaped(block, new Models(block, into))));
+        }
+    }
+
+    /**
+     * The blockstate file of a vanilla block taken over: the game's own
+     * layout for that kind of block, with every part pointing at ours.
+     *
+     * <p>An appearance written against the base block's own states (which is
+     * what an importer writes for somebody else's stair) beats the part the
+     * layout names, so a block drawn state by state comes across exactly as it
+     * was drawn.
+     */
+    private static byte[] shaped(BlockInfo block, Models written) {
+        StringBuilder json = new StringBuilder("{\n  \"variants\": {\n");
+        List<ShapeTemplates.Variant> layout = ShapeTemplates.of(block.shape());
+        for (int i = 0; i < layout.size(); i++) {
+            ShapeTemplates.Variant row = layout.get(i);
+            BlockInfo.Appearance chosen = null;
+            int best = -1;
+            for (BlockInfo.Appearance appearance : block.appearances()) {
+                int score = appearance.matches(row.state());
+                if (score > best) {
+                    chosen = appearance;
+                    best = score;
+                }
+            }
+            String variant;
+            if (chosen != null && !chosen.model().isEmpty()) {
+                variant = variant(written.name(chosen.model()), chosen.x(), chosen.y(), chosen.uvlock());
+            } else {
+                String model = block.roleModels().getOrDefault(row.role(), block.model());
+                variant = variant(written.name(model), row.x(), row.y(), row.uvlock());
+            }
+            json.append("    \"").append(row.state()).append("\": ").append(variant)
+                    .append(i == layout.size() - 1 ? "\n" : ",\n");
+        }
+        json.append("  }\n}\n");
+        return json.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** One variant of a blockstate file, with the turn left out when there is none. */
+    private static String variant(String model, int x, int y, boolean uvlock) {
+        StringBuilder out = new StringBuilder("{ \"model\": \"").append(model).append('"');
+        if (x != 0) {
+            out.append(", \"x\": ").append(x);
+        }
+        if (y != 0) {
+            out.append(", \"y\": ").append(y);
+        }
+        if (uvlock) {
+            out.append(", \"uvlock\": true");
+        }
+        return out.append(" }").toString();
+    }
+
+    /**
+     * The models one block is drawn with, each written once.
+     *
+     * <p>Its own model is {@code <namespace>:block/<id>}, as it always was;
+     * every other model a state or a part draws is the next free
+     * {@code <id>_2}, {@code <id>_3}, in the order they are first asked for,
+     * which is the order the definition lists them.
+     */
+    private final class Models {
+
+        private final BlockInfo block;
+        private final Contribution into;
+        private final Map<String, String> names = new LinkedHashMap<>();
+
+        Models(BlockInfo block, Contribution into) {
+            this.block = block;
+            this.into = into;
+        }
+
+        /** The model a reference is written as, writing it the first time. */
+        String name(String reference) {
+            String key = reference == null ? "" : reference;
+            String already = names.get(key);
+            if (already != null) {
+                return already;
+            }
+            String namespace = block.id().namespace();
+            String file = block.id().path() + (names.isEmpty() ? "" : "_" + (names.size() + 1));
+            String name = namespace + ":block/" + file;
+            names.put(key, name);
+            writeModel(block, key, namespace, file, into);
+            return name;
         }
     }
 
@@ -82,18 +184,18 @@ public final class BlockAssets implements PackContributor {
      * thing held in a hand are not always meant to look identical — without
      * either having to be regenerated.
      */
-    private void writeModel(BlockInfo block, String namespace, String path, Contribution into) {
+    private void writeModel(BlockInfo block, String reference, String namespace, String path,
+                            Contribution into) {
         String target = "assets/" + namespace + "/models/block/" + path + ".json";
-        if (block.model().isEmpty()) {
+        if (reference.isEmpty()) {
             // No art: the base block's own texture, so it is visible and
             // obviously unfinished rather than invisible.
-            into.add(target, ("{\"parent\":\"minecraft:block/"
-                    + block.base().name().toLowerCase(Locale.ROOT) + "\"}")
+            into.add(target, ("{\"parent\":\"" + baseModel(block.base()) + "\"}")
                     .getBytes(StandardCharsets.UTF_8));
             return;
         }
 
-        String name = block.model();
+        String name = reference;
         String local = name.indexOf(':') > 0 ? name.substring(name.indexOf(':') + 1) : name;
         Optional<ModelSources.Found> project = source(into, namespace, name, ".bbmodel");
         if (project.isPresent()) {
@@ -117,8 +219,7 @@ public final class BlockAssets implements PackContributor {
                             : "assets/models/" + name + ".bbmodel or .json") + ". "
                             + "The block is placeable and renders as a plain "
                             + block.base().name().toLowerCase(Locale.ROOT) + ".");
-            into.add(target, ("{\"parent\":\"minecraft:block/"
-                    + block.base().name().toLowerCase(Locale.ROOT) + "\"}")
+            into.add(target, ("{\"parent\":\"" + baseModel(block.base()) + "\"}")
                     .getBytes(StandardCharsets.UTF_8));
             return;
         }
@@ -141,15 +242,31 @@ public final class BlockAssets implements PackContributor {
         return "assets/minecraft/blockstates/" + base.name().toLowerCase(Locale.ROOT) + ".json";
     }
 
+    /** The model a base block is drawn with when it is not one of ours. */
+    private static String baseModel(BlockInfo.Base base) {
+        // A tripwire has no model of its own name, only its connected shapes.
+        return base == BlockInfo.Base.TRIPWIRE ? "minecraft:block/tripwire_ns"
+                : "minecraft:block/" + base.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** How vanilla draws the tripwire in {@code state}, which ignores disarmed and powered. */
+    private static String vanillaTripwire(String state) {
+        return ShapeTemplates.vanillaTripwire(
+                state.contains("attached=true"), state.contains("east=true"), state.contains("north=true"),
+                state.contains("south=true"), state.contains("west=true"));
+    }
+
     /** Every state of a base, ours pointed at our models and the rest at vanilla's. */
-    private static byte[] blockstates(BlockInfo.Base base, Map<String, String> models) {
-        String vanilla = "minecraft:block/" + base.name().toLowerCase(Locale.ROOT);
+    private static byte[] blockstates(BlockInfo.Base base, Map<String, String> variants) {
+        // Written exactly as before blocks could turn - { "model": "..." } -
+        // so a pack with no turned blocks builds the same bytes it always did.
+        String vanilla = variant(baseModel(base), 0, 0, false);
         StringBuilder json = new StringBuilder("{\n  \"variants\": {\n");
         List<String> every = BlockStates.everyState(base);
         for (int i = 0; i < every.size(); i++) {
             String state = every.get(i);
-            json.append("    \"").append(state).append("\": { \"model\": \"")
-                    .append(models.getOrDefault(state, vanilla)).append("\" }");
+            String fallback = base == BlockInfo.Base.TRIPWIRE ? vanillaTripwire(state) : vanilla;
+            json.append("    \"").append(state).append("\": ").append(variants.getOrDefault(state, fallback));
             json.append(i == every.size() - 1 ? "\n" : ",\n");
         }
         json.append("  }\n}\n");
