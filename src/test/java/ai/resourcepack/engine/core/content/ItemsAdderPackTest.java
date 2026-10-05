@@ -139,6 +139,30 @@ class ItemsAdderPackTest {
     }
 
     @Test
+    void configsInTheirConfigsFolderAreRead() throws IOException {
+        // Their own layout: configs/ with files at any depth, and no loose
+        // config at the pack root at all.
+        write("my_content/configs/gems/ruby.yml", """
+                info:
+                  namespace: my_content
+                items:
+                  ruby:
+                    display_name: Ruby
+                    resource:
+                      material: DIAMOND
+                      generate: true
+                      textures: [item/ruby.png]
+                """);
+
+        LoadReport report = load();
+
+        assertEquals(1, report.packs().size(), "configs/ alone makes it a pack of theirs");
+        assertEquals("Ruby", item("my_content:ruby").name().orElseThrow());
+        assertFalse(report.diagnostics().stream().anyMatch(d -> d.message().contains("Not a content category")),
+                report.diagnostics().toString());
+    }
+
+    @Test
     void theNewerNameKeyIsReadToo() throws IOException {
         theirPack();
 

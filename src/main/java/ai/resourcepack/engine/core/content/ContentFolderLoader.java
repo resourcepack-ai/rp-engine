@@ -76,6 +76,8 @@ public final class ContentFolderLoader {
             // builder from there as well, so warning about it would be telling
             // somebody off for a folder that works.
             "textures", "models", "sounds", "font",
+            // ItemsAdder's configs/, read as their configs below.
+            ContentFolderLoader.ITEMS_ADDER_CONFIGS,
             // ModelEngine's layout: a folder of .bbmodel blueprints. Read as
             // content rather than as definitions, below.
             "blueprints",
@@ -84,6 +86,9 @@ public final class ContentFolderLoader {
             // more of both. blueprint/ is its own Blockbench folder, which
             // nothing here reads, but it is not a mistake either.
             "configuration", ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK, "subpacks", "blueprint");
+
+    /** The folder an ItemsAdder pack keeps its configs in. */
+    static final String ITEMS_ADDER_CONFIGS = "configs";
 
     /**
      * Kinds that are NOT put into the id space.
@@ -434,13 +439,32 @@ public final class ContentFolderLoader {
 
     /** Whether this folder holds an ItemsAdder config, which is what makes it a pack of theirs. */
     private boolean holdsItemsAdderConfig(Path folder, List<Diagnostic> diagnostics, String origin) {
-        for (Path child : list(folder, diagnostics, origin, path -> true)) {
-            if (!Files.isDirectory(child) && isDefinitionFile(child)
-                    && readMap(child, origin, new ArrayList<>()).map(ItemsAdder::looksLikeOne).orElse(false)) {
+        for (Path child : itemsAdderConfigFiles(folder, diagnostics, origin)) {
+            if (readMap(child, origin, new ArrayList<>()).map(ItemsAdder::looksLikeOne).orElse(false)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Where an ItemsAdder pack keeps its configs: {@code configs/}, at any
+     * depth, which is their own layout and where nearly every real pack has
+     * them, and loose in the pack folder, which their older packs did and
+     * which is how one of their files dropped into a pack of ours is found.
+     */
+    private List<Path> itemsAdderConfigFiles(Path folder, List<Diagnostic> diagnostics, String origin) {
+        List<Path> found = new ArrayList<>();
+        for (Path child : list(folder, diagnostics, origin, path -> true)) {
+            if (!Files.isDirectory(child) && isDefinitionFile(child)) {
+                found.add(child);
+            }
+        }
+        Path configs = folder.resolve(ITEMS_ADDER_CONFIGS);
+        if (Files.isDirectory(configs)) {
+            found.addAll(sortedDefinitionFiles(configs, diagnostics, origin, false));
+        }
+        return found;
     }
 
     /** Nexo/Oraxen's item YAML (top-level ids with a Pack, Components or Mechanics block), or their sounds.yml. */
@@ -473,10 +497,7 @@ public final class ContentFolderLoader {
         // set by id and a sound its subtitle by key, and either may be
         // declared in another file of the same pack.
         ItemsAdder.Shared shared = new ItemsAdder.Shared();
-        for (Path file : list(folder, diagnostics, relative(root, folder), path -> true)) {
-            if (Files.isDirectory(file) || !isDefinitionFile(file)) {
-                continue;
-            }
+        for (Path file : itemsAdderConfigFiles(folder, diagnostics, relative(root, folder))) {
             Optional<DefinitionNode> document = readMap(file, relative(root, file), diagnostics);
             if (document.isPresent() && ItemsAdder.looksLikeOne(document.get())) {
                 documents.put(file, document.get());
