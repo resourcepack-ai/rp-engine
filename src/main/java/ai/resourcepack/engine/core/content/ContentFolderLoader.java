@@ -468,11 +468,8 @@ public final class ContentFolderLoader {
                 }
                 // A pack wanting more says so in items/ under the same id, and
                 // that wins, because a definition somebody wrote beats one
-                // derived from a file name.
-                ContentId id = ContentId.of(namespace.name(), path).orElse(null);
-                if (id != null && definitions.stream().anyMatch(written -> written.id().equals(id))) {
-                    continue;
-                }
+                // derived from a file name - it was defined first, and the
+                // duplicate is reported below rather than silently dropped.
                 // The model is named by where it is under the folder, so one in
                 // a subfolder is found; the id is the file's name alone.
                 String relativeModel = blueprints.relativize(file).toString().replace('\\', '/');
