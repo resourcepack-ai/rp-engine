@@ -2107,8 +2107,7 @@ carried, `use_color` tints and emissive layers are dropped, and colour-only
 armour, which has no art, is worn as plain leather. Of their sounds, one that
 picks between several files keeps the first, and `weight`,
 `attenuation_distance`, `preload` and `jukebox` are dropped. A block's
-`light_level` is not carried (a note block gives none; `shape: bulb` is the
-nearest), and `TILE` and `FIRE` blocks, which draw with an entity, come across as
+`light_level` becomes its `light`, and `TILE` and `FIRE` blocks, which draw with an entity, come across as
 full blocks.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
