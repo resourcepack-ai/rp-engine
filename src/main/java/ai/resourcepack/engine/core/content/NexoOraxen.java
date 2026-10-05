@@ -704,7 +704,6 @@ final class NexoOraxen {
     private static final Map<String, String> BEHAVIOUR_REASONS = Map.of(
             "beds", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
             "bed", "the game only lets a player sleep in a bed block, and wakes anybody lying anywhere else",
-            "connectable", "a piece that changes shape to join the pieces beside it has no equivalent here",
             "farmland_required", "a piece here goes on any floor it may",
             "farmblock_required", "a piece here goes on any floor it may",
             "farmland", "a piece here goes on any floor it may",

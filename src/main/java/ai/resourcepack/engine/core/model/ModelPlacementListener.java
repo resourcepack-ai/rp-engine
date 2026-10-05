@@ -14,6 +14,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
@@ -416,6 +417,10 @@ public final class ModelPlacementListener implements Listener {
         }
 
         anchor(hitbox, info.solid(), info.light());
+        if (!info.connects().isEmpty()) {
+            // It and the pieces it now joins take their places in the row.
+            rejoin(target);
+        }
         return hitbox;
     }
 
@@ -607,7 +612,7 @@ public final class ModelPlacementListener implements Listener {
      * after it is placed.
      */
     private static boolean changesLook(ModelInfo info) {
-        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent()) {
+        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent() || !info.connects().isEmpty()) {
             return true;
         }
         for (ModelInfo.State state : info.states()) {
@@ -631,7 +636,130 @@ public final class ModelPlacementListener implements Listener {
         if (playing.isPresent() && jukeboxes != null && jukeboxes.holding(hitbox)) {
             return playing.get();
         }
-        return info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model).orElse(info.item());
+        Optional<ContentId> stated = info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model);
+        if (stated.isPresent()) {
+            return stated.get();
+        }
+        Connection joined = connection(hitbox, info);
+        if (joined != null) {
+            return info.connects().getOrDefault(joined.shape, info.item());
+        }
+        return info.item();
+    }
+
+    // ---- joining the pieces beside it ----------------------------------
+
+    /** A shape in a row of joining pieces, and the quarter turns its look takes on top of the piece's own. */
+    private record Connection(String shape, int quarterTurns) {
+    }
+
+    /**
+     * Where a joining piece is in its row, or null when it stands alone.
+     *
+     * <p>The rule is the game's own for stairs, so a corner model drawn as the
+     * game draws its inner and outer stairs turns the right way: a piece whose
+     * front or back touches one of its kind turned a quarter is a corner - the
+     * back an inner one, the front an outer one - turned back a quarter when
+     * that neighbour faces its left. Otherwise it is the middle of a row with
+     * one of its kind on each side, the {@code left} end with one only on its
+     * right, the {@code right} end with one only on its left. Facing is the way
+     * the piece was put down (its stored yaw), not any turn a state adds.
+     */
+    private Connection connection(Interaction hitbox, ModelInfo info) {
+        if (info.connects().isEmpty()) {
+            return null;
+        }
+        Block at = hitbox.getLocation().getBlock();
+        BlockFace facing = facingOf(hitbox);
+        BlockFace front = neighbourFacing(at.getRelative(facing), info);
+        if (front != null && axisOf(front) != axisOf(facing)) {
+            return new Connection("outer", front == counterClockwise(facing) ? -1 : 0);
+        }
+        BlockFace back = neighbourFacing(at.getRelative(facing.getOppositeFace()), info);
+        if (back != null && axisOf(back) != axisOf(facing)) {
+            return new Connection("inner", back == counterClockwise(facing) ? -1 : 0);
+        }
+        boolean left = sameRow(at.getRelative(counterClockwise(facing)), info, facing);
+        boolean right = sameRow(at.getRelative(clockwise(facing)), info, facing);
+        if (left && right) {
+            return new Connection("straight", 0);
+        }
+        if (right) {
+            return new Connection("left", 0);
+        }
+        if (left) {
+            return new Connection("right", 0);
+        }
+        return null;
+    }
+
+    /** Whether a piece of the same kind, facing the same way, stands in {@code block}. */
+    private boolean sameRow(Block block, ModelInfo info, BlockFace facing) {
+        return neighbourFacing(block, info) == facing;
+    }
+
+    /** Which way the piece of {@code info}'s kind standing in {@code block} faces, or null. */
+    private BlockFace neighbourFacing(Block block, ModelInfo info) {
+        Interaction other = findAt(block);
+        if (other == null || idOf(other).filter(info.id()::equals).isEmpty()) {
+            return null;
+        }
+        return facingOf(other);
+    }
+
+    /** The way a piece faces, from the yaw it was placed with. Yaw 0 faces south. */
+    private BlockFace facingOf(Interaction hitbox) {
+        Float yaw = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
+        int quarter = Math.floorMod(Math.round((yaw == null ? hitbox.getLocation().getYaw() : yaw) / 90f), 4);
+        switch (quarter) {
+            case 1:
+                return BlockFace.WEST;
+            case 2:
+                return BlockFace.NORTH;
+            case 3:
+                return BlockFace.EAST;
+            default:
+                return BlockFace.SOUTH;
+        }
+    }
+
+    private static BlockFace clockwise(BlockFace face) {
+        switch (face) {
+            case NORTH:
+                return BlockFace.EAST;
+            case EAST:
+                return BlockFace.SOUTH;
+            case SOUTH:
+                return BlockFace.WEST;
+            default:
+                return BlockFace.NORTH;
+        }
+    }
+
+    private static BlockFace counterClockwise(BlockFace face) {
+        return clockwise(clockwise(clockwise(face)));
+    }
+
+    private static boolean axisOf(BlockFace face) {
+        return face == BlockFace.NORTH || face == BlockFace.SOUTH;
+    }
+
+    /**
+     * Re-reads the shape of every joining piece in and around {@code block},
+     * after one was put down or taken away there.
+     */
+    private void rejoin(Block block) {
+        for (BlockFace face : new BlockFace[] {BlockFace.SELF, BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH,
+                BlockFace.WEST}) {
+            Interaction piece = findAt(block.getRelative(face));
+            if (piece == null) {
+                continue;
+            }
+            ModelInfo info = idOf(piece).map(model::get).orElse(null);
+            if (info != null && !info.connects().isEmpty()) {
+                refreshLook(piece, info);
+            }
+        }
     }
 
     /**
@@ -660,6 +788,14 @@ public final class ModelPlacementListener implements Listener {
         }
         items.wearModel(stack, modelOf(lookOf(hitbox, info)));
         display.setItemStack(stack);
+        if (!info.connects().isEmpty() && info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model).isEmpty()) {
+            // A corner is its model turned a quarter more or less than the
+            // piece; anything else wears the piece's own heading.
+            Connection joined = connection(hitbox, info);
+            Float yaw = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
+            float base = yaw == null ? hitbox.getLocation().getYaw() : yaw;
+            display.setRotation(base + 90f * (joined == null ? 0 : joined.quarterTurns), 0f);
+        }
     }
 
     /** The one display of a still piece, or null for an animated one or a missing one. */
@@ -992,6 +1128,10 @@ public final class ModelPlacementListener implements Listener {
         Location where = hitbox.getLocation();
         World world = where.getWorld();
         Dismantled gone = dismantle(hitbox, model.get(id));
+        if (model.get(id) != null && !model.get(id).connects().isEmpty()) {
+            // The pieces it was joined to close up behind it.
+            rejoin(where.getBlock());
+        }
         // After it is gone, so an action that gives something back or runs a
         // command about the space finds it empty, as a broken piece is.
         act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE, where);

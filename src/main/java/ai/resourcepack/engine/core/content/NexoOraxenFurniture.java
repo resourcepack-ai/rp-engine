@@ -42,7 +42,8 @@ final class NexoOraxenFurniture {
     }
 
     /** Keys this reads, so the furniture translation does not also call them unknown. */
-    static final List<String> KEYS = List.of("storage", "jukebox", "door", "states", "evolution", "rotatable");
+    static final List<String> KEYS = List.of("storage", "jukebox", "door", "states", "evolution", "rotatable",
+            "connectable");
 
     static void behaviours(DefinitionNode item, DefinitionNode furniture, String id, String namespace, String origin,
                            List<Diagnostic> diagnostics, Map<String, Object> place) {
@@ -97,6 +98,37 @@ final class NexoOraxenFurniture {
         }
         furniture.node("evolution").ifPresent(evolution -> evolution(evolution, id, namespace, origin, diagnostics,
                 place));
+        furniture.node("connectable").ifPresent(connectable -> connectable(connectable, id, namespace, origin,
+                diagnostics, place));
+    }
+
+    /**
+     * {@code connectable}: the look for each place in a row, an item id
+     * ({@code ITEM}) or an item model ({@code ITEM_MODEL}) each, defaulting to
+     * the piece's own name with {@code _straight}, {@code _left} and so on, as
+     * Nexo's do. A single item model that switches on the connection itself
+     * is Nexo's own reading of a tag on the item and does not come across.
+     */
+    private static void connectable(DefinitionNode connectable, String id, String namespace, String origin,
+                                    List<Diagnostic> diagnostics, Map<String, Object> place) {
+        String type = connectable.string("type").orElse("ITEM").trim().toUpperCase(Locale.ROOT);
+        String base = connectable.string("default").orElse(type.equals("ITEM_MODEL") ? null : id);
+        if (base == null && connectable.keys().stream().noneMatch(key -> List.of("straight", "left", "right",
+                "inner", "outer").contains(key))) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "connectable picks its look from one item model that reads the connection off the item, "
+                            + "which is Nexo's own; name straight, left, right, inner and outer and it joins here."));
+            return;
+        }
+        Map<String, Object> looks = new LinkedHashMap<>();
+        for (String shape : List.of("straight", "left", "right", "inner", "outer")) {
+            String written = connectable.string(shape).orElse(base == null ? null : base + "_" + shape);
+            if (written != null) {
+                looks.put(shape, NexoOraxen.qualified(written, namespace));
+            }
+        }
+        place.put("connects", looks);
+        place.put("facing", "cardinal");
     }
 
     private static Map<String, Object> jukebox(DefinitionNode jukebox, String namespace) {

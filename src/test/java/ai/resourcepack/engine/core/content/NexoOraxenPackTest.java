@@ -576,6 +576,15 @@ class NexoOraxenPackTest {
                   Pack: { model: pack:plants/rose_2 }
                   Mechanics:
                     furniture: {}
+                sofa:
+                  material: PAPER
+                  Pack: { model: pack:furniture/sofa }
+                  Mechanics:
+                    furniture:
+                      restricted_rotation: STRICT
+                      connectable:
+                        type: ITEM
+                        inner: sofa_corner
                 """);
 
         LoadReport report = load();
@@ -599,6 +608,12 @@ class NexoOraxenPackTest {
 
         assertEquals(ai.resourcepack.engine.api.StorageSpec.Type.PERSONAL,
                 placed(report, "pack:crate").storage().orElseThrow().type());
+
+        ModelInfo sofa = placed(report, "pack:sofa");
+        assertEquals(ModelInfo.Facing.CARDINAL, sofa.facing(), "a row joins on four facings");
+        assertEquals("pack:sofa_straight", sofa.connects().get("straight").toString());
+        assertEquals("pack:sofa_corner", sofa.connects().get("inner").toString());
+        assertEquals(5, sofa.connects().size());
 
         ModelInfo.Grow grow = placed(report, "pack:rose_stage1").grow().orElseThrow();
         assertEquals("pack:rose_stage2", grow.into().toString());
