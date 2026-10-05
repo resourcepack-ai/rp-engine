@@ -469,9 +469,10 @@ public final class ContentFolderLoader {
                                        List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
         Map<Path, DefinitionNode> documents = new LinkedHashMap<>();
-        // Armour sets first, from every file: an item names its set by id, and
-        // the set may be declared in another file of the same pack.
-        Map<String, DefinitionNode> armours = new LinkedHashMap<>();
+        // What files share first, from every file: an item names its armour
+        // set by id and a sound its subtitle by key, and either may be
+        // declared in another file of the same pack.
+        ItemsAdder.Shared shared = new ItemsAdder.Shared();
         for (Path file : list(folder, diagnostics, relative(root, folder), path -> true)) {
             if (Files.isDirectory(file) || !isDefinitionFile(file)) {
                 continue;
@@ -479,9 +480,17 @@ public final class ContentFolderLoader {
             Optional<DefinitionNode> document = readMap(file, relative(root, file), diagnostics);
             if (document.isPresent() && ItemsAdder.looksLikeOne(document.get())) {
                 documents.put(file, document.get());
-                ItemsAdder.armours(document.get()).forEach(armours::putIfAbsent);
+                shared.add(document.get());
             }
         }
+        // Their resource pack's own English, for a subtitle written as a key.
+        Path assets = folder.resolve(ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK)
+                .resolve("assets").resolve(namespace.name());
+        if (!documents.isEmpty()) {
+            ItemsAdderSound.langFile(assets.resolve("lang").resolve("en_us.json"))
+                    .forEach(shared.lang::putIfAbsent);
+        }
+        Set<String> configSounds = new HashSet<>();
         for (Map.Entry<Path, DefinitionNode> read : documents.entrySet()) {
             String origin = relative(root, read.getKey());
             Optional<DefinitionNode> document = Optional.of(read.getValue());
@@ -495,11 +504,33 @@ public final class ContentFolderLoader {
             });
 
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, armours)
+                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, shared)
                     .entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin,
+                            unregisteredSeen, definitions, diagnostics);
+                }
+                if (kind.getKey() == ContentKind.SOUND) {
+                    configSounds.addAll(translated.keys());
+                }
+            }
+        }
+
+        // Before 4.0.12 an ItemsAdder sound was a hand-written sounds.json in
+        // the pack's resource pack folder. Read as RP Engine sounds, which also
+        // keeps it working: the sounds.json the build writes for this
+        // namespace would otherwise take its place.
+        Path soundsJson = assets.resolve("sounds.json");
+        if (!documents.isEmpty() && Files.isRegularFile(soundsJson)) {
+            String origin = relative(root, soundsJson);
+            DefinitionNode translated = DefinitionNode.of(
+                    ItemsAdderSound.fromSoundsJson(soundsJson, namespace.name(), origin, diagnostics, shared.lang));
+            for (String path : translated.keys()) {
+                // One the config already declares is the same sound written
+                // twice, during a move from one way to the other.
+                if (!configSounds.contains(path)) {
+                    define(ContentKind.SOUND, namespace, translated, path, origin,
                             unregisteredSeen, definitions, diagnostics);
                 }
             }
