@@ -1718,7 +1718,7 @@ A block you can place, mine and stand on — an ore, a machine, a crate.
 ```yaml
 # blocks/ores.yml
 ruby_ore:
-  base: note_block     # note_block | mushroom_stem
+  base: note_block     # note_block | mushroom_stem | tripwire (a plant)
   model: ruby_ore      # assets/models/ruby_ore.bbmodel
   hardness: 3.0        # stone is 1.5
   tool: pickaxe        # what has to be held for the drop
@@ -1744,7 +1744,168 @@ still breaks it and gives nothing, the way stone and a shovel do.
 belong to the block's type rather than its state. `sound:` plays something of
 yours *over* the base block's own, which is the honest half of it; for light,
 use a [placed model](#placing-a-model), which puts a real light block in its
-anchor.
+anchor, or `shape: bulb` below, which lights up when redstone switches it.
+
+### Turning, and states
+
+A block can face the player, lie along an axis, or be in one of several states,
+each drawn its own way:
+
+```yaml
+kiln:
+  model: kiln
+  rotate: horizontal   # horizontal (a furnace) | all (a dispenser) | axis (a log)
+
+safe:
+  model: safe
+  properties:
+    facing: facing        # facing | facing-all | axis | boolean | a list of values
+    open: boolean
+  appearances:            # a state, or part of one, and the model it wears
+    "open=true": safe_open
+    "facing=east": { y: 90 }               # the block's own model, turned
+    "facing=east,open=true": { model: safe_open, y: 90 }
+  click: open             # a right-click turns this property to its next value
+```
+
+`rotate:` is the short form, and turns the one model the way the game turns a
+furnace, a dispenser or a log; the model should face north. The long form names
+`properties:` and draws `appearances:` - the most specific appearance that
+matches a state wins, and a state no appearance matches is the block's own
+model. `facing`, `facing-all` and `axis` are decided when it is placed (facing
+the player, or along the face it was put against); every other property starts
+at its first value and changes by `click:`, by growing, or by an action.
+
+**Every state is a state of the pool.** A block facing four ways is four of the
+49; one that also opens is eight. That is the whole price, and `/rp blocks`
+says what is left.
+
+A block written with one state and given a property later keeps its number for
+the state it was always in, so the ones already in a world are unchanged.
+
+`random:` picks one look each time it is placed, the way vanilla turns flowers:
+
+```yaml
+cobbles:
+  random:
+    - cobbles_a
+    - { model: cobbles_a, y: 90 }
+    - cobbles_b
+```
+
+### Plants
+
+`base: tripwire` (or `plant`) is cut string: no collision, broken at a touch,
+which is what a flower, a fern or a pebble wants.
+
+```yaml
+daisy:
+  base: plant
+  model: daisy           # a cross model, usually: parent minecraft:block/cross
+```
+
+**How many depends on Paper.** A tripwire's connections follow the string beside
+it in an update nothing can refuse, so on an ordinary server only two plants
+fit. Paper's `block-updates.disable-tripwire-updates: true` in
+`config/paper-global.yml` freezes them, and then thirty-two do - Nexo, Oraxen
+and ItemsAdder all ask for the same setting. The engine reads it at start
+(`blocks.tripwire-frozen` in the config overrides it). Only *disarmed* tripwire
+is used, which no ordinary string is ever left as, so tripwire traps keep their
+look.
+
+### Growing
+
+```yaml
+tomato:
+  base: plant
+  stages: [tomato_0, tomato_1, tomato_2]   # an age property, one model per stage
+  grow:
+    every: 2m            # about this long a stage (30s, 5m, 600t)
+    light: 9             # the least light it grows in
+    bone-meal: true      # bone meal moves it a stage
+```
+
+`grow:` steps a property (`age`, or the one named by `property:`) to its next
+value until the last. The engine keeps the list of blocks that can still grow in
+each chunk's own data, so nothing is lost on a restart, and only loaded chunks
+grow, as in vanilla.
+
+### Stairs, slabs, doors and other shapes
+
+A note block is a full cube to the game however it is painted. For anything
+else, a custom block **takes over a whole vanilla block type**, and the game
+itself does everything that kind of block does:
+
+```yaml
+ruby_stairs:
+  shape: stairs          # stairs | slab | door | trapdoor | grate | bulb
+  texture: block/ruby    # every face; or textures: { top, bottom, side }
+
+oak_gate:
+  shape: door
+  textures: { top: block/gate_top, bottom: block/gate_bottom }
+  item-texture: item/gate   # a door's item is a flat picture
+```
+
+The parts are made from your textures exactly as the game makes its own - a
+stair's straight run and both corners, a door's eight halves - so a stair joins
+its neighbours into corners, a slab stacks into a double slab, and a door opens
+by hand and by redstone. Name your own models for the parts with
+`models: { straight: ..., inner: ..., outer: ... }` instead.
+
+| Shape | What it is | Parts |
+|---|---|---|
+| `stairs` | A stair | `straight`, `inner`, `outer` |
+| `slab` | A slab, and two of them stacked | `bottom`, `top`, `double` |
+| `door` | A two-high door | `bottom_left`, `bottom_left_open`, `bottom_right`, ... `top_right_open` |
+| `trapdoor` | A trapdoor | `bottom`, `top`, `open` |
+| `grate` | A solid block you can see through: leaves, glass | `block` |
+| `bulb` | A block that lights up when redstone switches it | `off`, `on` |
+
+**What it costs is that kind of vanilla block.** The kinds taken are waxed copper,
+because it never changes on its own and is rarely built with - the same pool
+Oraxen's and CraftEngine's packs take - and slabs first take the petrified oak
+slab, which no survival player can get at all. So each shape holds **four** (five
+for slabs), handed out in the order weathered, exposed, oxidized, fresh. Doors,
+trapdoors, grates and bulbs exist from 1.21. A bulb's light is its age's: 15,
+12, 8 or 4.
+
+A builder's own waxed copper of a kind that was taken keeps working: placed, it
+goes down as the same copper without wax, which looks identical, marked waxed in
+the chunk so it never ages, and gives back the waxed item. Honeycomb and an axe
+wax and unwax it as usual, and waxed copper in a newly generated chunk (trial
+chambers) is turned into twins too. **Waxed copper already standing in a world
+from before the kind was taken takes the custom look**, because nothing can tell
+it apart from a custom block.
+
+`base: minecraft:spruce_stairs` takes a kind you name instead of being handed
+one - every spruce stair on the server becomes yours, so name one nobody uses.
+
+### What else a block does
+
+```yaml
+palm_log:
+  rotate: axis
+  strip: { into: stripped_palm_log, drop: bark }   # what an axe makes of it
+lamp_off:
+  click-into: lamp_on      # a right-click turns it into another block
+ash:
+  falls: true              # falls like sand
+vault_door:
+  blast-resistant: true    # explosions leave it standing
+crate:
+  storage: { type: chest, rows: 3, title: Crate }  # as a placed model's
+```
+
+`storage:` takes the same kinds a placed model does (see [Storing things in
+one](#storing-things-in-one)), kept in the chunk under the block's position;
+breaking it, or blowing it up, spills what is inside, and a `shulker` keeps it
+inside the item instead.
+
+An explosion gives back a custom block rather than the note block underneath,
+and a piston will not push a custom door or plant, which it would otherwise
+break into the vanilla item.
+
 
 ### What a custom block really is
 
@@ -1873,6 +2034,10 @@ What comes across:
 | `behaviours.liquid_bucket` | `liquid` |
 | `behaviours.furniture` | `place:`, with its light, solidity and seat |
 | `behaviours.block` (or `specific_properties.block`) on an item | a custom block, with its name, lore, model (or the cube generated from its textures), hardness, tool and place sound |
+| `placed_model.type` `REAL_NOTE` · `REAL` · `REAL_WIRE` · `REAL_TRANSPARENT` | a note block · `base: mushroom_stem` · a plant (`base: tripwire`) · `shape: grate` |
+| `directional_mode` `LOG` · `FURNACE` · `DROPPER`/`ALL`, and `<id>_<face>` items | `rotate: axis` · `horizontal` · `all`, each face's item model as that direction's look |
+| `custom_variants` (with `weight`) · `no_explosion` | `random:` · `blast-resistant` |
+| `placed_block.interact.replace_block` (`to`) | `click-into`, so on/off pairs switch |
 | `loots.blocks.<name>`, in any file of the pack | the block's `drop`, when the table's first item is one of the pack's and certain |
 | `item_flags` | `flags` |
 | `events` | `actions` (below) |
@@ -1905,14 +2070,17 @@ What does not, each of them a warning naming the id rather than a silence: their
 different feature rather than a different spelling; a brewing recipe's
 `brew_time`, `fuel_cost` and `on_complete`; events with no trigger
 here (holding, wearing, fishing, a sneaking click, their guns and books);
-actions with no step (particles, damage, replacing blocks, dropping experience,
+actions with no step (particles, damage, dropping experience,
 anything with a `delay`, a permission only some actions ask for); loot by
 chance, mob and fishing loot; and an item's own `drop`. Of their armour, an
 animated layer (a strip of frames, which a worn layer cannot play) is not
 carried, `use_color` tints and emissive layers are dropped, and colour-only
 armour, which has no art, is worn as plain leather. Of their sounds, one that
 picks between several files keeps the first, and `weight`,
-`attenuation_distance`, `preload` and `jukebox` are dropped.
+`attenuation_distance`, `preload` and `jukebox` are dropped. A block's
+`light_level` is not carried (a note block gives none; `shape: bulb` is the
+nearest), and `TILE` and `FIRE` blocks, which draw with an entity, come across as
+full blocks.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder
@@ -1953,6 +2121,13 @@ section names, and `template` / `arguments` / `overrides` / `merges` with
 | `settings.keep_on_death_chance: 1` | `keep-on-death` |
 | `blocks.<id>`, or `block_item` with the block inline | a custom block, carrying the item's name and lore |
 | `state.auto_state` · `texture(s)`/`model` · `settings.hardness` · `correct_tools`/`required_break_power` · `sounds.place` · `loot` | `base` · `model` · `hardness` · `tool` · `sound` · `drop` |
+| `states.properties` · `appearances` · `variants` | `properties` · `appearances`, state for state, each appearance's turn (`x`, `y`, `uvlock`) kept |
+| a block whose appearances are a stair's, slab's, door's or trapdoor's `state:` (`stairs_block`, `slab_block`, `door_block`, `trapdoor_block`) | that `shape:`, on **the same vanilla block** the pack took, so those already in a world stay |
+| `auto_state` `tripwire`/`sugar_cane`/`sapling`/..., or a plant behaviour | a plant (`base: tripwire`) |
+| `leaves_block`, or a leaves `auto_state` | `shape: grate` |
+| `crop_block` · `stem_block` · `sapling_block` (`grow_speed`, `light_requirement`) | `grow:` on `age` / `stage` |
+| `falling_block` · `strippable_block` (`stripped`) · `simple_storage_block` · `lamp_block` | `falls` · `strip` · `storage` · `shape: bulb` |
+| a right-click `cycle_block_property` | `click:` |
 | `furniture`, or `furniture_item` with it inline | `place:`, with its surface, facing, hitbox, solidity, seat, light, scale and drop |
 | `images.<id>` (a grid is one icon per cell, `<id>_<row>_<column>`) | an icon |
 | `emoji.<id>` keywords written `:word:` | an icon called `word` |
@@ -1976,10 +2151,12 @@ condition is a branch, which actions do not have, so what it guards is skipped.
 An entity entry is attribute values and tags for an existing mob type, with no
 model or spawn, so there is no RP Engine entity in it, and the load says so.
 
-What does not come across is named in a warning with the id: anything that
-changes a vanilla item or block, behaviours, events and functions with no
-trigger or step here, entities, block states beyond the
-first, item model definitions that switch between models (the default one is
+What does not come across is named in a warning with the id, with the reason:
+anything that changes a vanilla item or block, the block behaviours with no
+equivalent (fences, fence gates, buttons, pressure plates, spreading, drawers,
+seats on blocks, particles), what a sapling or stem becomes when it has grown,
+a state's own settings (a different light per state), events and functions with
+no trigger or step here, entities, item model definitions that switch between models (the default one is
 worn), extra furniture elements, hitboxes and seats, dye recipes, smithing recipes
 missing their template or addition, recipes with a tag or a choice of
 ingredients, categories, jukebox
@@ -2011,7 +2188,39 @@ so a rig somebody already has works without being re-authored.
 
 The generated item is a plain one on paper. An `items/` definition under the
 same id beats it, which is how a blueprint gains a material, a name, a
-`place:` block or anything else.
+`place:` block or anything else. A blueprint in a subfolder is found where it
+is; its id is still its file's name.
+
+**Their plugin folder needs no `pack.yml`.** A folder of `.bbmodel` files is
+plainly Model Engine's or BetterModel's, and loads as one.
+
+## A BetterModel folder
+
+**Drop it in and it loads.** BetterModel's plugin folder - `models/`,
+`players/`, its `config.yml` and the `build/` it generated - is read where it
+lies:
+
+```
+bettermodel/
+  models/knight.bbmodel       ->  bettermodel:knight, an item wearing it
+  players/steve.bbmodel       ->  every animation in it, an emote: /emote roll
+  players/dance.bbmodel       ->  dance_<animation>
+```
+
+`models/` are blueprints exactly as Model Engine's are: BetterModel's bone tags
+are Model Engine's (`h_`, `hi_`, `b_`, `ob_`, `p_`, `tag_`), which are this
+engine's. `build/` is its output and is ignored.
+
+**`players/` animations become emotes.** BetterModel's player rig faces the way
+the emote rig does and its keyframes mean what an emote's do, so the numbers
+carry over; its bone tags map to the emote bones (`ph` head, `pra`/`prfa` the
+right arm and forearm, `pll`/`plfl` the left leg and shin, `player_root` the
+whole figure). Two things differ and the load says so: their torso is three
+bones (hip, waist, chest) where the emote rig has one, so the most specific that
+moves is the body; and their arms and head ride the torso, where ours stand on
+their own. Held-item and cape bones, and Molang in a keyframe, are not carried.
+Emotes from `steve.bbmodel` are named after the animation, any other file's are
+prefixed with its name, because emote names are shared by the whole server.
 
 ## pack.yml
 
