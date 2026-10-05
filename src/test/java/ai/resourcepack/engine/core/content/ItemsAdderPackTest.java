@@ -207,6 +207,76 @@ class ItemsAdderPackTest {
         assertEquals(8, icon.ascent());
     }
 
+    @Test
+    void wiresTransparentsDirectionsVariantsAndSwitchesComeAcross() throws IOException {
+        write("my_content/blocks.yml", """
+                info:
+                  namespace: my_content
+                items:
+                  fern:
+                    resource: { material: PAPER, model_path: block/fern }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_WIRE }
+                  glass:
+                    resource: { material: PAPER, model_path: block/glass }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_TRANSPARENT }
+                        no_explosion: true
+                  kiln:
+                    resource: { material: PAPER, model_path: block/kiln }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_NOTE, directional_mode: FURNACE }
+                  kiln_north:
+                    resource: { material: PAPER, model_path: block/kiln_lit }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_NOTE }
+                  cobbles:
+                    resource: { material: PAPER, model_path: block/cobbles }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_NOTE }
+                        custom_variants:
+                          a: { model: "minecraft:block/cobblestone", y: 90 }
+                          b: { model: "minecraft:block/mossy_cobblestone", weight: 2 }
+                  lamp_off:
+                    resource: { material: PAPER, model_path: block/lamp_off }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_NOTE }
+                    events:
+                      placed_block:
+                        interact:
+                          replace_block: { from: lamp_off, to: lamp_on }
+                  lamp_on:
+                    resource: { material: PAPER, model_path: block/lamp_on }
+                    behaviours:
+                      block:
+                        placed_model: { type: REAL_NOTE }
+                        light_level: 15
+                """);
+
+        LoadReport report = load();
+        var blocks = BlockDefinitions.parse(report).blocks();
+        assertEquals(BlockInfo.Base.TRIPWIRE, blocks.get(ContentId.parse("my_content:fern").orElseThrow()).base());
+        BlockInfo glass = blocks.get(ContentId.parse("my_content:glass").orElseThrow());
+        assertEquals(BlockInfo.Shape.GRATE, glass.shape());
+        assertTrue(glass.behaviour().blastProof());
+        BlockInfo kiln = blocks.get(ContentId.parse("my_content:kiln").orElseThrow());
+        assertEquals(4, kiln.states().size());
+        assertEquals("block/kiln_lit", kiln.appearanceOf("facing=north").model());
+        assertTrue(!blocks.containsKey(ContentId.parse("my_content:kiln_north").orElseThrow()),
+                "a face of a directional block is not a block of its own");
+        BlockInfo cobbles = blocks.get(ContentId.parse("my_content:cobbles").orElseThrow());
+        assertEquals(3, cobbles.states().size(), "a weight of two is two of the picks");
+        assertEquals("my_content:lamp_on", blocks.get(ContentId.parse("my_content:lamp_off").orElseThrow())
+                .behaviour().clicksInto().orElseThrow().toString());
+        assertTrue(report.diagnostics().stream().anyMatch(d -> d.message().contains("light_level")));
+    }
+
     /** Their blocks are ours now, so they come across rather than being refused. */
     @Test
     void aBlockComesAcross() throws IOException {
