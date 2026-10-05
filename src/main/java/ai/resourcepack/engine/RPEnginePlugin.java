@@ -528,6 +528,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
         blocks.actions(actionRunner);
         getServer().getPluginManager().registerEvents(blocks, this);
+        // Waxed copper of a kind a shaped block took over stays the builder's.
+        getServer().getPluginManager().registerEvents(
+                new ai.resourcepack.engine.core.block.VanillaCopper(this, items, blocks), this);
 
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
@@ -1316,11 +1319,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the sort of tax that makes a format feel like paperwork.
         BlockDefinitions.Result parsedBlocks = BlockDefinitions.parse(loaded);
         report(to, "blocks", parsedBlocks.diagnostics());
+        // Allocated before the items are made, because a shaped block's item
+        // IS the vanilla block it was handed: a stair is placed by a stair.
+        blocks.replace(parsedBlocks.blocks());
+        blocks.allocate();
         Map<ContentId, ItemInfo> withBlocks = new LinkedHashMap<>(parsedItems.items());
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
-                    block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
-                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false)
+                    blocks.itemMaterial(block),
+                    block.name().orElse(null), block.lore(), block.itemTexture().orElse(""),
+                    block.itemTexture().isPresent() ? null : block.model(),
+                    null, null, null, 0, false, false)
                     .withActions(block.actions()));
         }
         items.replace(withBlocks);
@@ -1330,8 +1339,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // few map writes nobody reads; keeping it unconditional means the
         // numbers exist and are stable if the server is ever moved back.
         modelNumbers.assignAll(withBlocks.keySet());
-        blocks.replace(parsedBlocks.blocks());
-        blocks.allocate();
 
         ModelDefinitions.Result parsedModels = ModelDefinitions.parse(loaded, parsedItems.items(),
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
