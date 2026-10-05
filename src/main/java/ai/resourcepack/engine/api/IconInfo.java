@@ -1,7 +1,9 @@
 package ai.resourcepack.engine.api;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * What a content pack said an icon is, and which character it came out as.
@@ -60,9 +62,12 @@ public final class IconInfo {
     private final int frames;
     private final int fps;
     private final boolean loops;
+    private final List<String> aliases;
+    private final String permission;
 
     private IconInfo(ContentId id, String file, int height, int ascent, int codepoint,
-                     int rows, int columns, int cell, int frames, int fps, boolean loops) {
+                     int rows, int columns, int cell, int frames, int fps, boolean loops,
+                     List<String> aliases, String permission) {
         this.id = id;
         this.file = file;
         this.height = height;
@@ -74,6 +79,8 @@ public final class IconInfo {
         this.frames = frames;
         this.fps = fps;
         this.loops = loops;
+        this.aliases = aliases;
+        this.permission = permission;
     }
 
     /** Engine internal; built by the icon loader. */
@@ -81,7 +88,7 @@ public final class IconInfo {
         return new IconInfo(
                 Objects.requireNonNull(id, "id"),
                 Objects.requireNonNull(file, "file"),
-                height, ascent, codepoint, 1, 1, 1, 1, DEFAULT_FPS, true);
+                height, ascent, codepoint, 1, 1, 1, 1, DEFAULT_FPS, true, List.of(), null);
     }
 
     /**
@@ -96,7 +103,7 @@ public final class IconInfo {
     public IconInfo withCell(int rows, int columns, int cell) {
         return new IconInfo(id, file, height, ascent, codepoint,
                 Math.max(1, rows), Math.max(1, columns), Math.max(1, cell),
-                frames, fps, loops);
+                frames, fps, loops, aliases, permission);
     }
 
     /**
@@ -113,7 +120,20 @@ public final class IconInfo {
     public IconInfo withAnimation(int frames, int fps, boolean loops) {
         return new IconInfo(id, file, height, ascent, codepoint, rows, columns, cell,
                 Math.max(1, Math.min(MAX_FRAMES, frames)),
-                Math.max(1, Math.min(MAX_FPS, fps)), loops);
+                Math.max(1, Math.min(MAX_FPS, fps)), loops, aliases, permission);
+    }
+
+    /**
+     * The same icon, with the words that type it in chat and who may type it.
+     *
+     * <p>Engine internal. Neither changes what the icon looks like or where it
+     * sits in the font; chat reads them and nothing else does.
+     */
+    public IconInfo withChat(List<String> aliases, String permission) {
+        return new IconInfo(id, file, height, ascent, codepoint, rows, columns, cell,
+                frames, fps, loops,
+                aliases == null ? List.of() : List.copyOf(aliases),
+                permission == null || permission.isBlank() ? null : permission);
     }
 
     /** Its id. */
@@ -201,6 +221,22 @@ public final class IconInfo {
      */
     public boolean loops() {
         return loops;
+    }
+
+    /**
+     * The words that type it in chat besides {@code :id:}, such as {@code <3}.
+     * Each is matched only as a whole word, never inside one.
+     */
+    public List<String> aliases() {
+        return aliases;
+    }
+
+    /**
+     * The permission needed to type it in chat, by an alias or by its id, or
+     * empty when anybody who may use chat icons at all may use this one.
+     */
+    public Optional<String> permission() {
+        return Optional.ofNullable(permission);
     }
 
     /**
