@@ -680,7 +680,7 @@ class NexoOraxenPackTest {
         BlockInfo slab = blocks.get(id("pack:slab"));
         assertEquals(BlockInfo.Shape.SLAB, slab.shape());
         assertEquals("default/slab", slab.roleModels().get("bottom"));
-        assertTrue(warned(report, "slab", "shape: bulb gives light"));
+        assertEquals(10, slab.light(), "its light is a light block kept beside it");
     }
 
     @Test

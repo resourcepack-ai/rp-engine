@@ -1311,10 +1311,8 @@ final class CraftEngineItems {
         }
         sound(entry, map(settings.get("sounds")), out, diagnostics);
         Double luminance = number(settings.get("luminance"));
-        if (luminance != null && luminance > 0) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "luminance: a custom block cannot give off light here - it belongs to the block's type, not "
-                            + "its state. A placed model can."));
+        if (luminance != null && luminance > 0 && !"bulb".equals(out.get("shape"))) {
+            out.put("light", luminance.intValue());
         }
         List<String> skipped = new ArrayList<>();
         for (Map.Entry<String, Object> setting : settings.entrySet()) {

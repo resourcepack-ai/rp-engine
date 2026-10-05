@@ -397,12 +397,7 @@ final class NexoOraxenBlocks {
                 }
             }
         }
-        if (mechanic.raw("light") != null) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "light: a custom block's light belongs to the vanilla block underneath, and a note block or a "
-                            + "tripwire gives none, so it was skipped. shape: bulb gives light, switched by "
-                            + "redstone; a placed model can give any level."));
-        }
+        mechanic.integer("light").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
         List<String> skipped = new ArrayList<>();
         for (String name : mechanic.keys()) {
             if (KNOWN.contains(name) || (shape.equals("plant") && PLANT_REASONS.containsKey(name))) continue;

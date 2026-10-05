@@ -388,6 +388,7 @@ public final class BlockInfo {
     private Growth growth;
     private Behaviour behaviour = Behaviour.NONE;
     private StorageSpec storage;
+    private int light;
 
     /**
      * The small things a block does that vanilla blocks do: fall like sand,
@@ -468,6 +469,7 @@ public final class BlockInfo {
         to.growth = growth;
         to.behaviour = behaviour;
         to.storage = storage;
+        to.light = light;
         return to;
     }
 
@@ -509,6 +511,26 @@ public final class BlockInfo {
         BlockInfo changed = copy();
         changed.behaviour = behaviour == null ? Behaviour.NONE : behaviour;
         return changed;
+    }
+
+    /** Engine internal; the same block, giving off light. */
+    public BlockInfo withLight(int light) {
+        BlockInfo changed = copy();
+        changed.light = Math.max(0, Math.min(15, light));
+        return changed;
+    }
+
+    /**
+     * The light it gives off, 0 for none.
+     *
+     * <p>Light belongs to a block's type, and a note block's type gives none, so
+     * this is a real light block the engine keeps in an empty space beside it -
+     * above it where it can - and takes away when the block goes. The glow is
+     * one level dimmer on the far side of the block than a lamp's own, which is
+     * the whole of the difference.
+     */
+    public int light() {
+        return light;
     }
 
     /** Engine internal; the same block, holding things. */
