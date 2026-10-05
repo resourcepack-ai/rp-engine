@@ -240,7 +240,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private boolean started;
 
     private CustomBlocks blocks;
-    private ai.resourcepack.engine.core.block.BlockGrowth growth;
+    private ai.resourcepack.engine.core.block.BlockGrowth blockGrowth;
     private BlockStates blockStates;
 
     private LiquidPools pools;
@@ -538,9 +538,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(
                 new ai.resourcepack.engine.core.block.VanillaCopper(this, items, blocks), this);
         // Crops and saplings: blocks with grow:, remembered in their chunks.
-        growth = new ai.resourcepack.engine.core.block.BlockGrowth(this, blocks);
-        getServer().getPluginManager().registerEvents(growth, this);
-        growth.start();
+        blockGrowth = new ai.resourcepack.engine.core.block.BlockGrowth(this, blocks);
+        getServer().getPluginManager().registerEvents(blockGrowth, this);
+        blockGrowth.start();
 
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
@@ -1130,8 +1130,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (heartbeat != null) {
             heartbeat.stop();
         }
-        if (growth != null) {
-            growth.stop();
+        if (blockGrowth != null) {
+            blockGrowth.stop();
         }
         if (vehicles != null) {
             vehicles.stop();
