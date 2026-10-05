@@ -76,23 +76,14 @@ public final class ContentFolderLoader {
             // builder from there as well, so warning about it would be telling
             // somebody off for a folder that works.
             "textures", "models", "sounds", "font",
-            // ItemsAdder's configs/, read as their configs below.
-            ContentFolderLoader.ITEMS_ADDER_CONFIGS,
             // ModelEngine's layout: a folder of .bbmodel blueprints. Read as
             // content rather than as definitions, below.
             "blueprints",
-            // BetterModel's: its models/ (read as blueprints, alongside
-            // ItemsAdder's art there), players/ (its player animations, read
-            // as emotes) and build/, the pack it generated, which is output.
-            "players", "build",
             // CraftEngine's layout: configuration/ is read by its translator,
             // resourcepack/ is copied by the builder, and subpacks/ holds
             // more of both. blueprint/ is its own Blockbench folder, which
             // nothing here reads, but it is not a mistake either.
             "configuration", ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK, "subpacks", "blueprint");
-
-    /** The folder an ItemsAdder pack keeps its configs in. */
-    static final String ITEMS_ADDER_CONFIGS = "configs";
 
     /**
      * Kinds that are NOT put into the id space.
@@ -303,19 +294,14 @@ public final class ContentFolderLoader {
                 && holdsNexoOraxenConfig(folder, diagnostics, origin);
         boolean craftEngineOnly = !Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen
                 && craftEngine.packs.containsKey(namespace);
-        // ModelEngine's and BetterModel's plugin folders: Blockbench files and
-        // nothing that would be a pack.yml.
-        boolean modelsOnly = !Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly
-                && (holdsBbmodels(folder.resolve("blueprints")) || holdsBbmodels(folder.resolve("models"))
-                || holdsBbmodels(folder.resolve("players")));
-        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly && !modelsOnly) {
+        if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly) {
             diagnostics.add(Diagnostic.error(origin,
                     "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
             return;
         }
 
         DefinitionNode packNode;
-        if (itemsAdder || nexoOraxen || craftEngineOnly || modelsOnly) {
+        if (itemsAdder || nexoOraxen || craftEngineOnly) {
             // An ItemsAdder pack folder is their contents/<namespace>/, which
             // has no pack.yml in it. Everything pack.yml would have said has a
             // sensible default, so one is not demanded of somebody whose only
@@ -369,53 +355,7 @@ public final class ContentFolderLoader {
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
         loadNexoOraxenConfigs(root, folder, claimed, definitions, diagnostics);
         loadCraftEngine(craftEngine, claimed, definitions, diagnostics);
-        // An ItemsAdder pack keeps its own art in models/, so only a pack
-        // that is not one reads BetterModel's .bbmodel files from there.
-        loadBlueprints(root, folder, claimed, definitions, diagnostics, !itemsAdder);
-        loadPlayerAnimations(root, folder, claimed, definitions, diagnostics);
-    }
-
-    /** Whether a folder holds a {@code .bbmodel} anywhere under it. */
-    private static boolean holdsBbmodels(Path folder) {
-        if (!Files.isDirectory(folder)) {
-            return false;
-        }
-        try (java.util.stream.Stream<Path> files = Files.walk(folder)) {
-            return files.anyMatch(file -> file.getFileName().toString().endsWith(".bbmodel"));
-        } catch (java.io.IOException e) {
-            return false;
-        }
-    }
-
-    /**
-     * BetterModel's player animations, as emotes; see
-     * {@link BetterModelPlayers}.
-     */
-    private void loadPlayerAnimations(Path root, Path folder, Namespace namespace,
-                                      List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
-        Path players = folder.resolve("players");
-        if (!Files.isDirectory(players)) {
-            return;
-        }
-        Set<ContentId> seen = new HashSet<>();
-        for (Path file : blueprintFiles(players, diagnostics, relative(root, players))) {
-            String origin = relative(root, file);
-            String name = file.getFileName().toString();
-            String stem = name.substring(0, name.length() - ".bbmodel".length()).toLowerCase(Locale.ROOT);
-            byte[] bytes;
-            try {
-                bytes = Files.readAllBytes(file);
-            } catch (java.io.IOException e) {
-                diagnostics.add(Diagnostic.warning(origin, "Could not be read: " + e.getMessage()));
-                continue;
-            }
-            for (Map.Entry<String, Map<String, Object>> emote
-                    : BetterModelPlayers.emotes(bytes, stem, origin, diagnostics).entrySet()) {
-                DefinitionNode document = DefinitionNode.of(Map.of(emote.getKey(), emote.getValue()));
-                define(ContentKind.EMOTE, namespace, document, emote.getKey(), origin, seen, definitions,
-                        diagnostics);
-            }
-        }
+        loadBlueprints(root, folder, claimed, definitions, diagnostics);
     }
 
     /** This pack's CraftEngine content, translated; see {@link CraftEngine}. */
@@ -447,42 +387,34 @@ public final class ContentFolderLoader {
      */
     private void loadBlueprints(Path root, Path folder, Namespace namespace,
                                 List<ContentDefinition> definitions,
-                                List<Diagnostic> diagnostics, boolean readModelsFolder) {
+                                List<Diagnostic> diagnostics) {
+        Path blueprints = folder.resolve("blueprints");
+        if (!Files.isDirectory(blueprints)) {
+            return;
+        }
         Set<ContentId> seen = new HashSet<>();
-        // ModelEngine keeps them in blueprints/, BetterModel in models/.
-        for (String where : readModelsFolder ? List.of("blueprints", "models") : List.of("blueprints")) {
-            Path blueprints = folder.resolve(where);
-            if (!Files.isDirectory(blueprints)) {
+        for (Path file : blueprintFiles(blueprints, diagnostics, relative(root, blueprints))) {
+            String origin = relative(root, file);
+            String name = file.getFileName().toString();
+            String path = name.substring(0, name.length() - ".bbmodel".length())
+                    .toLowerCase(Locale.ROOT);
+            if (!ContentId.isValidPath(path)) {
+                diagnostics.add(Diagnostic.warning(origin, path,
+                        "A blueprint's file name is its id, and this one is not a valid one. "
+                                + "Use lowercase a-z, digits, and _ . - / only."));
                 continue;
             }
-            for (Path file : blueprintFiles(blueprints, diagnostics, relative(root, blueprints))) {
-                String origin = relative(root, file);
-                String name = file.getFileName().toString();
-                String path = name.substring(0, name.length() - ".bbmodel".length())
-                        .toLowerCase(Locale.ROOT);
-                if (!ContentId.isValidPath(path)) {
-                    diagnostics.add(Diagnostic.warning(origin, path,
-                            "A blueprint's file name is its id, and this one is not a valid one. "
-                                    + "Use lowercase a-z, digits, and _ . - / only."));
-                    continue;
-                }
-                // A pack wanting more says so in items/ under the same id, and
-                // that wins, because a definition somebody wrote beats one
-                // derived from a file name - it was defined first, and the
-                // duplicate is reported below rather than silently dropped.
-                // The model is named by where it is under the folder, so one in
-                // a subfolder is found; the id is the file's name alone.
-                String relativeModel = blueprints.relativize(file).toString().replace('\\', '/');
-                relativeModel = relativeModel.substring(0, relativeModel.length() - ".bbmodel".length());
 
-                // An item of the plainest kind: a thing that wears the model.
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("material", "PAPER");
-                item.put("model", relativeModel);
-                DefinitionNode document = DefinitionNode.of(Map.of(path, item));
-                define(ContentKind.ITEM, namespace, document, path, origin, seen,
-                        definitions, diagnostics);
-            }
+            // An item of the plainest kind: a thing that wears the model. A
+            // pack wanting more says so in items/ under the same id, and that
+            // wins, because a definition somebody wrote beats one derived from
+            // a file name.
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("material", "PAPER");
+            item.put("model", path);
+            DefinitionNode document = DefinitionNode.of(Map.of(path, item));
+            define(ContentKind.ITEM, namespace, document, path, origin, seen,
+                    definitions, diagnostics);
         }
     }
 
@@ -502,32 +434,13 @@ public final class ContentFolderLoader {
 
     /** Whether this folder holds an ItemsAdder config, which is what makes it a pack of theirs. */
     private boolean holdsItemsAdderConfig(Path folder, List<Diagnostic> diagnostics, String origin) {
-        for (Path child : itemsAdderConfigFiles(folder, diagnostics, origin)) {
-            if (readMap(child, origin, new ArrayList<>()).map(ItemsAdder::looksLikeOne).orElse(false)) {
+        for (Path child : list(folder, diagnostics, origin, path -> true)) {
+            if (!Files.isDirectory(child) && isDefinitionFile(child)
+                    && readMap(child, origin, new ArrayList<>()).map(ItemsAdder::looksLikeOne).orElse(false)) {
                 return true;
             }
         }
         return false;
-    }
-
-    /**
-     * Where an ItemsAdder pack keeps its configs: {@code configs/}, at any
-     * depth, which is their own layout and where nearly every real pack has
-     * them, and loose in the pack folder, which their older packs did and
-     * which is how one of their files dropped into a pack of ours is found.
-     */
-    private List<Path> itemsAdderConfigFiles(Path folder, List<Diagnostic> diagnostics, String origin) {
-        List<Path> found = new ArrayList<>();
-        for (Path child : list(folder, diagnostics, origin, path -> true)) {
-            if (!Files.isDirectory(child) && isDefinitionFile(child)) {
-                found.add(child);
-            }
-        }
-        Path configs = folder.resolve(ITEMS_ADDER_CONFIGS);
-        if (Files.isDirectory(configs)) {
-            found.addAll(sortedDefinitionFiles(configs, diagnostics, origin, false));
-        }
-        return found;
     }
 
     /** Nexo/Oraxen's item YAML (top-level ids with a Pack, Components or Mechanics block), or their sounds.yml. */
@@ -556,29 +469,19 @@ public final class ContentFolderLoader {
                                        List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
         Map<Path, DefinitionNode> documents = new LinkedHashMap<>();
-        // What files share first, from every file: an item names its armour
-        // set by id and a sound its subtitle by key, and either may be
-        // declared in another file of the same pack.
-        ItemsAdder.Shared shared = new ItemsAdder.Shared();
-        for (Path file : itemsAdderConfigFiles(folder, diagnostics, relative(root, folder))) {
+        // Armour sets first, from every file: an item names its set by id, and
+        // the set may be declared in another file of the same pack.
+        Map<String, DefinitionNode> armours = new LinkedHashMap<>();
+        for (Path file : list(folder, diagnostics, relative(root, folder), path -> true)) {
+            if (Files.isDirectory(file) || !isDefinitionFile(file)) {
+                continue;
+            }
             Optional<DefinitionNode> document = readMap(file, relative(root, file), diagnostics);
             if (document.isPresent() && ItemsAdder.looksLikeOne(document.get())) {
                 documents.put(file, document.get());
-                shared.add(document.get());
-                // Their block loot usually sits in a file of its own, so every
-                // file's is gathered before any block is translated.
-                shared.drops.putAll(ItemsAdder.blockDrops(document.get(), namespace.name(),
-                        relative(root, file), diagnostics));
+                ItemsAdder.armours(document.get()).forEach(armours::putIfAbsent);
             }
         }
-        // Their resource pack's own English, for a subtitle written as a key.
-        Path assets = folder.resolve(ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK)
-                .resolve("assets").resolve(namespace.name());
-        if (!documents.isEmpty()) {
-            ItemsAdderSound.langFile(assets.resolve("lang").resolve("en_us.json"))
-                    .forEach(shared.lang::putIfAbsent);
-        }
-        Set<String> configSounds = new HashSet<>();
         for (Map.Entry<Path, DefinitionNode> read : documents.entrySet()) {
             String origin = relative(root, read.getKey());
             Optional<DefinitionNode> document = Optional.of(read.getValue());
@@ -592,33 +495,11 @@ public final class ContentFolderLoader {
             });
 
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, shared)
+                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, armours)
                     .entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin,
-                            unregisteredSeen, definitions, diagnostics);
-                }
-                if (kind.getKey() == ContentKind.SOUND) {
-                    configSounds.addAll(translated.keys());
-                }
-            }
-        }
-
-        // Before 4.0.12 an ItemsAdder sound was a hand-written sounds.json in
-        // the pack's resource pack folder. Read as RP Engine sounds, which also
-        // keeps it working: the sounds.json the build writes for this
-        // namespace would otherwise take its place.
-        Path soundsJson = assets.resolve("sounds.json");
-        if (!documents.isEmpty() && Files.isRegularFile(soundsJson)) {
-            String origin = relative(root, soundsJson);
-            DefinitionNode translated = DefinitionNode.of(
-                    ItemsAdderSound.fromSoundsJson(soundsJson, namespace.name(), origin, diagnostics, shared.lang));
-            for (String path : translated.keys()) {
-                // One the config already declares is the same sound written
-                // twice, during a move from one way to the other.
-                if (!configSounds.contains(path)) {
-                    define(ContentKind.SOUND, namespace, translated, path, origin,
                             unregisteredSeen, definitions, diagnostics);
                 }
             }

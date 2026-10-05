@@ -91,52 +91,15 @@ public final class SoundAssets implements PackContributor {
         }
 
         json.append("\n}\n");
-        String soundsPath = "assets/" + namespace + "/sounds.json";
-        into.add(soundsPath, merged(into, soundsPath, json.toString()));
+        into.add("assets/" + namespace + "/sounds.json", json.toString().getBytes(StandardCharsets.UTF_8));
 
         if (!firstSubtitle) {
             lang.append("\n}\n");
             // en_us only. Shipping a translation nobody wrote would be worse
             // than shipping none: the client falls back to en_us for a missing
             // key, and an empty locale file is a wall of blank subtitles.
-            String langPath = "assets/" + namespace + "/lang/en_us.json";
-            into.add(langPath, merged(into, langPath, lang.toString()));
-        }
-    }
-
-    /**
-     * Ours, plus whatever a file the pack shipped at the same path says that
-     * ours does not.
-     *
-     * <p>A pack from another plugin can carry its own {@code sounds.json} or
-     * {@code lang/en_us.json} in its resource pack folder, and both are one
-     * file per namespace: writing ours over it would silently delete every
-     * entry in it. Where a key is in both, ours wins, because it is the one
-     * the definitions describe. With nothing there first, the output is
-     * exactly what was built above.
-     */
-    private static byte[] merged(Contribution into, String path, String ours) {
-        java.util.Optional<byte[]> shipped = into.read(path);
-        if (shipped.isEmpty()) {
-            return ours.getBytes(StandardCharsets.UTF_8);
-        }
-        try {
-            com.google.gson.JsonElement theirs = com.google.gson.JsonParser.parseString(
-                    new String(shipped.get(), StandardCharsets.UTF_8));
-            if (!theirs.isJsonObject()) {
-                return ours.getBytes(StandardCharsets.UTF_8);
-            }
-            com.google.gson.JsonObject out = com.google.gson.JsonParser.parseString(ours).getAsJsonObject();
-            for (Map.Entry<String, com.google.gson.JsonElement> entry : theirs.getAsJsonObject().entrySet()) {
-                if (!out.has(entry.getKey())) {
-                    out.add(entry.getKey(), entry.getValue());
-                }
-            }
-            return (new com.google.gson.GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create()
-                    .toJson(out) + "\n").getBytes(StandardCharsets.UTF_8);
-        } catch (com.google.gson.JsonParseException e) {
-            // Not JSON, so the game could not read it either.
-            return ours.getBytes(StandardCharsets.UTF_8);
+            into.add("assets/" + namespace + "/lang/en_us.json",
+                    lang.toString().getBytes(StandardCharsets.UTF_8));
         }
     }
 

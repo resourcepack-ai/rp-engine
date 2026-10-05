@@ -49,31 +49,7 @@ public final class ItemAction {
         BREAK,
 
         /** Picked up off the ground. */
-        PICKUP,
-
-        /**
-         * Put down: a {@code place:} model stood in a block space, or a custom
-         * block placed. Runs once it is there and cannot be cancelled.
-         */
-        PLACE,
-
-        /**
-         * Right-clicked where it stands, as a placed model or a custom block.
-         *
-         * <p>The other triggers are about the stack in somebody's hand; this
-         * one is about the thing in the world, which is what a furniture
-         * click command in every other content plugin is. {@code cancel}
-         * stops what the click would otherwise do: sitting down, or a block
-         * being placed against a custom one.
-         */
-        INTERACT,
-
-        /**
-         * Taken out of the world by a player: a placed model punched, a custom
-         * block mined. Runs once it is gone and cannot be cancelled, like
-         * {@link #BREAK}, which is the stack running out of durability.
-         */
-        REMOVE;
+        PICKUP;
 
         /** The name an author writes, or empty if it is not one of these. */
         public static Optional<Trigger> parse(String written) {
@@ -137,16 +113,7 @@ public final class ItemAction {
         COOLDOWN,
 
         /** Stops here unless the user has this permission. */
-        PERMISSION,
-
-        /**
-         * {@code particle: <type> [count] [spread]}: particles at the block or
-         * piece the action is about, or at the player when it is about a held
-         * item. Types are the game's names ({@code flame},
-         * {@code happy_villager}); one that needs extra data (a colour, a
-         * block) draws nothing.
-         */
-        PARTICLE;
+        PERMISSION;
 
         /** The name an author writes, or empty if it is not one of these. */
         public static Optional<Kind> parse(String written) {

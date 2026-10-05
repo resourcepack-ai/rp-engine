@@ -99,7 +99,6 @@ public final class ItemDefinitions {
                 java.util.List<ai.resourcepack.engine.api.ItemAction>> actions =
                 ItemActions.parse(body, definition.id(), origin, diagnostics);
         ItemActions.validate(actions, definition.id(), origin, diagnostics);
-        ItemActions.checkStanding(actions, body.node("place").isPresent(), definition.id(), origin, diagnostics);
 
         return Optional.of(ItemInfo.of(
                 definition.id(),
@@ -288,21 +287,9 @@ public final class ItemDefinitions {
                         node.bool("always").orElse(Boolean.FALSE)))
                 .orElse(null);
 
-        // Bukkit's names, as every plugin and wiki writes them. Uppercased
-        // here so hide_enchants and HIDE_ENCHANTS are one flag; whether this
-        // server has it is answered when the item is made.
-        List<String> flags = new ArrayList<>();
-        for (String flag : body.strings("flags")) {
-            String name = flag.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_');
-            if (!name.isEmpty() && !flags.contains(name)) {
-                flags.add(name);
-            }
-        }
-
         return enchantments.isEmpty() && modifiers.isEmpty() && maxDamage == null && food == null
-                && flags.isEmpty()
                 ? ItemStats.none()
-                : ItemStats.of(enchantments, modifiers, maxDamage, food, flags);
+                : ItemStats.of(enchantments, modifiers, maxDamage, food);
     }
 
     /**

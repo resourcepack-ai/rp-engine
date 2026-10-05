@@ -27,17 +27,15 @@ import java.util.Optional;
  *
  * <h2>What comes across, and what does not</h2>
  *
- * <p>Items, blocks, font images and sounds ({@link ItemsAdderSound})
- * translate, including the parts of an item
+ * <p>Items, blocks and font images translate, including the parts of an item
  * that are really vanilla underneath: material, name, lore, enchants,
- * attributes, durability, stack size, permission, armour slot, item flags, and
- * the behaviours that have an equivalent here — a liquid bucket, furniture and
- * a block. Their {@code events} become actions (see {@link ItemsAdderEvents}),
- * and a block's loot table its drop when the table is one certain item.
+ * attributes, durability, stack size, permission, armour slot, and the two
+ * behaviours that have an equivalent here — a liquid bucket and furniture.
  *
- * <p>What does not: events and actions with no trigger or step here, loot by
- * chance, and the recipe kinds this engine has no equivalent for, each named
- * as it is skipped.
+ * <p>What does not: the parts of an item that are ItemsAdder's own plugin
+ * behaviour rather than a property of the item — {@code events}, {@code drop},
+ * {@code item_flags} — and the recipe kinds this engine has no equivalent for,
+ * each named as it is skipped.
  *
  * <p>A block's definition comes across but <strong>a world built with their
  * plugin does not</strong>: the vanilla state a block hides in is allocated in
@@ -62,32 +60,7 @@ final class ItemsAdder {
                 || document.node("font_images").isPresent()
                 || document.node("blocks").isPresent()
                 || document.node("entities").isPresent()
-                || document.raw("sounds") instanceof Map
-                || document.node("minecraft_lang_overwrite").isPresent()
-                || !armours(document).isEmpty()
-                || document.node("recipes").isPresent()
-                || document.node("loots").isPresent());
-    }
-
-    /**
-     * What one file of a pack may need from another: armour sets, which an
-     * item names by id, and the English text of {@code minecraft_lang_overwrite},
-     * which a sound's subtitle names by key, and what each block drops, which
-     * their {@code loots.blocks} tables usually say in a file of their own
-     * (gathered by the loader through {@link #blockDrops}). Gathered from every file before
-     * any is translated, because a pack is free to keep either in a file of
-     * its own.
-     */
-    static final class Shared {
-        final Map<String, DefinitionNode> armours = new LinkedHashMap<>();
-        final Map<String, String> lang = new LinkedHashMap<>();
-        final Map<String, String> drops = new LinkedHashMap<>();
-
-        Shared add(DefinitionNode document) {
-            armours(document).forEach(armours::putIfAbsent);
-            ItemsAdderSound.lang(document).forEach(lang::putIfAbsent);
-            return this;
-        }
+                || !armours(document).isEmpty());
     }
 
     /**
@@ -124,43 +97,22 @@ final class ItemsAdder {
      */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics) {
-        Shared shared = new Shared().add(document);
-        shared.drops.putAll(blockDrops(document, namespace, origin, diagnostics));
-        return translate(document, namespace, origin, diagnostics, shared);
+        return translate(document, namespace, origin, diagnostics, armours(document));
     }
 
-    /** @param shared what the whole pack declares; see {@link Shared} */
+    /** @param armours every armour set in the pack, by name; see {@link #armours} */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics,
-            Shared shared) {
+            Map<String, DefinitionNode> armours) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
-        Map<String, DefinitionNode> armours = shared.armours;
-        Map<String, String> drops = shared.drops;
-        // Their blocks are items with a block behaviour, so they come out of
-        // items: and go in beside any written under blocks:.
-        Map<String, Object> blocksFromItems = new LinkedHashMap<>();
 
         document.node("items").ifPresent(items -> {
             Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : items.keys()) {
                 items.node(id).ifPresent(item -> {
-                    if (!item.bool("enabled").orElse(Boolean.TRUE)) {
-                        return;
-                    }
-                    if (blockBehaviour(item).isPresent() && isDirectionalFace(items, id)) {
-                        // One face of another block's directional set: drawn
-                        // as part of that block, not placed as one of its own.
-                        return;
-                    }
-                    if (blockBehaviour(item).isPresent()) {
-                        Map<String, Object> block = blockItem(item, id, namespace, drops, origin, diagnostics);
-                        directionalFaces(items, item, id, namespace, block);
-                        blocksFromItems.put(id, block);
-                    } else {
+                    if (item.bool("enabled").orElse(Boolean.TRUE)) {
                         Map<String, Object> body = item(item, id, origin, diagnostics);
                         armour(item, id, origin, diagnostics, body, armours);
-                        item.node("events").ifPresent(events -> ItemsAdderEvents.translate(events, id, namespace,
-                                body.containsKey("place"), origin, diagnostics).into(body));
                         translated.put(id, body);
                     }
                 });
@@ -180,21 +132,19 @@ final class ItemsAdder {
             }
         });
 
-        Map<String, Object> translatedBlocks = new LinkedHashMap<>(blocksFromItems);
         document.node("blocks").ifPresent(blocks -> {
+            Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : blocks.keys()) {
                 blocks.node(id).ifPresent(block -> {
                     if (block.bool("enabled").orElse(Boolean.TRUE)) {
-                        Map<String, Object> body = block(block);
-                        drop(id, drops, body);
-                        translatedBlocks.put(id, body);
+                        translated.put(id, block(block));
                     }
                 });
             }
+            if (!translated.isEmpty()) {
+                out.put(ContentKind.BLOCK, translated);
+            }
         });
-        if (!translatedBlocks.isEmpty()) {
-            out.put(ContentKind.BLOCK, translatedBlocks);
-        }
         document.node("entities").ifPresent(entities -> {
             Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : entities.keys()) {
@@ -207,20 +157,11 @@ final class ItemsAdder {
         });
 
         document.node("recipes").ifPresent(recipes -> {
-            Map<String, Object> translated = recipes(recipes, namespace, origin, diagnostics);
+            Map<String, Object> translated = recipes(recipes, origin, diagnostics);
             if (!translated.isEmpty()) {
                 out.put(ContentKind.RECIPE, translated);
             }
         });
-
-        if (document.raw("sounds") instanceof Map) {
-            Map<String, Object> translated = ItemsAdderSound.translate(
-                    document.node("sounds").orElse(DefinitionNode.empty()), namespace, origin, diagnostics,
-                    shared.lang);
-            if (!translated.isEmpty()) {
-                out.put(ContentKind.SOUND, translated);
-            }
-        }
 
         return out;
     }
@@ -262,12 +203,8 @@ final class ItemsAdder {
      * list — so one of theirs can be several of ours, since a recipe here is
      * one type. The extra ones are suffixed with the machine, which is both
      * unique and readable in {@code /rp recipes}.
-     *
-     * <p>{@code smithing}, {@code anvil_repair} and {@code brewing} (the last
-     * is ItemsAdderAdditions', an add-on, in the same file) are named slots
-     * rather than a machine list, and each is one of ours.
      */
-    private static Map<String, Object> recipes(DefinitionNode recipes, String namespace, String origin,
+    private static Map<String, Object> recipes(DefinitionNode recipes, String origin,
                                                List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (String group : recipes.keys()) {
@@ -279,25 +216,16 @@ final class ItemsAdder {
                 }
                 switch (group) {
                     case "crafting_table":
-                        out.put(name, crafting(recipe, namespace));
+                        out.put(name, crafting(recipe));
                         break;
                     case "cooking":
-                        cooking(recipe, name, namespace, out);
+                        cooking(recipe, name, out);
                         break;
                     case "campfire_cooking":
-                        out.put(name, cooked(recipe, "campfire", namespace));
+                        out.put(name, cooked(recipe, "campfire"));
                         break;
                     case "stonecutter":
-                        out.put(name, cooked(recipe, "stonecutting", namespace));
-                        break;
-                    case "smithing":
-                        out.put(name, smithing(recipe, namespace));
-                        break;
-                    case "anvil_repair":
-                        out.put(name, anvilRepair(recipe, namespace));
-                        break;
-                    case "brewing":
-                        out.put(name, brewing(recipe, name, namespace, origin, diagnostics));
+                        out.put(name, cooked(recipe, "stonecutting"));
                         break;
                     default:
                         diagnostics.add(Diagnostic.warning(origin, name,
@@ -308,100 +236,16 @@ final class ItemsAdder {
         return out;
     }
 
-    /** {@code template}, {@code base} and {@code addition}, each one item, and a result. */
-    private static Map<String, Object> smithing(DefinitionNode recipe, String namespace) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("type", "smithing");
-        for (String slot : List.of("template", "base", "addition")) {
-            slotItem(recipe, slot).ifPresent(item -> out.put(slot, reference(item, namespace)));
-        }
-        result(recipe, namespace, out);
-        return out;
-    }
-
-    /**
-     * {@code item} mended with {@code ingredient} at an anvil. Theirs repairs
-     * the way vanilla repairs with a material, a quarter of full durability
-     * for each one used, which is what ours does with {@code repair: 25%}.
-     */
-    private static Map<String, Object> anvilRepair(DefinitionNode recipe, String namespace) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("type", "anvil");
-        slotItem(recipe, "item").ifPresent(item -> out.put("base", reference(item, namespace)));
-        slotItem(recipe, "ingredient").ifPresent(item -> out.put("addition", reference(item, namespace)));
-        out.put("repair", "25%");
-        return out;
-    }
-
-    /**
-     * ItemsAdderAdditions' brewing: {@code base} (once {@code input}) in the
-     * bottle slots, {@code ingredient} on top.
-     */
-    private static Map<String, Object> brewing(DefinitionNode recipe, String name, String namespace,
-                                               String origin, List<Diagnostic> diagnostics) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("type", "brewing");
-        slotItem(recipe, "base").or(() -> slotItem(recipe, "input"))
-                .ifPresent(item -> out.put("base", reference(item, namespace)));
-        slotItem(recipe, "ingredient").ifPresent(item -> out.put("ingredient", reference(item, namespace)));
-        result(recipe, namespace, out);
-        List<String> skipped = new ArrayList<>();
-        if (recipe.node("ingredient").flatMap(ingredient -> ingredient.integer("consume")).orElse(1) > 1) {
-            skipped.add("ingredient.consume (a brewing stand uses one)");
-        }
-        for (String key : List.of("brew_time", "fuel_cost", "on_complete")) {
-            if (recipe.has(key)) skipped.add(key);
-        }
-        if (!skipped.isEmpty()) {
-            diagnostics.add(Diagnostic.warning(origin, name,
-                    String.join(", ", skipped) + " have no RP Engine equivalent and were skipped: it brews as "
-                            + "vanilla brewing does. The recipe still works."));
-        }
-        return out;
-    }
-
-    /** A slot written as {@code slot: ID} or {@code slot: {item: ID}}; both spellings are theirs. */
-    private static Optional<String> slotItem(DefinitionNode recipe, String slot) {
-        return recipe.node(slot).flatMap(node -> node.string("item")).or(() -> recipe.string(slot));
-    }
-
-    /**
-     * One of their item references as ours. An id with no namespace is this
-     * file's, as theirs reads it, and anything with a capital letter in it is
-     * a vanilla material. {@code minecraft:awkward_potion} is how their
-     * brewing add-on names a vanilla potion, which is {@code potion/awkward}
-     * here.
-     */
-    static String reference(String raw, String namespace) {
-        String id = raw.trim();
-        if (id.startsWith("minecraft:")) {
-            String name = id.substring("minecraft:".length()).toLowerCase(Locale.ROOT);
-            if (name.equals("water_bottle")) {
-                return "potion/water";
-            }
-            for (String kind : List.of("splash_potion", "lingering_potion", "potion")) {
-                if (name.endsWith("_" + kind)) {
-                    return kind + "/" + name.substring(0, name.length() - kind.length() - 1);
-                }
-            }
-            return id;
-        }
-        if (id.indexOf(':') >= 0 || !id.equals(id.toLowerCase(Locale.ROOT))) {
-            return id;
-        }
-        return namespace + ":" + id;
-    }
-
     /** A shaped recipe. Their pattern uses undefined letters as blanks. */
-    private static Map<String, Object> crafting(DefinitionNode recipe, String namespace) {
+    private static Map<String, Object> crafting(DefinitionNode recipe) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", "shaped");
-        result(recipe, namespace, out);
+        result(recipe, out);
 
         DefinitionNode ingredients = recipe.node("ingredients").orElse(DefinitionNode.empty());
         Map<String, Object> keys = new LinkedHashMap<>();
         for (String key : ingredients.keys()) {
-            ingredients.string(key).ifPresent(item -> keys.put(key, reference(item, namespace)));
+            ingredients.string(key).ifPresent(item -> keys.put(key, item));
         }
         out.put("keys", keys);
 
@@ -420,7 +264,7 @@ final class ItemsAdder {
     }
 
     /** Their cooking, which may name several machines at once. */
-    private static void cooking(DefinitionNode recipe, String name, String namespace, Map<String, Object> out) {
+    private static void cooking(DefinitionNode recipe, String name, Map<String, Object> out) {
         List<String> machines = recipe.strings("machines");
         if (machines.isEmpty()) {
             machines = List.of("FURNACE");
@@ -440,27 +284,29 @@ final class ItemsAdder {
             }
             // One of theirs is several of ours, so all but the first are named
             // for their machine.
-            out.put(first ? name : name + "_" + type, cooked(recipe, type, namespace));
+            out.put(first ? name : name + "_" + type, cooked(recipe, type));
             first = false;
         }
     }
 
     /** The shape every one-ingredient recipe of ours shares. */
-    private static Map<String, Object> cooked(DefinitionNode recipe, String type, String namespace) {
+    private static Map<String, Object> cooked(DefinitionNode recipe, String type) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", type);
-        result(recipe, namespace, out);
-        slotItem(recipe, "ingredient").ifPresent(item -> out.put("ingredient", reference(item, namespace)));
+        result(recipe, out);
+        recipe.node("ingredient").flatMap(ingredient -> ingredient.string("item"))
+                .or(() -> recipe.string("ingredient"))
+                .ifPresent(item -> out.put("ingredient", item));
         recipe.string("exp").ifPresent(exp -> out.put("experience", exp));
         recipe.integer("cook_time").ifPresent(time -> out.put("time", time));
         return out;
     }
 
     /** {@code result: {item: ns:id, amount: 1}}, which both plugins spell the same. */
-    private static void result(DefinitionNode recipe, String namespace, Map<String, Object> out) {
+    private static void result(DefinitionNode recipe, Map<String, Object> out) {
         DefinitionNode result = recipe.node("result").orElse(DefinitionNode.empty());
         result.string("item").or(() -> recipe.string("result"))
-                .ifPresent(item -> out.put("result", reference(item, namespace)));
+                .ifPresent(item -> out.put("result", item));
         result.integer("amount").ifPresent(amount -> out.put("amount", amount));
     }
 
@@ -475,13 +321,17 @@ final class ItemsAdder {
      */
     private static Map<String, Object> block(DefinitionNode block) {
         Map<String, Object> out = new LinkedHashMap<>();
-        DefinitionNode specific = blockBehaviour(block).orElse(DefinitionNode.empty());
+        DefinitionNode specific = block.node("specific_properties")
+                .flatMap(properties -> properties.node("block"))
+                .orElse(DefinitionNode.empty());
         DefinitionNode resource = block.node("resource").orElse(DefinitionNode.empty());
 
         specific.string("placed_model").or(() -> resource.string("model_path"))
                 .ifPresent(model -> out.put("model", model));
         specific.string("hardness").ifPresent(hardness -> out.put("hardness", hardness));
-        specific.integer("light_level").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
+        // light_level is deliberately dropped rather than translated: a custom
+        // block cannot emit light here, and writing the key would only produce
+        // a warning for every block in somebody's pack.
         specific.string("break_tool").ifPresent(tool -> out.put("tool", tool));
         specific.string("sound").or(() -> block.string("sound"))
                 .ifPresent(sound -> out.put("sound", sound));
@@ -492,313 +342,6 @@ final class ItemsAdder {
         String kind = specific.string("block_type").orElse("").toLowerCase(Locale.ROOT);
         if (kind.contains("mushroom")) {
             out.put("base", "mushroom_stem");
-        }
-        return out;
-    }
-
-    /**
-     * Where their block settings live: {@code behaviours.block} now, and
-     * {@code specific_properties.block} before 4.0.
-     */
-    private static Optional<DefinitionNode> blockBehaviour(DefinitionNode item) {
-        return item.node("behaviours").flatMap(behaviours -> behaviours.node("block"))
-                .or(() -> item.node("specific_properties").flatMap(properties -> properties.node("block")));
-    }
-
-    /**
-     * An item with a block behaviour, which is how ItemsAdder writes a block.
-     *
-     * <p>The id is the block's here as well, and the item that places it
-     * comes with it, so its name and lore ride along. Their placed-block
-     * events become the block's own actions, beside the item's.
-     */
-    private static Map<String, Object> blockItem(DefinitionNode item, String id, String namespace,
-                                                 Map<String, String> drops, String origin,
-                                                 List<Diagnostic> diagnostics) {
-        Map<String, Object> out = block(item);
-        DefinitionNode specific = blockBehaviour(item).orElse(DefinitionNode.empty());
-        DefinitionNode resource = item.node("resource").orElse(DefinitionNode.empty());
-
-        item.string("name").or(() -> item.string("display_name")).ifPresent(name -> out.put("name", name));
-        if (!item.strings("lore").isEmpty()) {
-            out.put("lore", item.strings("lore"));
-        }
-
-        // placed_model is a block of settings since 3.x; its type is the
-        // vanilla block the state hides in.
-        String type = specific.node("placed_model").flatMap(model -> model.string("type")).orElse("REAL_NOTE")
-                .toUpperCase(Locale.ROOT);
-        switch (type) {
-            case "REAL":
-                out.put("base", "mushroom_stem");
-                break;
-            case "REAL_WIRE":
-                // Tripwire, as theirs is: a plant.
-                out.put("base", "tripwire");
-                break;
-            case "REAL_TRANSPARENT":
-                // Chorus there; the see-through full block here, which needs
-                // no Paper setting and repaints nothing in the End.
-                out.put("shape", "grate");
-                break;
-            case "REAL_NOTE":
-                break;
-            default:
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        "placed_model.type " + type + " draws the block with an entity (a spawner's, or fire's), "
-                                + "which RP Engine blocks do not; it came across as a full block. A placed model "
-                                + "draws any shape."));
-        }
-        directional(specific, out);
-        variants(specific, namespace, out);
-        if (specific.bool("no_explosion").orElse(Boolean.FALSE)) {
-            out.put("blast-resistant", true);
-        }
-        specific.integer("light_level").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
-        // A block whose click swaps it for another (ItemsAdder's on/off pairs)
-        // is the block's own click-into: here.
-        item.node("events").flatMap(events -> events.node("placed_block"))
-                .flatMap(placed -> placed.node("interact")).flatMap(interact -> interact.node("replace_block"))
-                .flatMap(replace -> replace.string("to"))
-                .ifPresent(to -> out.put("click-into", to.contains(":") ? to : namespace + ":" + to));
-
-        if (!out.containsKey("model")) {
-            generatedCube(resource, namespace).ifPresent(model -> out.put("model", model));
-        }
-        for (String tool : specific.strings("break_tools_whitelist")) {
-            String kind = toolKind(tool);
-            if (kind != null) {
-                out.put("tool", kind);
-                break;
-            }
-        }
-        if (!specific.strings("break_tools_blacklist").isEmpty()) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "break_tools_blacklist has no RP Engine equivalent: a block asks for the kind of tool that "
-                            + "gets the drop, and nothing else."));
-        }
-        specific.node("sound").flatMap(sound -> sound.node("place")).flatMap(place -> place.string("name"))
-                .ifPresent(sound -> out.put("sound", sound));
-        if (Boolean.FALSE.equals(specific.bool("drop_when_mined").orElse(Boolean.TRUE))) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "drop_when_mined: false has no RP Engine equivalent; mined with the right tool, it drops "
-                            + (drops.containsKey(id) ? drops.get(id) : "itself") + "."));
-        }
-        drop(id, drops, out);
-
-        item.node("events").ifPresent(events ->
-                ItemsAdderEvents.translate(events, id, namespace, true, origin, diagnostics).into(out));
-        for (String plugin : List.of("enchants", "attribute_modifiers", "durability", "permission")) {
-            if (item.raw(plugin) != null) {
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        plugin + " is on a block's item, and the item an RP Engine block is placed from carries "
-                                + "only its name and lore, so it was skipped."));
-            }
-        }
-        return out;
-    }
-
-    /** The faces a directional block may name a block of its own for. */
-    private static final List<String> FACES = List.of("north", "east", "south", "west", "up", "down");
-
-    /**
-     * {@code directional_mode}: turned as a log ({@code LOG}), a furnace
-     * ({@code FURNACE}) or a dropper ({@code DROPPER}, and {@code ALL}, which
-     * ItemsAdder describes as both a log and a dropper; the six directions
-     * cover both).
-     */
-    private static void directional(DefinitionNode specific, Map<String, Object> out) {
-        String mode = specific.node("placed_model").flatMap(model -> model.string("directional_mode"))
-                .or(() -> specific.string("directional_mode")).orElse("NONE").trim().toUpperCase(Locale.ROOT);
-        switch (mode) {
-            case "LOG":
-                out.put("rotate", "axis");
-                break;
-            case "FURNACE":
-                out.put("rotate", "horizontal");
-                break;
-            case "DROPPER":
-            case "ALL":
-                out.put("rotate", "all");
-                break;
-            default:
-        }
-    }
-
-    /** Whether {@code id} is {@code <block>_<face>}, a face of a directional block in the same file. */
-    private static boolean isDirectionalFace(DefinitionNode items, String id) {
-        int underscore = id.lastIndexOf('_');
-        if (underscore <= 0 || !FACES.contains(id.substring(underscore + 1))) {
-            return false;
-        }
-        Optional<DefinitionNode> owner = items.node(id.substring(0, underscore));
-        return owner.flatMap(ItemsAdder::blockBehaviour)
-                .flatMap(specific -> specific.node("placed_model").flatMap(model -> model.string("directional_mode"))
-                        .or(() -> specific.string("directional_mode")))
-                .filter(mode -> !mode.equalsIgnoreCase("NONE")).isPresent();
-    }
-
-    /** A directional block's {@code <id>_<face>} items, as the model each direction wears. */
-    private static void directionalFaces(DefinitionNode items, DefinitionNode item, String id, String namespace,
-                                         Map<String, Object> out) {
-        if (!out.containsKey("rotate") || out.get("rotate").equals("axis")) {
-            return;
-        }
-        Map<String, Object> appearances = new LinkedHashMap<>();
-        for (String face : FACES) {
-            items.node(id + "_" + face).ifPresent(sibling -> {
-                Object model = block(sibling).get("model");
-                if (model == null) {
-                    model = generatedCube(sibling.node("resource").orElse(DefinitionNode.empty()), namespace)
-                            .orElse(null);
-                }
-                if (model != null) {
-                    appearances.put("facing=" + face, model);
-                }
-            });
-        }
-        if (!appearances.isEmpty()) {
-            out.put("appearances", appearances);
-        }
-    }
-
-    /** {@code custom_variants}: a look picked at random as each is placed. */
-    private static void variants(DefinitionNode specific, String namespace, Map<String, Object> out) {
-        DefinitionNode declared = specific.node("custom_variants").orElse(null);
-        if (declared == null) {
-            return;
-        }
-        List<Object> picks = new ArrayList<>();
-        for (String name : declared.keys()) {
-            declared.node(name).ifPresent(variant -> {
-                Map<String, Object> pick = new LinkedHashMap<>();
-                variant.string("model").ifPresent(model -> pick.put("model", model));
-                variant.integer("x").ifPresent(x -> pick.put("x", x));
-                variant.integer("y").ifPresent(y -> pick.put("y", y));
-                variant.bool("uvlock").ifPresent(uvlock -> pick.put("uvlock", uvlock));
-                // A weight is a share of the draw; repeating a pick is the same share.
-                int weight = Math.max(1, Math.min(8, variant.integer("weight").orElse(1)));
-                for (int i = 0; i < weight; i++) {
-                    picks.add(pick);
-                }
-            });
-        }
-        if (picks.size() > 1) {
-            out.put("random", picks);
-        }
-    }
-
-    /** The drop its loot table names, if one was found for it. */
-    private static void drop(String id, Map<String, String> drops, Map<String, Object> out) {
-        String dropped = drops.get(id);
-        if (dropped != null) {
-            out.put("drop", dropped);
-        }
-    }
-
-    /**
-     * The cube ItemsAdder generates from a block's textures, written inline.
-     *
-     * <p>One texture is every face. Six are the faces in ItemsAdder's order,
-     * which is the faces' names in alphabetical order: down, east, north,
-     * south, up, west.
-     */
-    private static Optional<Map<String, Object>> generatedCube(DefinitionNode resource, String namespace) {
-        List<String> textures = new ArrayList<>();
-        for (String texture : resource.strings("textures")) {
-            String path = texture.endsWith(".png") ? texture.substring(0, texture.length() - 4) : texture;
-            textures.add(path.contains(":") ? path : namespace + ":" + path);
-        }
-        if (textures.isEmpty()) {
-            return Optional.empty();
-        }
-        Map<String, Object> model = new LinkedHashMap<>();
-        Map<String, Object> faces = new LinkedHashMap<>();
-        if (textures.size() < 6 || textures.stream().distinct().count() == 1) {
-            model.put("parent", "minecraft:block/cube_all");
-            faces.put("all", textures.get(0));
-        } else {
-            model.put("parent", "minecraft:block/cube");
-            String[] order = {"down", "east", "north", "south", "up", "west"};
-            for (int i = 0; i < order.length; i++) {
-                faces.put(order[i], textures.get(i));
-            }
-            faces.put("particle", textures.get(2));
-        }
-        model.put("textures", faces);
-        return Optional.of(model);
-    }
-
-    /** {@code DIAMOND_PICKAXE} or {@code PICKAXE} to {@code pickaxe}, how a block asks for a tool here. */
-    private static String toolKind(String tool) {
-        String name = tool.toLowerCase(Locale.ROOT);
-        name = name.substring(name.lastIndexOf(':') + 1);
-        for (String kind : List.of("pickaxe", "shovel", "hoe", "sword", "axe")) {
-            if (name.equals(kind) || name.endsWith("_" + kind)) return kind;
-        }
-        return null;
-    }
-
-    /**
-     * What each block drops, from a file's {@code loots.blocks}.
-     *
-     * <p>Theirs is a table of items, each with a chance and an amount; ours is
-     * the one item a block gives back. So a table whose first item is certain
-     * comes across as that item, and anything with chance in it stays the
-     * block's own drop, said so. Mob and fishing loot have no equivalent.
-     *
-     * @return block id path to the content id it drops
-     */
-    static Map<String, String> blockDrops(DefinitionNode document, String namespace, String origin,
-                                          List<Diagnostic> diagnostics) {
-        Map<String, String> out = new LinkedHashMap<>();
-        DefinitionNode loots = document.node("loots").orElse(null);
-        if (loots == null) {
-            return out;
-        }
-        for (String group : loots.keys()) {
-            if (!group.equals("blocks")) {
-                diagnostics.add(Diagnostic.warning(origin, "loots." + group,
-                        "ItemsAdder " + group + " loot has no RP Engine equivalent and was skipped."));
-            }
-        }
-        DefinitionNode blocks = loots.node("blocks").orElse(DefinitionNode.empty());
-        for (String name : blocks.keys()) {
-            DefinitionNode loot = blocks.node(name).orElse(DefinitionNode.empty());
-            if (!loot.bool("enabled").orElse(Boolean.TRUE)) continue;
-            String type = loot.string("type").orElse("");
-            int colon = type.indexOf(':');
-            String block = colon < 0 ? type : type.substring(colon + 1);
-            if (block.isEmpty() || (colon >= 0 && !type.substring(0, colon).equals(namespace))) {
-                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
-                        "is for " + type + ", which is not a block of this pack, so it was skipped."));
-                continue;
-            }
-            DefinitionNode items = loot.node("items").orElse(DefinitionNode.empty());
-            List<String> entries = new ArrayList<>(items.keys());
-            DefinitionNode first = entries.isEmpty() ? DefinitionNode.empty()
-                    : items.node(entries.get(0)).orElse(DefinitionNode.empty());
-            String item = first.string("item").orElse(null);
-            if (item == null || item.startsWith("minecraft:")
-                    || (!item.contains(":") && item.equals(item.toUpperCase(Locale.ROOT)))) {
-                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
-                        "drops " + (item == null ? "nothing it names" : item) + ", and an RP Engine block's drop is "
-                                + "one of the pack's own items, so " + block + " drops itself."));
-                continue;
-            }
-            if (first.decimal("chance").orElse(100d) < 100d) {
-                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
-                        "drops " + item + " by chance, and an RP Engine block always gives back one thing, so "
-                                + block + " drops itself."));
-                continue;
-            }
-            if (entries.size() > 1 || first.integer("max_amount").orElse(1) > 1
-                    || first.integer("min_amount").orElse(1) > 1) {
-                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
-                        "drops more than one " + item + " or more than one item. RP Engine gives back one, so "
-                                + block + " drops a single " + item + "."));
-            }
-            out.put(block, item.contains(":") ? item : namespace + ":" + item);
         }
         return out;
     }
@@ -852,14 +395,11 @@ final class ItemsAdder {
             }
         });
 
-        if (!item.strings("item_flags").isEmpty()) {
-            out.put("flags", item.strings("item_flags"));
-        }
-        for (String plugin : List.of("drop", "events_needed_player_stats")) {
+        for (String plugin : List.of("events", "drop", "item_flags", "events_needed_player_stats")) {
             if (item.raw(plugin) != null) {
                 diagnostics.add(Diagnostic.warning(origin, id,
                         plugin + " is ItemsAdder's own behaviour rather than a property of the item, "
-                                + "so it was skipped."));
+                                + "so it was skipped. Actions cover most of what events did."));
             }
         }
         return out;
