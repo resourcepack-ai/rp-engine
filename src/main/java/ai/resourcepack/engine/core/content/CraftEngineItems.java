@@ -197,6 +197,9 @@ final class CraftEngineItems {
             }
             if (blockId != null) {
                 if (blockId.equals(entry.id)) {
+                    // The item's own events ride with it into the block.
+                    CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.ITEM,
+                            true, entry.id, entry.origin, diagnostics, item);
                     blockText.put(blockId, item);
                     if (item.get("model") != null) blockItemModel.put(blockId, String.valueOf(item.get("model")));
                     continue;
@@ -225,8 +228,12 @@ final class CraftEngineItems {
                 } else {
                     usedFurniture.add(furnitureId);
                     item.put("place", place(library, entry, body, rules, diagnostics));
+                    CraftEngineEvents.translate(get(body, "event", "events"), CraftEngineEvents.Owner.FURNITURE,
+                            true, entry.id, entry.origin, diagnostics, item);
                 }
             }
+            CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.ITEM,
+                    item.containsKey("place"), entry.id, entry.origin, diagnostics, item);
             written.add(entry.id);
             out.add(new CraftEngine.Output(ContentKind.ITEM, entry.path(), item, entry.origin));
         }
@@ -264,6 +271,8 @@ final class CraftEngineItems {
             item.put("material", "PAPER");
             item.put("copy-model", reference);
             item.put("place", place(library, piece, piece.body, null, diagnostics));
+            CraftEngineEvents.translate(get(piece.body, "event", "events"), CraftEngineEvents.Owner.FURNITURE,
+                    true, piece.id, piece.origin, diagnostics, item);
             out.add(new CraftEngine.Output(ContentKind.ITEM, piece.path(), item, piece.origin));
             diagnostics.add(Diagnostic.warning(piece.origin, piece.id,
                     "is furniture no item places, so it came across as an item of its own, " + library.ours(piece)
@@ -292,11 +301,6 @@ final class CraftEngineItems {
         settings(library, entry, settings, material, out, diagnostics);
         art(entry, body, material, out, library.generated, diagnostics);
 
-        if (get(body, "event", "events") != null) {
-            diagnostics.add(Diagnostic.warning(entry.origin, entry.id,
-                    "events are CraftEngine's own scripting; re-author what they do as RP Engine actions:. "
-                            + "The item itself still loads."));
-        }
         for (String key : List.of("updater", "client_bound_data", "client_bound_material", "client_bound_model",
                 "custom_model_data", "item_model", "override_data")) {
             if (get(body, key) != null) {
@@ -986,11 +990,6 @@ final class CraftEngineItems {
                     "furniture settings " + String.join(", ", skipped) + " have no RP Engine equivalent and were "
                             + "skipped. The piece itself still places."));
         }
-        if (get(furniture, "event", "events") != null) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "furniture events are CraftEngine's own scripting and were skipped. The piece itself still "
-                            + "places."));
-        }
         return place;
     }
 
@@ -1283,6 +1282,7 @@ final class CraftEngineItems {
         if (itemText != null) {
             if (itemText.get("name") != null) out.put("name", itemText.get("name"));
             if (itemText.get("lore") != null) out.put("lore", itemText.get("lore"));
+            if (itemText.get("actions") != null) out.put("actions", itemText.get("actions"));
         }
 
         Map<String, Object> state = map(get(entry.body, "state", "states"));
@@ -1369,10 +1369,8 @@ final class CraftEngineItems {
                     "the block behaviours " + String.join(", ", behaviours) + " are CraftEngine's own and were "
                             + "skipped. The block itself still places."));
         }
-        if (get(entry.body, "event", "events") != null) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "block events are CraftEngine's own scripting and were skipped."));
-        }
+        CraftEngineEvents.translate(get(entry.body, "event", "events"), CraftEngineEvents.Owner.BLOCK, true, id,
+                origin, diagnostics, out);
         return out;
     }
 
