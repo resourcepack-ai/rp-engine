@@ -1614,6 +1614,8 @@ What comes across:
 | `behaviours.liquid_bucket` | `liquid` |
 | `behaviours.furniture` | `place:`, with its light, solidity and seat |
 | `font_images.<id>` | an icon |
+| `sounds.<id>` (`path`, and `settings`' subtitle, volume, pitch and stream) | a sound, its subtitle key looked up in the pack's `minecraft_lang_overwrite` |
+| `resourcepack/assets/<namespace>/sounds.json` (before 4.0.12) | a sound per event, the audio left where it is |
 | `enabled: false` | skipped, as theirs is |
 
 What does not, each of them a warning naming the id rather than a silence:
@@ -1624,7 +1626,9 @@ parts of an item that are their plugin's own behaviour rather than a property
 of the item — `events`, `drop`, `item_flags`. Of their armour, an animated
 layer (a strip of frames, which a worn layer cannot play) is not carried,
 `use_color` tints and emissive layers are dropped, and colour-only armour, which
-has no art, is worn as plain leather.
+has no art, is worn as plain leather. Of their sounds, one that picks between
+several files keeps the first, and `weight`, `attenuation_distance`, `preload`
+and `jukebox` are dropped.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder
@@ -1825,6 +1829,11 @@ audio — which is more people than most server owners expect.
 
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
+
+The build writes one `sounds.json` and one `lang/en_us.json` per namespace. A
+pack that also ships its own at the same path (in `assets/`, or a
+`resourcepack/` folder) has the two merged rather than replaced; where both name
+the same key, the definition here wins.
 
 **`length` is how long the file runs, in seconds**, and it exists for one
 reason: Minecraft has no looping sound. A sound event is a one-shot, so
