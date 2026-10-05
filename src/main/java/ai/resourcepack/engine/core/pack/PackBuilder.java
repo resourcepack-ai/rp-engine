@@ -102,6 +102,46 @@ public final class PackBuilder {
      */
     static final String RESOURCE_PACK = "resourcepack";
 
+    /**
+     * Where in the content folder a file the build puts at {@code zipPath}
+     * could have come from, as (pack namespace, path within that pack).
+     *
+     * <p>{@link #buildBundle}'s routing, run backwards, and kept beside it so
+     * that a new place to look is added to both or neither. For the few
+     * definitions that need their art before any pack is built — see
+     * {@link PackFiles}. The pack's own namespace comes first, which is where
+     * nearly everything is; the folders every pack can write into
+     * ({@code resourcepack/}, {@code overrides/}) after it.
+     */
+    public static List<Map.Entry<String, String>> sourcesOf(String zipPath,
+                                                            java.util.Collection<String> namespaces) {
+        List<Map.Entry<String, String>> out = new ArrayList<>();
+        if (zipPath == null || !zipPath.startsWith(ASSETS + "/") || namespaces == null) {
+            return out;
+        }
+        String rest = zipPath.substring(ASSETS.length() + 1);
+        int slash = rest.indexOf('/');
+        if (slash <= 0) {
+            return out;
+        }
+        String namespace = rest.substring(0, slash);
+        String path = rest.substring(slash + 1);
+        if (namespaces.contains(namespace)) {
+            out.add(Map.entry(namespace, ASSETS + "/" + path));
+            int folder = path.indexOf('/');
+            if (folder > 0 && IMPORTED_ASSETS.contains(path.substring(0, folder))) {
+                out.add(Map.entry(namespace, path));
+            }
+        }
+        for (String pack : new java.util.TreeSet<>(namespaces)) {
+            out.add(Map.entry(pack, RESOURCE_PACK + "/" + zipPath));
+            if (namespace.equals("minecraft")) {
+                out.add(Map.entry(pack, OVERRIDES + "/" + path));
+            }
+        }
+        return out;
+    }
+
     private final int packFormat;
     private final String description;
     private final List<PackContributor> contributors = new ArrayList<>();
