@@ -14,10 +14,12 @@ import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.IconInfo;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.RecipeInfo;
 import ai.resourcepack.engine.core.block.BlockDefinitions;
 import ai.resourcepack.engine.core.entity.EntityDefinitions;
 import ai.resourcepack.engine.core.font.IconDefinitions;
 import ai.resourcepack.engine.core.item.ItemDefinitions;
+import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -273,6 +275,78 @@ class ItemsAdderPackTest {
         // is one type.
         assertTrue(ids.contains("cooked_sausage"), ids.toString());
         assertTrue(ids.contains("cooked_sausage_smoking"), ids.toString());
+    }
+
+    /** Their wiki's smithing and anvil_repair examples, and ItemsAdderAdditions' brewing one. */
+    @Test
+    void smithingAnvilRepairAndBrewingComeAcross() throws IOException {
+        write("my_items/recipes.yml", """
+                info:
+                  namespace: my_items
+                recipes:
+                  smithing:
+                    my_sword_modified_recipe:
+                      enabled: true
+                      permission_suffix: recipes_group_1.my_sword_modified_recipe
+                      base: my_sword
+                      addition: DIAMOND
+                      template: EMERALD
+                      result:
+                        item: my_sword_modified
+                        amount: 1
+                  anvil_repair:
+                    emerald_sword:
+                      enabled: true
+                      permission: iasurvival.swords.emerald_sword
+                      ingredient: EMERALD_BLOCK
+                      item: my_items:emerald_sword
+                  brewing:
+                    ruby_elixir:
+                      base:
+                        item: minecraft:awkward_potion
+                      ingredient:
+                        item: my_items:ruby_dust
+                        consume: 1
+                      result:
+                        item: my_items:ruby_elixir
+                      brew_time: 400
+                      fuel_cost: 1
+                """);
+
+        LoadReport loaded = load();
+        var recipes = RecipeDefinitions.parse(loaded).recipes();
+
+        // A recipes-only file is still recognised as theirs.
+        RecipeInfo smithing = recipes.get(ContentId.parse("my_items:my_sword_modified_recipe").orElseThrow());
+        assertEquals(RecipeInfo.Type.SMITHING, smithing.type());
+        assertEquals("EMERALD", smithing.template().orElseThrow());
+        // A bare lowercase id is the file's own namespace, as theirs reads it.
+        assertEquals("my_items:my_sword", smithing.base().orElseThrow());
+        assertEquals("DIAMOND", smithing.addition().orElseThrow());
+        assertEquals("my_items:my_sword_modified", smithing.result());
+
+        RecipeInfo repair = recipes.get(ContentId.parse("my_items:emerald_sword").orElseThrow());
+        assertEquals(RecipeInfo.Type.ANVIL, repair.type());
+        assertTrue(repair.isRepair());
+        assertEquals("my_items:emerald_sword", repair.base().orElseThrow());
+        assertEquals("EMERALD_BLOCK", repair.addition().orElseThrow());
+        assertEquals(0.25f, repair.repairFraction(), 1e-6);
+
+        RecipeInfo brew = recipes.get(ContentId.parse("my_items:ruby_elixir").orElseThrow());
+        assertEquals(RecipeInfo.Type.BREWING, brew.type());
+        assertEquals("potion/awkward", brew.base().orElseThrow());
+        assertEquals(List.of("my_items:ruby_dust"), brew.ingredients());
+        assertTrue(loaded.diagnostics().stream().anyMatch(d -> d.message().contains("brew_time, fuel_cost")));
+    }
+
+    @Test
+    void theirPotionNamesBecomeOurs() {
+        assertEquals("potion/awkward", ItemsAdder.reference("minecraft:awkward_potion", "x"));
+        assertEquals("splash_potion/healing", ItemsAdder.reference("minecraft:healing_splash_potion", "x"));
+        assertEquals("potion/water", ItemsAdder.reference("minecraft:water_bottle", "x"));
+        assertEquals("minecraft:potion", ItemsAdder.reference("minecraft:potion", "x"));
+        assertEquals("GLASS_BOTTLE", ItemsAdder.reference("GLASS_BOTTLE", "x"));
+        assertEquals("other:thing", ItemsAdder.reference("other:thing", "x"));
     }
 
     /** A letter with no ingredient is a blank in their pattern and a space in ours. */

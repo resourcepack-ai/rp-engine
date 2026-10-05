@@ -705,7 +705,94 @@ class CraftEnginePackTest {
         assertNull(recipes.get(id("gems:either")));
         assertNull(recipes.get(id("gems:upgrade")));
         assertTrue(warned(report, "gems:planks", "#minecraft:planks"));
-        assertTrue(warned(report, "gems:upgrade", "smithing_transform"));
+        assertTrue(warned(report, "gems:upgrade", "has no template, addition"));
+    }
+
+    @Test
+    void smithingBrewingAndTransformRecipes() throws IOException {
+        write("gems/pack.yml", "namespace: gems\n");
+        // The upgrade is CraftEngine's own default topaz bow, verbatim.
+        write("gems/configuration/recipes.yml", """
+                items:
+                  gems:topaz:
+                    texture: minecraft:item/topaz
+                  gems:topaz_bow:
+                    texture: minecraft:item/topaz_bow
+                  gems:tonic:
+                    texture: minecraft:item/tonic
+                recipes:
+                  gems:topaz_bow:
+                    type: smithing_transform
+                    base: minecraft:bow
+                    addition: gems:topaz
+                    template_type: gems:topaz
+                    result:
+                      id: gems:topaz_bow
+                      count: 1
+                  gems:plain_bow:
+                    type: smithing_transform
+                    base: minecraft:bow
+                    addition: gems:topaz
+                    template-type: minecraft:netherite_upgrade_smithing_template
+                    merge_components: false
+                    result: gems:topaz_bow
+                  gems:topaz_trim:
+                    type: smithing_trim
+                    template_type: gems:topaz
+                    base: minecraft:iron_chestplate
+                    addition: minecraft:amethyst_shard
+                    pattern: silence
+                  gems:tonic:
+                    type: brewing
+                    container: minecraft:potion
+                    ingredient: gems:topaz
+                    result: gems:tonic
+                  gems:topaz_wrap:
+                    type: shaped_transform
+                    pattern: [AAA, ABA, AAA]
+                    ingredients:
+                      A: gems:topaz
+                      B:
+                        item: minecraft:bow
+                        source: true
+                    result: gems:topaz_bow
+                  gems:dyed:
+                    type: dye
+                    target: gems:topaz_bow
+                    dye: minecraft:red_dye
+                """);
+
+        LoadReport report = load();
+        var recipes = RecipeDefinitions.parse(report).recipes();
+
+        RecipeInfo bow = recipes.get(id("gems:topaz_bow"));
+        assertNotNull(bow, recipes.keySet().toString());
+        assertEquals(RecipeInfo.Type.SMITHING, bow.type());
+        assertEquals("gems:topaz", bow.template().orElseThrow());
+        assertEquals("BOW", bow.base().orElseThrow());
+        assertEquals("gems:topaz", bow.addition().orElseThrow());
+        assertEquals("gems:topaz_bow", bow.result());
+        assertTrue(bow.copyData());
+        RecipeInfo plain = recipes.get(id("gems:plain_bow"));
+        assertEquals("NETHERITE_UPGRADE_SMITHING_TEMPLATE", plain.template().orElseThrow(), "kebab case too");
+        assertFalse(plain.copyData(), "merge_components: false");
+
+        RecipeInfo trim = recipes.get(id("gems:topaz_trim"));
+        assertEquals(RecipeInfo.Type.SMITHING_TRIM, trim.type());
+        assertEquals("minecraft:silence", trim.pattern().orElseThrow());
+
+        RecipeInfo tonic = recipes.get(id("gems:tonic"));
+        assertEquals(RecipeInfo.Type.BREWING, tonic.type());
+        assertEquals("POTION", tonic.base().orElseThrow());
+        assertEquals(List.of("gems:topaz"), tonic.ingredients());
+
+        RecipeInfo wrap = recipes.get(id("gems:topaz_wrap"));
+        assertEquals(RecipeInfo.Type.SHAPED, wrap.type());
+        assertEquals("BOW", wrap.keys().get("B"));
+        assertTrue(warned(report, "gems:topaz_wrap", "made fresh"));
+
+        assertNull(recipes.get(id("gems:dyed")));
+        assertTrue(warned(report, "gems:dyed", "dyes an item"));
     }
 
     @Test
