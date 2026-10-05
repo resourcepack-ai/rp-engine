@@ -256,10 +256,26 @@ public final class DialogDatapack {
      * level is the first world's. Which directory that is is
      * {@link DataPackFolder}'s question, and not the same as the world folder.
      */
-    public void write(Collection<DialogInfo> dialogs) {
+    public void write(Collection<DialogInfo> loaded) {
         List<World> worlds = Bukkit.getWorlds();
         if (worlds.isEmpty()) {
             return;
+        }
+        // Only what the game will read. The registry is built from this folder
+        // as the world loads, BEFORE any plugin can say anything, and one
+        // dialog it cannot parse fails the whole registry — the server does not
+        // start. So a dialog the server's own codec refuses is left out of the
+        // datapack (it still opens as itself, where a refusal is one line in the
+        // log), and the file it had is removed with the rest below.
+        List<DialogInfo> dialogs = new java.util.ArrayList<>();
+        for (DialogInfo dialog : loaded) {
+            String problem = DialogPackets.refusal(dialog.json());
+            if (problem == null) {
+                dialogs.add(dialog);
+            } else {
+                log.warning("Leaving " + dialog.id() + " out of the dialog datapack: the game will not read it ("
+                        + problem + "). A dialog in that folder the game cannot read stops the server starting.");
+            }
         }
         Path root = DataPackFolder.of(worlds.get(0), PACK);
         Path data = root.resolve("data");
