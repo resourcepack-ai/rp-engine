@@ -300,6 +300,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
+
+    /**
+     * Runs content actions, for an item in hand and for a placed model or a
+     * custom block in the world alike. One runner, so a cooldown is one
+     * cooldown whichever of them started it.
+     */
+    private ActionRunner actionRunner;
     /**
      * What the content folder said, kept apart from what a push added.
      *
@@ -415,6 +422,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         modelNumbers = new ModelNumbers(getDataFolder());
         modelNumbers.load(getLogger());
         items = new ItemsImpl(this, compatibility, modelNumbers);
+        actionRunner = new ActionRunner(items, sounds);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
         // so it is what they get.
@@ -518,6 +526,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         blockStates = new BlockStates(getDataFolder());
         blockStates.load(getLogger());
         blocks = new CustomBlocks(this, items, blockStates, getLogger());
+        blocks.actions(actionRunner);
         getServer().getPluginManager().registerEvents(blocks, this);
 
         pools = new LiquidPools(getDataFolder());
@@ -526,6 +535,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         placements.bedrock(bedrock);
+        placements.actions(actionRunner);
         // What a placed model is to a vehicle: whether it stops one, what it is
         // shaped like, and how big its own definition draws it.
         //
@@ -599,7 +609,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
-                new ItemListener(this, items, new ActionRunner(items, sounds),
+                new ItemListener(this, items, actionRunner,
                         new LiquidBuckets(liquids, pools, liquidBiomes, getLogger())), this);
         // Off unless a server asks for it: a plugin that starts rewriting
         // what people type in chat the moment it is installed is a plugin
@@ -1310,7 +1320,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
                     block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK",
-                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false));
+                    block.name().orElse(null), block.lore(), "", block.model(), null, null, null, 0, false, false)
+                    .withActions(block.actions()));
         }
         items.replace(withBlocks);
         // Numbers before anything asks for one, and all at once, so the

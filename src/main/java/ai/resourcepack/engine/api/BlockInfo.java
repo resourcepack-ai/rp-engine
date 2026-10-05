@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.api;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -71,9 +72,11 @@ public final class BlockInfo {
     private final String sound;
     private final String name;
     private final List<String> lore;
+    private final Map<ItemAction.Trigger, List<ItemAction>> actions;
 
     private BlockInfo(ContentId id, Base base, String model, float hardness,
-                      String tool, ContentId drop, String sound, String name, List<String> lore) {
+                      String tool, ContentId drop, String sound, String name, List<String> lore,
+                      Map<ItemAction.Trigger, List<ItemAction>> actions) {
         this.id = id;
         this.base = base;
         this.model = model;
@@ -83,6 +86,7 @@ public final class BlockInfo {
         this.sound = sound;
         this.name = name;
         this.lore = lore;
+        this.actions = actions;
     }
 
     /** Engine internal; built by the block loader. */
@@ -97,13 +101,28 @@ public final class BlockInfo {
                 drop,
                 sound == null ? "" : sound,
                 null,
-                List.of());
+                List.of(),
+                Map.of());
     }
 
     /** Engine internal; the same block with the name and lore its item is given. */
     public BlockInfo withItemText(String name, List<String> lore) {
         return new BlockInfo(id, base, model, hardness, tool, drop, sound, name,
-                lore == null ? List.of() : List.copyOf(lore));
+                lore == null ? List.of() : List.copyOf(lore), actions);
+    }
+
+    /** Engine internal; the same block with the actions its item carries. */
+    public BlockInfo withActions(Map<ItemAction.Trigger, List<ItemAction>> actions) {
+        return new BlockInfo(id, base, model, hardness, tool, drop, sound, name, lore,
+                actions == null ? Map.of() : Map.copyOf(actions));
+    }
+
+    /**
+     * What it does, by trigger: the actions of the item that places it, which
+     * include the block itself being put down, right-clicked and mined.
+     */
+    public Map<ItemAction.Trigger, List<ItemAction>> actions() {
+        return actions;
     }
 
     /**
