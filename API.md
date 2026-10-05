@@ -78,7 +78,9 @@ disc player it is (volume, pitch, permission, the model it wears while playing);
 and `states()` the looks a click cycles it through, with `nextState`, `lightIn`
 and `solidIn` answering what each index means. The engine handles all of them
 on a right-click; a `ModelInteractEvent` cancelled before that leaves the piece
-as it was.
+as it was. `grow()` is what it turns into over time; growing fires neither
+`ModelBreakEvent` nor `ModelPlaceEvent`, because nobody broke or placed
+anything.
 
 ## Emotes
 

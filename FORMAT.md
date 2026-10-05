@@ -662,6 +662,56 @@ A piece with states takes a plain click; sneaking on one that is also a seat
 sits. A container takes every click before its states would, and a jukebox
 takes the ones that put a disc in or take one out.
 
+### Growing
+
+A piece can turn into another piece over time — a sapling into a tree, a crop
+through its stages:
+
+```yaml
+rose:
+  material: PAPER
+  model: rose
+  place:
+    grow:
+      into: mypack:rose_stage2   # the item whose placed piece replaces this one
+      after: 10s                 # the least time it stands first. t, s, m; bare = ticks
+      chance: 0.5                # the chance per check once that has passed. Default 1
+      light: 9                   # the least light at its block. Leave out for any
+
+rose_stage2:
+  material: PAPER
+  model: rose2
+  place:
+    grow:
+      into: mypack:rose_stage3
+      after: 2m
+
+rose_stage3:
+  material: PAPER
+  model: rose3
+  place: {}                      # the last stage stays
+```
+
+Each piece is checked about once a second. Once it has stood for `after`, each
+check has `chance` of growing it, so `after: 10s` with `chance: 0.5` grows a
+couple of seconds after the ten, on average, and not all at once across a field.
+The new piece goes in the same block, facing the same way, and starts its own
+clock.
+
+`into` has to be an item with a `place:` block. If it is not, the load says so
+and the piece never grows — a piece that grew into nothing would just vanish.
+
+**Growing is not breaking and planting**: no break or place event, no `remove`
+or `place` actions, and nothing given back for the piece itself. What it was
+holding is different, because that was never the piece's to lose — a disc, a
+container's contents — and lands on the ground.
+
+A piece is only checked while its chunk is loaded. The time keeps counting while
+nobody is there, so one that has been left long enough grows at the first check
+after somebody comes back — one stage, because the next starts its own clock
+then. The time is the game's tick count, not the time of day, so `/time set` and
+a frozen daylight cycle do not stop anything growing.
+
 ## Armour
 
 Any item can be worn, with its own art:
