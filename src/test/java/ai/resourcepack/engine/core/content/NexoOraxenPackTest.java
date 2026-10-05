@@ -51,6 +51,15 @@ class NexoOraxenPackTest {
         return new ContentFolderLoader(new ContentRegistryImpl()).load(content, ContentSource.AUTHORED);
     }
 
+    /** An items file, which is what marks a folder with no pack.yml as one of theirs. */
+    private void anItemsFile() throws IOException {
+        write("pack/items.yml", """
+                ruby:
+                  material: PAPER
+                  Pack: { model: pack:ruby }
+                """);
+    }
+
     private static ContentId id(String id) {
         return ContentId.parse(id).orElseThrow();
     }
@@ -770,9 +779,128 @@ class NexoOraxenPackTest {
         assertEquals(RecipeInfo.Type.BLASTING, quick.type());
         assertEquals(50, quick.cookingTime());
         assertFalse(recipes.containsKey(id("pack:plank_ruby")));
-        assertFalse(recipes.containsKey(id("pack:ruby_upgrade")));
         assertTrue(warned(report, "plank_ruby", "rather than made without it"));
-        assertTrue(warned(report, null, "smithing recipes were skipped"));
+        RecipeInfo upgrade = recipes.get(id("pack:ruby_upgrade"));
+        assertEquals(RecipeInfo.Type.SMITHING, upgrade.type());
+        assertEquals("NETHERITE_UPGRADE_SMITHING_TEMPLATE", upgrade.template().orElseThrow());
+        assertEquals("pack:ruby", upgrade.base().orElseThrow());
+        assertEquals("NETHERITE_INGOT", upgrade.addition().orElseThrow());
+    }
+
+    @Test
+    void smithingTrimsAndUpgradesThatDropTheirData() throws IOException {
+        anItemsFile();
+        // Nexo's own examples: copy_components off, and a trim on a paper template.
+        write("pack/recipes/smithing/smithing_recipes.yml", """
+                forest_sword_upgrade:
+                  template: { minecraft_type: NETHERITE_UPGRADE_SMITHING_TEMPLATE }
+                  base: { nexo_item: forest_sword }
+                  addition: { minecraft_type: NETHERITE_INGOT }
+                  result: { nexo_item: forest_axe }
+                  copy_components: false
+                paper_template_trim:
+                  template: { minecraft_type: PAPER }
+                  base: { minecraft_type: IRON_CHESTPLATE }
+                  addition: { minecraft_type: AMETHYST_SHARD }
+                  trim_pattern: minecraft:silence
+                """);
+
+        var recipes = RecipeDefinitions.parse(load()).recipes();
+
+        RecipeInfo upgrade = recipes.get(id("pack:forest_sword_upgrade"));
+        assertEquals("pack:forest_axe", upgrade.result());
+        assertFalse(upgrade.copyData());
+        RecipeInfo trim = recipes.get(id("pack:paper_template_trim"));
+        assertEquals(RecipeInfo.Type.SMITHING_TRIM, trim.type());
+        assertEquals("minecraft:silence", trim.pattern().orElseThrow());
+        assertEquals("PAPER", trim.template().orElseThrow());
+    }
+
+    @Test
+    void nexoBrewing() throws IOException {
+        anItemsFile();
+        write("pack/recipes/brewing/brewing_recipes.yml", """
+                diamond:
+                  result: { minecraft_type: DIAMOND }
+                  input: { minecraft_type: GLASS_BOTTLE }
+                  ingredient: { nexo_item: rainbow_ingot }
+                """);
+
+        RecipeInfo brew = RecipeDefinitions.parse(load()).recipes().get(id("pack:diamond"));
+
+        assertEquals(RecipeInfo.Type.BREWING, brew.type());
+        assertEquals("GLASS_BOTTLE", brew.base().orElseThrow());
+        assertEquals(java.util.List.of("pack:rainbow_ingot"), brew.ingredients());
+        assertEquals("DIAMOND", brew.result());
+    }
+
+    @Test
+    void oraxenAnvilChargesNothingUnlessToldTo() throws IOException {
+        anItemsFile();
+        write("pack/recipes/anvil.yml", """
+                repair_obsidian_sword:
+                  permission: oraxen.recipe.repair_obsidian_sword
+                  experience_cost: 5
+                  base: { oraxen_item: damaged_obsidian_sword }
+                  addition: { oraxen_item: obsidian_ingot, amount: 2 }
+                  result: { oraxen_item: obsidian_sword }
+                polish:
+                  base: { oraxen_item: dull_gem }
+                  result: { oraxen_item: gem }
+                """);
+
+        var recipes = RecipeDefinitions.parse(load()).recipes();
+
+        RecipeInfo sword = recipes.get(id("pack:repair_obsidian_sword"));
+        assertEquals(RecipeInfo.Type.ANVIL, sword.type());
+        assertEquals("pack:damaged_obsidian_sword", sword.base().orElseThrow());
+        assertEquals("pack:obsidian_ingot", sword.addition().orElseThrow());
+        assertEquals(2, sword.additionAmount());
+        assertEquals(5, sword.cost());
+        RecipeInfo polish = recipes.get(id("pack:polish"));
+        assertTrue(polish.addition().isEmpty(), "no addition means the second slot stays empty");
+        assertEquals(0, polish.cost());
+    }
+
+    @Test
+    void nexoAnvilRepairsWithoutAResult() throws IOException {
+        anItemsFile();
+        write("pack/recipes/anvil/anvil_recipes.yml", """
+                mend_forest_axe:
+                  input: { nexo_item: forest_axe }
+                  material: { minecraft_type: OAK_LOG }
+                  repair: 100
+                reforge:
+                  input: { nexo_item: forest_axe }
+                  material: { nexo_item: ruby }
+                  result: { nexo_item: forest_sword }
+                  cost: 3
+                """);
+
+        var recipes = RecipeDefinitions.parse(load()).recipes();
+
+        RecipeInfo mend = recipes.get(id("pack:mend_forest_axe"));
+        assertTrue(mend.isRepair());
+        assertEquals(100, mend.repairPoints());
+        assertEquals(1, mend.cost(), "Nexo's default is a level");
+        RecipeInfo reforge = recipes.get(id("pack:reforge"));
+        assertEquals("pack:forest_sword", reforge.result());
+        assertEquals(3, reforge.cost());
+    }
+
+    @Test
+    void cauldronAndGrindstoneAreStillSkippedByName() throws IOException {
+        anItemsFile();
+        write("pack/recipes/grindstone.yml", """
+                extract_ruby:
+                  base: { oraxen_item: ruby_sword }
+                  result: { oraxen_item: ruby }
+                """);
+
+        LoadReport report = load();
+
+        assertTrue(RecipeDefinitions.parse(report).recipes().isEmpty());
+        assertTrue(warned(report, null, "grindstone recipes were skipped"));
     }
 
     // ---- armour ---------------------------------------------------------------
