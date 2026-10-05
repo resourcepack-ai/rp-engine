@@ -2,8 +2,11 @@ package ai.resourcepack.engine.api;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * A dialog — the data-driven screen a server opens on a client, added in
@@ -40,6 +43,14 @@ public final class DialogInfo {
     private final boolean pushed;
     private final Map<String, List<String>> variables;
     private final Map<String, Integer> itemIcons;
+    private final String command;
+    private final String permission;
+
+    /** A command a dialog may be opened with: what a player types after the slash. */
+    private static final Pattern COMMAND = Pattern.compile("[a-z0-9_-]{1,32}");
+
+    /** A permission node: dotted words. */
+    private static final Pattern PERMISSION = Pattern.compile("[A-Za-z0-9_.*-]{1,96}");
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables) {
         this(id, json, name, pushed, variables, Map.of());
@@ -47,6 +58,11 @@ public final class DialogInfo {
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons) {
+        this(id, json, name, pushed, variables, itemIcons, null, null);
+    }
+
+    private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
+                       Map<String, Integer> itemIcons, String command, String permission) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -69,6 +85,35 @@ public final class DialogInfo {
             });
         }
         this.itemIcons = Map.copyOf(icons);
+        this.command = commandName(command);
+        this.permission = this.command == null || permission == null || !PERMISSION.matcher(permission.trim()).matches()
+                ? null : permission.trim();
+    }
+
+    /**
+     * The same dialog, opened by {@code /<command>} as well — for whoever types
+     * it, or only for those with {@code permission} when it names one. A command
+     * that is not a plain word ({@code a-z 0-9 _ -}, up to 32, any slash taken
+     * off) is no command at all.
+     */
+    public DialogInfo withCommand(String command, String permission) {
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission);
+    }
+
+    /**
+     * A command as a dialog may carry it: lower case, no slash, a plain word —
+     * or null. Shared with Studio by rule rather than by code: Studio's editor
+     * allows exactly this.
+     */
+    public static String commandName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String word = raw.trim().toLowerCase(Locale.ROOT);
+        if (word.startsWith("/")) {
+            word = word.substring(1);
+        }
+        return COMMAND.matcher(word).matches() ? word : null;
     }
 
     /** One loaded from a content folder. */
@@ -152,6 +197,19 @@ public final class DialogInfo {
      */
     public Map<String, Integer> itemIcons() {
         return itemIcons;
+    }
+
+    /**
+     * The command that opens it, {@code shop} for {@code /shop}: typed by a
+     * player, it opens the dialog on them. Empty when it has none.
+     */
+    public Optional<String> command() {
+        return Optional.ofNullable(command);
+    }
+
+    /** What a player needs to open it with its {@link #command()}; empty when anybody may. */
+    public Optional<String> permission() {
+        return Optional.ofNullable(permission);
     }
 
     @Override

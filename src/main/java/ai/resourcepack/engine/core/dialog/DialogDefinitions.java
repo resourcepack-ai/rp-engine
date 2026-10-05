@@ -73,7 +73,8 @@ public final class DialogDefinitions {
                         "json: " + file.get() + " is not a file in this pack."));
                 return Optional.empty();
             }
-            return Optional.of(DialogInfo.authored(definition.id(), json, name, vars(body, origin, where, diagnostics)));
+            return Optional.of(opened(DialogInfo.authored(definition.id(), json, name, vars(body, origin, where, diagnostics)),
+                    body, origin, where, diagnostics));
         }
 
         List<String> lines = body.strings("body");
@@ -145,7 +146,35 @@ public final class DialogDefinitions {
             json.append("  ]\n");
         }
         json.append("}\n");
-        return Optional.of(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics)));
+        return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics)),
+                body, origin, where, diagnostics));
+    }
+
+    /**
+     * The command a dialog is opened with, when it names one:
+     *
+     * <pre>
+     * shop:
+     *   command: shop                  # /shop opens it on whoever types it
+     *   permission: myserver.shop      # optional: only for those who have it
+     * </pre>
+     *
+     * A command that is not one plain word is warned about and dropped; the
+     * dialog still loads and still opens with {@code /rp dialog}.
+     */
+    private static DialogInfo opened(DialogInfo dialog, DefinitionNode body, String origin, String where,
+                                     List<Diagnostic> diagnostics) {
+        Optional<String> command = body.string("command");
+        if (command.isEmpty()) {
+            return dialog;
+        }
+        if (DialogInfo.commandName(command.get()) == null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "command: " + command.get() + " is not a command a player can type - one word of a-z, 0-9, _ and -, "
+                            + "up to 32. It still opens with /rp dialog."));
+            return dialog;
+        }
+        return dialog.withCommand(command.get(), body.string("permission").orElse(null));
     }
 
     /**
