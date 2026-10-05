@@ -628,7 +628,13 @@ engine.dialogs().close(player);
 engine.dialogs().ids();                    // what this server has
 engine.dialogs().info(id);                 // what a pack said one is
 engine.dialogs().canShow(player, id);      // would show get as far as the client?
+engine.dialogs().info(id).flatMap(DialogInfo::command);   // "shop" when players open it with /shop
 ```
+
+A dialog may name a command players open it with themselves (`command:` in
+its file, or set in Studio); the engine registers it on the server and takes it
+back out when the dialog goes. `DialogInfo.command()` and `permission()` say
+what it is.
 
 ### Values on it
 
