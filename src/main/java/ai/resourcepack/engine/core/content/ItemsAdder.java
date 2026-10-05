@@ -30,13 +30,14 @@ import java.util.Optional;
  * <p>Items, blocks, font images and sounds ({@link ItemsAdderSound})
  * translate, including the parts of an item
  * that are really vanilla underneath: material, name, lore, enchants,
- * attributes, durability, stack size, permission, armour slot, and the two
- * behaviours that have an equivalent here — a liquid bucket and furniture.
+ * attributes, durability, stack size, permission, armour slot, item flags, and
+ * the behaviours that have an equivalent here — a liquid bucket, furniture and
+ * a block. Their {@code events} become actions (see {@link ItemsAdderEvents}),
+ * and a block's loot table its drop when the table is one certain item.
  *
- * <p>What does not: the parts of an item that are ItemsAdder's own plugin
- * behaviour rather than a property of the item — {@code events}, {@code drop},
- * {@code item_flags} — and the recipe kinds this engine has no equivalent for,
- * each named as it is skipped.
+ * <p>What does not: events and actions with no trigger or step here, loot by
+ * chance, and the recipe kinds this engine has no equivalent for, each named
+ * as it is skipped.
  *
  * <p>A block's definition comes across but <strong>a world built with their
  * plugin does not</strong>: the vanilla state a block hides in is allocated in
@@ -64,19 +65,23 @@ final class ItemsAdder {
                 || document.raw("sounds") instanceof Map
                 || document.node("minecraft_lang_overwrite").isPresent()
                 || !armours(document).isEmpty()
-                || document.node("recipes").isPresent());
+                || document.node("recipes").isPresent()
+                || document.node("loots").isPresent());
     }
 
     /**
      * What one file of a pack may need from another: armour sets, which an
      * item names by id, and the English text of {@code minecraft_lang_overwrite},
-     * which a sound's subtitle names by key. Gathered from every file before
+     * which a sound's subtitle names by key, and what each block drops, which
+     * their {@code loots.blocks} tables usually say in a file of their own
+     * (gathered by the loader through {@link #blockDrops}). Gathered from every file before
      * any is translated, because a pack is free to keep either in a file of
      * its own.
      */
     static final class Shared {
         final Map<String, DefinitionNode> armours = new LinkedHashMap<>();
         final Map<String, String> lang = new LinkedHashMap<>();
+        final Map<String, String> drops = new LinkedHashMap<>();
 
         Shared add(DefinitionNode document) {
             armours(document).forEach(armours::putIfAbsent);
@@ -119,7 +124,9 @@ final class ItemsAdder {
      */
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics) {
-        return translate(document, namespace, origin, diagnostics, new Shared().add(document));
+        Shared shared = new Shared().add(document);
+        shared.drops.putAll(blockDrops(document, namespace, origin, diagnostics));
+        return translate(document, namespace, origin, diagnostics, shared);
     }
 
     /** @param shared what the whole pack declares; see {@link Shared} */
@@ -128,14 +135,25 @@ final class ItemsAdder {
             Shared shared) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
         Map<String, DefinitionNode> armours = shared.armours;
+        Map<String, String> drops = shared.drops;
+        // Their blocks are items with a block behaviour, so they come out of
+        // items: and go in beside any written under blocks:.
+        Map<String, Object> blocksFromItems = new LinkedHashMap<>();
 
         document.node("items").ifPresent(items -> {
             Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : items.keys()) {
                 items.node(id).ifPresent(item -> {
-                    if (item.bool("enabled").orElse(Boolean.TRUE)) {
+                    if (!item.bool("enabled").orElse(Boolean.TRUE)) {
+                        return;
+                    }
+                    if (blockBehaviour(item).isPresent()) {
+                        blocksFromItems.put(id, blockItem(item, id, namespace, drops, origin, diagnostics));
+                    } else {
                         Map<String, Object> body = item(item, id, origin, diagnostics);
                         armour(item, id, origin, diagnostics, body, armours);
+                        item.node("events").ifPresent(events -> ItemsAdderEvents.translate(events, id, namespace,
+                                body.containsKey("place"), origin, diagnostics).into(body));
                         translated.put(id, body);
                     }
                 });
@@ -155,19 +173,21 @@ final class ItemsAdder {
             }
         });
 
+        Map<String, Object> translatedBlocks = new LinkedHashMap<>(blocksFromItems);
         document.node("blocks").ifPresent(blocks -> {
-            Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : blocks.keys()) {
                 blocks.node(id).ifPresent(block -> {
                     if (block.bool("enabled").orElse(Boolean.TRUE)) {
-                        translated.put(id, block(block));
+                        Map<String, Object> body = block(block);
+                        drop(id, drops, body);
+                        translatedBlocks.put(id, body);
                     }
                 });
             }
-            if (!translated.isEmpty()) {
-                out.put(ContentKind.BLOCK, translated);
-            }
         });
+        if (!translatedBlocks.isEmpty()) {
+            out.put(ContentKind.BLOCK, translatedBlocks);
+        }
         document.node("entities").ifPresent(entities -> {
             Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : entities.keys()) {
@@ -448,9 +468,7 @@ final class ItemsAdder {
      */
     private static Map<String, Object> block(DefinitionNode block) {
         Map<String, Object> out = new LinkedHashMap<>();
-        DefinitionNode specific = block.node("specific_properties")
-                .flatMap(properties -> properties.node("block"))
-                .orElse(DefinitionNode.empty());
+        DefinitionNode specific = blockBehaviour(block).orElse(DefinitionNode.empty());
         DefinitionNode resource = block.node("resource").orElse(DefinitionNode.empty());
 
         specific.string("placed_model").or(() -> resource.string("model_path"))
@@ -469,6 +487,198 @@ final class ItemsAdder {
         String kind = specific.string("block_type").orElse("").toLowerCase(Locale.ROOT);
         if (kind.contains("mushroom")) {
             out.put("base", "mushroom_stem");
+        }
+        return out;
+    }
+
+    /**
+     * Where their block settings live: {@code behaviours.block} now, and
+     * {@code specific_properties.block} before 4.0.
+     */
+    private static Optional<DefinitionNode> blockBehaviour(DefinitionNode item) {
+        return item.node("behaviours").flatMap(behaviours -> behaviours.node("block"))
+                .or(() -> item.node("specific_properties").flatMap(properties -> properties.node("block")));
+    }
+
+    /**
+     * An item with a block behaviour, which is how ItemsAdder writes a block.
+     *
+     * <p>The id is the block's here as well, and the item that places it
+     * comes with it, so its name and lore ride along. Their placed-block
+     * events become the block's own actions, beside the item's.
+     */
+    private static Map<String, Object> blockItem(DefinitionNode item, String id, String namespace,
+                                                 Map<String, String> drops, String origin,
+                                                 List<Diagnostic> diagnostics) {
+        Map<String, Object> out = block(item);
+        DefinitionNode specific = blockBehaviour(item).orElse(DefinitionNode.empty());
+        DefinitionNode resource = item.node("resource").orElse(DefinitionNode.empty());
+
+        item.string("name").or(() -> item.string("display_name")).ifPresent(name -> out.put("name", name));
+        if (!item.strings("lore").isEmpty()) {
+            out.put("lore", item.strings("lore"));
+        }
+
+        // placed_model is a block of settings since 3.x; its type is the
+        // vanilla block the state hides in.
+        String type = specific.node("placed_model").flatMap(model -> model.string("type")).orElse("REAL_NOTE")
+                .toUpperCase(Locale.ROOT);
+        if (type.equals("REAL")) {
+            out.put("base", "mushroom_stem");
+        } else if (!type.equals("REAL_NOTE")) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "placed_model.type " + type + " is not a full block, and RP Engine custom blocks are full cubes "
+                            + "inside a note block. It came across as one; a placed model suits a plant or a "
+                            + "decoration better."));
+        }
+
+        if (!out.containsKey("model")) {
+            generatedCube(resource, namespace).ifPresent(model -> out.put("model", model));
+        }
+        for (String tool : specific.strings("break_tools_whitelist")) {
+            String kind = toolKind(tool);
+            if (kind != null) {
+                out.put("tool", kind);
+                break;
+            }
+        }
+        if (!specific.strings("break_tools_blacklist").isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "break_tools_blacklist has no RP Engine equivalent: a block asks for the kind of tool that "
+                            + "gets the drop, and nothing else."));
+        }
+        specific.node("sound").flatMap(sound -> sound.node("place")).flatMap(place -> place.string("name"))
+                .ifPresent(sound -> out.put("sound", sound));
+        if (Boolean.FALSE.equals(specific.bool("drop_when_mined").orElse(Boolean.TRUE))) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "drop_when_mined: false has no RP Engine equivalent; mined with the right tool, it drops "
+                            + (drops.containsKey(id) ? drops.get(id) : "itself") + "."));
+        }
+        drop(id, drops, out);
+
+        item.node("events").ifPresent(events ->
+                ItemsAdderEvents.translate(events, id, namespace, true, origin, diagnostics).into(out));
+        for (String plugin : List.of("enchants", "attribute_modifiers", "durability", "permission")) {
+            if (item.raw(plugin) != null) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        plugin + " is on a block's item, and the item an RP Engine block is placed from carries "
+                                + "only its name and lore, so it was skipped."));
+            }
+        }
+        return out;
+    }
+
+    /** The drop its loot table names, if one was found for it. */
+    private static void drop(String id, Map<String, String> drops, Map<String, Object> out) {
+        String dropped = drops.get(id);
+        if (dropped != null) {
+            out.put("drop", dropped);
+        }
+    }
+
+    /**
+     * The cube ItemsAdder generates from a block's textures, written inline.
+     *
+     * <p>One texture is every face. Six are the faces in ItemsAdder's order,
+     * which is the faces' names in alphabetical order: down, east, north,
+     * south, up, west.
+     */
+    private static Optional<Map<String, Object>> generatedCube(DefinitionNode resource, String namespace) {
+        List<String> textures = new ArrayList<>();
+        for (String texture : resource.strings("textures")) {
+            String path = texture.endsWith(".png") ? texture.substring(0, texture.length() - 4) : texture;
+            textures.add(path.contains(":") ? path : namespace + ":" + path);
+        }
+        if (textures.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<String, Object> model = new LinkedHashMap<>();
+        Map<String, Object> faces = new LinkedHashMap<>();
+        if (textures.size() < 6 || textures.stream().distinct().count() == 1) {
+            model.put("parent", "minecraft:block/cube_all");
+            faces.put("all", textures.get(0));
+        } else {
+            model.put("parent", "minecraft:block/cube");
+            String[] order = {"down", "east", "north", "south", "up", "west"};
+            for (int i = 0; i < order.length; i++) {
+                faces.put(order[i], textures.get(i));
+            }
+            faces.put("particle", textures.get(2));
+        }
+        model.put("textures", faces);
+        return Optional.of(model);
+    }
+
+    /** {@code DIAMOND_PICKAXE} or {@code PICKAXE} to {@code pickaxe}, how a block asks for a tool here. */
+    private static String toolKind(String tool) {
+        String name = tool.toLowerCase(Locale.ROOT);
+        name = name.substring(name.lastIndexOf(':') + 1);
+        for (String kind : List.of("pickaxe", "shovel", "hoe", "sword", "axe")) {
+            if (name.equals(kind) || name.endsWith("_" + kind)) return kind;
+        }
+        return null;
+    }
+
+    /**
+     * What each block drops, from a file's {@code loots.blocks}.
+     *
+     * <p>Theirs is a table of items, each with a chance and an amount; ours is
+     * the one item a block gives back. So a table whose first item is certain
+     * comes across as that item, and anything with chance in it stays the
+     * block's own drop, said so. Mob and fishing loot have no equivalent.
+     *
+     * @return block id path to the content id it drops
+     */
+    static Map<String, String> blockDrops(DefinitionNode document, String namespace, String origin,
+                                          List<Diagnostic> diagnostics) {
+        Map<String, String> out = new LinkedHashMap<>();
+        DefinitionNode loots = document.node("loots").orElse(null);
+        if (loots == null) {
+            return out;
+        }
+        for (String group : loots.keys()) {
+            if (!group.equals("blocks")) {
+                diagnostics.add(Diagnostic.warning(origin, "loots." + group,
+                        "ItemsAdder " + group + " loot has no RP Engine equivalent and was skipped."));
+            }
+        }
+        DefinitionNode blocks = loots.node("blocks").orElse(DefinitionNode.empty());
+        for (String name : blocks.keys()) {
+            DefinitionNode loot = blocks.node(name).orElse(DefinitionNode.empty());
+            if (!loot.bool("enabled").orElse(Boolean.TRUE)) continue;
+            String type = loot.string("type").orElse("");
+            int colon = type.indexOf(':');
+            String block = colon < 0 ? type : type.substring(colon + 1);
+            if (block.isEmpty() || (colon >= 0 && !type.substring(0, colon).equals(namespace))) {
+                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
+                        "is for " + type + ", which is not a block of this pack, so it was skipped."));
+                continue;
+            }
+            DefinitionNode items = loot.node("items").orElse(DefinitionNode.empty());
+            List<String> entries = new ArrayList<>(items.keys());
+            DefinitionNode first = entries.isEmpty() ? DefinitionNode.empty()
+                    : items.node(entries.get(0)).orElse(DefinitionNode.empty());
+            String item = first.string("item").orElse(null);
+            if (item == null || item.startsWith("minecraft:")
+                    || (!item.contains(":") && item.equals(item.toUpperCase(Locale.ROOT)))) {
+                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
+                        "drops " + (item == null ? "nothing it names" : item) + ", and an RP Engine block's drop is "
+                                + "one of the pack's own items, so " + block + " drops itself."));
+                continue;
+            }
+            if (first.decimal("chance").orElse(100d) < 100d) {
+                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
+                        "drops " + item + " by chance, and an RP Engine block always gives back one thing, so "
+                                + block + " drops itself."));
+                continue;
+            }
+            if (entries.size() > 1 || first.integer("max_amount").orElse(1) > 1
+                    || first.integer("min_amount").orElse(1) > 1) {
+                diagnostics.add(Diagnostic.warning(origin, "loots.blocks." + name,
+                        "drops more than one " + item + " or more than one item. RP Engine gives back one, so "
+                                + block + " drops a single " + item + "."));
+            }
+            out.put(block, item.contains(":") ? item : namespace + ":" + item);
         }
         return out;
     }
@@ -522,11 +732,14 @@ final class ItemsAdder {
             }
         });
 
-        for (String plugin : List.of("events", "drop", "item_flags", "events_needed_player_stats")) {
+        if (!item.strings("item_flags").isEmpty()) {
+            out.put("flags", item.strings("item_flags"));
+        }
+        for (String plugin : List.of("drop", "events_needed_player_stats")) {
             if (item.raw(plugin) != null) {
                 diagnostics.add(Diagnostic.warning(origin, id,
                         plugin + " is ItemsAdder's own behaviour rather than a property of the item, "
-                                + "so it was skipped. Actions cover most of what events did."));
+                                + "so it was skipped."));
             }
         }
         return out;
