@@ -764,6 +764,30 @@ String line = engine.icons().format(config.getString("welcome"));
 Every `:namespace:id:` becomes its picture. An ID that names nothing is left
 exactly as written, so text never silently loses a chunk of itself.
 
+**An animated icon is animated by you redrawing it.** Each frame is a character
+of its own, and the engine does not run a shader that flips between them, so
+`format` and `character` give the FIRST frame — right for anything you send
+once, and stable, so a saved message keeps its picture. For text you send again
+and again, ask for the frame that is showing now:
+
+```java
+// Once a tick, or as often as your scoreboard redraws.
+sidebar.setLine(0, engine.icons().formatNow(":mypack:loading: Loading"));
+engine.icons().characterNow(id).ifPresent(frame -> bar.setTitle(frame + " Boss"));
+```
+
+`IconInfo` says what an icon is: `frames()` (1 for a still picture),
+`animated()`, `fps()`, `loops()`, `frameAt(elapsedMillis)` for the arithmetic,
+and `character(frame)` / `codepoint(frame)` for one frame (from 0, each the
+codepoint after the last). A frame lasts `1000 / fps` milliseconds, so redrawing
+once a tick shows every frame of anything up to 20 fps. A looping icon is timed
+from the epoch and a one-shot from server start. The PlaceholderAPI form is
+`%rpengine_icon_<namespace:id>%`, which is always the current frame.
+
+`IconInfo.aliases()` and `permission()` are what the pack said about typing the
+icon in chat. The engine's own chat handling honours both; `format` does not,
+because a config file is not somebody typing.
+
 ## Events
 
 All cancellable unless the row says otherwise.

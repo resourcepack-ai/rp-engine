@@ -8,6 +8,7 @@ import ai.resourcepack.engine.api.LoadReport;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.ToIntFunction;
 
 /**
  * Hands out codepoints to everything that becomes a glyph.
@@ -23,6 +24,14 @@ import java.util.TreeMap;
  * identically on every machine and every restart. See
  * {@link ai.resourcepack.engine.api.IconInfo#codepoint()} for why they are not
  * stable across content <em>changes</em>, and why that is the right trade.
+ *
+ * <p><strong>An animated icon takes a run of codepoints, one per
+ * frame</strong>, and that is why icons come LAST. Screens and HUDs are always
+ * one glyph each, so putting them first means their numbers never depend on
+ * how many frames an icon has — and how many frames a GIF has is only known by
+ * reading the GIF, which the overlay loader has no reason to do. Icons were
+ * first until 2026-10-05; a codepoint was never promised to survive a content
+ * change, so moving them broke nothing that followed the rules.
  */
 public final class GlyphAllocator {
 
@@ -36,20 +45,38 @@ public final class GlyphAllocator {
     public static final int LAST_CODEPOINT = 0xF8FF;
 
     /** Every kind that becomes a picture in the font, in allocation order. */
-    static final ContentKind[] GLYPH_KINDS = {ContentKind.FONT, ContentKind.SCREEN, ContentKind.HUD};
+    static final ContentKind[] GLYPH_KINDS = {ContentKind.SCREEN, ContentKind.HUD, ContentKind.FONT};
 
     private GlyphAllocator() {
     }
 
     /**
-     * Every glyph-bearing id in {@code loaded}, mapped to its codepoint.
+     * Every glyph-bearing id in {@code loaded}, mapped to its codepoint, with
+     * every definition taking one glyph.
+     *
+     * <p>Right for screens and HUDs whatever the icons are, because they are
+     * allocated first. Wrong for an animated icon, whose loader asks
+     * {@link #allocate(LoadReport, ToIntFunction)} instead.
+     */
+    public static Map<ContentId, Integer> allocate(LoadReport loaded) {
+        return allocate(loaded, definition -> 1);
+    }
+
+    /**
+     * Every glyph-bearing id in {@code loaded}, mapped to its FIRST codepoint;
+     * a definition that takes {@code n} glyphs owns that one and the
+     * {@code n - 1} after it.
      *
      * <p>Includes ids whose definitions later turn out to be unusable. That
      * costs a codepoint out of six thousand and buys something worth more: a
      * broken definition does not shift every glyph after it, so fixing one
      * typo does not change what every other glyph resolves to.
+     *
+     * <p>A definition whose whole run does not fit is left out, rather than
+     * given the codepoints that are left: half an animation would draw the
+     * next glyph's picture as its later frames.
      */
-    public static Map<ContentId, Integer> allocate(LoadReport loaded) {
+    public static Map<ContentId, Integer> allocate(LoadReport loaded, ToIntFunction<ContentDefinition> glyphs) {
         if (loaded == null) {
             return Map.of();
         }
@@ -60,17 +87,19 @@ public final class GlyphAllocator {
             for (ContentDefinition definition : loaded.definitions(kind)) {
                 sorted.put(definition.id(), definition);
             }
-            for (ContentId id : sorted.keySet()) {
-                if (next > LAST_CODEPOINT) {
+            for (ContentDefinition definition : sorted.values()) {
+                int wanted = kind == ContentKind.FONT ? Math.max(1, glyphs.applyAsInt(definition)) : 1;
+                if (next + wanted - 1 > LAST_CODEPOINT) {
                     return Map.copyOf(allocated);
                 }
-                allocated.put(id, next++);
+                allocated.put(definition.id(), next);
+                next += wanted;
             }
         }
         return Map.copyOf(allocated);
     }
 
-    /** Whether {@code loaded} asks for more glyphs than there is room for. */
+    /** Whether {@code loaded} asks for more glyphs than there is room for, one each. */
     public static boolean overflows(LoadReport loaded) {
         if (loaded == null) {
             return false;
