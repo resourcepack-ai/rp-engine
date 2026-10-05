@@ -327,7 +327,94 @@ public final class CustomBlocks implements Listener {
             fallIfLoose(placed, block);
         }
         play(block, placed);
+        lightUp(placed, block);
         act(event.getPlayer(), block, ItemAction.Trigger.PLACE);
+    }
+
+    /** The faces a block's light is put beside, in the order they are tried. */
+    private static final BlockFace[] LIGHT_FACES = {BlockFace.UP, BlockFace.NORTH, BlockFace.EAST,
+            BlockFace.SOUTH, BlockFace.WEST, BlockFace.DOWN};
+
+    /**
+     * Gives a block with {@code light:} its glow: a light block in the first
+     * empty space beside it, marked in the chunk as ours so only ours is ever
+     * taken away. See {@link BlockInfo#light()}.
+     */
+    private void lightUp(Block where, BlockInfo block) {
+        if (block.light() <= 0) {
+            return;
+        }
+        for (BlockFace face : LIGHT_FACES) {
+            Block beside = where.getRelative(face);
+            if (beside.getType() != Material.AIR && beside.getType() != Material.CAVE_AIR) {
+                continue;
+            }
+            beside.setType(Material.LIGHT, false);
+            BlockData data = beside.getBlockData();
+            if (data instanceof org.bukkit.block.data.Levelled) {
+                ((org.bukkit.block.data.Levelled) data).setLevel(block.light());
+                beside.setBlockData(data, false);
+            }
+            markLight(beside, true);
+            return;
+        }
+    }
+
+    /** Takes away the light a block of ours put beside it. */
+    private void douse(Block where) {
+        for (BlockFace face : LIGHT_FACES) {
+            Block beside = where.getRelative(face);
+            if (beside.getType() == Material.LIGHT && lightMarked(beside)) {
+                beside.setType(Material.AIR, false);
+                markLight(beside, false);
+            }
+        }
+    }
+
+    private org.bukkit.NamespacedKey lightKey() {
+        return new org.bukkit.NamespacedKey(plugin, "block-light");
+    }
+
+    private boolean lightMarked(Block block) {
+        int[] marks = block.getChunk().getPersistentDataContainer().get(lightKey(),
+                org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY);
+        if (marks == null) {
+            return false;
+        }
+        int packed = packLight(block);
+        for (int mark : marks) {
+            if (mark == packed) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void markLight(Block block, boolean on) {
+        org.bukkit.persistence.PersistentDataContainer data = block.getChunk().getPersistentDataContainer();
+        int[] marks = data.get(lightKey(), org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY);
+        java.util.Set<Integer> set = new java.util.TreeSet<>();
+        if (marks != null) {
+            for (int mark : marks) {
+                set.add(mark);
+            }
+        }
+        if (on) {
+            set.add(packLight(block));
+        } else {
+            set.remove(packLight(block));
+        }
+        if (set.isEmpty()) {
+            data.remove(lightKey());
+        } else {
+            data.set(lightKey(), org.bukkit.persistence.PersistentDataType.INTEGER_ARRAY,
+                    set.stream().mapToInt(Integer::intValue).toArray());
+        }
+    }
+
+    private static int packLight(Block block) {
+        return (block.getX() & 15) | (block.getZ() & 15) << 4
+                | (block.getY() - block.getWorld().getMinHeight()) << 8;
     }
 
     /**
@@ -518,6 +605,7 @@ public final class CustomBlocks implements Listener {
         breaking.stop(event.getPlayer());
         int count = dropCount(event.getBlock());
         List<ItemStack> contents = emptied(block, event.getBlock());
+        douse(event.getBlock());
         // The other half of a door goes first, by us and without physics, so
         // the game never removes it on its own and drops the copper door
         // underneath.
@@ -624,6 +712,7 @@ public final class CustomBlocks implements Listener {
             }
             int count = dropCount(block);
             List<ItemStack> contents = emptied(found.get(), block);
+            douse(block);
             otherHalf(block).ifPresent(half -> half.setType(Material.AIR, false));
             block.setType(Material.AIR, false);
             drop(found.get(), block, ThreadLocalRandom.current().nextFloat() < yield ? count : 0, contents);

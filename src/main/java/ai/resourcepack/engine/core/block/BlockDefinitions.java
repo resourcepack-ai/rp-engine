@@ -139,11 +139,6 @@ public final class BlockDefinitions {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "light: a bulb gives off its base block's own light when switched on (15, 12, 8 or 4, "
                             + "whichever bulb it is handed), so the number was not used."));
-        } else if (body.raw("light") != null) {
-            diagnostics.add(Diagnostic.warning(origin, where,
-                    "light: a custom block cannot give off light - that belongs to the block's "
-                            + "type, not its state. A placed model can: put it on an item's "
-                            + "place: block instead."));
         }
 
         ContentId drop = null;
@@ -167,6 +162,13 @@ public final class BlockDefinitions {
         }
         block = states(block, body, origin, where, diagnostics);
         block = behaviour(block, body, origin, where, diagnostics);
+        Optional<Integer> light = body.integer("light");
+        if (light.isPresent() && shape != BlockInfo.Shape.BULB && light.get() > 0) {
+            if (light.get() > 15) {
+                diagnostics.add(Diagnostic.warning(origin, where, "light: " + light.get() + " is above 15. Using 15."));
+            }
+            block = block.withLight(light.get());
+        }
         Optional<ai.resourcepack.engine.api.StorageSpec> storage =
                 ai.resourcepack.engine.core.storage.StorageDefinitions.parse(body, origin, where, diagnostics);
         if (storage.isPresent()) {

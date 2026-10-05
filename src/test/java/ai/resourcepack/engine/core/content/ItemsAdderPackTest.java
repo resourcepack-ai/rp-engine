@@ -274,7 +274,7 @@ class ItemsAdderPackTest {
         assertEquals(3, cobbles.states().size(), "a weight of two is two of the picks");
         assertEquals("my_content:lamp_on", blocks.get(ContentId.parse("my_content:lamp_off").orElseThrow())
                 .behaviour().clicksInto().orElseThrow().toString());
-        assertTrue(report.diagnostics().stream().anyMatch(d -> d.message().contains("light_level")));
+        assertEquals(15, blocks.get(ContentId.parse("my_content:lamp_on").orElseThrow()).light());
     }
 
     /** Their blocks are ours now, so they come across rather than being refused. */
