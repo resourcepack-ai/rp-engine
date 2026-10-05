@@ -591,7 +591,12 @@ final class CraftEngine {
                 case "loot_sources":
                     return "standalone loot tables and changes to vanilla drops have no RP Engine equivalent.";
                 case "entities":
-                    return "CraftEngine entities want writing as RP Engine entities/ (a mob wearing a model).";
+                    // Read from its EntityParser: an entry is keyed by an
+                    // existing entity type and holds attributes and tags.
+                    return "a CraftEngine entity entry gives an existing mob type (vanilla, or another plugin's) "
+                            + "attribute values and tags for CraftEngine's damage rules. It has no model, name or "
+                            + "spawn, so there is no RP Engine entity in it; to put a model on mobs that exist, "
+                            + "bind one with /rp bind or Models.bind.";
                 case "paintings":
                 case "advancements":
                 case "configured_features":
