@@ -481,6 +481,10 @@ public final class ContentFolderLoader {
             if (document.isPresent() && ItemsAdder.looksLikeOne(document.get())) {
                 documents.put(file, document.get());
                 shared.add(document.get());
+                // Their block loot usually sits in a file of its own, so every
+                // file's is gathered before any block is translated.
+                shared.drops.putAll(ItemsAdder.blockDrops(document.get(), namespace.name(),
+                        relative(root, file), diagnostics));
             }
         }
         // Their resource pack's own English, for a subtitle written as a key.

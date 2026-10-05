@@ -670,4 +670,177 @@ class ItemsAdderPackTest {
         assertTrue(lang.contains("item.my_sounds.ruby"), lang);
         assertTrue(lang.contains("A song plays"), lang);
     }
+
+    // ---- their behaviour ---------------------------------------------------
+
+    private static List<String> written(List<ai.resourcepack.engine.api.ItemAction> steps) {
+        return steps.stream().map(Object::toString).toList();
+    }
+
+    private boolean warned(LoadReport loaded, String about) {
+        return loaded.diagnostics().stream().anyMatch(d -> d.message().contains(about));
+    }
+
+    @Test
+    void anItemsEventsBecomeItsActions() throws IOException {
+        write("my_content/wand.yml", """
+                info:
+                  namespace: my_content
+                items:
+                  wand:
+                    resource:
+                      material: STICK
+                    item_flags:
+                      - HIDE_ATTRIBUTES
+                    events:
+                      interact:
+                        right:
+                          play_sound:
+                            name: block.note_block.bell
+                            volume: 1
+                            pitch: 2
+                          execute_commands:
+                            greet:
+                              command: "say hello {player}"
+                              as_console: true
+                            spawn:
+                              command: "/spawn"
+                        right_shift:
+                          play_sound:
+                            name: block.anvil.land
+                      eat:
+                        potion_effect:
+                          type: SPEED
+                          amplifier: 1
+                          duration: 200
+                        give_item:
+                          item: 'minecraft:gold_ingot'
+                          amount: 2
+                        decrement_amount:
+                          amount: 1
+                      held:
+                        play_sound:
+                          name: block.anvil.land
+                      attack:
+                        play_particle:
+                          name: heart
+                """);
+
+        LoadReport loaded = load();
+        ItemInfo wand = ItemDefinitions.parse(loaded).items().get(ContentId.parse("my_content:wand").orElseThrow());
+
+        assertEquals(List.of("sound: block.note_block.bell 1 2", "console: say hello {player}", "run: spawn"),
+                written(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.RIGHT_CLICK)));
+        assertEquals(List.of("effect: SPEED 10 2", "console: give {player} minecraft:gold_ingot 2", "take: 1"),
+                written(wand.actions(ai.resourcepack.engine.api.ItemAction.Trigger.CONSUME)));
+        assertEquals(List.of("HIDE_ATTRIBUTES"), wand.stats().flags());
+        assertTrue(warned(loaded, "interact.right_shift"), "a sneaking click has no trigger");
+        assertTrue(warned(loaded, "held"));
+        assertTrue(warned(loaded, "play_particle"));
+    }
+
+    @Test
+    void aFurnitureClickCommandIsItsInteract() throws IOException {
+        write("my_content/lamps.yml", """
+                info:
+                  namespace: my_content
+                items:
+                  lamp:
+                    resource:
+                      material: PAPER
+                      model_path: lamp
+                    behaviours:
+                      furniture:
+                        light_level: 13
+                    events:
+                      placed_furniture:
+                        interact:
+                          execute_commands:
+                            the_first_command:
+                              command: help
+                              as_console: false
+                        break:
+                          play_sound:
+                            name: block.glass.break
+                """);
+
+        ItemInfo lamp = ItemDefinitions.parse(load()).items().get(ContentId.parse("my_content:lamp").orElseThrow());
+
+        assertEquals(List.of("run: help"),
+                written(lamp.actions(ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)));
+        assertEquals(List.of("sound: block.glass.break"),
+                written(lamp.actions(ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE)));
+    }
+
+    @Test
+    void aBlockWrittenAsAnItemIsABlockWithItsEventsAndLoot() throws IOException {
+        write("my_content/blocks.yml", """
+                info:
+                  namespace: my_content
+                items:
+                  ruby_ore:
+                    display_name: Ruby Ore
+                    resource:
+                      material: PAPER
+                      generate: true
+                      textures:
+                        - block/ruby_ore.png
+                    behaviours:
+                      block:
+                        placed_model:
+                          type: REAL_NOTE
+                          break_particles: BLOCK
+                        hardness: 3
+                        break_tools_whitelist:
+                          - DIAMOND_PICKAXE
+                        sound:
+                          place:
+                            name: block.stone.place
+                    events:
+                      placed_block:
+                        interact:
+                          execute_commands:
+                            ring:
+                              command: "say {player} poked the ore"
+                              as_console: true
+                        break:
+                          drop_exp:
+                            min_amount: 0
+                            max_amount: 3
+                """);
+        write("my_content/loots.yml", """
+                info:
+                  namespace: my_content
+                loots:
+                  blocks:
+                    ruby_ore:
+                      type: my_content:ruby_ore
+                      items:
+                        ruby:
+                          item: my_content:ruby
+                          min_amount: 1
+                          max_amount: 1
+                          chance: 100
+                  mobs:
+                    zombie:
+                      type: ZOMBIE
+                """);
+
+        LoadReport loaded = load();
+        BlockInfo ore = BlockDefinitions.parse(loaded).blocks()
+                .get(ContentId.parse("my_content:ruby_ore").orElseThrow());
+
+        assertTrue(ore.model().contains("my_content:block/ruby_ore"), ore.model());
+        assertEquals(3f, ore.hardness());
+        assertEquals("pickaxe", ore.tool().orElseThrow());
+        assertEquals("block.stone.place", ore.sound().orElseThrow());
+        assertEquals("Ruby Ore", ore.name().orElseThrow());
+        assertEquals("my_content:ruby", ore.drop().orElseThrow().toString());
+        assertEquals(List.of("console: say {player} poked the ore"),
+                written(ore.actions().get(ai.resourcepack.engine.api.ItemAction.Trigger.INTERACT)));
+        assertTrue(warned(loaded, "drop_exp"));
+        assertTrue(warned(loaded, "mobs loot"));
+        assertFalse(ItemDefinitions.parse(loaded).items().containsKey(ContentId.parse("my_content:ruby_ore")
+                .orElseThrow()), "a block is not also an item definition");
+    }
 }
