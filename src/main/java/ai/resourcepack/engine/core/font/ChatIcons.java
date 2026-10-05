@@ -10,9 +10,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Typing {@code :wave:} in chat and getting the picture.
@@ -24,9 +24,11 @@ import java.util.regex.Pattern;
  * <p><strong>An icon is a character, so this is a text replacement and
  * nothing more.</strong> Everything hard about drawing a picture in chat was
  * done by the font; there is no image here, no packet, and nothing that has to
- * agree with the client beyond a codepoint the pack already defined.
+ * agree with the client beyond a codepoint the pack already defined. The text
+ * rules themselves are {@link ChatShortcuts}, which is free of Bukkit and
+ * tested; this is the listener around them.
  *
- * <p>Two decisions worth keeping:
+ * <p>Three decisions worth keeping:
  *
  * <ul>
  *   <li><strong>A name that is not an icon is left exactly as typed.</strong>
@@ -36,6 +38,11 @@ import java.util.regex.Pattern;
  *   <li><strong>It is gated by a permission</strong>, off by default for
  *       nobody in particular: a server that wants icons in chat to be a perk
  *       has that, and one that does not gives it to everybody in one line.
+ *   <li><strong>An icon can ask for a permission of its own</strong>, on top
+ *       of that one, and it gates the icon however it is typed — by an alias
+ *       or by {@code :id:}. A rank's emote that anybody could type by its name
+ *       would be a perk with a hole in it. Without one, the general permission
+ *       is all it takes.
  * </ul>
  *
  * <p>Runs at {@link EventPriority#LOW} so a chat-formatting plugin sees the
@@ -43,22 +50,15 @@ import java.util.regex.Pattern;
  *
  * <p>{@link Icons#format} does the same job for {@code :namespace:id:} and is
  * what a config file uses. This is not that: chat also has to accept a BARE
- * name, because somebody typing has no reason to know which pack a smiley came
- * from — so it is one pass that handles both rather than that pass plus
- * another.
+ * name and an icon's aliases, because somebody typing has no reason to know
+ * which pack a smiley came from — so it is one pass that handles all of them
+ * rather than that pass plus another.
+ *
+ * <p>An animated icon is its FIRST frame here. A chat line is sent once and
+ * never redrawn, so there is nothing to animate it with; see
+ * {@link Icons#characterNow}.
  */
 public final class ChatIcons implements Listener {
-
-    /**
-     * {@code :name:}, or {@code :pack:name:} where two packs collide.
-     *
-     * <p>The namespaced form is the FIRST branch on purpose. A single
-     * character class that allowed a colon inside would match {@code :pack:}
-     * out of {@code :pack:name:}, find nothing called "pack", and leave the
-     * rest stranded with no opening colon left to match against.
-     */
-    private static final Pattern SHORTCODE =
-            Pattern.compile(":([a-z0-9_.-]{1,32}:[a-z0-9_./-]{1,64}|[a-z0-9_./-]{1,64}):");
 
     /** What somebody needs to be allowed to use them. */
     public static final String PERMISSION = "rpengine.chat.icons";
@@ -80,58 +80,42 @@ public final class ChatIcons implements Listener {
         if (!player.hasPermission(PERMISSION)) {
             return;
         }
+        ChatShortcuts shortcuts = shortcuts();
         // Cheap early-out: most lines have no colon in them at all, and this
-        // runs on every message on the server.
-        if (event.getMessage().indexOf(':') < 0) {
+        // runs on every message on the server. Unless a pack declared an alias
+        // like <3, that is the end of it.
+        if (!shortcuts.mightMatch(event.getMessage())) {
             return;
         }
-        event.setMessage(replace(event.getMessage()));
+        event.setMessage(shortcuts.replace(event.getMessage(),
+                icon -> icon.permission().map(player::hasPermission).orElse(true)));
     }
 
     /**
-     * Every {@code :name:} that names an icon, replaced by its character.
-     *
-     * <p>Free of Bukkit and tested, because the interesting cases are all
-     * about text: overlapping colons, a time of day, a name with a namespace
-     * in it.
+     * Every {@code :name:} and alias that names an icon, replaced by its
+     * character, as if the sender may use every icon.
      */
     String replace(String message) {
-        Matcher matcher = SHORTCODE.matcher(message);
-        StringBuilder out = new StringBuilder(message.length());
-        int at = 0;
-        while (matcher.find()) {
-            Optional<IconInfo> icon = lookUp(matcher.group(1));
-            if (icon.isEmpty()) {
-                continue;
-            }
-            out.append(message, at, matcher.start()).append(icon.get().character());
-            at = matcher.end();
-        }
-        return at == 0 ? message : out.append(message.substring(at)).toString();
+        return replace(message, icon -> true);
+    }
+
+    /** The same, with {@code allowed} deciding icon by icon, as a permission does. */
+    String replace(String message, Predicate<IconInfo> allowed) {
+        return shortcuts().replace(message, allowed);
     }
 
     /**
-     * The icon a shortcode names.
-     *
-     * <p>A bare name is looked up across every namespace, because somebody
-     * typing in chat has no reason to know which pack a smiley came from.
-     * Ambiguity resolves to the first in sorted order, which is at least
-     * stable — a server with two packs that both call something "wave" can
-     * write {@code :mypack:wave:} to be specific.
+     * The engine's own icons keep theirs built, rebuilt on each reload; any
+     * other {@link Icons} (a test's) is asked afresh.
      */
-    private Optional<IconInfo> lookUp(String name) {
-        Optional<IconInfo> exact = icons.info(name);
-        if (exact.isPresent()) {
-            return exact;
+    private ChatShortcuts shortcuts() {
+        if (icons instanceof IconsImpl impl) {
+            return impl.shortcuts();
         }
-        if (name.indexOf(':') >= 0) {
-            return Optional.empty();
-        }
+        List<IconInfo> all = new ArrayList<>();
         for (ContentId id : icons.ids()) {
-            if (id.path().equals(name)) {
-                return icons.info(id);
-            }
+            icons.info(id).ifPresent(all::add);
         }
-        return Optional.empty();
+        return ChatShortcuts.of(all);
     }
 }
