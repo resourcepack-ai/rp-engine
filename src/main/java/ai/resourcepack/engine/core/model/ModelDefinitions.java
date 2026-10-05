@@ -91,7 +91,7 @@ public final class ModelDefinitions {
         String where = definition.id().path();
 
         ModelInfo.Facing facing = ModelInfo.Facing.CARDINAL;
-        Optional<String> declaredFacing = body.string("facing");
+        Optional<String> declaredFacing = body.has("connects") ? Optional.empty() : body.string("facing");
         if (declaredFacing.isPresent()) {
             try {
                 facing = ModelInfo.Facing.valueOf(declaredFacing.get().trim().toUpperCase(Locale.ROOT));
@@ -211,7 +211,38 @@ public final class ModelDefinitions {
                 .withStates(states(body, origin, where, diagnostics),
                         stateReset(body, origin, where, diagnostics),
                         soundKey(body, "base-sound", origin, where, diagnostics))
-                .withGrow(grow(body, origin, where, diagnostics)));
+                .withGrow(grow(body, origin, where, diagnostics))
+                .withConnects(connects(body, definition.id(), facing, origin, where, diagnostics)));
+    }
+
+    /** The shapes of a piece that joins its neighbours, by name. */
+    static final List<String> CONNECTIONS = List.of("straight", "left", "right", "inner", "outer");
+
+    /**
+     * {@code connects:} - the look for each place in a row. {@code true}
+     * names them after the piece ({@code sofa_straight}, {@code sofa_left},
+     * ...), and a block names any it wants to differently.
+     */
+    static Map<String, ContentId> connects(DefinitionNode body, ContentId id, ModelInfo.Facing facing,
+                                           String origin, String where, List<Diagnostic> diagnostics) {
+        if (!body.has("connects")) {
+            return Map.of();
+        }
+        Map<String, ContentId> out = new LinkedHashMap<>();
+        Optional<DefinitionNode> declared = body.node("connects");
+        if (declared.isEmpty() && !body.bool("connects").orElse(Boolean.FALSE)) {
+            return Map.of();
+        }
+        for (String shape : CONNECTIONS) {
+            String written = declared.flatMap(node -> node.string(shape)).orElse(id.path() + "_" + shape);
+            ContentId.parse(written.contains(":") ? written : id.namespace() + ":" + written)
+                    .ifPresent(parsed -> out.put(shape, parsed));
+        }
+        if (facing != ModelInfo.Facing.CARDINAL) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "connects: joins pieces that face one of four ways, so it is placed with facing: cardinal."));
+        }
+        return out;
     }
 
     /**

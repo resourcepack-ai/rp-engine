@@ -309,6 +309,7 @@ public final class ModelInfo {
     private long stateResetTicks;
     private String baseSound;
     private Grow grow;
+    private java.util.Map<String, ContentId> connects = java.util.Map.of();
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -537,6 +538,7 @@ public final class ModelInfo {
         made.stateResetTicks = stateResetTicks;
         made.baseSound = baseSound;
         made.grow = grow;
+        made.connects = connects;
         return made;
     }
 
@@ -672,6 +674,23 @@ public final class ModelInfo {
     /** What it grows into and when, or empty for a piece that stays as it is. */
     public java.util.Optional<Grow> grow() {
         return java.util.Optional.ofNullable(grow);
+    }
+
+    /**
+     * The shapes a piece takes beside others of its own kind, as a sofa does:
+     * {@code straight} with one either side, {@code left} and {@code right} at
+     * the ends, {@code inner} and {@code outer} at a corner - each the item
+     * (or model) it wears then. Empty for a piece that stands alone.
+     */
+    public java.util.Map<String, ContentId> connects() {
+        return connects;
+    }
+
+    /** The same model, joining its neighbours. */
+    public ModelInfo withConnects(java.util.Map<String, ContentId> connects) {
+        ModelInfo changed = copy();
+        changed.connects = connects == null ? java.util.Map.of() : java.util.Map.copyOf(connects);
+        return changed;
     }
 
     @Override
