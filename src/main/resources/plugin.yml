@@ -48,6 +48,7 @@ permissions:
       rpengine.dialog: true
       rpengine.var: true
       rpengine.page: true
+      rpengine.slot: true
       rpengine.hud: true
       rpengine.shaders: true
       rpengine.shader: true
@@ -150,6 +151,13 @@ permissions:
     # dialog the one they were last shown links to with exactly that
     # command - see DialogLinks.
     description: Turn a dialog to another of its pages - what a click on a paged dialog's sidebar runs.
+    default: true
+  rpengine.slot:
+    # Everybody, for rpengine.page's reason: a click on a slot of a dialog
+    # whose items move runs /rp slot as the player who clicked it. It only
+    # moves the player's own items, and only between slots the dialog they
+    # were last shown has that exact click for - see DialogSlots.
+    description: Move an item in a dialog - what a click on a slot whose items move runs.
     default: true
   rpengine.hud:
     description: Draw a HUD overlay on yourself.

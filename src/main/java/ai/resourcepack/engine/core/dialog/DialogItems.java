@@ -13,7 +13,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
-import java.util.function.IntFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -30,14 +30,24 @@ import java.util.function.Predicate;
  * empty with two MARKERS each, both found by their {@code insertion}:
  *
  * <ul>
- *   <li>{@code rp:slot:<n>} on the slot's clickable runs — given the item in
- *   the player's inventory slot {@code n} as their hover;</li>
- *   <li>{@code rp:item:<n>}, an empty text in an icon font
+ *   <li>{@code rp:slot:<key>} on the slot's clickable runs — given the item in
+ *   that slot as their hover;</li>
+ *   <li>{@code rp:item:<key>}, an empty text in an icon font
  *   ({@code dialog_items_<dy>}), where the item goes — swapped for the item's
  *   icon, its count, and a step back over both.</li>
  * </ul>
  *
- * Inventory slots are Bukkit's numbering: 0-8 the hotbar, 9-35 above it.
+ * A key is {@code <container>/<index>} — {@code inv/5} a slot of the player's
+ * inventory in Bukkit's numbering (0-8 the hotbar, 9-35 above it),
+ * {@code ender/3} one of their ender chest; see {@link DialogSlots}. A bare
+ * number is a slot of the inventory, as the first build wrote one.
+ *
+ * <h2>A stack picked up</h2>
+ *
+ * In a dialog whose items move, the slot a player has picked a stack up from
+ * is drawn lit: the icon font's highlight ({@link DialogItemIcons#HELD}) and a
+ * step back go in front of the icon, so the game draws the light first and the
+ * item over it — one more glyph that comes to nothing.
  *
  * <h2>Why every swap moves nothing</h2>
  *
@@ -82,9 +92,13 @@ public final class DialogItems {
     /**
      * What one of a player's slots holds, as a dialog needs it: the id the icon
      * is drawn by, the count, whether it wears a model of its own (whose
-     * picture the icon font does not have), and its hover, ready to send.
+     * picture the icon font does not have), its hover, ready to send, and
+     * whether it is the stack they have picked up.
      */
-    public record Shown(String id, int count, boolean custom, JsonObject hover) {
+    public record Shown(String id, int count, boolean custom, JsonObject hover, boolean held) {
+        public Shown(String id, int count, boolean custom, JsonObject hover) {
+            this(id, count, custom, hover, false);
+        }
     }
 
     /** Whether a dialog has anything here to do — so a dialog with none costs one scan. */
@@ -102,10 +116,15 @@ public final class DialogItems {
      * this server would refuse taken out.
      */
     public static String fill(String json, Player viewer) {
+        return fill(json, viewer, null);
+    }
+
+    /** {@link #fill(String, Player)}, with the slot they have picked a stack up from drawn lit. */
+    public static String fill(String json, Player viewer, DialogSlots.Key held) {
         if (!any(json) || viewer == null) {
             return json;
         }
-        return fill(json, slot -> shown(viewer, slot), DialogItems::known);
+        return fill(json, key -> shown(viewer, key, key.equals(held)), DialogItems::known);
     }
 
     /**
@@ -114,7 +133,7 @@ public final class DialogItems {
      * there is nothing to change, or when the JSON cannot be read — a dialog
      * this cannot parse is passed on as it came, for the game to judge.
      */
-    static String fill(String json, IntFunction<Shown> slots, Predicate<String> known) {
+    static String fill(String json, Function<DialogSlots.Key, Shown> slots, Predicate<String> known) {
         if (!any(json)) {
             return json;
         }
@@ -129,12 +148,13 @@ public final class DialogItems {
         return changed[0] ? GSON.toJson(out) : json;
     }
 
-    private static JsonElement walk(JsonElement e, IntFunction<Shown> slots, Predicate<String> known, boolean[] changed) {
+    private static JsonElement walk(JsonElement e, Function<DialogSlots.Key, Shown> slots, Predicate<String> known,
+                                    boolean[] changed) {
         if (e.isJsonArray()) {
             JsonArray next = new JsonArray();
             for (JsonElement child : e.getAsJsonArray()) {
-                int slot = marker(child, ITEM);
-                if (slot < 0) {
+                DialogSlots.Key slot = marker(child, ITEM);
+                if (slot == null) {
                     next.add(walk(child, slots, known, changed));
                     continue;
                 }
@@ -156,8 +176,8 @@ public final class DialogItems {
         for (java.util.Map.Entry<String, JsonElement> entry : e.getAsJsonObject().entrySet()) {
             next.add(entry.getKey(), walk(entry.getValue(), slots, known, changed));
         }
-        int slot = marker(next, SLOT);
-        if (slot >= 0) {
+        DialogSlots.Key slot = marker(next, SLOT);
+        if (slot != null) {
             changed[0] = true;
             next.remove("insertion");
             Shown shown = slots.apply(slot);
@@ -173,25 +193,26 @@ public final class DialogItems {
         return next;
     }
 
-    /** The slot a marker names, when {@code e} is one with this prefix; -1 otherwise. */
-    private static int marker(JsonElement e, String prefix) {
+    /**
+     * The slot a marker names, when {@code e} is one with this prefix and the
+     * container is one this engine fills; null otherwise, which leaves the
+     * marker as Studio wrote it — an empty text, an empty slot.
+     */
+    private static DialogSlots.Key marker(JsonElement e, String prefix) {
         if (e == null || !e.isJsonObject()) {
-            return -1;
+            return null;
         }
         JsonElement insertion = e.getAsJsonObject().get("insertion");
         if (insertion == null || !insertion.isJsonPrimitive() || !insertion.getAsJsonPrimitive().isString()) {
-            return -1;
+            return null;
         }
         String value = insertion.getAsString();
         if (!value.startsWith(prefix)) {
-            return -1;
+            return null;
         }
-        try {
-            int slot = Integer.parseInt(value.substring(prefix.length()));
-            return slot >= 0 && slot < 64 ? slot : -1;
-        } catch (NumberFormatException ex) {
-            return -1;
-        }
+        return DialogSlots.Key.parse(value.substring(prefix.length()))
+                .filter(key -> DialogSlots.known(key.container()) && key.index() < 128)
+                .orElse(null);
     }
 
     private static boolean isShowItem(JsonObject hover) {
@@ -213,7 +234,10 @@ public final class DialogItems {
     static List<JsonObject> icon(Shown shown, String font) {
         char glyph = shown.custom() ? (char) DialogItemIcons.BASE : DialogItemIcons.glyph(shown.id());
         JsonObject picture = new JsonObject();
-        picture.addProperty("text", String.valueOf(glyph));
+        // A stack picked up: the light, a step back over it, then the item on it.
+        picture.addProperty("text", shown.held()
+                ? "" + (char) DialogItemIcons.HELD + (char) BACK + glyph
+                : String.valueOf(glyph));
         picture.addProperty("font", font);
         picture.addProperty("color", "white");
         picture.addProperty("shadow_color", 0);
@@ -233,19 +257,19 @@ public final class DialogItems {
         return List.of(picture, after);
     }
 
-    /** What the player holds in an inventory slot, or null for nothing. */
-    private static Shown shown(Player viewer, int slot) {
+    /** What the player keeps in a slot, or null for nothing. */
+    private static Shown shown(Player viewer, DialogSlots.Key slot, boolean held) {
         ItemStack stack;
         try {
-            stack = viewer.getInventory().getItem(slot);
+            stack = DialogSlots.get(viewer, slot);
         } catch (RuntimeException e) {
             return null;
         }
-        if (stack == null || stack.getType().isAir() || stack.getAmount() <= 0) {
+        if (stack == null) {
             return null;
         }
         String id = stack.getType().getKey().toString();
-        return new Shown(id, stack.getAmount(), wearsOwnModel(stack), hover(stack, id));
+        return new Shown(id, stack.getAmount(), wearsOwnModel(stack), hover(stack, id), held);
     }
 
     /**
