@@ -263,7 +263,11 @@ public final class ModelCommands implements Area {
                 Reply.plural(customBlocks.ids().size(), "block"));
         for (ContentId id : customBlocks.ids()) {
             customBlocks.info(id).ifPresent(block -> Reply.row(sender, id.toString(),
-                    block.base().name().toLowerCase(Locale.ROOT)
+                    (block.shape() == ai.resourcepack.engine.api.BlockInfo.Shape.CUBE
+                            ? block.base().name().toLowerCase(Locale.ROOT)
+                            + (block.states().size() > 1 ? " · " + block.states().size() + " states" : "")
+                            : block.shape().name().toLowerCase(Locale.ROOT) + " · "
+                            + states.existingShaped(block).orElse("none left"))
                             + " · hardness " + block.hardness()
                             + block.tool().map(tool -> " · " + tool).orElse("")));
         }
@@ -271,6 +275,17 @@ public final class ModelCommands implements Area {
                 : ai.resourcepack.engine.api.BlockInfo.Base.values()) {
             Reply.note(sender, base.name().toLowerCase(Locale.ROOT) + ": "
                     + states.remaining(base) + " of " + BlockStates.capacity(base) + " states left");
+        }
+        for (ai.resourcepack.engine.api.BlockInfo.Shape shape
+                : ai.resourcepack.engine.api.BlockInfo.Shape.values()) {
+            if (shape == ai.resourcepack.engine.api.BlockInfo.Shape.CUBE) {
+                continue;
+            }
+            int left = states.remaining(shape, name -> {
+                org.bukkit.Material material = org.bukkit.Material.matchMaterial(name);
+                return material != null && material.isBlock();
+            });
+            Reply.note(sender, shape.name().toLowerCase(Locale.ROOT) + ": " + left + " left");
         }
         return true;
     }
