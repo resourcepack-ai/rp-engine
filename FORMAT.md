@@ -2193,6 +2193,7 @@ ruby_from_cube:
 
 sapphire_from_lapis:
   type: smelting            # blasting | smoking | campfire | stonecutting
+                            # (smithing, brewing and anvil are below)
   result: mypack:sapphire
   ingredient: LAPIS_LAZULI
   experience: 0.5
@@ -2202,7 +2203,73 @@ sapphire_from_lapis:
 **Ingredients and results can be either.** A content ID matches that exact item
 — an ordinary diamond will not satisfy a recipe calling for `mypack:ruby`, even
 though a ruby is a diamond underneath. A vanilla material name matches loosely,
-the way a vanilla ingredient should.
+the way a vanilla ingredient should. `minecraft:diamond` is the material too.
+A third spelling, **a vanilla potion**, is the material, a slash and the potion
+type: `potion/awkward`, `splash_potion/healing`. It is what a brewing recipe
+usually starts from.
+
+### Smithing, brewing and anvils
+
+```yaml
+ruby_sword:
+  type: smithing
+  template: NETHERITE_UPGRADE_SMITHING_TEMPLATE
+  base: mypack:obsidian_sword
+  addition: mypack:ruby
+  result: mypack:ruby_sword
+  copy-data: true           # the default: carry the base's enchantments, wear and trim
+
+ruby_trim:
+  type: smithing_trim       # no result: the base comes out trimmed
+  template: mypack:ruby_template
+  base: mypack:ruby_chestplate
+  addition: AMETHYST_SHARD
+  pattern: minecraft:silence
+
+ruby_tonic:
+  type: brewing
+  base: potion/awkward      # the bottle slots
+  ingredient: mypack:ruby_dust
+  result: mypack:ruby_tonic
+
+sharpen:
+  type: anvil
+  base: mypack:dull_blade   # the left slot; one is used
+  addition: mypack:whetstone  # optional; without it the right slot must be empty
+  addition-amount: 1
+  result: mypack:sharp_blade
+  cost: 3                   # levels; defaults to 1
+
+mend_ruby_sword:
+  type: anvil
+  base: mypack:ruby_sword
+  addition: mypack:ruby
+  repair: 25%               # per ruby, or a number of durability points
+```
+
+**A smithing recipe matches the item, not its condition.** The base of an
+upgrade is usually something somebody has been using, so a worn or enchanted
+`mypack:obsidian_sword` still counts — an exact match would refuse it. The
+result is always the recipe's own item, with the base's enchantments, wear and
+trim carried across unless `copy-data: false`. Before 1.20 the smithing table
+has two slots, so the template is not asked for; trim recipes need 1.20.
+
+**A trim's pattern** is needed from 1.21.5, where the recipe names it. Leave it
+out and a vanilla trim template stands for its own (`SENTRY_ARMOR_TRIM_...` is
+`minecraft:sentry`); a custom template needs one written. Before 1.21.5 the
+game takes the pattern from the template, so only a vanilla trim template
+trims anything there and `pattern` is ignored.
+
+**Brewing needs Paper.** Bukkit has no brewing recipe; Paper adds yours to the
+game's own brewing table, so it brews exactly as vanilla brewing does. On
+Spigot the load says how many brewing recipes were left out.
+
+**An anvil recipe is the engine's own** — there is no anvil recipe in the game.
+It costs `cost` levels, uses one of the base and `addition-amount` of the
+addition, and wears the anvil the way vanilla use does. A repair mends the base
+by `repair` for every `addition-amount` of the addition, using as many as it
+takes, as a vanilla material repair does. Take the result with the mouse; the
+number keys and dropping do nothing on an anvil recipe.
 
 **A recipe ID is not a content ID.** It lives outside the ID space, so a recipe
 may be called `ruby_cube` while an item is called `ruby_cube` — which is the
