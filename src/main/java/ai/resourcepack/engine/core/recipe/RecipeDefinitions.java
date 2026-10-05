@@ -51,7 +51,7 @@ public final class RecipeDefinitions {
         String where = definition.id().path();
 
         RecipeInfo.Type type;
-        String declared = body.string("type").orElse("shaped").trim().toUpperCase(Locale.ROOT);
+        String declared = body.string("type").orElse("shaped").trim().toUpperCase(Locale.ROOT).replace('-', '_');
         try {
             type = RecipeInfo.Type.valueOf(declared);
         } catch (IllegalArgumentException e) {
@@ -59,6 +59,16 @@ public final class RecipeDefinitions {
                     "type: " + declared.toLowerCase(Locale.ROOT) + " is not a kind of recipe. One of: "
                             + types() + "."));
             return Optional.empty();
+        }
+
+        switch (type) {
+            case SMITHING:
+            case SMITHING_TRIM:
+            case BREWING:
+            case ANVIL:
+                return station(definition, type, diagnostics);
+            default:
+                break;
         }
 
         Optional<String> result = body.string("result");
@@ -170,6 +180,153 @@ public final class RecipeDefinitions {
 
         return Optional.of(RecipeInfo.of(definition.id(), type, result.get(), amount,
                 rows, keys, ingredients, experience, cookingTime));
+    }
+
+    /**
+     * A recipe made at a smithing table, a brewing stand or an anvil: named
+     * slots rather than a grid, which is why it is parsed apart from the rest.
+     */
+    private static Optional<RecipeInfo> station(ContentDefinition definition, RecipeInfo.Type type,
+                                                List<Diagnostic> diagnostics) {
+        DefinitionNode body = definition.body();
+        String origin = definition.origin();
+        String where = definition.id().path();
+        String name = type.name().toLowerCase(Locale.ROOT);
+
+        Optional<String> template = body.string("template");
+        // A brewing stand's bottle slot is what the other two call the base,
+        // and "input" is what most people coming from elsewhere call it.
+        Optional<String> base = body.string("base").or(() -> body.string("input"));
+        Optional<String> addition = body.string("addition");
+        Optional<String> ingredient = body.string("ingredient");
+        Optional<String> result = body.string("result");
+
+        List<String> missing = new ArrayList<>();
+        if (type == RecipeInfo.Type.SMITHING || type == RecipeInfo.Type.SMITHING_TRIM) {
+            if (template.isEmpty()) missing.add("template");
+            if (base.isEmpty()) missing.add("base");
+            if (addition.isEmpty()) missing.add("addition");
+            if (type == RecipeInfo.Type.SMITHING && result.isEmpty()) missing.add("result");
+        } else if (type == RecipeInfo.Type.BREWING) {
+            if (base.isEmpty()) missing.add("base");
+            if (ingredient.isEmpty()) missing.add("ingredient");
+            if (result.isEmpty()) missing.add("result");
+        } else if (base.isEmpty()) {
+            missing.add("base");
+        }
+        if (!missing.isEmpty()) {
+            diagnostics.add(Diagnostic.error(origin, where,
+                    "A " + name + " recipe needs " + String.join(", ", missing) + ". "
+                            + slotsOf(type)));
+            return Optional.empty();
+        }
+
+        int amount = body.integer("amount").orElse(1);
+        if (amount < 1 || amount > 64) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "amount: " + amount + " is outside 1 to 64. Using 1."));
+            amount = 1;
+        }
+
+        String made = result.orElse("");
+        if (type == RecipeInfo.Type.SMITHING_TRIM && result.isPresent()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "A trim recipe has no result: what comes out is the base, trimmed. result was ignored."));
+            made = "";
+        }
+
+        int additionAmount = 1;
+        int cost = 0;
+        int repairPoints = 0;
+        float repairFraction = 0f;
+        if (type == RecipeInfo.Type.ANVIL) {
+            additionAmount = body.integer("addition-amount").orElse(1);
+            if (additionAmount < 1 || additionAmount > 64) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "addition-amount: " + additionAmount + " is outside 1 to 64. Using 1."));
+                additionAmount = 1;
+            }
+            cost = body.integer("cost").orElse(1);
+            if (cost < 0) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "cost: " + cost + " is not a number of levels. Using 0."));
+                cost = 0;
+            } else if (cost >= 40) {
+                // Vanilla's own ceiling: at 40 a survival player is told
+                // "Too Expensive!" and cannot take the result at all.
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "cost: " + cost + " is 40 or more, which a survival player cannot pay at an anvil."));
+            }
+            Optional<String> repair = body.string("repair");
+            if (repair.isPresent() && result.isPresent()) {
+                diagnostics.add(Diagnostic.error(origin, where,
+                        "An anvil recipe either makes a result or repairs its base, not both. "
+                                + "Remove result or repair."));
+                return Optional.empty();
+            }
+            if (repair.isEmpty() && result.isEmpty()) {
+                diagnostics.add(Diagnostic.error(origin, where,
+                        "An anvil recipe needs a result, or repair: to mend its base - a number of "
+                                + "durability points, or a percentage like 25%."));
+                return Optional.empty();
+            }
+            if (repair.isPresent()) {
+                if (addition.isEmpty()) {
+                    diagnostics.add(Diagnostic.error(origin, where,
+                            "A repair needs an addition: the material it is mended with."));
+                    return Optional.empty();
+                }
+                String text = repair.get().trim();
+                try {
+                    if (text.endsWith("%")) {
+                        repairFraction = Float.parseFloat(text.substring(0, text.length() - 1).trim()) / 100f;
+                    } else {
+                        repairPoints = Integer.parseInt(text);
+                    }
+                } catch (NumberFormatException e) {
+                    repairFraction = 0f;
+                    repairPoints = 0;
+                }
+                if (repairFraction <= 0f && repairPoints <= 0) {
+                    diagnostics.add(Diagnostic.error(origin, where,
+                            "repair: " + text + " is not a number of durability points or a percentage "
+                                    + "like 25%."));
+                    return Optional.empty();
+                }
+                repairFraction = Math.min(1f, repairFraction);
+            }
+        } else {
+            for (String key : List.of("cost", "repair", "addition-amount")) {
+                if (body.has(key)) {
+                    diagnostics.add(Diagnostic.warning(origin, where,
+                            key + " is for an anvil recipe and does nothing on a " + name + " recipe."));
+                }
+            }
+        }
+
+        boolean copyData = body.bool("copy-data").orElse(Boolean.TRUE);
+        RecipeInfo.Stations stations = RecipeInfo.Stations.of(
+                template.orElse(null), base.orElse(null), addition.orElse(null), copyData,
+                type == RecipeInfo.Type.SMITHING_TRIM ? body.string("pattern").orElse(null) : null,
+                additionAmount, cost, repairPoints, repairFraction);
+        List<String> ingredients = ingredient.map(List::of).orElse(List.of());
+        return Optional.of(RecipeInfo.of(definition.id(), type, made, amount,
+                List.of(), Map.of(), ingredients, 0f, 0, stations));
+    }
+
+    /** What each station recipe is made of, for the message when part of it is missing. */
+    private static String slotsOf(RecipeInfo.Type type) {
+        switch (type) {
+            case SMITHING:
+                return "A smithing table takes a template, a base and an addition, and makes the result.";
+            case SMITHING_TRIM:
+                return "A smithing table takes a template, a base and an addition, and trims the base.";
+            case BREWING:
+                return "A brewing stand brews the base (the bottle slots) with the ingredient (the top slot) "
+                        + "into the result.";
+            default:
+                return "An anvil takes a base on the left and, optionally, an addition on the right.";
+        }
     }
 
     private static float number(String text) {

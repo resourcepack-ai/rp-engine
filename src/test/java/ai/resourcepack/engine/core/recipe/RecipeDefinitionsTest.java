@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RecipeDefinitionsTest {
@@ -209,6 +210,184 @@ class RecipeDefinitionsTest {
 
         assertEquals(1, one(result, "mypack:thing").amount());
         assertEquals(Diagnostic.Severity.WARNING, result.diagnostics().get(0).severity());
+    }
+
+    // ---- smithing, brewing, anvil ---------------------------------------------------
+
+    @Test
+    void readsASmithingUpgrade() throws IOException {
+        write("mypack/recipes/a.yml", """
+                ruby_sword:
+                  type: smithing
+                  template: NETHERITE_UPGRADE_SMITHING_TEMPLATE
+                  base: mypack:obsidian_sword
+                  addition: mypack:ruby
+                  result: mypack:ruby_sword
+                """);
+
+        RecipeInfo recipe = one(parse(), "mypack:ruby_sword");
+
+        assertEquals(RecipeInfo.Type.SMITHING, recipe.type());
+        assertEquals("NETHERITE_UPGRADE_SMITHING_TEMPLATE", recipe.template().orElseThrow());
+        assertEquals("mypack:obsidian_sword", recipe.base().orElseThrow());
+        assertEquals("mypack:ruby", recipe.addition().orElseThrow());
+        assertEquals("mypack:ruby_sword", recipe.result());
+        // Vanilla's upgrade keeps what you did to the sword, and so does ours
+        // unless told otherwise.
+        assertTrue(recipe.copyData());
+    }
+
+    @Test
+    void copyDataCanBeTurnedOff() throws IOException {
+        write("mypack/recipes/a.yml", """
+                fresh:
+                  type: smithing
+                  template: PAPER
+                  base: IRON_SWORD
+                  addition: mypack:ruby
+                  result: mypack:ruby_sword
+                  copy-data: false
+                """);
+
+        assertFalse(one(parse(), "mypack:fresh").copyData());
+    }
+
+    @Test
+    void aSmithingRecipeNamesEveryMissingSlot() throws IOException {
+        write("mypack/recipes/a.yml",
+                "half:\n  type: smithing\n  base: IRON_SWORD\n  result: DIAMOND_SWORD\n");
+
+        RecipeDefinitions.Result result = parse();
+
+        assertTrue(result.recipes().isEmpty());
+        String message = result.diagnostics().get(0).message();
+        assertTrue(message.contains("template") && message.contains("addition"), message);
+    }
+
+    @Test
+    void aTrimHasNoResultAndKeepsItsPattern() throws IOException {
+        write("mypack/recipes/a.yml", """
+                ruby_trim:
+                  type: smithing-trim
+                  template: mypack:ruby_template
+                  base: mypack:ruby_chestplate
+                  addition: AMETHYST_SHARD
+                  pattern: minecraft:silence
+                  result: DIAMOND
+                """);
+
+        RecipeDefinitions.Result result = parse();
+        RecipeInfo recipe = one(result, "mypack:ruby_trim");
+
+        assertEquals(RecipeInfo.Type.SMITHING_TRIM, recipe.type());
+        assertEquals("", recipe.result());
+        assertEquals("minecraft:silence", recipe.pattern().orElseThrow());
+        assertTrue(result.diagnostics().get(0).message().contains("no result"));
+    }
+
+    @Test
+    void readsABrewingRecipe() throws IOException {
+        write("mypack/recipes/a.yml", """
+                tonic:
+                  type: brewing
+                  base: potion/awkward
+                  ingredient: mypack:ruby_dust
+                  result: mypack:ruby_tonic
+                """);
+
+        RecipeInfo recipe = one(parse(), "mypack:tonic");
+
+        assertEquals(RecipeInfo.Type.BREWING, recipe.type());
+        assertEquals("potion/awkward", recipe.base().orElseThrow());
+        assertEquals(List.of("mypack:ruby_dust"), recipe.ingredients());
+    }
+
+    @Test
+    void aBrewingBaseMayBeCalledInput() throws IOException {
+        write("mypack/recipes/a.yml",
+                "tonic:\n  type: brewing\n  input: GLASS_BOTTLE\n  ingredient: DIAMOND\n  result: STICK\n");
+
+        assertEquals("GLASS_BOTTLE", one(parse(), "mypack:tonic").base().orElseThrow());
+    }
+
+    @Test
+    void readsAnAnvilRecipe() throws IOException {
+        write("mypack/recipes/a.yml", """
+                sharpen:
+                  type: anvil
+                  base: mypack:dull_blade
+                  addition: mypack:whetstone
+                  addition-amount: 2
+                  result: mypack:sharp_blade
+                  cost: 3
+                """);
+
+        RecipeInfo recipe = one(parse(), "mypack:sharpen");
+
+        assertEquals(RecipeInfo.Type.ANVIL, recipe.type());
+        assertFalse(recipe.isRepair());
+        assertEquals(2, recipe.additionAmount());
+        assertEquals(3, recipe.cost());
+    }
+
+    @Test
+    void anAnvilRecipeMayLeaveTheSecondSlotEmpty() throws IOException {
+        write("mypack/recipes/a.yml", "polish:\n  type: anvil\n  base: mypack:dull\n  result: mypack:shiny\n");
+
+        RecipeInfo recipe = one(parse(), "mypack:polish");
+
+        assertTrue(recipe.addition().isEmpty());
+        assertEquals(1, recipe.cost(), "a level, as vanilla never charges nothing");
+    }
+
+    @Test
+    void anAnvilRepairIsAPercentageOrAPointCount() throws IOException {
+        write("mypack/recipes/a.yml", """
+                mend:
+                  type: anvil
+                  base: mypack:ruby_sword
+                  addition: mypack:ruby
+                  repair: 25%
+                patch:
+                  type: anvil
+                  base: mypack:ruby_sword
+                  addition: STICK
+                  repair: 40
+                """);
+
+        RecipeDefinitions.Result result = parse();
+        RecipeInfo mend = one(result, "mypack:mend");
+        RecipeInfo patch = one(result, "mypack:patch");
+
+        assertTrue(mend.isRepair());
+        assertEquals(0.25f, mend.repairFraction(), 1e-6);
+        assertEquals(40, patch.repairPoints());
+        assertEquals("", patch.result());
+    }
+
+    @Test
+    void anAnvilRecipeNeedsAResultOrARepairButNotBoth() throws IOException {
+        write("mypack/recipes/a.yml", """
+                neither:
+                  type: anvil
+                  base: STICK
+                both:
+                  type: anvil
+                  base: STICK
+                  addition: STICK
+                  result: DIAMOND
+                  repair: 10
+                bare:
+                  type: anvil
+                  base: STICK
+                  repair: 10%
+                """);
+
+        RecipeDefinitions.Result result = parse();
+
+        assertTrue(result.recipes().isEmpty());
+        assertEquals(3, result.diagnostics().size());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("needs an addition")));
     }
 
     @Test

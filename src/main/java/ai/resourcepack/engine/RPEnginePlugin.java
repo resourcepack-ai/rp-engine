@@ -557,7 +557,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 return placements.scaleOf(id);
             }
         });
-        recipes = new Recipes(this, items);
+        recipes = new Recipes(this, items, compatibility);
         // The action bar fades, so an overlay somebody is wearing has to be
         // re-sent. Started here rather than lazily on the first show: a loop
         // over an empty map costs nothing, and a lazy start is one more thing
@@ -570,6 +570,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // older servers and so cannot be an annotated method. See Seats.
         seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
+        // Smithing results and anvil recipes are decided in events; see
+        // RecipeStations. Registered once, holding whatever the last load gave.
+        getServer().getPluginManager().registerEvents(recipes.stations(), this);
         getServer().getPluginManager().registerEvents(vehicles, this);
         // The control arm is a listener of its own on the click fallback and
         // has nothing to handle on the Paper one. Registered either way, so
