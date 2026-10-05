@@ -229,7 +229,7 @@ public final class InterfaceCommands implements Area {
         java.util.Map<String, String> values = impl.lastShown(player)
                 .map(ai.resourcepack.engine.core.dialog.DialogsImpl.Shown::values)
                 .orElse(java.util.Map.of());
-        if (!impl.show(player, id, values)) {
+        if (!impl.follow(player, id, values)) {
             Reply.to(player, !impl.canShow(player, id)
                     ? "That page is drawn in a pack you are not holding, so it would open as missing-glyph boxes."
                     : "The game would not open " + id + ". The console says what it made of it.");

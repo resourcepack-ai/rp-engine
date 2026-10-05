@@ -146,7 +146,15 @@ public final class ItemAction {
          * {@code happy_villager}); one that needs extra data (a colour, a
          * block) draws nothing.
          */
-        PARTICLE;
+        PARTICLE,
+
+        /**
+         * {@code dialog: <namespace:id> [name=value ...]}: opens a dialog for the
+         * user, with those values for its placeholders. When the dialog's item
+         * slots show the item's own contents, the item becomes a BACKPACK: what
+         * is put in those slots is kept on the item, and goes where it goes.
+         */
+        DIALOG;
 
         /** The name an author writes, or empty if it is not one of these. */
         public static Optional<Kind> parse(String written) {

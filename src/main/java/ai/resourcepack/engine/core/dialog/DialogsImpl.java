@@ -59,8 +59,12 @@ public final class DialogsImpl implements Dialogs {
 
     private volatile Map<ContentId, DialogInfo> dialogs = Map.of();
 
-    /** What each player has picked up in a dialog whose items move: see {@link DialogSlots}. */
-    private final DialogSlots slots = new DialogSlots();
+    /**
+     * What each player has picked up in a dialog whose items move, and the
+     * containers a dialog's slots can show: see {@link DialogSlots}. Without
+     * the plugin (a test) only the ones that keep nothing of their own.
+     */
+    private volatile DialogSlots slots = new DialogSlots(null);
 
     /**
      * The dialog each player was last shown, and what it was opened with — so
@@ -183,6 +187,39 @@ public final class DialogsImpl implements Dialogs {
 
     @Override
     public boolean show(Player viewer, ContentId id, Map<String, String> values) {
+        return open(viewer, id, values, false);
+    }
+
+    /**
+     * Opens a dialog the player reached FROM the one they were looking at — a
+     * page turned, a move made, a setting changed: the item it was opened from
+     * (a backpack) is still the one its slots show. {@link #show} is for a
+     * dialog opened afresh, which forgets it.
+     */
+    public boolean follow(Player viewer, ContentId id, Map<String, String> values) {
+        return open(viewer, id, values, true);
+    }
+
+    /**
+     * Opens a dialog from an item in the player's hand — an item's
+     * {@code dialog:} action. When the dialog's slots show the item's own
+     * contents, the item is the backpack they show; see
+     * {@link DialogSlots#openFrom}.
+     */
+    public DialogSlots.Opening showFrom(Player viewer, ContentId id, Map<String, String> values,
+                                        org.bukkit.inventory.ItemStack used) {
+        Optional<DialogInfo> info = viewer == null ? Optional.empty() : info(viewer, id);
+        DialogSlots.Opening opening = info.isPresent()
+                ? slots.openFrom(viewer, id, info.get().json(), used)
+                : DialogSlots.Opening.NOT_A_BACKPACK;
+        if (opening == DialogSlots.Opening.STACKED || opening == DialogSlots.Opening.NOT_HELD) {
+            return opening;
+        }
+        open(viewer, id, values, opening == DialogSlots.Opening.BOUND);
+        return opening;
+    }
+
+    private boolean open(Player viewer, ContentId id, Map<String, String> values, boolean followed) {
         if (!canShow(viewer, id)) {
             return false;
         }
@@ -195,8 +232,8 @@ public final class DialogsImpl implements Dialogs {
         // The player's own items in a Studio dialog's inventory slots, the one
         // they have picked up lit, and no item tooltip this server would refuse
         // the dialog over: DialogItems.
-        slots.shown(viewer, id);
-        json = DialogItems.fill(json, viewer, slots.held(viewer, id).orElse(null));
+        slots.shown(viewer, id, followed);
+        json = DialogItems.fill(json, slots.reader(viewer), slots.held(viewer, id).orElse(null));
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
         Set<ContentId> instant = instantPages(viewer, id, info.json());
@@ -377,7 +414,7 @@ public final class DialogsImpl implements Dialogs {
     @Override
     public boolean reopen(Player viewer) {
         Shown shown = viewer == null ? null : lastShown.get(viewer);
-        return shown != null && info(viewer, shown.id()).isPresent() && show(viewer, shown.id(), shown.values());
+        return shown != null && info(viewer, shown.id()).isPresent() && follow(viewer, shown.id(), shown.values());
     }
 
     @Override
@@ -518,9 +555,23 @@ public final class DialogsImpl implements Dialogs {
         });
     }
 
-    /** What players have picked up in dialogs whose items move. */
+    /** What players have picked up in dialogs whose items move, and the containers slots can show. */
     public DialogSlots slots() {
         return slots;
+    }
+
+    /**
+     * Gives the slots the plugin, for the keys a backpack and a player's
+     * storage are kept under. Called once, at start, before anything can have
+     * registered a container.
+     */
+    public void attach(org.bukkit.plugin.Plugin plugin) {
+        this.slots = new DialogSlots(plugin);
+    }
+
+    @Override
+    public boolean container(String name, ai.resourcepack.engine.api.DialogContainer container) {
+        return slots.register(name, container);
     }
 
     /**

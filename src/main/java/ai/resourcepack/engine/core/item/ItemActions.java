@@ -158,6 +158,9 @@ public final class ItemActions {
                 return null;
             case PARTICLE:
                 return step.words().length >= 1 ? null : "particle has nothing after it.";
+            case DIALOG:
+                return step.words().length >= 1 && ContentId.parse(step.words()[0]).isPresent() ? null
+                        : "dialog: " + step.argument() + " is not a namespace:id.";
             case EFFECT:
                 return step.words().length >= 2 ? null
                         : "effect: " + step.argument()

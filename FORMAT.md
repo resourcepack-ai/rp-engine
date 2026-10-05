@@ -178,6 +178,7 @@ Neither is worth it for a trigger.
 | `take` | Takes this many off the stack. |
 | `cancel` | Cancels the vanilla use, so a wand built on a bucket does not fill with water. |
 | `cooldown` | Seconds. **Stops the run** if it has not been that long — so put a `message` before it and the refusal says something. |
+| `dialog` | `mypack:menu`, then any `name=value` the dialog's placeholders want. Opens a dialog for the user. When it is a Studio dialog whose item slots show "the backpack it opened from", **the item becomes a backpack**: its contents are kept on it, the way a shulker box's are. |
 | `permission` | Stops the run unless they have it. |
 
 Text can carry `{player}`, `{uuid}`, `{world}`, `{x}`, `{y}`, `{z}`, and any
@@ -2824,6 +2825,30 @@ click picks a stack up and lights its slot, the second puts it down there
 opens the dialog again with the items moved. Every player may run it, and it
 moves only their own items and only between slots the dialog they were shown has
 that exact click for. A plugin can refuse a move with `DialogSlotMoveEvent`.
+
+**A Studio dialog can show three more containers**, each at the size of its
+grid, up to 104 slots:
+
+- `item` — **a backpack**: the item the dialog was opened from with a `dialog:`
+  action. What is put in it is kept on the item, so it goes where the item
+  goes. Only one at a time opens (a stack of five would copy one set of contents
+  five times), nothing that has been a backpack goes inside one, and the open
+  one cannot leave the player's inventory until it closes.
+
+  ```yaml
+  backpack:
+    material: PAPER
+    model: backpack
+    actions:
+      right_click:
+        - dialog: studio:backpack
+        - cancel: true
+  ```
+
+- `player.<name>` — storage kept on each player, their own, across restarts: a
+  vault. Every dialog naming the same storage shows the same items.
+- `api.<name>` — a plugin's own, registered with `dialogs().container(name, …)`
+  (see `API.md`).
 
 The engine also takes out any item tooltip naming an item this server's version
 of Minecraft does not have, which the game would otherwise refuse the whole

@@ -755,6 +755,39 @@ same reason.
 `set` and `value` are safe from any thread. Everything else here touches a
 player and is main thread only.
 
+### Your own container in a dialog
+
+A Studio dialog can have a grid of item slots set to show a container "from a
+plugin" by a name. Register one under that name, and the grid shows what your
+inventory holds for whoever opens the dialog — each item's picture, count and
+own tooltip — and, where the grid lets items move, lets them move items between
+your container and their own inventory with two clicks:
+
+```java
+engine.dialogs().container("bank", new DialogContainer() {
+    @Override
+    public Inventory inventory(Player viewer) {
+        return banks.of(viewer);          // yours: kept live while it can be shown
+    }
+
+    @Override
+    public boolean mayPlace(Player viewer, int slot, ItemStack stack) {
+        return !stack.getType().name().endsWith("SHULKER_BOX");
+    }
+
+    @Override
+    public void changed(Player viewer) {
+        banks.save(viewer);               // after every move that touched it
+    }
+});
+```
+
+The engine reads your inventory as each dialog opens and writes to it as each
+move happens, on the main thread, and never keeps it. A move reads both slots at
+that moment rather than the picture the player clicked, so a stale screen cannot
+duplicate anything. `DialogSlotMoveEvent` (below) is asked before every move, in
+any container.
+
 ## Icons in your own text
 
 ```java
@@ -813,7 +846,7 @@ All cancellable unless the row says otherwise.
 | `EmoteStartEvent` | An emote is about to start |
 | `EmoteEndEvent` | An emote ended. Carries why — finished, stopped, moved, damaged, quit, shutdown |
 | `EmoteRigSpawnEvent` | A rig's displays were spawned — it was put on, or a swap replaced its carried models. Carries the new entity ids, for re-mounting them. Not cancellable |
-| `DialogSlotMoveEvent` | A player is about to move a stack in a dialog whose items move — from one slot (`inv/5`, `ender/3`) to another, onto an empty slot, the same item or a different one. Cancelling leaves both where they are |
+| `DialogSlotMoveEvent` | A player is about to move a stack in a dialog whose items move — from one slot (`inv/5`, `ender/3`, `api.bank/0`) to another, onto an empty slot, the same item or a different one. Cancelling leaves both where they are |
 
 **The engine decides whether something can physically happen, never whether it
 is allowed to.** Region protection, plot ownership, an event world where
