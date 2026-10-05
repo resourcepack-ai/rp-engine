@@ -66,6 +66,9 @@ public final class DialogsImpl implements Dialogs {
      */
     private volatile DialogSlots slots = new DialogSlots(null);
 
+    /** The commands dialogs are opened with ({@code /shop}); null until {@link #attach}. */
+    private volatile DialogCommands commands;
+
     /**
      * The dialog each player was last shown, and what it was opened with — so
      * a click that changes one of their values can open it again, drawn in the
@@ -147,6 +150,31 @@ public final class DialogsImpl implements Dialogs {
         this.dialogs = loaded == null ? Map.of() : Map.copyOf(loaded);
         if (supported) {
             datapack.write(this.dialogs.values());
+        }
+        // And the commands dialogs are opened with: /shop for one that says so.
+        DialogCommands opened = commands;
+        if (opened != null) {
+            opened.sync(this.dialogs.values());
+        }
+    }
+
+    /** The command a dialog is opened with, as registered — {@code /shop} — or empty. */
+    public Optional<String> commandOf(ContentId id) {
+        DialogCommands opened = commands;
+        return opened == null || id == null ? Optional.empty() : opened.label(id);
+    }
+
+    /** Whether a dialog asked for a command the server already had, and so went without. */
+    public boolean commandTaken(DialogInfo info) {
+        DialogCommands opened = commands;
+        return opened != null && info != null && info.command().map(opened::taken).orElse(false);
+    }
+
+    /** Takes the dialogs' commands back out of the server: the plugin is going. */
+    public void detach() {
+        DialogCommands opened = commands;
+        if (opened != null) {
+            opened.clear();
         }
     }
 
@@ -578,6 +606,8 @@ public final class DialogsImpl implements Dialogs {
      */
     public void attach(org.bukkit.plugin.Plugin plugin) {
         this.slots = new DialogSlots(plugin);
+        // Dialogs that name a command are opened with it — only where they can open.
+        this.commands = supported ? new DialogCommands(plugin, this) : null;
     }
 
     @Override

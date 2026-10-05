@@ -2635,6 +2635,24 @@ welcome:
 
 `/rp dialogs` lists them and `/rp dialog mypack:welcome` opens one.
 
+**A dialog can have a command of its own**, so players open it themselves:
+
+```yaml
+shop:
+  command: shop                    # /shop opens it on whoever types it
+  permission: myserver.shop        # optional: only for players who have it
+  title: Shop
+  ...
+```
+
+`/shop` opens the dialog on the player who typed it, and `/shop Steve` opens it
+about Steve — the word after the command is `{target}` (below). Nobody needs
+`/rp dialog` for it, which is a staff command. A command is one word: `a-z`,
+`0-9`, `_` and `-`, up to 32. A name the server already has — another plugin's
+command or alias — is left to that plugin: the dialog goes without, the console
+says so once, and `/rp dialogs` shows it. A dialog pushed from Studio carries
+the command it was given there.
+
 **A dialog can be about somebody.** Write `{target}` — or any name — anywhere a
 dialog has words or a command, and say what it is when you open it:
 
