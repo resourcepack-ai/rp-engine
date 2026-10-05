@@ -1729,10 +1729,12 @@ meaning; on a block or furniture, `right_click` is its `interact`, `break` its
 `cancel_event`, `set_count` taking from the stack, and a `run` with no delay
 come across. A `permission` condition is a `permission` step; any other
 condition is a branch, which actions do not have, so what it guards is skipped.
+An entity entry is attribute values and tags for an existing mob type, with no
+model or spawn, so there is no RP Engine entity in it, and the load says so.
 
 What does not come across is named in a warning with the id: anything that
 changes a vanilla item or block, behaviours, events and functions with no
-trigger or step here, block states beyond the
+trigger or step here, entities, block states beyond the
 first, item model definitions that switch between models (the default one is
 worn), extra furniture elements, hitboxes and seats, dye recipes, smithing recipes
 missing their template or addition, recipes with a tag or a choice of
