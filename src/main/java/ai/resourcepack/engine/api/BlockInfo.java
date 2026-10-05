@@ -619,14 +619,16 @@ public final class BlockInfo {
 
     /**
      * How {@code state} is drawn: the most specific appearance that matches
-     * it, or the block's own model unturned.
+     * it, the later of two equally specific ones (so a model named for a
+     * direction beats the turn {@code rotate:} gives it), or the block's own
+     * model unturned.
      */
     public Appearance appearanceOf(String state) {
         Appearance best = null;
         int bestScore = -1;
         for (Appearance appearance : appearances) {
             int score = appearance.matches(state);
-            if (score > bestScore) {
+            if (score >= 0 && score >= bestScore) {
                 best = appearance;
                 bestScore = score;
             }
