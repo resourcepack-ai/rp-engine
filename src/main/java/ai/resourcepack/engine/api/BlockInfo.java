@@ -60,7 +60,22 @@ public final class BlockInfo {
          * <p>Fewer states, but no behaviour to suppress at all — the right
          * choice for a block that should be as inert as possible.
          */
-        MUSHROOM_STEM
+        MUSHROOM_STEM,
+
+        /**
+         * A tripwire, cut: string with no collision, which is what a plant, a
+         * flower or a pebble wants - you walk through it, and it breaks at a
+         * touch. The same base Nexo's and Oraxen's string blocks and
+         * ItemsAdder's wire blocks use.
+         *
+         * <p>Only its <em>disarmed</em> states are used, which ordinary string
+         * is never left in, so tripwire traps keep their look. And its
+         * connections to the string beside it change whenever a neighbour
+         * does, so on a server that lets them it holds just two plants. Paper's
+         * {@code block-updates.disable-tripwire-updates} - which those plugins
+         * ask for too - freezes them, and then it holds thirty-two.
+         */
+        TRIPWIRE
     }
 
     /**
@@ -208,6 +223,55 @@ public final class BlockInfo {
     }
 
     /**
+     * A block that grows: a crop, a sapling, a melon stem.
+     *
+     * <p>Growing is one property stepping through its values, last value and
+     * done. A note block, a mushroom stem and a tripwire do not tick on their
+     * own, so the engine does it: every placed block that can still grow is
+     * remembered in its chunk, and checked about once a second while that
+     * chunk is loaded.
+     */
+    public static final class Growth {
+
+        private final String property;
+        private final int seconds;
+        private final int light;
+        private final boolean boneMeal;
+
+        private Growth(String property, int seconds, int light, boolean boneMeal) {
+            this.property = property;
+            this.seconds = seconds;
+            this.light = light;
+            this.boneMeal = boneMeal;
+        }
+
+        /** Engine internal. */
+        public static Growth of(String property, int seconds, int light, boolean boneMeal) {
+            return new Growth(property, Math.max(1, seconds), Math.max(0, Math.min(15, light)), boneMeal);
+        }
+
+        /** The property that steps. */
+        public String property() {
+            return property;
+        }
+
+        /** How long a step takes on average, in seconds. */
+        public int seconds() {
+            return seconds;
+        }
+
+        /** The least light it grows in. */
+        public int light() {
+            return light;
+        }
+
+        /** Whether bone meal moves it a step. */
+        public boolean boneMeal() {
+            return boneMeal;
+        }
+    }
+
+    /**
      * How one state is drawn: a model, turned the way a blockstate file turns
      * one.
      *
@@ -307,6 +371,7 @@ public final class BlockInfo {
     private String itemTexture = "";
     private Map<String, String> roleModels = Map.of();
     private String takes;
+    private Growth growth;
 
     private BlockInfo(ContentId id, Base base, String model, float hardness,
                       String tool, ContentId drop, String sound, String name, List<String> lore,
@@ -360,6 +425,7 @@ public final class BlockInfo {
         to.itemTexture = itemTexture;
         to.roleModels = roleModels;
         to.takes = takes;
+        to.growth = growth;
         return to;
     }
 
@@ -394,6 +460,40 @@ public final class BlockInfo {
         changed.appearances = appearances == null ? List.of() : List.copyOf(appearances);
         changed.cycle = cycle;
         return changed;
+    }
+
+    /** Engine internal; the same block, growing. */
+    public BlockInfo withGrowth(Growth growth) {
+        BlockInfo changed = copy();
+        changed.growth = growth;
+        return changed;
+    }
+
+    /** How it grows, if it does. */
+    public Optional<Growth> growth() {
+        return Optional.ofNullable(growth);
+    }
+
+    /**
+     * Whether a block in {@code state} has a step left to grow: its growing
+     * property is not yet at its last value.
+     */
+    public boolean canGrow(String state) {
+        if (growth == null) {
+            return false;
+        }
+        for (Property property : properties) {
+            if (property.name().equals(growth.property())) {
+                String value = valueIn(state, property.name()).orElse(property.values().get(0));
+                return property.values().indexOf(value) < property.values().size() - 1;
+            }
+        }
+        return false;
+    }
+
+    /** {@code state} one growth step on, or itself when it is done. */
+    public String grown(String state) {
+        return canGrow(state) ? next(state, growth.property()) : state;
     }
 
     /** Engine internal; the same block, its item drawn as a flat picture rather than as the block. */

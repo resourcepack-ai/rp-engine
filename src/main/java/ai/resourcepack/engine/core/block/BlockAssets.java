@@ -190,8 +190,7 @@ public final class BlockAssets implements PackContributor {
         if (reference.isEmpty()) {
             // No art: the base block's own texture, so it is visible and
             // obviously unfinished rather than invisible.
-            into.add(target, ("{\"parent\":\"minecraft:block/"
-                    + block.base().name().toLowerCase(Locale.ROOT) + "\"}")
+            into.add(target, ("{\"parent\":\"" + baseModel(block.base()) + "\"}")
                     .getBytes(StandardCharsets.UTF_8));
             return;
         }
@@ -220,8 +219,7 @@ public final class BlockAssets implements PackContributor {
                             : "assets/models/" + name + ".bbmodel or .json") + ". "
                             + "The block is placeable and renders as a plain "
                             + block.base().name().toLowerCase(Locale.ROOT) + ".");
-            into.add(target, ("{\"parent\":\"minecraft:block/"
-                    + block.base().name().toLowerCase(Locale.ROOT) + "\"}")
+            into.add(target, ("{\"parent\":\"" + baseModel(block.base()) + "\"}")
                     .getBytes(StandardCharsets.UTF_8));
             return;
         }
@@ -244,16 +242,31 @@ public final class BlockAssets implements PackContributor {
         return "assets/minecraft/blockstates/" + base.name().toLowerCase(Locale.ROOT) + ".json";
     }
 
+    /** The model a base block is drawn with when it is not one of ours. */
+    private static String baseModel(BlockInfo.Base base) {
+        // A tripwire has no model of its own name, only its connected shapes.
+        return base == BlockInfo.Base.TRIPWIRE ? "minecraft:block/tripwire_ns"
+                : "minecraft:block/" + base.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** How vanilla draws the tripwire in {@code state}, which ignores disarmed and powered. */
+    private static String vanillaTripwire(String state) {
+        return ShapeTemplates.vanillaTripwire(
+                state.contains("attached=true"), state.contains("east=true"), state.contains("north=true"),
+                state.contains("south=true"), state.contains("west=true"));
+    }
+
     /** Every state of a base, ours pointed at our models and the rest at vanilla's. */
     private static byte[] blockstates(BlockInfo.Base base, Map<String, String> variants) {
         // Written exactly as before blocks could turn - { "model": "..." } -
         // so a pack with no turned blocks builds the same bytes it always did.
-        String vanilla = variant("minecraft:block/" + base.name().toLowerCase(Locale.ROOT), 0, 0, false);
+        String vanilla = variant(baseModel(base), 0, 0, false);
         StringBuilder json = new StringBuilder("{\n  \"variants\": {\n");
         List<String> every = BlockStates.everyState(base);
         for (int i = 0; i < every.size(); i++) {
             String state = every.get(i);
-            json.append("    \"").append(state).append("\": ").append(variants.getOrDefault(state, vanilla));
+            String fallback = base == BlockInfo.Base.TRIPWIRE ? vanillaTripwire(state) : vanilla;
+            json.append("    \"").append(state).append("\": ").append(variants.getOrDefault(state, fallback));
             json.append(i == every.size() - 1 ? "\n" : ",\n");
         }
         json.append("  }\n}\n");

@@ -84,10 +84,48 @@ public final class BlockStates {
      */
     private static final int FIRST = 1;
 
+    /**
+     * Whether this server has frozen tripwire, with Paper's
+     * {@code block-updates.disable-tripwire-updates}.
+     *
+     * <p>A tripwire's four connections follow the string beside it, and its
+     * powered flag follows whoever walks through it - on an ordinary server,
+     * in a shape update nothing can refuse, exactly like a note block's
+     * instrument. So, as with the instrument, they are not part of what a
+     * plant is: a plant is a <em>disarmed</em> tripwire (no string is ever
+     * left disarmed) told apart by {@code attached} alone, which is two plants.
+     * With updates frozen the connections stay as they were set, so they are
+     * part of it too, and there are thirty-two. Powered never is: nothing says
+     * the freeze reaches somebody walking through.
+     *
+     * <p>Static because it is a fact about the server, read once at start.
+     * The numbers mean the same in both modes - the first two are the two
+     * that need no freeze - so a server can turn the freeze on later and
+     * keep every plant.
+     */
+    private static volatile boolean tripwireFrozen;
+
+    /** Says whether this server freezes tripwire updates. Called once at start, before anything loads. */
+    public static void tripwireFrozen(boolean frozen) {
+        tripwireFrozen = frozen;
+    }
+
+    /** Whether this server freezes tripwire updates. */
+    public static boolean tripwireFrozen() {
+        return tripwireFrozen;
+    }
+
+    /** How many plants tripwire holds with updates frozen. */
+    static final int FROZEN_TRIPWIRES = 32;
+
+    /** And without. */
+    static final int LOOSE_TRIPWIRES = 2;
+
     /** What the file holds. A wrapper so a later field has somewhere to go. */
     private static final class Saved {
         Map<String, Integer> noteBlock;
         Map<String, Integer> mushroomStem;
+        Map<String, Integer> tripwire;
         /** Block id to the vanilla block it took over, for every shape but a cube. */
         Map<String, String> shaped;
     }
@@ -136,6 +174,7 @@ public final class BlockStates {
     /** id -> state number, per base. Insertion-ordered, and never re-sorted. */
     private final Map<String, Integer> noteBlock = new LinkedHashMap<>();
     private final Map<String, Integer> mushroomStem = new LinkedHashMap<>();
+    private final Map<String, Integer> tripwire = new LinkedHashMap<>();
     private final Map<String, String> shaped = new LinkedHashMap<>();
 
     public BlockStates(File dataFolder) {
@@ -144,6 +183,10 @@ public final class BlockStates {
 
     /** How many blocks a base can hold, minus the one state left to vanilla. */
     public static int capacity(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // No state of a disarmed tripwire is vanilla's, so none is held back.
+            return tripwireFrozen ? FROZEN_TRIPWIRES : LOOSE_TRIPWIRES;
+        }
         return (base == BlockInfo.Base.MUSHROOM_STEM ? 64 : NOTE_IDENTITIES) - FIRST;
     }
 
@@ -315,6 +358,9 @@ public final class BlockStates {
     }
 
     private Map<String, Integer> mapFor(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            return tripwire;
+        }
         return base == BlockInfo.Base.MUSHROOM_STEM ? mushroomStem : noteBlock;
     }
 
@@ -329,6 +375,19 @@ public final class BlockStates {
      * redstone has no opinion about.
      */
     public static String identityOf(BlockInfo.Base base, int number) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // Number n is the bits of n - 1: attached, then east, north,
+            // south and west. The first two have no connections, which is
+            // what makes them the two a server without the freeze can hold.
+            int bits = number - FIRST;
+            String identity = "attached=" + ((bits & 1) == 1) + ",disarmed=true";
+            if (!tripwireFrozen) {
+                return identity;
+            }
+            return "attached=" + ((bits & 1) == 1) + ",disarmed=true,east=" + ((bits >> 1 & 1) == 1)
+                    + ",north=" + ((bits >> 2 & 1) == 1) + ",south=" + ((bits >> 3 & 1) == 1)
+                    + ",west=" + ((bits >> 4 & 1) == 1);
+        }
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             StringBuilder state = new StringBuilder();
             for (int i = 0; i < FACES.size(); i++) {
@@ -348,6 +407,19 @@ public final class BlockStates {
      * invisible.
      */
     public static List<String> statesFor(BlockInfo.Base base, int number) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // Every state that agrees with the identity, written as the game
+            // writes a tripwire's: attached, disarmed, east, north, powered,
+            // south, west. Without the freeze that is all thirty-two of its
+            // connections and both its powered states.
+            List<String> states = new ArrayList<>();
+            for (String state : everyState(base)) {
+                if (identityOfData(base, "[" + state + "]").equals(identityOf(base, number))) {
+                    states.add(state);
+                }
+            }
+            return states;
+        }
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             return List.of(identityOf(base, number));
         }
@@ -360,6 +432,16 @@ public final class BlockStates {
 
     /** Every state of a base, for writing a variants map that covers them all. */
     public static List<String> everyState(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            List<String> tripwires = new ArrayList<>();
+            for (int bits = 0; bits < 128; bits++) {
+                tripwires.add("attached=" + ((bits & 1) == 1) + ",disarmed=" + ((bits >> 1 & 1) == 1)
+                        + ",east=" + ((bits >> 2 & 1) == 1) + ",north=" + ((bits >> 3 & 1) == 1)
+                        + ",powered=" + ((bits >> 4 & 1) == 1) + ",south=" + ((bits >> 5 & 1) == 1)
+                        + ",west=" + ((bits >> 6 & 1) == 1));
+            }
+            return tripwires;
+        }
         List<String> all = new ArrayList<>();
         for (int number = 0; number < capacity(base) + FIRST; number++) {
             all.addAll(statesFor(base, number));
@@ -379,6 +461,20 @@ public final class BlockStates {
         String inside = open < 0 || close < open ? "" : data.substring(open + 1, close);
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             return inside;
+        }
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            List<String> kept = tripwireFrozen
+                    ? List.of("attached=", "disarmed=", "east=", "north=", "south=", "west=")
+                    : List.of("attached=", "disarmed=");
+            StringBuilder identity = new StringBuilder();
+            for (String part : inside.split(",")) {
+                for (String prefix : kept) {
+                    if (part.startsWith(prefix)) {
+                        identity.append(identity.length() == 0 ? "" : ",").append(part);
+                    }
+                }
+            }
+            return identity.toString();
         }
         StringBuilder identity = new StringBuilder();
         for (String part : inside.split(",")) {
@@ -404,6 +500,7 @@ public final class BlockStates {
             }
             copyInto(saved.noteBlock, noteBlock);
             copyInto(saved.mushroomStem, mushroomStem);
+            copyInto(saved.tripwire, tripwire);
             if (saved.shaped != null) {
                 shaped.putAll(saved.shaped);
             }
@@ -432,6 +529,7 @@ public final class BlockStates {
         Saved saved = new Saved();
         saved.noteBlock = new LinkedHashMap<>(noteBlock);
         saved.mushroomStem = new LinkedHashMap<>(mushroomStem);
+        saved.tripwire = tripwire.isEmpty() ? null : new LinkedHashMap<>(tripwire);
         // Absent rather than empty when nothing has been taken, so a server
         // with no shaped blocks writes the same file it always did.
         saved.shaped = shaped.isEmpty() ? null : new LinkedHashMap<>(shaped);
