@@ -686,6 +686,28 @@ A piece with states takes a plain click; sneaking on one that is also a seat
 sits. A container takes every click before its states would, and a jukebox
 takes the ones that put a disc in or take one out.
 
+### Joining up: sofas and counters
+
+```yaml
+sofa:
+  material: PAPER
+  model: sofa
+  place:
+    connects: true      # or name any of them: { straight: ..., left: ..., right: ..., inner: ..., outer: ... }
+```
+
+Pieces of the same kind put side by side join like a sofa: `straight` with
+one either side, `left` at the end with one only on its right, `right` at the
+other end, `inner` and `outer` at a corner. Each is an item (or a model) to
+wear, and `connects: true` names them after the piece: `sofa_straight`,
+`sofa_left`, and so on. A joining piece faces one of four ways.
+
+Corners follow the game's own rule for stairs - a piece whose back touches one
+turned a quarter is an inner corner, its front an outer one - and the corner
+model is turned the way the game turns its own corner stairs, so one drawn like
+the game's inner and outer stair turns the right way. Putting a piece down or
+taking one away re-reads the row around it.
+
 ### Growing
 
 A piece can turn into another piece over time — a sapling into a tree, a crop
