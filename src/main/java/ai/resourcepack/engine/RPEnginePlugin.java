@@ -1390,6 +1390,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         blocks.replace(parsedBlocks.blocks());
         blocks.allocate();
         Map<ContentId, ItemInfo> withBlocks = new LinkedHashMap<>(parsedItems.items());
+        List<ItemInfo> blockItems = new ArrayList<>();
         for (BlockInfo block : parsedBlocks.blocks().values()) {
             withBlocks.computeIfAbsent(block.id(), id -> ItemInfo.of(id,
                     blocks.itemMaterial(block),
@@ -1397,6 +1398,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     block.itemTexture().isPresent() ? null : block.model(),
                     null, null, null, 0, false, false)
                     .withActions(block.actions()));
+            if (!parsedItems.items().containsKey(block.id())) {
+                blockItems.add(withBlocks.get(block.id()));
+            }
         }
         items.replace(withBlocks);
         // Numbers before anything asks for one, and all at once, so the
@@ -1482,7 +1486,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // null tells the writer this server names them instead.
         ItemAssets itemAssets = new ItemAssets(
                 compatibility.itemEra().needsNumbers() ? modelNumbers : null,
-                compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART));
+                compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART))
+                .withBlockItems(blockItems);
         BuildReport builtReport = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
