@@ -254,6 +254,77 @@ class BlockShapesTest {
                 "only the kind handed out is repainted");
     }
 
+    @Test
+    void aPlantIsADisarmedTripwireTwoWithoutTheFreezeThirtyTwoWithIt() throws IOException {
+        Map<ContentId, BlockInfo> blocks = blocks("""
+                daisy:
+                  base: tripwire
+                  model: daisy
+                rose:
+                  base: plant
+                  model: rose
+                fern:
+                  base: string
+                  model: fern
+                """);
+        try {
+            BlockStates.tripwireFrozen(false);
+            assertEquals(2, BlockStates.capacity(BlockInfo.Base.TRIPWIRE));
+            assertEquals(0f, blocks.get(id("mypack:daisy")).hardness(), "a plant breaks at a touch");
+            BlockStates states = new BlockStates(out.toFile());
+            int daisy = states.numberFor(blocks.get(id("mypack:daisy"))).orElseThrow();
+            int rose = states.numberFor(blocks.get(id("mypack:rose"))).orElseThrow();
+            assertTrue(states.numberFor(blocks.get(id("mypack:fern"))).isEmpty(), "only two fit");
+            assertEquals("attached=false,disarmed=true", BlockStates.identityOf(BlockInfo.Base.TRIPWIRE, daisy));
+            assertEquals("attached=true,disarmed=true", BlockStates.identityOf(BlockInfo.Base.TRIPWIRE, rose));
+            // However its neighbours have connected it and whoever stood in it.
+            assertEquals("attached=false,disarmed=true", BlockStates.identityOfData(BlockInfo.Base.TRIPWIRE,
+                    "minecraft:tripwire[attached=false,disarmed=true,east=true,north=false,powered=true,"
+                            + "south=false,west=true]"));
+            assertEquals(32, BlockStates.statesFor(BlockInfo.Base.TRIPWIRE, daisy).size());
+            // Ordinary string is never disarmed, so it is never a plant.
+            assertFalse(BlockStates.statesFor(BlockInfo.Base.TRIPWIRE, daisy).stream()
+                    .anyMatch(state -> state.contains("disarmed=false")));
+
+            BlockStates.tripwireFrozen(true);
+            assertEquals(32, BlockStates.capacity(BlockInfo.Base.TRIPWIRE));
+            assertTrue(states.numberFor(blocks.get(id("mypack:fern"))).isPresent());
+            // The first two mean the same plant frozen or not.
+            assertEquals("attached=false,disarmed=true,east=false,north=false,south=false,west=false",
+                    BlockStates.identityOf(BlockInfo.Base.TRIPWIRE, daisy));
+            assertEquals(2, BlockStates.statesFor(BlockInfo.Base.TRIPWIRE, daisy).size(), "powered or not");
+        } finally {
+            BlockStates.tripwireFrozen(false);
+        }
+    }
+
+    @Test
+    void stagesAndGrowMakeACropThatStopsAtItsLastStage() throws IOException {
+        BlockInfo tomato = blocks("""
+                tomato:
+                  base: plant
+                  stages: [tomato_0, tomato_1, tomato_2]
+                  grow:
+                    every: 2m
+                    light: 9
+                """).get(id("mypack:tomato"));
+
+        assertEquals(List.of("age=0", "age=1", "age=2"), tomato.states());
+        assertEquals("tomato_1", tomato.appearanceOf("age=1").model());
+        BlockInfo.Growth growth = tomato.growth().orElseThrow();
+        assertEquals("age", growth.property());
+        assertEquals(120, growth.seconds());
+        assertEquals(9, growth.light());
+        assertTrue(growth.boneMeal());
+        assertEquals("age=1", tomato.grown("age=0"));
+        assertTrue(tomato.canGrow("age=1"));
+        assertFalse(tomato.canGrow("age=2"));
+        assertEquals("age=2", tomato.grown("age=2"), "a grown crop stays grown");
+        assertEquals(30, BlockDefinitions.seconds("600t"));
+        assertEquals(30, BlockDefinitions.seconds("600"));
+        assertEquals(300, BlockDefinitions.seconds("5m"));
+    }
+
     private static Map<String, String> read(BuildReport report) throws IOException {
         Map<String, String> entries = new LinkedHashMap<>();
         try (InputStream in = Files.newInputStream(report.pack("main").orElseThrow().file());

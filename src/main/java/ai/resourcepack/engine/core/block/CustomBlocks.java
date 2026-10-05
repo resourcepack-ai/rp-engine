@@ -216,7 +216,15 @@ public final class CustomBlocks implements Listener {
      */
     public String itemMaterial(BlockInfo block) {
         if (block.shape() == BlockInfo.Shape.CUBE) {
-            return block.base() == BlockInfo.Base.MUSHROOM_STEM ? "MUSHROOM_STEM" : "NOTE_BLOCK";
+            switch (block.base()) {
+                case MUSHROOM_STEM:
+                    return "MUSHROOM_STEM";
+                case TRIPWIRE:
+                    // String places tripwire, so vanilla decides where a plant may go.
+                    return "STRING";
+                default:
+                    return "NOTE_BLOCK";
+            }
         }
         return states.existingShaped(block).filter(CustomBlocks::exists)
                 .map(name -> name.toUpperCase(Locale.ROOT)).orElse("PAPER");
@@ -233,8 +241,17 @@ public final class CustomBlocks implements Listener {
             }
             String base = baseName(block.base());
             for (String state : block.states()) {
-                states.existing(block, state).ifPresent(number -> identities.put(
-                        base + "|" + BlockStates.identityOf(block.base(), number), new Placed(block, state)));
+                states.existing(block, state).ifPresent(number -> {
+                    Placed before = identities.put(base + "|" + BlockStates.identityOf(block.base(), number),
+                            new Placed(block, state));
+                    if (before != null && !before.block().id().equals(block.id())) {
+                        // Only possible for plants given out while tripwire was
+                        // frozen, on a server that has since thawed it.
+                        log.warning(block.id() + " and " + before.block().id() + " look the same to this server: "
+                                + "they were made while Paper froze tripwire updates, and it no longer does. Turn "
+                                + "block-updates.disable-tripwire-updates back on in config/paper-global.yml.");
+                    }
+                });
             }
         }
         this.byIdentity = Map.copyOf(identities);
@@ -343,7 +360,7 @@ public final class CustomBlocks implements Listener {
     }
 
     private static String baseName(BlockInfo.Base base) {
-        return base == BlockInfo.Base.MUSHROOM_STEM ? "mushroom_stem" : "note_block";
+        return base.name().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -532,11 +549,48 @@ public final class CustomBlocks implements Listener {
 
     private boolean movesADoor(List<Block> moved, Block head) {
         for (Block block : moved) {
-            if (at(block).filter(found -> found.shape() == BlockInfo.Shape.DOOR).isPresent()) {
+            if (at(block).filter(CustomBlocks::breaksWhenPushed).isPresent()) {
                 return true;
             }
         }
-        return head != null && at(head).filter(found -> found.shape() == BlockInfo.Shape.DOOR).isPresent();
+        return head != null && at(head).filter(CustomBlocks::breaksWhenPushed).isPresent();
+    }
+
+    /** A door and a plant are broken by a piston, as their base blocks are, rather than moved. */
+    private static boolean breaksWhenPushed(BlockInfo block) {
+        return block.shape() == BlockInfo.Shape.DOOR || block.base() == BlockInfo.Base.TRIPWIRE
+                && block.shape() == BlockInfo.Shape.CUBE;
+    }
+
+    /**
+     * Water washes string away and drops it, so it does not flow into a plant
+     * of ours: a flower in a riverbank stays, as one does in vanilla.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onFlow(org.bukkit.event.block.BlockFromToEvent event) {
+        if (event.getToBlock().getType() == Material.TRIPWIRE && at(event.getToBlock()).isPresent()) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Walking through a plant tries to trip it. Where the game asks first, the
+     * answer is no; where it does not, the powered flag it changes is not part
+     * of what the plant is (see {@link BlockStates#tripwireFrozen()}).
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onTread(PlayerInteractEvent event) {
+        if (event.getAction() == Action.PHYSICAL && event.getClickedBlock() != null
+                && event.getClickedBlock().getType() == Material.TRIPWIRE && at(event.getClickedBlock()).isPresent()) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityTread(org.bukkit.event.entity.EntityInteractEvent event) {
+        if (event.getBlock().getType() == Material.TRIPWIRE && at(event.getBlock()).isPresent()) {
+            event.setCancelled(true);
+        }
     }
 
     /** Which of ours is standing here, if any. */
@@ -565,6 +619,9 @@ public final class CustomBlocks implements Listener {
         }
         if (material == Material.MUSHROOM_STEM) {
             return BlockInfo.Base.MUSHROOM_STEM;
+        }
+        if (material == Material.TRIPWIRE) {
+            return BlockInfo.Base.TRIPWIRE;
         }
         return null;
     }

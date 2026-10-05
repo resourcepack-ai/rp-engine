@@ -157,4 +157,65 @@ final class ShapeTemplates {
     static List<Variant> of(BlockInfo.Shape shape) {
         return TEMPLATES.getOrDefault(shape, List.of());
     }
+
+    /**
+     * Vanilla's own tripwire, by the five properties its blockstate file looks
+     * at ({@code attached} and the four connections; it ignores
+     * {@code disarmed} and {@code powered}).
+     *
+     * <p>A plant is a disarmed tripwire, and the pack has to write a variant
+     * for every state including the ones that are still string, so this is
+     * what an ordinary tripwire is drawn as: vanilla's file transcribed.
+     */
+    private static final Map<String, String> TRIPWIRE = Map.ofEntries(
+            Map.entry("attached=false,east=false,north=false,south=false,west=false", variantJson("minecraft:block/tripwire_ns", 0, 0)),
+            Map.entry("attached=false,east=false,north=false,south=false,west=true", variantJson("minecraft:block/tripwire_n", 0, 270)),
+            Map.entry("attached=false,east=false,north=false,south=true,west=false", variantJson("minecraft:block/tripwire_n", 0, 180)),
+            Map.entry("attached=false,east=false,north=false,south=true,west=true", variantJson("minecraft:block/tripwire_ne", 0, 180)),
+            Map.entry("attached=false,east=false,north=true,south=false,west=false", variantJson("minecraft:block/tripwire_n", 0, 0)),
+            Map.entry("attached=false,east=false,north=true,south=false,west=true", variantJson("minecraft:block/tripwire_ne", 0, 270)),
+            Map.entry("attached=false,east=false,north=true,south=true,west=false", variantJson("minecraft:block/tripwire_ns", 0, 0)),
+            Map.entry("attached=false,east=false,north=true,south=true,west=true", variantJson("minecraft:block/tripwire_nse", 0, 180)),
+            Map.entry("attached=false,east=true,north=false,south=false,west=false", variantJson("minecraft:block/tripwire_n", 0, 90)),
+            Map.entry("attached=false,east=true,north=false,south=false,west=true", variantJson("minecraft:block/tripwire_ns", 0, 90)),
+            Map.entry("attached=false,east=true,north=false,south=true,west=false", variantJson("minecraft:block/tripwire_ne", 0, 90)),
+            Map.entry("attached=false,east=true,north=false,south=true,west=true", variantJson("minecraft:block/tripwire_nse", 0, 90)),
+            Map.entry("attached=false,east=true,north=true,south=false,west=false", variantJson("minecraft:block/tripwire_ne", 0, 0)),
+            Map.entry("attached=false,east=true,north=true,south=false,west=true", variantJson("minecraft:block/tripwire_nse", 0, 270)),
+            Map.entry("attached=false,east=true,north=true,south=true,west=false", variantJson("minecraft:block/tripwire_nse", 0, 0)),
+            Map.entry("attached=false,east=true,north=true,south=true,west=true", variantJson("minecraft:block/tripwire_nsew", 0, 0)),
+            Map.entry("attached=true,east=false,north=false,south=false,west=false", variantJson("minecraft:block/tripwire_attached_ns", 0, 0)),
+            Map.entry("attached=true,east=false,north=false,south=false,west=true", variantJson("minecraft:block/tripwire_attached_n", 0, 270)),
+            Map.entry("attached=true,east=false,north=false,south=true,west=false", variantJson("minecraft:block/tripwire_attached_n", 0, 180)),
+            Map.entry("attached=true,east=false,north=false,south=true,west=true", variantJson("minecraft:block/tripwire_attached_ne", 0, 180)),
+            Map.entry("attached=true,east=false,north=true,south=false,west=false", variantJson("minecraft:block/tripwire_attached_n", 0, 0)),
+            Map.entry("attached=true,east=false,north=true,south=false,west=true", variantJson("minecraft:block/tripwire_attached_ne", 0, 270)),
+            Map.entry("attached=true,east=false,north=true,south=true,west=false", variantJson("minecraft:block/tripwire_attached_ns", 0, 0)),
+            Map.entry("attached=true,east=false,north=true,south=true,west=true", variantJson("minecraft:block/tripwire_attached_nse", 0, 180)),
+            Map.entry("attached=true,east=true,north=false,south=false,west=false", variantJson("minecraft:block/tripwire_attached_n", 0, 90)),
+            Map.entry("attached=true,east=true,north=false,south=false,west=true", variantJson("minecraft:block/tripwire_attached_ns", 0, 90)),
+            Map.entry("attached=true,east=true,north=false,south=true,west=false", variantJson("minecraft:block/tripwire_attached_ne", 0, 90)),
+            Map.entry("attached=true,east=true,north=false,south=true,west=true", variantJson("minecraft:block/tripwire_attached_nse", 0, 90)),
+            Map.entry("attached=true,east=true,north=true,south=false,west=false", variantJson("minecraft:block/tripwire_attached_ne", 0, 0)),
+            Map.entry("attached=true,east=true,north=true,south=false,west=true", variantJson("minecraft:block/tripwire_attached_nse", 0, 270)),
+            Map.entry("attached=true,east=true,north=true,south=true,west=false", variantJson("minecraft:block/tripwire_attached_nse", 0, 0)),
+            Map.entry("attached=true,east=true,north=true,south=true,west=true", variantJson("minecraft:block/tripwire_attached_nsew", 0, 0))
+    );
+
+    private static String variantJson(String model, int x, int y) {
+        StringBuilder out = new StringBuilder("{ \"model\": \"").append(model).append('"');
+        if (x != 0) {
+            out.append(", \"x\": ").append(x);
+        }
+        if (y != 0) {
+            out.append(", \"y\": ").append(y);
+        }
+        return out.append(" }").toString();
+    }
+
+    /** How vanilla draws a tripwire with these connections, as a blockstate variant. */
+    static String vanillaTripwire(boolean attached, boolean east, boolean north, boolean south, boolean west) {
+        return TRIPWIRE.get("attached=" + attached + ",east=" + east + ",north=" + north
+                + ",south=" + south + ",west=" + west);
+    }
 }

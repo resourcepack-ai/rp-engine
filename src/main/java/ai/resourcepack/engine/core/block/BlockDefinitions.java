@@ -26,7 +26,10 @@ public final class BlockDefinitions {
     /** What a block may be made of, by the name an author writes. */
     private static final Map<String, BlockInfo.Base> BASES = Map.of(
             "note_block", BlockInfo.Base.NOTE_BLOCK,
-            "mushroom_stem", BlockInfo.Base.MUSHROOM_STEM);
+            "mushroom_stem", BlockInfo.Base.MUSHROOM_STEM,
+            "tripwire", BlockInfo.Base.TRIPWIRE,
+            "string", BlockInfo.Base.TRIPWIRE,
+            "plant", BlockInfo.Base.TRIPWIRE);
 
     private BlockDefinitions() {
     }
@@ -96,7 +99,9 @@ public final class BlockDefinitions {
                             + ". Add model: <name> for a model under assets/models/."));
         }
 
-        float hardness = 1.5f;
+        // A plant breaks at a touch unless it says otherwise; anything solid is
+        // stone-like, which is what somebody writing an ore expects.
+        float hardness = base == BlockInfo.Base.TRIPWIRE ? 0f : 1.5f;
         Optional<String> declaredHardness = body.string("hardness");
         if (declaredHardness.isPresent()) {
             try {
@@ -445,6 +450,19 @@ public final class BlockDefinitions {
             }
         }
 
+        // stages: [a, b, c] is a growing block's short form: an age property
+        // with one value per stage, each drawn by its model.
+        List<String> stages = body.strings("stages");
+        if (!stages.isEmpty() && block.shape() == BlockInfo.Shape.CUBE
+                && properties.stream().noneMatch(known -> known.name().equals("age"))) {
+            List<String> ages = new ArrayList<>();
+            for (int i = 0; i < stages.size(); i++) {
+                ages.add(String.valueOf(i));
+                appearances.add(BlockInfo.Appearance.of("age=" + i, stages.get(i), 0, 0, false));
+            }
+            properties.add(BlockInfo.Property.values("age", ages));
+        }
+
         String cycle = body.string("click").or(() -> body.string("cycle")).map(String::trim).orElse(null);
         if (cycle != null && properties.stream().noneMatch(known -> known.name().equals(cycle))) {
             diagnostics.add(Diagnostic.warning(origin, where,
@@ -464,7 +482,77 @@ public final class BlockDefinitions {
                             + BlockStates.capacity(block.base()) + " for a " + block.base().name().toLowerCase(Locale.ROOT)
                             + "). Consider fewer values, or mushroom_stem."));
         }
-        return block.withStates(properties, appearances, cycle);
+        BlockInfo stated = block.withStates(properties, appearances, cycle);
+        return growth(stated, body, origin, where, diagnostics);
+    }
+
+    /**
+     * {@code grow:}, a property stepping on by itself: {@code grow: 60s} for
+     * the {@code age} property every minute or so, or a block with
+     * {@code property}, {@code every}, {@code light} and {@code bone-meal}.
+     */
+    private static BlockInfo growth(BlockInfo block, DefinitionNode body, String origin, String where,
+                                    List<Diagnostic> diagnostics) {
+        if (body.raw("grow") == null) {
+            return block;
+        }
+        DefinitionNode grow = body.node("grow").orElse(DefinitionNode.empty());
+        String every = body.node("grow").isPresent() ? grow.string("every").orElse("60s")
+                : body.string("grow").orElse("60s");
+        if (every.equalsIgnoreCase("true")) {
+            every = "60s";
+        }
+        String property = grow.string("property").orElse(null);
+        if (property == null) {
+            property = block.properties().stream().anyMatch(known -> known.name().equals("age")) ? "age"
+                    : block.properties().stream().filter(known -> known.kind() == BlockInfo.Property.Kind.VALUES)
+                    .map(BlockInfo.Property::name).findFirst().orElse(null);
+        }
+        String chosen = property;
+        if (chosen == null || block.properties().stream().noneMatch(known -> known.name().equals(chosen)
+                && known.kind() == BlockInfo.Property.Kind.VALUES)) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grow: there is no property with values to grow through (give it stages: or an age "
+                            + "property), so it does not grow."));
+            return block;
+        }
+        if (block.shape() != BlockInfo.Shape.CUBE) {
+            diagnostics.add(Diagnostic.warning(origin, where, "grow: only a cube or a plant grows, so it does not."));
+            return block;
+        }
+        Integer seconds = seconds(every);
+        if (seconds == null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "grow.every: " + every + " is not a time like 30s, 5m or 600t. Using 60s."));
+            seconds = 60;
+        }
+        return block.withGrowth(BlockInfo.Growth.of(chosen, seconds, grow.integer("light").orElse(0),
+                grow.bool("bone-meal").or(() -> grow.bool("bone_meal")).orElse(Boolean.TRUE)));
+    }
+
+    /** {@code 30s}, {@code 5m}, {@code 600t}, or a bare number of ticks, in whole seconds (at least 1). */
+    static Integer seconds(String text) {
+        String value = text.trim().toLowerCase(Locale.ROOT);
+        try {
+            if (value.endsWith("ms")) {
+                return Math.max(1, (int) (Double.parseDouble(value.substring(0, value.length() - 2)) / 1000));
+            }
+            if (value.endsWith("s")) {
+                return Math.max(1, (int) Double.parseDouble(value.substring(0, value.length() - 1)));
+            }
+            if (value.endsWith("m")) {
+                return Math.max(1, (int) (Double.parseDouble(value.substring(0, value.length() - 1)) * 60));
+            }
+            if (value.endsWith("h")) {
+                return Math.max(1, (int) (Double.parseDouble(value.substring(0, value.length() - 1)) * 3600));
+            }
+            if (value.endsWith("t")) {
+                value = value.substring(0, value.length() - 1);
+            }
+            return Math.max(1, (int) (Double.parseDouble(value) / 20));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
