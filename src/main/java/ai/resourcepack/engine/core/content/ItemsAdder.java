@@ -481,9 +481,7 @@ final class ItemsAdder {
         specific.string("placed_model").or(() -> resource.string("model_path"))
                 .ifPresent(model -> out.put("model", model));
         specific.string("hardness").ifPresent(hardness -> out.put("hardness", hardness));
-        // light_level is deliberately dropped rather than translated: a custom
-        // block cannot emit light here, and writing the key would only produce
-        // a warning for every block in somebody's pack.
+        specific.integer("light_level").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
         specific.string("break_tool").ifPresent(tool -> out.put("tool", tool));
         specific.string("sound").or(() -> block.string("sound"))
                 .ifPresent(sound -> out.put("sound", sound));
@@ -556,12 +554,7 @@ final class ItemsAdder {
         if (specific.bool("no_explosion").orElse(Boolean.FALSE)) {
             out.put("blast-resistant", true);
         }
-        if (specific.integer("light_level").orElse(0) > 0) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    "light_level: a custom block's light belongs to the vanilla block underneath, and a note block "
-                            + "gives none, so it was skipped. shape: bulb gives light, switched by redstone; a placed "
-                            + "model can give any level."));
-        }
+        specific.integer("light_level").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
         // A block whose click swaps it for another (ItemsAdder's on/off pairs)
         // is the block's own click-into: here.
         item.node("events").flatMap(events -> events.node("placed_block"))

@@ -1740,11 +1740,15 @@ ten-stage crack overlay, because hardness belongs to a block's TYPE in
 Minecraft and every custom block is a note block underneath. The wrong tool
 still breaks it and gives nothing, the way stone and a shovel do.
 
-**A custom block cannot give off light, and cannot change its sound.** Both
-belong to the block's type rather than its state. `sound:` plays something of
-yours *over* the base block's own, which is the honest half of it; for light,
-use a [placed model](#placing-a-model), which puts a real light block in its
-anchor, or `shape: bulb` below, which lights up when redstone switches it.
+**`light:` (0-15) makes it glow**, with a real light block the engine keeps in
+an empty space beside it - above it where it can - and takes away when the block
+goes. Light belongs to a block's type and a note block's gives none, so that is
+the honest way to do it; the glow is a level dimmer on the far side than a
+lamp's own. `shape: bulb` below is the other: a block that lights up when
+redstone switches it.
+
+**A custom block cannot change its sound.** That belongs to the block's type
+too. `sound:` plays something of yours *over* the base block's own.
 
 ### Turning, and states
 
