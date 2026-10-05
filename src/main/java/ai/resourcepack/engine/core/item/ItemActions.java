@@ -120,6 +120,29 @@ public final class ItemActions {
         }
     }
 
+    /**
+     * Warns about {@code place}, {@code interact} and {@code remove} on
+     * something that is never stood in the world.
+     *
+     * <p>Those three are about the thing where it stands, so on an item with
+     * no {@code place:} block they cannot fire, and an author who wrote them
+     * would otherwise be left wondering why a click does nothing.
+     */
+    public static void checkStanding(Map<ItemAction.Trigger, List<ItemAction>> actions, boolean stands,
+                                     ContentId id, String origin, List<Diagnostic> diagnostics) {
+        if (stands) {
+            return;
+        }
+        for (ItemAction.Trigger trigger : List.of(ItemAction.Trigger.PLACE, ItemAction.Trigger.INTERACT,
+                ItemAction.Trigger.REMOVE)) {
+            if (actions.containsKey(trigger)) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "actions." + trigger.written() + " runs on a placed model or a custom block, and this "
+                                + "item has no place: block, so it never will."));
+            }
+        }
+    }
+
     private static String problemWith(ItemAction step) {
         switch (step.kind()) {
             case COOLDOWN:

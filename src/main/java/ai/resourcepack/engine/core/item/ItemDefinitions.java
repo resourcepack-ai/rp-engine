@@ -99,6 +99,7 @@ public final class ItemDefinitions {
                 java.util.List<ai.resourcepack.engine.api.ItemAction>> actions =
                 ItemActions.parse(body, definition.id(), origin, diagnostics);
         ItemActions.validate(actions, definition.id(), origin, diagnostics);
+        ItemActions.checkStanding(actions, body.node("place").isPresent(), definition.id(), origin, diagnostics);
 
         return Optional.of(ItemInfo.of(
                 definition.id(),

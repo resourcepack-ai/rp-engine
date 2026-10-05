@@ -110,7 +110,25 @@ public final class BlockDefinitions {
         return Optional.of(BlockInfo.of(definition.id(), base, model, hardness,
                 body.string("tool").orElse(null), drop,
                 body.string("sound").orElse(null))
-                .withItemText(body.string("name").orElse(null), body.strings("lore")));
+                .withItemText(body.string("name").orElse(null), body.strings("lore"))
+                .withActions(actions(body, definition, diagnostics)));
+    }
+
+    /**
+     * What the block does, written exactly as an item's {@code actions:}.
+     *
+     * <p>A block's id is the item that places it, so these are that item's
+     * actions: {@code right_click} is a click with it in hand, and
+     * {@code place}, {@code interact} and {@code remove} are the block itself
+     * being put down, right-clicked and mined.
+     */
+    private static java.util.Map<ai.resourcepack.engine.api.ItemAction.Trigger,
+            List<ai.resourcepack.engine.api.ItemAction>> actions(DefinitionNode body, ContentDefinition definition,
+                                                                List<Diagnostic> diagnostics) {
+        var parsed = ai.resourcepack.engine.core.item.ItemActions.parse(body, definition.id(),
+                definition.origin(), diagnostics);
+        ai.resourcepack.engine.core.item.ItemActions.validate(parsed, definition.id(), definition.origin(), diagnostics);
+        return parsed;
     }
 
     /** The blocks, and what was wrong with the ones that are missing. */
