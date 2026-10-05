@@ -84,10 +84,88 @@ public final class BlockStates {
      */
     private static final int FIRST = 1;
 
+    /**
+     * Whether this server has frozen tripwire, with Paper's
+     * {@code block-updates.disable-tripwire-updates}.
+     *
+     * <p>A tripwire's four connections follow the string beside it, and its
+     * powered flag follows whoever walks through it - on an ordinary server,
+     * in a shape update nothing can refuse, exactly like a note block's
+     * instrument. So, as with the instrument, they are not part of what a
+     * plant is: a plant is a <em>disarmed</em> tripwire (no string is ever
+     * left disarmed) told apart by {@code attached} alone, which is two plants.
+     * With updates frozen the connections stay as they were set, so they are
+     * part of it too, and there are thirty-two. Powered never is: nothing says
+     * the freeze reaches somebody walking through.
+     *
+     * <p>Static because it is a fact about the server, read once at start.
+     * The numbers mean the same in both modes - the first two are the two
+     * that need no freeze - so a server can turn the freeze on later and
+     * keep every plant.
+     */
+    private static volatile boolean tripwireFrozen;
+
+    /** Says whether this server freezes tripwire updates. Called once at start, before anything loads. */
+    public static void tripwireFrozen(boolean frozen) {
+        tripwireFrozen = frozen;
+    }
+
+    /** Whether this server freezes tripwire updates. */
+    public static boolean tripwireFrozen() {
+        return tripwireFrozen;
+    }
+
+    /** How many plants tripwire holds with updates frozen. */
+    static final int FROZEN_TRIPWIRES = 32;
+
+    /** And without. */
+    static final int LOOSE_TRIPWIRES = 2;
+
     /** What the file holds. A wrapper so a later field has somewhere to go. */
     private static final class Saved {
         Map<String, Integer> noteBlock;
         Map<String, Integer> mushroomStem;
+        Map<String, Integer> tripwire;
+        /** Block id to the vanilla block it took over, for every shape but a cube. */
+        Map<String, String> shaped;
+    }
+
+    /**
+     * The vanilla blocks each shape may take over, in the order they are
+     * handed out.
+     *
+     * <p>Waxed copper because it never changes on its own and almost nobody
+     * builds with every one of the four ages of it; the slab pool starts with
+     * the petrified oak slab, which survival cannot obtain at all and so costs
+     * nobody anything. Within the copper, weathered and exposed go first:
+     * fresh and fully green copper are what builders actually choose, so they
+     * are the last given away.
+     *
+     * <p><strong>Order is fixed for ever</strong>, for the same reason the note
+     * block numbering is - though here it only decides what is handed out
+     * NEXT. What has been handed out is saved by name.
+     */
+    private static final Map<BlockInfo.Shape, List<String>> POOLS = Map.of(
+            BlockInfo.Shape.STAIRS, copper("cut_copper_stairs"),
+            BlockInfo.Shape.SLAB, prepend("petrified_oak_slab", copper("cut_copper_slab")),
+            BlockInfo.Shape.DOOR, copper("copper_door"),
+            BlockInfo.Shape.TRAPDOOR, copper("copper_trapdoor"),
+            BlockInfo.Shape.GRATE, copper("copper_grate"),
+            // Bulbs by brightness, brightest first: a bulb's light is its
+            // age's, and a lamp is what somebody wants one for.
+            BlockInfo.Shape.BULB, List.of("waxed_copper_bulb", "waxed_exposed_copper_bulb",
+                    "waxed_weathered_copper_bulb", "waxed_oxidized_copper_bulb"));
+
+    private static List<String> copper(String kind) {
+        return List.of("waxed_weathered_" + kind, "waxed_exposed_" + kind,
+                "waxed_oxidized_" + kind, "waxed_" + kind);
+    }
+
+    private static List<String> prepend(String first, List<String> rest) {
+        List<String> out = new ArrayList<>();
+        out.add(first);
+        out.addAll(rest);
+        return List.copyOf(out);
     }
 
     private final Gson gson = new Gson();
@@ -96,6 +174,8 @@ public final class BlockStates {
     /** id -> state number, per base. Insertion-ordered, and never re-sorted. */
     private final Map<String, Integer> noteBlock = new LinkedHashMap<>();
     private final Map<String, Integer> mushroomStem = new LinkedHashMap<>();
+    private final Map<String, Integer> tripwire = new LinkedHashMap<>();
+    private final Map<String, String> shaped = new LinkedHashMap<>();
 
     public BlockStates(File dataFolder) {
         this.file = new File(dataFolder, "blocks.json");
@@ -103,6 +183,10 @@ public final class BlockStates {
 
     /** How many blocks a base can hold, minus the one state left to vanilla. */
     public static int capacity(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // No state of a disarmed tripwire is vanilla's, so none is held back.
+            return tripwireFrozen ? FROZEN_TRIPWIRES : LOOSE_TRIPWIRES;
+        }
         return (base == BlockInfo.Base.MUSHROOM_STEM ? 64 : NOTE_IDENTITIES) - FIRST;
     }
 
@@ -112,9 +196,24 @@ public final class BlockStates {
      * @return empty only when the base has run out of states
      */
     public Optional<Integer> numberFor(BlockInfo block) {
+        return numberFor(block, block.defaultState());
+    }
+
+    /**
+     * The spare state one of a block's own states is, allocating it if this is
+     * the first time.
+     *
+     * <p>A block's placed state is filed under the block's id alone, which is
+     * what every block was filed under before blocks had states: one that
+     * gains a property later keeps its number for the state it was always in,
+     * and every one already standing in a world stays what it was.
+     *
+     * @return empty only when the base has run out of states
+     */
+    public Optional<Integer> numberFor(BlockInfo block, String state) {
         Map<String, Integer> allocated = mapFor(block.base());
-        String id = block.id().toString();
-        Integer already = allocated.get(id);
+        String key = keyOf(block, state);
+        Integer already = allocated.get(key);
         if (already != null) {
             return Optional.of(already);
         }
@@ -122,23 +221,130 @@ public final class BlockStates {
         if (next >= capacity(block.base()) + FIRST) {
             return Optional.empty();
         }
-        allocated.put(id, next);
+        allocated.put(key, next);
         return Optional.of(next);
     }
 
     /** What a block was allocated, without allocating one. */
     public Optional<Integer> existing(BlockInfo block) {
-        return Optional.ofNullable(mapFor(block.base()).get(block.id().toString()));
+        return existing(block, block.defaultState());
+    }
+
+    /** What one of a block's states was allocated, without allocating one. */
+    public Optional<Integer> existing(BlockInfo block, String state) {
+        return Optional.ofNullable(mapFor(block.base()).get(keyOf(block, state)));
+    }
+
+    /**
+     * What a state of a block is filed under: the id for its placed state,
+     * {@code id[state]} for the rest.
+     */
+    public static String keyOf(BlockInfo block, String state) {
+        String id = block.id().toString();
+        return state == null || state.isEmpty() || state.equals(block.defaultState()) ? id : id + "[" + state + "]";
     }
 
     /** Which block a state belongs to, for a block being broken or clicked. */
     public Optional<ContentId> at(BlockInfo.Base base, int number) {
         for (Map.Entry<String, Integer> entry : mapFor(base).entrySet()) {
             if (entry.getValue() == number) {
-                return ContentId.parse(entry.getKey());
+                String key = entry.getKey();
+                int bracket = key.indexOf('[');
+                return ContentId.parse(bracket < 0 ? key : key.substring(0, bracket));
             }
         }
         return Optional.empty();
+    }
+
+    // ---- shapes ----------------------------------------------------------
+
+    /** The vanilla blocks {@code shape} may take, in the order they are handed out. */
+    public static List<String> pool(BlockInfo.Shape shape) {
+        return POOLS.getOrDefault(shape, List.of());
+    }
+
+    /** Every vanilla block any shape may take. */
+    public static java.util.Set<String> everyPooled() {
+        java.util.Set<String> all = new java.util.LinkedHashSet<>();
+        POOLS.values().forEach(all::addAll);
+        return all;
+    }
+
+    /**
+     * The vanilla block a shaped block takes over, handing one out if this is
+     * the first time.
+     *
+     * <p>A block that names its own ({@code base: minecraft:spruce_stairs})
+     * gets exactly that, if nothing else has it; anything else is given the
+     * first of its shape's pool nobody has. Whatever it was given is kept by
+     * name, so a later pack, or a server moved to an older version where some
+     * of the pool does not exist, never reshuffles what is standing in a world.
+     *
+     * @param exists whether this server has a block by that name
+     * @return empty when the pool is used up, the named block is taken or
+     *         missing, or what was given before does not exist on this server
+     */
+    public Optional<String> shapedFor(BlockInfo block, java.util.function.Predicate<String> exists) {
+        String id = block.id().toString();
+        String already = shaped.get(id);
+        if (already != null) {
+            return exists.test(already) ? Optional.of(already) : Optional.empty();
+        }
+        if (block.takes().isPresent()) {
+            String wanted = bare(block.takes().get());
+            if (shaped.containsValue(wanted) || !exists.test(wanted)) {
+                return Optional.empty();
+            }
+            shaped.put(id, wanted);
+            return Optional.of(wanted);
+        }
+        for (String candidate : pool(block.shape())) {
+            if (!shaped.containsValue(candidate) && exists.test(candidate)) {
+                shaped.put(id, candidate);
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** What a shaped block was given, without giving it anything. */
+    public Optional<String> existingShaped(BlockInfo block) {
+        return Optional.ofNullable(shaped.get(block.id().toString()));
+    }
+
+    /** Every vanilla block taken over, by the id that took it. */
+    public Map<String, String> shaped() {
+        return Map.copyOf(shaped);
+    }
+
+    /** How many of a shape's pool are still free, counting only what this server has. */
+    public int remaining(BlockInfo.Shape shape, java.util.function.Predicate<String> exists) {
+        int free = 0;
+        for (String candidate : pool(shape)) {
+            if (!shaped.containsValue(candidate) && exists.test(candidate)) {
+                free++;
+            }
+        }
+        return free;
+    }
+
+    /** {@code minecraft:spruce_stairs} or {@code SPRUCE_STAIRS} to {@code spruce_stairs}. */
+    static String bare(String name) {
+        String lower = name.trim().toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("minecraft:") ? lower.substring("minecraft:".length()) : lower;
+    }
+
+    /**
+     * What a taken-over block looks like to somebody who builds with the real
+     * thing: the same copper without its wax (which looks identical), or for
+     * the petrified slab an ordinary oak one. Null for a block with no such
+     * twin, which is every block a pack named for itself.
+     */
+    public static String vanillaTwin(String taken) {
+        if (taken.equals("petrified_oak_slab")) {
+            return "oak_slab";
+        }
+        return taken.startsWith("waxed_") ? taken.substring("waxed_".length()) : null;
     }
 
     /** Every id allocated on a base, in the order they were allocated. */
@@ -152,6 +358,9 @@ public final class BlockStates {
     }
 
     private Map<String, Integer> mapFor(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            return tripwire;
+        }
         return base == BlockInfo.Base.MUSHROOM_STEM ? mushroomStem : noteBlock;
     }
 
@@ -166,6 +375,19 @@ public final class BlockStates {
      * redstone has no opinion about.
      */
     public static String identityOf(BlockInfo.Base base, int number) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // Number n is the bits of n - 1: attached, then east, north,
+            // south and west. The first two have no connections, which is
+            // what makes them the two a server without the freeze can hold.
+            int bits = number - FIRST;
+            String identity = "attached=" + ((bits & 1) == 1) + ",disarmed=true";
+            if (!tripwireFrozen) {
+                return identity;
+            }
+            return "attached=" + ((bits & 1) == 1) + ",disarmed=true,east=" + ((bits >> 1 & 1) == 1)
+                    + ",north=" + ((bits >> 2 & 1) == 1) + ",south=" + ((bits >> 3 & 1) == 1)
+                    + ",west=" + ((bits >> 4 & 1) == 1);
+        }
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             StringBuilder state = new StringBuilder();
             for (int i = 0; i < FACES.size(); i++) {
@@ -185,6 +407,19 @@ public final class BlockStates {
      * invisible.
      */
     public static List<String> statesFor(BlockInfo.Base base, int number) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            // Every state that agrees with the identity, written as the game
+            // writes a tripwire's: attached, disarmed, east, north, powered,
+            // south, west. Without the freeze that is all thirty-two of its
+            // connections and both its powered states.
+            List<String> states = new ArrayList<>();
+            for (String state : everyState(base)) {
+                if (identityOfData(base, "[" + state + "]").equals(identityOf(base, number))) {
+                    states.add(state);
+                }
+            }
+            return states;
+        }
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             return List.of(identityOf(base, number));
         }
@@ -197,6 +432,16 @@ public final class BlockStates {
 
     /** Every state of a base, for writing a variants map that covers them all. */
     public static List<String> everyState(BlockInfo.Base base) {
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            List<String> tripwires = new ArrayList<>();
+            for (int bits = 0; bits < 128; bits++) {
+                tripwires.add("attached=" + ((bits & 1) == 1) + ",disarmed=" + ((bits >> 1 & 1) == 1)
+                        + ",east=" + ((bits >> 2 & 1) == 1) + ",north=" + ((bits >> 3 & 1) == 1)
+                        + ",powered=" + ((bits >> 4 & 1) == 1) + ",south=" + ((bits >> 5 & 1) == 1)
+                        + ",west=" + ((bits >> 6 & 1) == 1));
+            }
+            return tripwires;
+        }
         List<String> all = new ArrayList<>();
         for (int number = 0; number < capacity(base) + FIRST; number++) {
             all.addAll(statesFor(base, number));
@@ -216,6 +461,20 @@ public final class BlockStates {
         String inside = open < 0 || close < open ? "" : data.substring(open + 1, close);
         if (base == BlockInfo.Base.MUSHROOM_STEM) {
             return inside;
+        }
+        if (base == BlockInfo.Base.TRIPWIRE) {
+            List<String> kept = tripwireFrozen
+                    ? List.of("attached=", "disarmed=", "east=", "north=", "south=", "west=")
+                    : List.of("attached=", "disarmed=");
+            StringBuilder identity = new StringBuilder();
+            for (String part : inside.split(",")) {
+                for (String prefix : kept) {
+                    if (part.startsWith(prefix)) {
+                        identity.append(identity.length() == 0 ? "" : ",").append(part);
+                    }
+                }
+            }
+            return identity.toString();
         }
         StringBuilder identity = new StringBuilder();
         for (String part : inside.split(",")) {
@@ -241,6 +500,10 @@ public final class BlockStates {
             }
             copyInto(saved.noteBlock, noteBlock);
             copyInto(saved.mushroomStem, mushroomStem);
+            copyInto(saved.tripwire, tripwire);
+            if (saved.shaped != null) {
+                shaped.putAll(saved.shaped);
+            }
         } catch (IOException | JsonSyntaxException e) {
             // Deliberately loud, and deliberately not overwritten. Every custom
             // block in every world depends on this file, so a server owner has
@@ -266,6 +529,10 @@ public final class BlockStates {
         Saved saved = new Saved();
         saved.noteBlock = new LinkedHashMap<>(noteBlock);
         saved.mushroomStem = new LinkedHashMap<>(mushroomStem);
+        saved.tripwire = tripwire.isEmpty() ? null : new LinkedHashMap<>(tripwire);
+        // Absent rather than empty when nothing has been taken, so a server
+        // with no shaped blocks writes the same file it always did.
+        saved.shaped = shaped.isEmpty() ? null : new LinkedHashMap<>(shaped);
         try {
             Files.createDirectories(file.getParentFile().toPath());
             Files.write(file.toPath(), gson.toJson(saved).getBytes(StandardCharsets.UTF_8));
