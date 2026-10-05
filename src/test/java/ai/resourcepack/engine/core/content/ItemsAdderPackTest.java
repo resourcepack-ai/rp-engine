@@ -4,6 +4,9 @@ import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.core.item.ItemAssets;
 import ai.resourcepack.engine.core.pack.PackBuilder;
+import ai.resourcepack.engine.api.SoundInfo;
+import ai.resourcepack.engine.core.sound.SoundAssets;
+import ai.resourcepack.engine.core.sound.SoundDefinitions;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.EntityInfo;
@@ -471,5 +474,126 @@ class ItemsAdderPackTest {
         Map<String, byte[]> zip = build(report);
         assertArrayEquals(new byte[] {9},
                 zip.get("assets/myitems/textures/entity/equipment/humanoid/myarmor_boots.png"));
+    }
+
+    // ---- sounds --------------------------------------------------------------
+
+    private Map<String, byte[]> buildSounds(LoadReport report) throws IOException {
+        BuildReport built = new PackBuilder().with(new SoundAssets()).build(content, out, report);
+        assertFalse(built.hasErrors(), built.diagnostics().toString());
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(built.pack("main").orElseThrow().file()))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                entries.put(entry.getName(), zip.readAllBytes());
+            }
+        }
+        return entries;
+    }
+
+    @Test
+    void theirSoundsSectionBecomesRpEngineSounds() throws IOException {
+        // The wiki's two examples, the subtitle in a language overwrite kept
+        // in a second file.
+        write("my_sounds/sounds.yml", """
+                info:
+                  namespace: my_sounds
+                sounds:
+                  sound_1:
+                    path: sound_1
+                    settings:
+                      subtitle: sound.sound_1
+                  song_1:
+                    path: music/song_1.ogg
+                    settings:
+                      subtitle: "Song 1 Disc"
+                      volume: 0.5
+                      pitch: 1.5
+                      weight: 1
+                      stream: true
+                      attenuation_distance: 10
+                    jukebox:
+                      enabled: true
+                      description: "Song 1"
+                """);
+        write("my_sounds/lang.yml", """
+                info:
+                  namespace: my_sounds
+                minecraft_lang_overwrite:
+                  my_lang_overwrite:
+                    entries:
+                      sound.sound_1: "Sound 1"
+                    languages:
+                    - ALL
+                """);
+        bytes("my_sounds/sounds/sound_1.ogg", new byte[] {1});
+        bytes("my_sounds/sounds/music/song_1.ogg", new byte[] {2});
+
+        LoadReport report = load();
+        var sounds = SoundDefinitions.parse(report).sounds();
+        SoundInfo first = sounds.get(ContentId.parse("my_sounds:sound_1").orElseThrow());
+        assertEquals("sound_1", first.file());
+        assertEquals("Sound 1", first.subtitle().orElseThrow(), "the key, in the pack's own English");
+        SoundInfo song = sounds.get(ContentId.parse("my_sounds:song_1").orElseThrow());
+        assertEquals("music/song_1", song.file());
+        assertEquals("Song 1 Disc", song.subtitle().orElseThrow());
+        assertEquals(0.5f, song.volume());
+        assertEquals(1.5f, song.pitch());
+        assertTrue(song.stream());
+        assertTrue(warned(report, "song_1", "weight, attenuation_distance, jukebox"));
+
+        String json = new String(buildSounds(report).get("assets/my_sounds/sounds.json"), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"my_sounds:music/song_1\""), json);
+    }
+
+    @Test
+    void anOlderPacksSoundsJsonIsReadAndWhatIsNotReadStillShips() throws IOException {
+        write("my_sounds/items.yml", """
+                info:
+                  namespace: my_sounds
+                items:
+                  ruby:
+                    resource:
+                      material: DIAMOND
+                """);
+        write("my_sounds/resourcepack/assets/my_sounds/sounds.json", """
+                {
+                  "music.song_1": {
+                    "subtitle": "subtitles.my_sounds.song",
+                    "sounds": [
+                      "my_sounds:music/song_1_variant_1",
+                      {"name": "my_sounds:music/song_1_variant_2", "stream": true}
+                    ]
+                  },
+                  "door": {"sounds": [{"name": "my_sounds:door", "stream": true, "volume": 0.7}]},
+                  "alias": {"sounds": [{"name": "minecraft:block.note_block.bell", "type": "event"}]}
+                }
+                """);
+        write("my_sounds/resourcepack/assets/my_sounds/lang/en_us.json", """
+                {"subtitles.my_sounds.song": "A song plays", "item.my_sounds.ruby": "Ruby"}
+                """);
+        bytes("my_sounds/resourcepack/assets/my_sounds/sounds/music/song_1_variant_1.ogg", new byte[] {1});
+        bytes("my_sounds/resourcepack/assets/my_sounds/sounds/door.ogg", new byte[] {2});
+
+        LoadReport report = load();
+        var sounds = SoundDefinitions.parse(report).sounds();
+        SoundInfo song = sounds.get(ContentId.parse("my_sounds:music.song_1").orElseThrow());
+        assertEquals("music/song_1_variant_1", song.file());
+        assertEquals("A song plays", song.subtitle().orElseThrow());
+        SoundInfo door = sounds.get(ContentId.parse("my_sounds:door").orElseThrow());
+        assertTrue(door.stream());
+        assertEquals(0.7f, door.volume());
+        assertTrue(warned(report, "music.song_1", "one of 2 files"));
+        assertTrue(warned(report, "alias", "another sound event"));
+
+        // The build's sounds.json and language file are written over theirs,
+        // and keep what theirs said that ours does not.
+        Map<String, byte[]> zip = buildSounds(report);
+        String json = new String(zip.get("assets/my_sounds/sounds.json"), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"door\""), json);
+        assertTrue(json.contains("\"alias\""), "the event alias still ships: " + json);
+        String lang = new String(zip.get("assets/my_sounds/lang/en_us.json"), StandardCharsets.UTF_8);
+        assertTrue(lang.contains("item.my_sounds.ruby"), lang);
+        assertTrue(lang.contains("A song plays"), lang);
     }
 }
