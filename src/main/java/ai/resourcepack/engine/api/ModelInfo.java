@@ -80,6 +80,7 @@ public final class ModelInfo {
     private float seatForward;
     private boolean vehicleCollision = true;
     private ModelShape shape = ModelShape.NONE;
+    private StorageSpec storage;
     private final int light;
     private final Surface surface;
     private final ContentId drop;
@@ -220,12 +221,9 @@ public final class ModelInfo {
      * of this model.
      */
     public ModelInfo withSeatOffset(float side, float forward) {
-        ModelInfo moved = of(id, item, facing, scale, width, height, solid, seat,
-                light, surface, drop);
+        ModelInfo moved = copy();
         moved.seatSide = side;
         moved.seatForward = forward;
-        moved.vehicleCollision = vehicleCollision;
-        moved.shape = shape;
         return moved;
     }
 
@@ -248,12 +246,25 @@ public final class ModelInfo {
     }
 
     /**
+     * The same model, holding items — or not, for null.
+     *
+     * <p>A copy, for the reason {@link #withSeatOffset} gives.
+     */
+    public ModelInfo withStorage(StorageSpec storage) {
+        ModelInfo changed = copy();
+        changed.storage = storage;
+        return changed;
+    }
+
+    /**
      * Everything {@link #of} cannot carry, moved across.
      *
-     * <p>The three `with` methods each rebuild through {@code of}, which resets
+     * <p>The `with` methods each rebuild through {@code of}, which resets
      * whatever the others set — so every one of them has to bring the rest
-     * along, and doing that by hand three times is how one of them ends up
-     * quietly dropping a seat offset. This is the one place that list lives.
+     * along, and doing that by hand in each is how one of them ends up
+     * quietly dropping a seat offset. This is the one place that list lives,
+     * and a new field that is not added here is a field the next {@code with}
+     * call throws away.
      */
     private ModelInfo copy() {
         ModelInfo made = of(id, item, facing, scale, width, height, solid, seat,
@@ -262,6 +273,7 @@ public final class ModelInfo {
         made.seatForward = seatForward;
         made.vehicleCollision = vehicleCollision;
         made.shape = shape;
+        made.storage = storage;
         return made;
     }
 
@@ -316,6 +328,17 @@ public final class ModelInfo {
      */
     public ModelShape shape() {
         return shape;
+    }
+
+    /**
+     * The container it is, or empty for a piece that holds nothing.
+     *
+     * <p>Opened by right-clicking it. A piece that is also a seat opens on a
+     * plain click and is sat on with a sneaking one, because a chair you cannot
+     * open and a cabinet you keep sitting in are both broken.
+     */
+    public java.util.Optional<StorageSpec> storage() {
+        return java.util.Optional.ofNullable(storage);
     }
 
     @Override
