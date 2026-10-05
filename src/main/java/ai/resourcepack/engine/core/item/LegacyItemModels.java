@@ -109,25 +109,14 @@ final class LegacyItemModels {
      */
     static byte[] json(String material, boolean isBlock, List<Override> overrides) {
         String name = material.toLowerCase(Locale.ROOT);
-        // Waxed copper is drawn with the unwaxed block's models - there is no
-        // block/waxed_cut_copper_stairs - and a shaped custom block's item is
-        // exactly such a block. A door's item is a flat picture, and a
-        // trapdoor's is its bottom half.
-        String drawn = name.startsWith("waxed_") ? name.substring("waxed_".length()) : name;
-        if (isBlock && drawn.endsWith("_door")) {
-            isBlock = false;
-        } else if (isBlock && drawn.endsWith("_trapdoor")) {
-            drawn = drawn + "_bottom";
-        }
         StringBuilder out = new StringBuilder(128 + overrides.size() * 80);
         out.append("{\n");
         if (isBlock) {
-            name = drawn;
             out.append("  \"parent\": \"minecraft:block/").append(name).append("\",\n");
         } else {
             out.append("  \"parent\": \"minecraft:item/")
                     .append(isHandheld(material) ? "handheld" : "generated").append("\",\n");
-            out.append("  \"textures\": { \"layer0\": \"minecraft:item/").append(drawn).append("\" },\n");
+            out.append("  \"textures\": { \"layer0\": \"minecraft:item/").append(name).append("\" },\n");
         }
         out.append("  \"overrides\": [\n");
         // Sorted by number, because the client takes the LAST predicate that

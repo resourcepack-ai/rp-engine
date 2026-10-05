@@ -122,14 +122,9 @@ final class NexoOraxen {
                     break;
                 }
             }
-            if (blockMechanic != null && NexoOraxenBlocks.isDirectionalPart(mechanics.node(blockMechanic).orElseThrow())) {
-                // One direction of another block's set: drawn as part of that
-                // block, not placed as one of its own.
-                continue;
-            }
             if (blockMechanic != null) {
-                blocks.put(id, NexoOraxenBlocks.block(document, item, blockMechanic,
-                        mechanics.node(blockMechanic).orElseThrow(), id, namespace, origin, diagnostics));
+                blocks.put(id, block(item, blockMechanic, mechanics.node(blockMechanic).orElseThrow(),
+                        id, namespace, origin, diagnostics));
             } else {
                 Map<String, Object> translated = item(item, id, namespace, origin, diagnostics);
                 armour(item, id, namespace, origin, diagnostics, translated, layers);
@@ -237,7 +232,7 @@ final class NexoOraxen {
     }
 
     /** Every texture layer, in the order Nexo/Oraxen would layer them. */
-    static List<String> textures(DefinitionNode pack) {
+    private static List<String> textures(DefinitionNode pack) {
         if (!pack.strings("texture").isEmpty()) return pack.strings("texture");
         if (!pack.strings("textures").isEmpty()) return pack.strings("textures");
         DefinitionNode map = pack.node("textures").orElse(DefinitionNode.empty());
@@ -972,6 +967,87 @@ final class NexoOraxen {
     // ---- custom blocks ------------------------------------------------------
 
     /**
+     * A custom block is its own RP Engine content id; its item comes with it.
+     *
+     * <p>Nexo's {@code custom_block} and Oraxen's {@code block} (and their
+     * legacy {@code noteblock}/{@code stringblock}/{@code chorusblock}) all
+     * become a full cube in a spare block state here. Their non-cube shapes -
+     * tripwire plants, chorus leaves, Oraxen's stairs, slabs and doors - are
+     * different blocks underneath, which this engine does not have, so they
+     * come across as a cube and say so.
+     */
+    private static Map<String, Object> block(DefinitionNode item, String mechanicName, DefinitionNode mechanic,
+                                             String id, String namespace, String origin,
+                                             List<Diagnostic> diagnostics) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        DefinitionNode pack = section(item, "Pack").orElse(DefinitionNode.empty());
+
+        // A model a file names, or the one Nexo/Oraxen generate out of
+        // parent_model and textures, which has no file to point at.
+        boolean generated = pack.string("model").isEmpty() && !textures(pack).isEmpty();
+        Optional<String> model = mechanic.string("model")
+                .or(() -> mechanic.node("appearance").flatMap(a -> a.string("model")))
+                .or(() -> pack.string("model"));
+        if (generated && (model.isEmpty() || model.get().equals(id)
+                || model.get().endsWith(":" + id) || model.get().endsWith("/" + id))) {
+            String parent = pack.string("parent_model").orElse("block/cube_all").replace("minecraft:", "");
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "is drawn by a model Nexo/Oraxen generate from Pack.parent_model " + parent
+                            + " and its texture. RP Engine blocks take a model file and do not generate one, "
+                            + "so it renders as a plain note block until there is one: write assets/models/" + id
+                            + ".json with \"parent\": \"minecraft:" + parent + "\" and the texture, and set model: "
+                            + id + "."));
+        } else {
+            model.flatMap(value -> localPath(value, namespace, id, origin, diagnostics, "model"))
+                    .ifPresent(value -> out.put("model", value));
+        }
+
+        String type = mechanic.string("type").orElse("").trim().toUpperCase(Locale.ROOT);
+        if (mechanicName.equals("stringblock") || mechanicName.equals("chorusblock")
+                || List.of("STRINGBLOCK", "CHORUSBLOCK", "STRING", "CHORUS", "STAIR", "SLAB", "DOOR", "TRAPDOOR",
+                "GRATE", "BULB").contains(type)) {
+            String kind = type.isEmpty() ? mechanicName : type.toLowerCase(Locale.ROOT);
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    kind + " is not a full block, and RP Engine custom blocks are full cubes inside a note block. "
+                            + "It came across as one; a placed model suits a plant or a decoration better."));
+        }
+        if (type.contains("MUSHROOM")
+                || (mechanicName.equals("block") && type.isEmpty() && mechanic.raw("custom_variation") != null)) {
+            // Oraxen's original block mechanic hid in mushroom stems.
+            out.put("base", "mushroom_stem");
+        }
+
+        breaking(mechanic, id, namespace, origin, diagnostics, out);
+        sound(mechanic, id, origin, diagnostics, out);
+
+        NexoOraxenActions.standing(mechanic, id, origin, diagnostics, out);
+        if (mechanic.raw("light") != null) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "light: a custom block cannot give off light here - it belongs to the block's type, not its "
+                            + "state. A placed model can."));
+        }
+        List<String> skipped = new ArrayList<>();
+        for (String name : mechanic.keys()) {
+            if (BLOCK_KEYS.contains(name)) continue;
+            if (BEHAVIOUR_REASONS.containsKey(name)) {
+                diagnostics.add(Diagnostic.warning(origin, id,
+                        "custom block " + name + " was skipped: " + BEHAVIOUR_REASONS.get(name) + "."));
+            } else {
+                skipped.add(name);
+            }
+        }
+        if (!skipped.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, id,
+                    "custom block " + String.join(", ", skipped) + " have no RP Engine equivalent and were skipped."));
+        }
+        return out;
+    }
+
+    private static final List<String> BLOCK_KEYS = List.of("model", "appearance", "hardness", "drop", "sound",
+            "block_sounds", "block-sounds", "type", "custom_variation", "custom-variation", "breaking", "light",
+            "clickActions", "events");
+
+    /**
      * Hardness, tool and drop.
      *
      * <p>Nexo: {@code hardness} and {@code drop: {best_tool, loots}}. Oraxen:
@@ -982,7 +1058,7 @@ final class NexoOraxen {
      * breaks it and gives nothing, which is what an {@code else} without
      * drops meant.
      */
-    static void breaking(DefinitionNode mechanic, String id, String namespace, String origin,
+    private static void breaking(DefinitionNode mechanic, String id, String namespace, String origin,
                                  List<Diagnostic> diagnostics, Map<String, Object> out) {
         List<DefinitionNode> rules = mechanic.nodes("breaking");
         if (!rules.isEmpty()) {
@@ -1061,7 +1137,7 @@ final class NexoOraxen {
      * {@code place: {sound}}. The break, step, hit and fall sounds belong to
      * the base block's type here and are named in a warning.
      */
-    static void sound(DefinitionNode mechanic, String id, String origin, List<Diagnostic> diagnostics,
+    private static void sound(DefinitionNode mechanic, String id, String origin, List<Diagnostic> diagnostics,
                               Map<String, Object> out) {
         mechanic.string("sound").ifPresent(sound -> out.put("sound", sound));
         DefinitionNode sounds = mechanic.node("block_sounds").or(() -> mechanic.node("block-sounds"))
@@ -1090,7 +1166,7 @@ final class NexoOraxen {
         return Optional.empty();
     }
 
-    static String qualified(String id, String namespace) {
+    private static String qualified(String id, String namespace) {
         return id.contains(":") ? id : namespace + ":" + id;
     }
 

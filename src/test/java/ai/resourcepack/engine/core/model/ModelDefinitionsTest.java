@@ -265,6 +265,55 @@ class ModelDefinitionsTest {
         assertEquals(0.5f, info.seat());
     }
 
+    // ---- storage --------------------------------------------------------
+
+    @Test
+    void aPieceCanBeAContainer() throws IOException {
+        chair("  place:\n    storage:\n      type: chest\n      rows: 2\n      title: \"Cabinet\"\n");
+
+        ai.resourcepack.engine.api.StorageSpec storage = one(parse(), "mypack:chair").storage().orElseThrow();
+
+        assertEquals(ai.resourcepack.engine.api.StorageSpec.Type.CHEST, storage.type());
+        assertEquals(2, storage.rows());
+        assertEquals("Cabinet", storage.title().orElseThrow());
+    }
+
+    @Test
+    void aPieceUsuallyHoldsNothing() throws IOException {
+        chair("  place: {}\n");
+
+        assertTrue(one(parse(), "mypack:chair").storage().isEmpty());
+    }
+
+    @Test
+    void aShulkerAlwaysGivesBackItselfWhateverDropSays() throws IOException {
+        // The contents travel inside the dropped item and are unpacked by
+        // placing it. A different item dropped would carry contents no
+        // placement could ever unpack.
+        chair("  place:\n    drop: mypack:shard\n    storage: shulker\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo info = one(result, "mypack:chair");
+
+        assertTrue(info.drop().isEmpty());
+        assertEquals(ai.resourcepack.engine.api.StorageSpec.Type.SHULKER, info.storage().orElseThrow().type());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("shulker")));
+    }
+
+    @Test
+    void storageSurvivesTheOtherCopies() throws IOException {
+        // withStorage sits in the same chain as withSeatOffset and the rest;
+        // a copy that forgot it would make every container a plain piece.
+        chair("  place:\n    storage: true\n    vehicle-collision: false\n    seat: 0.5\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertTrue(info.storage().isPresent());
+        assertTrue(info.withSeatOffset(1f, 1f).storage().isPresent());
+        assertTrue(info.withShape(null).storage().isPresent());
+        assertTrue(info.withVehicleCollision(true).storage().isPresent());
+    }
+
     @Test
     void nothingLoadedMeansNothingParsed() {
         assertTrue(ModelDefinitions.parse(null, null).model().isEmpty());

@@ -132,6 +132,13 @@ public final class ModelPlacementListener implements Listener {
         return actions != null && player != null && actions.run(player, modelItem(id), trigger, null);
     }
 
+    /** Opens a piece that holds items. Null until wired, and then a piece is just a piece. */
+    private ai.resourcepack.engine.core.storage.Storages storages;
+
+    public void storages(ai.resourcepack.engine.core.storage.Storages storages) {
+        this.storages = storages;
+    }
+
     public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
         this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
     }
@@ -271,6 +278,14 @@ public final class ModelPlacementListener implements Listener {
         ItemStack shown = source != null && source.getType() != Material.AIR
                 ? asOne(source)
                 : items.create(info.item()).orElse(null);
+        // A shulker-style piece put down from an item that was carrying its
+        // contents: the bytes move onto the hitbox as they are, and the stack
+        // the display shows is stripped of them. Left on the display, they
+        // would come back out on the next break as a second copy of everything.
+        byte[] carried = storages == null ? null : storages.carried(shown);
+        if (carried != null) {
+            storages.withoutContents(shown);
+        }
 
         // An animated piece is several displays the server retimes rather than
         // one still one. Everything below — the hitbox, the barrier, the
@@ -335,6 +350,9 @@ public final class ModelPlacementListener implements Listener {
                 i.getPersistentDataContainer().set(rigModelKey, PersistentDataType.STRING, info.id().toString());
                 i.getPersistentDataContainer().set(displaysKey, PersistentDataType.STRING,
                         String.join(",", partIds));
+            }
+            if (carried != null && info.storage().map(one -> one.type().keepsContents()).orElse(false)) {
+                i.getPersistentDataContainer().set(storages.contentsKey(), PersistentDataType.BYTE_ARRAY, carried);
             }
             if (info.solid()) {
                 i.getPersistentDataContainer().set(solidKey, PersistentDataType.BYTE, (byte) 1);
@@ -421,6 +439,23 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        ModelInfo piece = model.get(id.get());
+        Player clicker = event.getPlayer();
+        // Sneaking on a piece that is also a seat sits; everything a plain
+        // click does below gives way to that. A cabinet you keep sitting in
+        // and a chair you can never open are both broken, and the sneak is how
+        // a player says which one they meant.
+        boolean sitInstead = piece != null && piece.sittable() && clicker.isSneaking();
+
+        // A container takes a plain click, and nothing after it runs: a
+        // storage piece that also seated people on the same click would open
+        // and sit at once.
+        if (piece != null && piece.storage().isPresent() && storages != null && !sitInstead) {
+            event.setCancelled(true);
+            openStorage(clicker, hitbox, piece);
+            return;
+        }
+
         // A right-click animation gets the click before sitting does. An
         // author who gave a piece both asked for a chair that does something
         // when you use it, and a seat is what SHIFT-clicking a seat still is.
@@ -436,9 +471,56 @@ public final class ModelPlacementListener implements Listener {
         // thing to do about that. Everything else a click might mean is still
         // a decision about somebody's server, which is what the event is for —
         // and a listener that cancels gets its way before this runs.
-        ModelInfo info = model.get(id.get());
-        if (info != null && info.sittable()) {
-            seats.sit(event.getPlayer(), seatOf(hitbox, info));
+        if (piece != null && piece.sittable()) {
+            seats.sit(clicker, seatOf(hitbox, piece));
+        }
+    }
+
+    // ---- storage -------------------------------------------------------
+
+    /**
+     * Where a piece's own contents live: on its hitbox.
+     *
+     * <p>Keyed by the hitbox's uuid, which is what makes every player who
+     * opens this piece share one live inventory, and what the unload handler
+     * closes by.
+     */
+    private ai.resourcepack.engine.core.storage.StorageHolder storageOf(Interaction hitbox) {
+        return new ai.resourcepack.engine.core.storage.PdcStorage(storageKey(hitbox.getUniqueId()),
+                hitbox.getPersistentDataContainer(), storages.contentsKey(), plugin.getLogger());
+    }
+
+    private static String storageKey(UUID hitbox) {
+        return "piece/" + hitbox;
+    }
+
+    private void openStorage(Player player, Interaction hitbox, ModelInfo info) {
+        // The item's own name when the pack did not give the screen one, so a
+        // cabinet called "Oak Cabinet" in your hand is called that when open.
+        String title = items.info(info.item()).flatMap(ai.resourcepack.engine.api.ItemInfo::name)
+                .orElse("Storage");
+        storages.open(player, info.storage().get(), info.item(), storageOf(hitbox), title,
+                hitbox.getLocation().add(0, 0.5, 0));
+    }
+
+    /**
+     * Whatever a piece's chunk is taking away is saved and closed while it is
+     * still there to save onto.
+     *
+     * <p>Reachable only by a viewer who has wandered off — opening needs a
+     * click within reach — but a teleport with a screen open is exactly that,
+     * and the save after this would land on an entity that no longer exists.
+     */
+    @EventHandler
+    public void onUnload(org.bukkit.event.world.EntitiesUnloadEvent event) {
+        if (storages == null) {
+            return;
+        }
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof Interaction
+                    && entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)) {
+                storages.close(storageKey(entity.getUniqueId()));
+            }
         }
     }
 
@@ -507,6 +589,25 @@ public final class ModelPlacementListener implements Listener {
 
         Location where = hitbox.getLocation();
         World world = where.getWorld();
+        ModelInfo info = model.get(id);
+
+        // What it was holding, taken out FIRST: every view of it is closed and
+        // emptied before anything else happens, so nobody can take something
+        // out of a cabinet whose contents are about to be on the floor. After
+        // the cancel check above, so a break somebody refused spills nothing.
+        // A piece that has contents but whose definition no longer says it is
+        // a container (the pack changed) spills them like a chest rather than
+        // taking them away with it.
+        ai.resourcepack.engine.api.StorageSpec storage = info == null ? null : info.storage().orElse(null);
+        if (storage == null && storages != null
+                && hitbox.getPersistentDataContainer().has(storages.contentsKey(), PersistentDataType.BYTE_ARRAY)) {
+            storage = ai.resourcepack.engine.api.StorageSpec.chest();
+        }
+        List<ItemStack> contents = storage == null || storages == null
+                ? List.of()
+                : storages.removed(storage, storageOf(hitbox));
+        boolean keepInside = storage != null
+                && storage.type() == ai.resourcepack.engine.api.StorageSpec.Type.SHULKER;
 
         // Every display, because an animated piece is several and one left
         // behind is a limb standing in an empty block.
@@ -559,7 +660,14 @@ public final class ModelPlacementListener implements Listener {
         // command about the space finds it empty, as a broken piece is.
         act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE);
 
-        if (!ask.isDropItem() || world == null) {
+        if (world == null) {
+            return;
+        }
+        if (!ask.isDropItem()) {
+            // The piece is not given back — a creative break, or a plugin that
+            // said so — but what was IN it was never the piece's to lose. It
+            // spills, as a chest's contents do whoever breaks the chest.
+            spill(world, where, contents);
             return;
         }
         // A configured drop beats what it was holding: a piece that gives
@@ -571,8 +679,21 @@ public final class ModelPlacementListener implements Listener {
         ItemStack fallback = configured != null
                 ? configured
                 : drop != null ? drop : items.create(modelItem(id)).orElse(null);
+        if (keepInside && fallback != null) {
+            // A shulker-style piece goes back into the item, contents and all.
+            storages.keepInside(fallback, contents);
+            contents = List.of();
+        }
         if (fallback != null) {
-            world.dropItemNaturally(where.add(0, 0.5, 0), fallback);
+            world.dropItemNaturally(where.clone().add(0, 0.5, 0), fallback);
+        }
+        spill(world, where, contents);
+    }
+
+    /** Puts a container's contents on the ground where it stood. */
+    private static void spill(World world, Location where, List<ItemStack> contents) {
+        for (ItemStack stack : contents) {
+            world.dropItemNaturally(where.clone().add(0, 0.5, 0), stack);
         }
     }
 
