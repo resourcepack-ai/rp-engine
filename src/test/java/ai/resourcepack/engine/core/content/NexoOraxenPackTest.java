@@ -20,10 +20,19 @@ import ai.resourcepack.engine.core.sound.SoundDefinitions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import ai.resourcepack.engine.api.BuildReport;
+import ai.resourcepack.engine.core.item.ItemAssets;
+import ai.resourcepack.engine.core.pack.PackBuilder;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -764,5 +773,124 @@ class NexoOraxenPackTest {
         assertFalse(recipes.containsKey(id("pack:ruby_upgrade")));
         assertTrue(warned(report, "plank_ruby", "rather than made without it"));
         assertTrue(warned(report, null, "smithing recipes were skipped"));
+    }
+
+    // ---- armour ---------------------------------------------------------------
+
+    @TempDir Path out;
+
+    private void bytes(String path, byte[] data) throws IOException {
+        Path file = content.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.write(file, data);
+    }
+
+    private Map<String, byte[]> build(LoadReport report) throws IOException {
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(built.pack("main").orElseThrow().file()))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                entries.put(entry.getName(), zip.readAllBytes());
+            }
+        }
+        return entries;
+    }
+
+    @Test
+    void armourLayerArtIsFoundByNameAndServedWhereTheGameReadsIt() throws IOException {
+        // Oraxen's component armour: the set named by equippable.model, its
+        // art found by file name beside the item icons.
+        write("oraxen_pack/items/armors.yml", """
+                emerald_helmet:
+                  material: PAPER
+                  components:
+                    equippable: { slot: HEAD, model: oraxen:emerald }
+                  pack: { textures: [default/armors/emerald_helmet] }
+                emerald_leggings:
+                  material: PAPER
+                  components:
+                    equippable: { slot: LEGS, model: oraxen:emerald }
+                  pack: { textures: [default/armors/emerald_leggings] }
+                ruby_boots:
+                  material: PAPER
+                  pack: { textures: [default/armors/ruby_boots] }
+                ruby_chestplate:
+                  material: CHAINMAIL_CHESTPLATE
+                  trim_pattern: oraxen:ruby
+                  pack: { textures: [default/armors/ruby_chestplate] }
+                magic_elytra:
+                  material: ELYTRA
+                  components:
+                    equippable: { slot: CHEST, model: oraxen:magic_elytra }
+                  pack: { textures: [default/armors/magic_elytra_icon] }
+                crown:
+                  material: PAPER
+                  components:
+                    equippable: { slot: HEAD }
+                  pack: { model: item/crown }
+                fancy_boots:
+                  material: PAPER
+                  pack: { textures: [item/fancy_boots] }
+                """);
+        bytes("oraxen_pack/assets/textures/default/armors/emerald_armor_layer_1.png", new byte[] {1});
+        bytes("oraxen_pack/assets/textures/default/armors/emerald_armor_layer_2.png", new byte[] {2});
+        bytes("oraxen_pack/assets/textures/default/armors/ruby_armor_layer_1.png", new byte[] {3});
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        assertEquals("head", items.get(id("oraxen_pack:emerald_helmet")).armor().orElseThrow());
+        assertEquals("legs", items.get(id("oraxen_pack:emerald_leggings")).armor().orElseThrow());
+        // No component at all: armour because its id names a piece and the
+        // art exists, which is when both plugins assign one themselves.
+        assertEquals("feet", items.get(id("oraxen_pack:ruby_boots")).armor().orElseThrow());
+        // Trim-based armour is the same art.
+        assertEquals("chest", items.get(id("oraxen_pack:ruby_chestplate")).armor().orElseThrow());
+        assertTrue(items.get(id("oraxen_pack:magic_elytra")).armor().isEmpty());
+        assertTrue(warned(report, "magic_elytra", "wings"));
+        // A 3D helmet, which has no layer art: a hat.
+        assertTrue(items.get(id("oraxen_pack:crown")).hat());
+        assertTrue(items.get(id("oraxen_pack:crown")).armor().isEmpty());
+        assertTrue(items.get(id("oraxen_pack:fancy_boots")).armor().isEmpty(), "no art, no component, no armour");
+        assertFalse(warned(report, "emerald_helmet", "no layer art"));
+
+        Map<String, byte[]> zip = build(report);
+        String equipment = "assets/oraxen_pack/textures/entity/equipment/";
+        assertArrayEquals(new byte[] {1}, zip.get(equipment + "humanoid/emerald_helmet.png"));
+        assertArrayEquals(new byte[] {2}, zip.get(equipment + "humanoid_leggings/emerald_leggings.png"));
+        assertArrayEquals(new byte[] {3}, zip.get(equipment + "humanoid/ruby_boots.png"));
+        assertArrayEquals(new byte[] {3}, zip.get(equipment + "humanoid/ruby_chestplate.png"));
+    }
+
+    @Test
+    void nexosWrittenCustomArmorLayersWinAndAForeignOneFallsBackToTheName() throws IOException {
+        write("nexo_pack/items/forest.yml", """
+                forest_helmet:
+                  material: PAPER
+                  Pack:
+                    CustomArmor:
+                      layer1: nexo:item/nexo_armors/forest_armor_layer_1
+                      layer2: nexo:item/nexo_armors/forest_armor_layer_2
+                    texture: nexo_pack:item/nexo_armors/forest_helmet
+                  Components:
+                    equippable: { slot: HEAD, asset_id: nexo:forest }
+                oak_leggings:
+                  material: PAPER
+                  Pack:
+                    CustomArmor:
+                      layer1: armors/oak_body.png
+                      layer2: armors/oak_legs.png
+                    texture: item/oak_leggings
+                """);
+        bytes("nexo_pack/assets/textures/item/nexo_armors/forest_armor_layer_1.png", new byte[] {7});
+        bytes("nexo_pack/assets/textures/armors/oak_legs.png", new byte[] {8});
+
+        LoadReport report = load();
+        assertFalse(warned(report, "forest_helmet", "outside this pack's namespace"),
+                "the same file was found by its name");
+        Map<String, byte[]> zip = build(report);
+        String equipment = "assets/nexo_pack/textures/entity/equipment/";
+        assertArrayEquals(new byte[] {7}, zip.get(equipment + "humanoid/forest_helmet.png"));
+        assertArrayEquals(new byte[] {8}, zip.get(equipment + "humanoid_leggings/oak_leggings.png"));
     }
 }

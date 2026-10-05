@@ -30,6 +30,17 @@ public interface PackContributor {
         boolean has(String zipPath);
 
         /**
+         * What is already at {@code zipPath} in the bundle being built.
+         *
+         * <p>For a file that has to be served at a second path: worn armour
+         * art drawn somewhere a pack keeps it, which the game will only read
+         * from the equipment folder. Empty when nothing is there.
+         */
+        default java.util.Optional<byte[]> read(String zipPath) {
+            return java.util.Optional.empty();
+        }
+
+        /**
          * Reads a file out of a pack's folder on disk, relative to the pack.
          *
          * <p>For source a contributor consumes but the client never sees: a

@@ -510,6 +510,22 @@ crown:
 `assets/<namespace>/textures/entity/equipment/<layer>/<name>.png`, so a texture
 a pack ships in another namespace, or vanilla's, can be worn.
 
+**Art kept somewhere else** is named with `armor-art`, which takes the same
+reference as `texture:` — a path under `assets/textures/`, or a resource
+location — and the build serves that PNG at the equipment path for you:
+
+```yaml
+ruby_leggings:
+  material: PAPER
+  armor: legs
+  armor-art: armour/ruby_layer_2    # assets/textures/armour/ruby_layer_2.png
+```
+
+An old-style armour layer sheet is exactly what the game wants here: `layer_1`
+(body and boots) for every slot but `legs`, `layer_2` for `legs`. A PNG you put
+at the equipment path yourself wins over `armor-art`. This is how ItemsAdder,
+Nexo and Oraxen armour is worn without moving a file.
+
 This is vanilla's own equipment path, which arrived in 1.21.4. It replaces the
 old tricks outright — dyed leather spends a colour that can then never be used
 for anything else, and armour trims are stuck in the trim palette.
@@ -517,8 +533,9 @@ for anything else, and armour trims are stuck in the trim palette.
 **On an older server this is the one part of the format that is reduced.**
 Below 1.21.2 only materials that are already armour can be worn, so `armor:` on
 a stick does nothing; on 1.21.2 and 1.21.3 any item can be worn but draws with
-vanilla artwork. The item itself works either way, and the plugin says which
-you are on at startup.
+vanilla artwork. The item itself works either way, the plugin says which
+you are on at startup, and every build names the armour that will be worn with
+vanilla art.
 
 ## Entities
 
@@ -1592,7 +1609,8 @@ What comes across:
 | `resource.material` · `textures` · `model_path` | `material` · `texture` · `model` |
 | `display_name` or `name` · `lore` · `permission` | the same |
 | `enchants` · `attribute_modifiers.mainhand` · `durability` · `max_stack_size` | `enchantments` · `attributes` · `durability` · `stack` |
-| `specific_properties.armor.slot` | `armor` |
+| `specific_properties.armor` (`slot`, `custom_armor`) · `equipment` (`id`, `slot`) | `armor`, with the set's `layer_1`/`layer_2` as `armor-art`; `hat` for a head piece with no set |
+| `equipments.<id>` · `armors_rendering.<id>` · `legacy_armor_renderings.<id>` | the layer art those name, from any file in the pack |
 | `behaviours.liquid_bucket` | `liquid` |
 | `behaviours.furniture` | `place:`, with its light, solidity and seat |
 | `font_images.<id>` | an icon |
@@ -1603,7 +1621,10 @@ What does not, each of them a warning naming the id rather than a silence:
 **entities** and **recipes**, which are a different feature rather than a
 different spelling and want writing as `entities/` and `recipes/`; and the
 parts of an item that are their plugin's own behaviour rather than a property
-of the item — `events`, `drop`, `item_flags`.
+of the item — `events`, `drop`, `item_flags`. Of their armour, an animated
+layer (a strip of frames, which a worn layer cannot play) is not carried,
+`use_color` tints and emissive layers are dropped, and colour-only armour, which
+has no art, is worn as plain leather.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder

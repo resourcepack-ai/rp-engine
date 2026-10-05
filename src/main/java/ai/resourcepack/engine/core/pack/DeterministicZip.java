@@ -78,6 +78,11 @@ public final class DeterministicZip {
         return path != null && entries.containsKey(path);
     }
 
+    /** What is already at {@code path}, or null when nothing is. */
+    public byte[] get(String path) {
+        return path == null ? null : entries.get(path);
+    }
+
     /** Drops whatever is at {@code path}. */
     public void remove(String path) {
         if (path != null) {

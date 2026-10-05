@@ -805,6 +805,29 @@ class CraftEnginePackTest {
     }
 
     @Test
+    void trimArmourDrawnFromAnyTextureIsServedAtTheEquipmentPath() throws IOException {
+        write("gems/pack.yml", "namespace: gems\n");
+        write("gems/configuration/armour.yml", """
+                items:
+                  gems:jade_boots:
+                    material: chainmail_boots
+                    settings:
+                      equipment:
+                        asset_id: gems:jade
+                equipments:
+                  gems:jade:
+                    type: trim
+                    humanoid: minecraft:custom/armor/jade_layer_1
+                """);
+        bytes("gems/resourcepack/assets/minecraft/textures/custom/armor/jade_layer_1.png", png(64, 32));
+        LoadReport report = load();
+        assertEquals("feet", item(report, "gems:jade_boots").armor().orElseThrow());
+
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        assertTrue(read(built).containsKey("assets/gems/textures/entity/equipment/humanoid/jade_boots.png"));
+    }
+
+    @Test
     void complexModelDefinitionsWearTheirDefaultModelAndSayWhatSwitches() throws IOException {
         write("gems/pack.yml", "namespace: gems\n");
         write("gems/configuration/items.yml", """

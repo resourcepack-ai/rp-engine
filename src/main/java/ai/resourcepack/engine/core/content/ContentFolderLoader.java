@@ -468,15 +468,23 @@ public final class ContentFolderLoader {
                                        List<ContentDefinition> definitions,
                                        List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
+        Map<Path, DefinitionNode> documents = new LinkedHashMap<>();
+        // Armour sets first, from every file: an item names its set by id, and
+        // the set may be declared in another file of the same pack.
+        Map<String, DefinitionNode> armours = new LinkedHashMap<>();
         for (Path file : list(folder, diagnostics, relative(root, folder), path -> true)) {
             if (Files.isDirectory(file) || !isDefinitionFile(file)) {
                 continue;
             }
-            String origin = relative(root, file);
-            Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
-            if (document.isEmpty() || !ItemsAdder.looksLikeOne(document.get())) {
-                continue;
+            Optional<DefinitionNode> document = readMap(file, relative(root, file), diagnostics);
+            if (document.isPresent() && ItemsAdder.looksLikeOne(document.get())) {
+                documents.put(file, document.get());
+                ItemsAdder.armours(document.get()).forEach(armours::putIfAbsent);
             }
+        }
+        for (Map.Entry<Path, DefinitionNode> read : documents.entrySet()) {
+            String origin = relative(root, read.getKey());
+            Optional<DefinitionNode> document = Optional.of(read.getValue());
             ItemsAdder.namespaceOf(document.get()).ifPresent(declared -> {
                 if (!declared.equals(namespace.name())) {
                     diagnostics.add(Diagnostic.warning(origin, "info.namespace",
@@ -487,7 +495,7 @@ public final class ContentFolderLoader {
             });
 
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics)
+                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, armours)
                     .entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
@@ -503,6 +511,9 @@ public final class ContentFolderLoader {
                                        List<ContentDefinition> definitions,
                                        List<Diagnostic> diagnostics) {
         Set<ContentId> seen = new HashSet<>();
+        // Their armour art is found by file name, so the pack is looked
+        // through once, and only if it holds one of their item files.
+        ArmourLayers layers = null;
         for (Path file : nexoOraxenConfigFiles(folder, diagnostics, relative(root, folder))) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
@@ -522,8 +533,11 @@ public final class ContentFolderLoader {
             if (!NexoOraxen.looksLikeOne(document.get())) {
                 continue;
             }
+            if (layers == null) {
+                layers = ArmourLayers.index(folder, namespace.name());
+            }
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : NexoOraxen.translate(document.get(), namespace.name(), origin, diagnostics).entrySet()) {
+                    : NexoOraxen.translate(document.get(), namespace.name(), origin, diagnostics, layers).entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin, seen, definitions, diagnostics);

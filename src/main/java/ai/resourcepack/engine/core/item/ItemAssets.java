@@ -1,7 +1,9 @@
 package ai.resourcepack.engine.core.item;
 
 import ai.resourcepack.engine.api.Bundle;
+import ai.resourcepack.engine.api.ContentDefinition;
 import ai.resourcepack.engine.api.ContentId;
+import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.model.ModelRigs;
@@ -56,6 +58,20 @@ public final class ItemAssets implements PackContributor {
     private final ModelNumbers numbers;
     private final boolean numbered;
 
+    /**
+     * Whether this server draws worn armour from the pack's equipment assets
+     * ({@code Feature.ARMOUR_ART}). Below it the files are still written, so
+     * the pack is the same everywhere, but the build says which items will
+     * be worn with vanilla art.
+     */
+    private final boolean armourArt;
+
+    /** {@code armor-art:} by item, read for this build; see {@link #readArmorArt}. */
+    private final Map<ContentId, String> armorArt = new LinkedHashMap<>();
+
+    /** The armour this build wrote that the server will draw with vanilla art. */
+    private final List<String> vanillaDrawn = new ArrayList<>();
+
     /** Definitions era: models are named, and nothing is allocated. */
     public ItemAssets() {
         this(null);
@@ -66,8 +82,18 @@ public final class ItemAssets implements PackContributor {
      *                number, or null on 1.21.4 and up
      */
     public ItemAssets(ModelNumbers numbers) {
+        this(numbers, true);
+    }
+
+    /**
+     * @param numbers   as above
+     * @param armourArt whether the server draws worn armour from the pack's
+     *                  equipment assets, 1.21.4 and up
+     */
+    public ItemAssets(ModelNumbers numbers, boolean armourArt) {
         this.numbers = numbers;
         this.numbered = numbers != null;
+        this.armourArt = armourArt;
     }
 
     /**
@@ -95,6 +121,8 @@ public final class ItemAssets implements PackContributor {
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
         this.bundle = bundle;
         legacyBases.clear();
+        vanillaDrawn.clear();
+        readArmorArt(loaded);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
@@ -109,6 +137,36 @@ public final class ItemAssets implements PackContributor {
             writeItem(item, into);
         }
         writeLegacyBases(into);
+        if (!vanillaDrawn.isEmpty()) {
+            // One line for the lot rather than one per piece: it is a fact
+            // about the server, and each item is still named.
+            into.warn("items", String.join(", ", vanillaDrawn),
+                    "worn armour draws with vanilla art on this Minecraft, which reads a pack's equipment "
+                            + "art from 1.21.4. The art is packed and the items work; run 1.21.4 or newer to see it.");
+        }
+    }
+
+    /**
+     * {@code armor-art:}, read straight off the definitions.
+     *
+     * <p>A build instruction rather than a property of the item - nothing at
+     * give time looks at it, only this class, which copies the PNG it names
+     * to where the game reads worn armour - so it is not carried on
+     * {@link ItemInfo}. It is the same reference as {@code texture:}: a path
+     * under the pack's own {@code textures/}, or a resource location.
+     */
+    private void readArmorArt(LoadReport loaded) {
+        armorArt.clear();
+        if (loaded == null) {
+            return;
+        }
+        for (ContentDefinition definition : loaded.definitions(ContentKind.ITEM)) {
+            definition.body().string("armor-art")
+                    .map(String::trim)
+                    .filter(art -> !art.isEmpty())
+                    .map(art -> art.endsWith(".png") ? art.substring(0, art.length() - 4) : art)
+                    .ifPresent(art -> armorArt.put(definition.id(), art));
+        }
     }
 
     /**
@@ -209,9 +267,53 @@ public final class ItemAssets implements PackContributor {
         String textureNamespace = texture.substring(0, texture.indexOf(':'));
         into.add("assets/" + namespace + "/equipment/" + name + ".json",
                 json("{\"layers\":{\"" + layer + "\":[{\"texture\":\"" + texture + "\"}]}}"));
-        if (bundle == null || bundle.namespaces().contains(textureNamespace)) {
-            requireTexture(item, namespace, equipmentTexture(texture, layer), into);
+        if (!armourArt) {
+            vanillaDrawn.add(item.id().toString());
         }
+        String target = equipmentTexture(texture, layer);
+        String art = armorArt.get(item.id());
+        if (art != null && !copyArmorArt(item, namespace, art, textureNamespace, target, into)) {
+            return;
+        }
+        if (bundle == null || bundle.namespaces().contains(textureNamespace)) {
+            requireTexture(item, namespace, target, into);
+        }
+    }
+
+    /**
+     * Serves {@code armor-art}'s PNG at the equipment path the game reads.
+     *
+     * <p>A copy rather than a move: the plugins this exists for keep their
+     * layer art wherever they like ({@code textures/armor/ruby/layer_1.png},
+     * {@code ruby_armor_layer_1.png} beside the item icons), and something
+     * else may still name the original. A file somebody shipped at the
+     * equipment path themselves wins, because it was put there on purpose.
+     *
+     * @return false when the art was missing and has been reported, so the
+     *         caller does not report the same missing picture twice
+     */
+    private boolean copyArmorArt(ItemInfo item, String namespace, String art, String textureNamespace,
+                                 String target, Contribution into) {
+        if (!textureNamespace.equals(namespace)) {
+            // Copying into another namespace would repaint that namespace's
+            // armour - vanilla's, for minecraft:gold - for everybody.
+            into.warn(namespace + "/items", item.id().path(),
+                    "armor-art was ignored, because armor-texture names art in " + textureNamespace
+                            + ", which this pack does not own.");
+            return true;
+        }
+        if (into.has(target)) {
+            return true;
+        }
+        String from = Geometry.zipPathOf(ModelSources.textureLocation(namespace, art));
+        Optional<byte[]> bytes = into.read(from);
+        if (bytes.isEmpty()) {
+            into.warn(namespace + "/items", item.id().path(),
+                    "armor-art: No texture at " + from + ". The item works but is worn as a missing texture.");
+            return false;
+        }
+        into.add(target, bytes.get());
+        return true;
     }
 
     /** Where the game reads a {@code namespace:name} equipment texture for one layer. */
