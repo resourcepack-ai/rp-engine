@@ -592,12 +592,15 @@ class NexoOraxenPackTest {
         assertTrue(warned(report, "caveblock", "break-sound"));
         assertTrue(warned(report, "caveblock", "particular tiers"));
 
-        // A generated model has no file, and the warning says how to make one.
-        assertEquals("", blocks.get(id("pack:amethyst_ore")).model());
-        assertTrue(warned(report, "amethyst_ore", "assets/models/amethyst_ore.json"));
+        // A generated model has no file, so it is generated here too, inline.
+        String amethyst = blocks.get(id("pack:amethyst_ore")).model();
+        assertTrue(amethyst.contains("minecraft:block/cube_all") && amethyst.contains("default/amethyst_ore"), amethyst);
 
-        assertTrue(warned(report, "slab", "slab is not a full block"));
-        assertTrue(warned(report, "slab", "cannot give off light"));
+        // A slab is a slab: a real one, taken over.
+        BlockInfo slab = blocks.get(id("pack:slab"));
+        assertEquals(BlockInfo.Shape.SLAB, slab.shape());
+        assertEquals("default/slab", slab.roleModels().get("bottom"));
+        assertTrue(warned(report, "slab", "shape: bulb gives light"));
     }
 
     @Test
@@ -638,7 +641,90 @@ class NexoOraxenPackTest {
         assertEquals("pack:marble", marble.drop().orElseThrow().toString());
         assertTrue(warned(report, "marble", "minimal_type"));
         assertEquals("block/weed", blocks.get(id("pack:weed")).model());
-        assertTrue(warned(report, "weed", "stringblock is not a full block"));
+        assertEquals(BlockInfo.Base.TRIPWIRE, blocks.get(id("pack:weed")).base(), "a string block is a plant");
+    }
+
+    @Test
+    void oraxenShapesKeepTheirCopperAndDirectionsStorageAndStrippingComeAcross() throws IOException {
+        write("pack/items.yml", """
+                oak_bench_stairs:
+                  material: PAPER
+                  pack:
+                    textures: [default/bench]
+                  mechanics:
+                    block:
+                      type: STAIR
+                      custom_variation: 3
+                gate:
+                  material: PAPER
+                  mechanics:
+                    block:
+                      type: DOOR
+                      textures: { bottom: default/gate_bottom, top: default/gate_top }
+                leaves:
+                  material: PAPER
+                  Pack: { parent_model: block/leaves, texture: default/leaves }
+                  Mechanics:
+                    custom_block:
+                      type: CHORUSBLOCK
+                palm_log:
+                  material: PAPER
+                  Pack: { model: default/palm_log }
+                  Mechanics:
+                    custom_block:
+                      type: NOTEBLOCK
+                      directional:
+                        type: LOG
+                      log_strip:
+                        stripped_log: stripped_palm_log
+                        drop: bark
+                      is_falling: true
+                      storage:
+                        type: STORAGE
+                        rows: 3
+                        title: Crate
+                        open_sound: block.barrel.open
+                kiln:
+                  material: PAPER
+                  mechanics:
+                    block:
+                      model: default/kiln
+                      directional:
+                        directional_type: FURNACE
+                        north_block: kiln_north
+                kiln_north:
+                  material: PAPER
+                  mechanics:
+                    block:
+                      model: default/kiln_lit
+                      directional:
+                        parent_block: kiln
+                """);
+
+        LoadReport report = load();
+        var blocks = BlockDefinitions.parse(report).blocks();
+        BlockInfo stairs = blocks.get(id("pack:oak_bench_stairs"));
+        assertEquals(BlockInfo.Shape.STAIRS, stairs.shape());
+        // Oraxen's variation 3 is weathered: the same copper, so those already built stay.
+        assertEquals("minecraft:waxed_weathered_cut_copper_stairs", stairs.takes().orElseThrow());
+        assertTrue(stairs.roleModels().get("inner").contains("default/bench"));
+
+        BlockInfo gate = blocks.get(id("pack:gate"));
+        assertEquals(BlockInfo.Shape.DOOR, gate.shape());
+        assertTrue(gate.roleModels().get("top_left").contains("default/gate_top"));
+
+        assertEquals(BlockInfo.Shape.GRATE, blocks.get(id("pack:leaves")).shape());
+
+        BlockInfo log = blocks.get(id("pack:palm_log"));
+        assertEquals(List.of("axis=y", "axis=x", "axis=z"), log.states());
+        assertEquals("pack:stripped_palm_log", log.behaviour().stripInto().orElseThrow().toString());
+        assertTrue(log.behaviour().falls());
+
+        BlockInfo kiln = blocks.get(id("pack:kiln"));
+        assertEquals(4, kiln.states().size());
+        assertEquals("default/kiln_lit", kiln.appearanceOf("facing=north").model());
+        assertEquals("default/kiln", kiln.appearanceOf("facing=east").model());
+        assertFalse(blocks.containsKey(id("pack:kiln_north")), "a direction of another block is not a block");
     }
 
     // ---- sounds -------------------------------------------------------------
