@@ -584,9 +584,9 @@ Three sources are asked, in this order:
    number means that number and must not be overruled by a built-in that
    happens to share its name.
 2. **The engine's built-ins** — `player`, `health`, `health_max`,
-   `health_percent`, `food`, `level`, `xp`, `ping`, `world`, `x`, `y`, `z`,
-   `direction`, `time`, `day`, `gamemode`, `online`, `max_online`, `air`,
-   `uuid`, `displayname`, `name`. These are the questions the server can already answer
+   `health_percent`, `food`, `level`, `xp`, `xp_points`, `xp_needed`, `ping`,
+   `world`, `x`, `y`, `z`, `direction`, `time`, `day`, `gamemode`, `online`,
+   `max_online`, `air`, `uuid`, `displayname`, `name`. These are the questions the server can already answer
    about a player, so an overlay using them works with no code at all.
    (`name` is a second spelling of `player`.)
 3. **PlaceholderAPI**, if it is installed.
