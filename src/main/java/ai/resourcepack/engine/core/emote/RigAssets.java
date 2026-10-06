@@ -53,56 +53,6 @@ public final class RigAssets implements PackContributor {
         return Collections.unmodifiableMap(baked.players);
     }
 
-    /** Whether this build baked a rig for the player with this key. */
-    public boolean has(String key) {
-        return baked.players.containsKey(key);
-    }
-
-    /**
-     * What one player needs, stacked on top of THIS build, to see their own
-     * rig before a rebuild has put it in - see {@link RigBaker#selfPack}.
-     * Null when this build already has them, or bakes nothing at all.
-     */
-    public Self self(SkinCache skins, java.util.UUID player) {
-        if (baked.parts.isEmpty() || skins == null || player == null) {
-            return null;
-        }
-        String key = SkinCache.keyOf(player);
-        if (has(key)) {
-            return null;
-        }
-        RigBaker.Part part = RigBaker.part(skins.skin(player));
-        if (part == null) {
-            return null;
-        }
-        return new Self(key, part.rig, RigBaker.selfPack(baked, part));
-    }
-
-    /** One player's own rig, for the store, and the files that draw it. */
-    public static final class Self {
-        private final String key;
-        private final EmoteStore.PlayerRig rig;
-        private final Map<String, byte[]> files;
-
-        Self(String key, EmoteStore.PlayerRig rig, Map<String, byte[]> files) {
-            this.key = key;
-            this.rig = rig;
-            this.files = files;
-        }
-
-        public String key() {
-            return key;
-        }
-
-        public EmoteStore.PlayerRig rig() {
-            return rig;
-        }
-
-        public Map<String, byte[]> files() {
-            return Collections.unmodifiableMap(files);
-        }
-    }
-
     /** How many rigs went in, for the build report. */
     public int count() {
         return baked.players.size();

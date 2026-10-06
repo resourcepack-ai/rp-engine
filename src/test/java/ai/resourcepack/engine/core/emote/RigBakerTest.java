@@ -95,9 +95,8 @@ class RigBakerTest {
                         String id = EmoteStore.boneItemId(rig, bone, variant, jointed);
                         assertTrue(baked.files.containsKey("assets/rpengine/models/block/" + id + ".json"),
                                 "no model for " + id);
-                        assertTrue(baked.files.containsKey("assets/rpengine/items/" + RigBaker.definitionFor(id) + ".json"),
+                        assertTrue(baked.files.containsKey("assets/rpengine/items/" + id + ".json"),
                                 "no item definition for " + id);
-                        assertEquals(entry.getKey(), RigBaker.keyOf(id));
                         assertTrue(NativeRigItems.isNative(id), id + " should read as native");
                     }
                 }
@@ -131,7 +130,7 @@ class RigBakerTest {
         for (boolean jointed : new boolean[] {false, true}) {
             String id = EmoteStore.boneItemId(caped, RigGeometry.CAPE_BONE, null, jointed);
             assertTrue(baked.files.containsKey("assets/rpengine/models/block/" + id + ".json"), "no cape model " + id);
-            assertTrue(baked.files.containsKey("assets/rpengine/items/" + RigBaker.definitionFor(id) + ".json"), "no cape item " + id);
+            assertTrue(baked.files.containsKey("assets/rpengine/items/" + id + ".json"), "no cape item " + id);
         }
         assertTrue(baked.files.containsKey("assets/rpengine/textures/block/" + prefix + "_cape.png"));
         assertTrue(!baked.files.containsKey("assets/rpengine/textures/block/" + RigBaker.prefixFor(RigBaker.DEFAULT_KEY) + "_cape.png"));
@@ -163,61 +162,5 @@ class RigBakerTest {
             assertTrue(before, jointed.get(i).key + "'s parent " + parent + " comes after it");
         }
         assertEquals(6, RigGeometry.manifestBones().size());
-    }
-
-    private static JsonObject select(Map<String, byte[]> files, String definition) {
-        byte[] bytes = files.get("assets/rpengine/items/" + definition + ".json");
-        assertNotNull(bytes, "no definition " + definition);
-        return JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonObject("model");
-    }
-
-    private static List<String> cases(JsonObject select) {
-        List<String> keys = new java.util.ArrayList<>();
-        for (JsonElement one : select.getAsJsonArray("cases")) {
-            keys.add(one.getAsJsonObject().get("when").getAsString());
-        }
-        return keys;
-    }
-
-    @Test
-    void aBoneIsOneSharedDefinitionThatFallsBackToSteve() {
-        JsonObject head = select(bake().files, "rig__head");
-        assertEquals("minecraft:select", head.get("type").getAsString());
-        assertEquals("minecraft:custom_model_data", head.get("property").getAsString());
-        // In key order, whatever order the skins came in, so the hash is stable.
-        assertEquals(List.of(RigBaker.DEFAULT_KEY, "0123456789abcdef0123456789abcdef"), cases(head));
-        assertEquals("rpengine:block/" + RigBaker.prefixFor(RigBaker.DEFAULT_KEY) + "__head",
-                head.getAsJsonObject("fallback").get("model").getAsString());
-        long perPlayer = bake().files.keySet().stream()
-                .filter(path -> path.startsWith("assets/rpengine/items/" + RigBaker.PREFIX)).count();
-        assertEquals(0, perPlayer, "no definition is per player any more");
-    }
-
-    @Test
-    void aCapeNobodyCanFallBackToIsNothing() {
-        RigBaker.Baked baked = RigBaker.bake(List.of(
-                new RigBaker.Skin("0123456789abcdef0123456789abcdef", new byte[] {4}, RigGeometry.WIDE, new byte[] {9}),
-                new RigBaker.Skin(RigBaker.DEFAULT_KEY, new byte[] {1}, RigGeometry.WIDE)));
-        JsonObject cape = select(baked.files, "rig__cape");
-        assertEquals("minecraft:empty", cape.getAsJsonObject("fallback").get("type").getAsString());
-    }
-
-    @Test
-    void aSelfPackCarriesTheNewcomerAndKeepsEverybodyTheBuildHas() {
-        RigBaker.Baked current = bake();
-        String newcomer = "fedcba9876543210fedcba9876543210";
-        RigBaker.Part part = RigBaker.part(new RigBaker.Skin(newcomer, new byte[] {7}, RigGeometry.WIDE));
-        Map<String, byte[]> pack = RigBaker.selfPack(current, part);
-        String prefix = RigBaker.prefixFor(newcomer);
-        assertTrue(pack.containsKey("assets/rpengine/textures/block/" + prefix + ".png"));
-        assertTrue(pack.containsKey("assets/rpengine/models/block/" + prefix + "__jointed__wide__rightforearm.json"));
-        // Nobody else's sheet or models: the build underneath has those.
-        assertTrue(pack.keySet().stream().noneMatch(path -> path.contains(RigBaker.prefixFor(RigBaker.DEFAULT_KEY))));
-        assertEquals(List.of(RigBaker.DEFAULT_KEY, "0123456789abcdef0123456789abcdef", newcomer),
-                cases(select(pack, "rig__jointed__wide__rightforearm")));
-        // And exactly the definitions the build has, so none is left behind.
-        long built = current.files.keySet().stream().filter(path -> path.startsWith("assets/rpengine/items/")).count();
-        long mine = pack.keySet().stream().filter(path -> path.startsWith("assets/rpengine/items/")).count();
-        assertEquals(built, mine);
     }
 }
