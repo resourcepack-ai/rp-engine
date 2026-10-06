@@ -129,9 +129,6 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "/rp var <name> <value> [player]");
             return true;
         }
-        if (args.length > 3 && args[3].indexOf(':') > 0) {
-            return pick(sender, args);
-        }
         Player target;
         if (args.length > 3) {
             target = org.bukkit.Bukkit.getPlayerExact(args[3]);
@@ -166,47 +163,6 @@ public final class InterfaceCommands implements Area {
         org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> impl.reopen(target));
         if (sender != target) {
             Reply.to(sender, "Set " + name + " to " + value + " for " + target.getName() + ".");
-        }
-        return true;
-    }
-
-    /**
-     * {@code /rp var <name> <value> <namespace:id>} — a pick from a dropdown's
-     * OPEN list. A Studio dropdown that opens is two dialogs: the screen, and
-     * the same screen drawn with the list hanging under the dropdown. An option
-     * on the list sets the value and turns back to the screen, closed, with what
-     * it was opened with.
-     *
-     * <p>Gated like {@code /rp page}: only when the dialog the player was last
-     * shown holds a click running exactly this command, so a player can pick
-     * only what the list they were shown offered, and go back only where it
-     * goes back to.
-     */
-    private boolean pick(CommandSender sender, String[] args) {
-        ai.resourcepack.engine.core.dialog.DialogsImpl impl = (ai.resourcepack.engine.core.dialog.DialogsImpl) dialogs;
-        if (!(sender instanceof Player player)) {
-            Reply.to(sender, "Only a player picks from a dialog's list: it is what a click on one runs.");
-            return true;
-        }
-        String name = args[1].toLowerCase(Locale.ROOT);
-        String value = args[2];
-        String back = args[3].toLowerCase(Locale.ROOT);
-        String command = "rp var " + args[1] + " " + args[2] + " " + args[3];
-        java.util.Optional<ContentId> parsed = ContentId.parse(back);
-        java.util.Optional<ai.resourcepack.engine.core.dialog.DialogsImpl.Shown> shown = impl.lastShown(player);
-        boolean held = shown.isPresent() && impl.info(player, shown.get().id())
-                .map(info -> ai.resourcepack.engine.core.dialog.DialogLinks.holdsCommand(info.json(), command))
-                .orElse(false);
-        if (parsed.isEmpty() || !held || !impl.declares(name, value)) {
-            Reply.to(sender, "The dialog you were shown has no such choice.");
-            return true;
-        }
-        if (!impl.variables().set(player, name, value)) {
-            Reply.to(sender, "That setting could not be saved: you have as many as a player can keep.");
-            return true;
-        }
-        if (!impl.follow(player, parsed.get(), shown.get().values())) {
-            Reply.to(player, "The game would not open " + parsed.get() + ". The console says what it made of it.");
         }
         return true;
     }

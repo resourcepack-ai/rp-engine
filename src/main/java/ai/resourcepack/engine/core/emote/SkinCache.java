@@ -80,10 +80,10 @@ public final class SkinCache {
     private volatile Set<String> baked = Set.of();
 
     /**
-     * Told when a skin arrives that the pack does not have a rig for yet, with
-     * whose. See {@link #tellIfUnbaked}.
+     * Told when a skin arrives that the pack does not have a rig for yet. See
+     * {@link #tellIfUnbaked}.
      */
-    private volatile java.util.function.Consumer<Player> onNewSkin = player -> { };
+    private volatile Runnable onNewSkin = () -> { };
 
     public SkinCache(Plugin plugin) {
         this.plugin = plugin;
@@ -98,22 +98,12 @@ public final class SkinCache {
      * a whole pack rebuild and the decision to spend that belongs to the
      * plugin, not to the thing that fetches PNGs.
      */
-    public void onNewSkin(java.util.function.Consumer<Player> action) {
-        this.onNewSkin = action == null ? player -> { } : action;
-    }
-
-    /** What {@link #noticed} found, so a join can decide whether to wait for the sheet. */
-    public enum Noticed {
-        /** No sheet to have, or one this server's pack already has a rig for. Nothing will follow. */
-        SETTLED,
-        /** On disk but not in the pack: {@link #onNewSkin} has already been told. */
-        KEPT,
-        /** Being fetched: {@link #onNewSkin} is told when it lands, unless the fetch fails. */
-        FETCHING
+    public void onNewSkin(Runnable action) {
+        this.onNewSkin = action == null ? () -> { } : action;
     }
 
     /** The key a player's files are named by: the UUID as 32 hex digits. */
-    public static String keyOf(UUID id) {
+    static String keyOf(UUID id) {
         return id.toString().replace("-", "").toLowerCase(Locale.ROOT);
     }
 
@@ -125,9 +115,9 @@ public final class SkinCache {
      * the download is scheduled off the main thread and the result is a file
      * nobody reads until the next build.
      */
-    public Noticed noticed(Player player) {
+    public void noticed(Player player) {
         if (player == null) {
-            return Noticed.SETTLED;
+            return;
         }
         String url;
         String capeUrl;
@@ -140,7 +130,7 @@ public final class SkinCache {
                 // An offline-mode server, or a Bedrock player whose skin has
                 // not resolved: nothing to fetch, and the default rig is the
                 // honest answer for them.
-                return Noticed.SETTLED;
+                return;
             }
             url = skin.toString();
             URL cape = textures.getCape();
@@ -148,7 +138,7 @@ public final class SkinCache {
             variant = textures.getSkinModel() == PlayerTextures.SkinModel.SLIM
                     ? RigGeometry.SLIM : RigGeometry.WIDE;
         } catch (RuntimeException | LinkageError e) {
-            return Noticed.SETTLED;
+            return;
         }
 
         String key = keyOf(player.getUniqueId());
@@ -161,7 +151,8 @@ public final class SkinCache {
         try {
             if (Files.isRegularFile(png) && Files.isRegularFile(meta)
                     && want.equals(Files.readString(meta, StandardCharsets.UTF_8))) {
-                return tellIfUnbaked(player, key) ? Noticed.KEPT : Noticed.SETTLED;
+                tellIfUnbaked(player, key);
+                return;
             }
         } catch (IOException ignored) {
             // Unreadable is the same as absent: fetch again.
@@ -197,25 +188,22 @@ public final class SkinCache {
             }
             plugin.getServer().getScheduler().runTask(plugin, () -> tellIfUnbaked(player, key));
         });
-        return Noticed.FETCHING;
     }
 
-    /** @return whether they were unbaked, and so told about */
-    private boolean tellIfUnbaked(Player player, String key) {
+    private void tellIfUnbaked(Player player, String key) {
         if (baked.contains(key)) {
-            return false;
+            return;
         }
         // The rebuild is asked for on EVERY arrival of an unbaked skin, not
         // only the first time this player is seen: `told` stops the console
         // line repeating, and hanging the rebuild off it as well meant a
         // player who joined while a bake was already running never got one.
-        onNewSkin.accept(player);
+        onNewSkin.run();
         if (!told.add(player.getUniqueId())) {
-            return true;
+            return;
         }
-        log.info(player.getName() + "'s skin is kept for their emote rig. They see it straight away; "
-                + "everybody else does once a rebuild has run and their client has the new pack.");
-        return true;
+        log.info(player.getName() + "'s skin is kept for their emote rig; a rebuild is under way, and "
+                + "until their client has the new pack they wear the shared default rig.");
     }
 
     /** Called by the bake, so joins can be told whether their rig is in the pack. */
@@ -246,45 +234,24 @@ public final class SkinCache {
                 // A cape sheet (<key>_cape.png) is read beside its skin, not on its own.
                 continue;
             }
-            RigBaker.Skin skin = read(key, file);
-            if (skin != null) {
-                skins.add(skin);
+            try {
+                byte[] png = Files.readAllBytes(file.toPath());
+                Path capeFile = folder.resolve(key + "_cape.png");
+                byte[] cape = Files.isRegularFile(capeFile) ? Files.readAllBytes(capeFile) : null;
+                String variant = RigGeometry.WIDE;
+                Path meta = folder.resolve(key + ".txt");
+                if (Files.isRegularFile(meta)) {
+                    String first = Files.readString(meta, StandardCharsets.UTF_8).split("\n", 2)[0].trim();
+                    if (RigGeometry.SLIM.equals(first)) {
+                        variant = RigGeometry.SLIM;
+                    }
+                }
+                skins.add(new RigBaker.Skin(key, png, variant, cape));
+            } catch (IOException e) {
+                log.warning("Could not read " + file.getName() + " from " + FOLDER + ": " + e.getMessage());
             }
         }
         return skins;
-    }
-
-    private RigBaker.Skin read(String key, File file) {
-        try {
-            byte[] png = Files.readAllBytes(file.toPath());
-            Path capeFile = folder.resolve(key + "_cape.png");
-            byte[] cape = Files.isRegularFile(capeFile) ? Files.readAllBytes(capeFile) : null;
-            String variant = RigGeometry.WIDE;
-            Path meta = folder.resolve(key + ".txt");
-            if (Files.isRegularFile(meta)) {
-                String first = Files.readString(meta, StandardCharsets.UTF_8).split("\n", 2)[0].trim();
-                if (RigGeometry.SLIM.equals(first)) {
-                    variant = RigGeometry.SLIM;
-                }
-            }
-            return new RigBaker.Skin(key, png, variant, cape);
-        } catch (IOException e) {
-            log.warning("Could not read " + file.getName() + " from " + FOLDER + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * One player's kept sheet, ready to bake, or null when there is none on
-     * disk. The same reading as {@link #snapshot}, for one key.
-     */
-    RigBaker.Skin skin(UUID player) {
-        String key = keyOf(player);
-        Path png = folder.resolve(key + ".png");
-        if (!Files.isRegularFile(png)) {
-            return null;
-        }
-        return read(key, png.toFile());
     }
 
     /** A decoded face, kept against the file's modification time so a new skin replaces it. */

@@ -91,12 +91,6 @@ public final class PackLoads {
     }
 
     /** Forgets a player who left; their client dropped everything with them. */
-    /** Whether {@code player} has been sent anything they have not answered yet: a download still running. */
-    public boolean waiting(UUID player) {
-        Map<UUID, Answer> mine = player == null ? null : state.get(player);
-        return mine != null && mine.containsValue(Answer.PENDING);
-    }
-
     public void forget(UUID player) {
         if (player != null) {
             state.remove(player);

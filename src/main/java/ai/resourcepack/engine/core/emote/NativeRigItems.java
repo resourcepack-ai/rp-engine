@@ -4,9 +4,6 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.components.CustomModelDataComponent;
-
-import java.util.List;
 
 /**
  * The item a native rig's bone is worn as.
@@ -15,11 +12,8 @@ import java.util.List;
  * that vanilla paper's own model file, shipped in the pushed pack, dispatches
  * on. A native rig cannot use that file — a pushed pack may already own it
  * and two packs cannot both — so its bone is paper with an {@code item_model}
- * component naming the bone's shared definition in the {@code rpengine}
- * namespace where {@link RigBaker} wrote it, and a {@code custom_model_data}
- * string naming whose skin. A client whose pack has no case for that skin
- * draws Steve rather than the missing-model cube; see
- * {@link RigBaker#definitions}.
+ * component naming the model directly, in the {@code rpengine} namespace
+ * where {@link RigBaker} wrote it.
  *
  * <p>Its own class, and in {@code version-arms.txt}, because
  * {@code setItemModel} does not exist before 1.21.4. A class that names a
@@ -44,10 +38,7 @@ final class NativeRigItems {
         ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setItemModel(new NamespacedKey(RigBaker.NAMESPACE, RigBaker.definitionFor(modelId)));
-            CustomModelDataComponent data = meta.getCustomModelDataComponent();
-            data.setStrings(List.of(RigBaker.keyOf(modelId)));
-            meta.setCustomModelDataComponent(data);
+            meta.setItemModel(new NamespacedKey(RigBaker.NAMESPACE, modelId));
             item.setItemMeta(meta);
         }
         return item;

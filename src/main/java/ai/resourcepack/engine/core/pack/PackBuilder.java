@@ -193,8 +193,6 @@ public final class PackBuilder {
         // Who wrote each zip path, so a collision can name both sides rather
         // than saying only that one happened.
         Map<String, String> writtenBy = new HashMap<>();
-        // Overlay entries the packs' own pack.mcmeta declared, in pack order.
-        com.google.gson.JsonArray overlays = new com.google.gson.JsonArray();
 
         for (String namespace : bundle.namespaces()) {
             Path packFolder = contentRoot.resolve(namespace);
@@ -208,7 +206,6 @@ public final class PackBuilder {
                     namespace, bundle, zip, writtenBy, diagnostics);
             copyTree(packFolder.resolve(RESOURCE_PACK).resolve(ASSETS), ASSETS,
                     namespace, bundle, zip, writtenBy, diagnostics);
-            copyOverlays(packFolder.resolve(RESOURCE_PACK), namespace, bundle, zip, writtenBy, overlays, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
 
@@ -218,7 +215,7 @@ public final class PackBuilder {
             contributor.contribute(bundle, loaded, new Sink(contentRoot, zip, writtenBy, diagnostics));
         }
 
-        zip.add("pack.mcmeta", mcmeta(bundle, overlays).getBytes(StandardCharsets.UTF_8));
+        zip.add("pack.mcmeta", mcmeta(bundle).getBytes(StandardCharsets.UTF_8));
 
         Path file = outputDir.resolve(bundle.name() + ".zip");
         try {
@@ -303,106 +300,15 @@ public final class PackBuilder {
      *
      * <p>Two fields and no user input beyond a description we control the
      * escaping of. Pulling in a serializer for this would be more moving parts
-     * than the file has. The overlays a pack declared ready-made are the one
-     * part that is somebody else's JSON, and those go through Gson.
+     * than the file has.
      */
-    private String mcmeta(Bundle bundle, com.google.gson.JsonArray overlays) {
-        String pack = "  \"pack\": {\n"
+    private String mcmeta(Bundle bundle) {
+        return "{\n"
+                + "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
                 + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
-                + "  }";
-        if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
-        // A pack whose overlays reach past format 64 must say, at the top,
-        // which formats it supports (1.21.9+ refuses the whole pack
-        // otherwise): from the oldest to the newest it or any overlay names.
-        // Older clients read the same range as supported_formats.
-        int min = packFormat;
-        int max = packFormat;
-        for (com.google.gson.JsonElement e : overlays) {
-            int[] range = overlayRange(e);
-            if (range == null) continue;
-            min = Math.min(min, range[0]);
-            max = Math.max(max, range[1]);
-        }
-        pack = "  \"pack\": {\n"
-                + "    \"pack_format\": " + packFormat + ",\n"
-                + "    \"supported_formats\": {\"min_inclusive\": " + min + ", \"max_inclusive\": " + max + "},\n"
-                + "    \"min_format\": " + min + ",\n"
-                + "    \"max_format\": " + max + ",\n"
-                + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
-                + "  }";
-        com.google.gson.JsonObject entries = new com.google.gson.JsonObject();
-        entries.add("entries", overlays);
-        return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + "\n}\n";
-    }
-
-    /** An overlay entry's formats, from min_format/max_format or formats, or null. */
-    private static int[] overlayRange(com.google.gson.JsonElement e) {
-        if (!e.isJsonObject()) return null;
-        com.google.gson.JsonObject o = e.getAsJsonObject();
-        try {
-            if (o.has("min_format") && o.has("max_format")) {
-                return new int[] {major(o.get("min_format")), major(o.get("max_format"))};
-            }
-            com.google.gson.JsonElement f = o.get("formats");
-            if (f != null && f.isJsonObject()) {
-                return new int[] {f.getAsJsonObject().get("min_inclusive").getAsInt(), f.getAsJsonObject().get("max_inclusive").getAsInt()};
-            }
-            if (f != null && f.isJsonPrimitive()) return new int[] {f.getAsInt(), f.getAsInt()};
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-        return null;
-    }
-
-    /** A format as written: 75, or [75, 1] whose first number is the major one. */
-    private static int major(com.google.gson.JsonElement e) {
-        return e.isJsonArray() ? e.getAsJsonArray().get(0).getAsInt() : e.getAsInt();
-    }
-
-    /** An overlay directory: what Minecraft accepts, and nothing that climbs out of the pack. */
-    private static final java.util.regex.Pattern OVERLAY_DIRECTORY = java.util.regex.Pattern.compile("[a-z0-9_-]{1,64}");
-
-    /**
-     * Version OVERLAYS a pack ships ready-made: {@code resourcepack/pack.mcmeta}
-     * declares them exactly as a resource pack's own would, and each declared
-     * directory beside it is copied to the zip's root, where the game looks.
-     * The entries are carried into the bundle's pack.mcmeta as written.
-     *
-     * <p>This is the one way a content folder can ship a file that must sit
-     * outside {@code assets/}: a core shader for some versions only, say,
-     * which in the base pack would break every client its GLSL does not
-     * compile on. Studio's dialogs use it for the shader that draws a live
-     * player head at its full size.
-     */
-    private void copyOverlays(Path resourcePack, String namespace, Bundle bundle, DeterministicZip zip,
-                              Map<String, String> writtenBy, com.google.gson.JsonArray overlays,
-                              List<Diagnostic> diagnostics) {
-        Path meta = resourcePack.resolve("pack.mcmeta");
-        if (!Files.isRegularFile(meta)) return;
-        com.google.gson.JsonArray declared;
-        try {
-            com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(Files.readString(meta, StandardCharsets.UTF_8));
-            com.google.gson.JsonElement list = root.isJsonObject() && root.getAsJsonObject().has("overlays")
-                    ? root.getAsJsonObject().getAsJsonObject("overlays").get("entries") : null;
-            if (list == null || !list.isJsonArray()) return;
-            declared = list.getAsJsonArray();
-        } catch (IOException | RuntimeException e) {
-            diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
-                    "Could not be read, so its overlays are not shipped. " + message(e)));
-            return;
-        }
-        for (com.google.gson.JsonElement entry : declared) {
-            if (!entry.isJsonObject() || !entry.getAsJsonObject().has("directory")) continue;
-            String directory = entry.getAsJsonObject().get("directory").getAsString();
-            if (!OVERLAY_DIRECTORY.matcher(directory).matches() || directory.equals(ASSETS)) {
-                diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
-                        "Overlay directory '" + directory + "' is not a name the game accepts; skipped."));
-                continue;
-            }
-            copyTree(resourcePack.resolve(directory), directory, namespace, bundle, zip, writtenBy, diagnostics);
-            overlays.add(entry);
-        }
+                + "  }\n"
+                + "}\n";
     }
 
     private static String escape(String text) {

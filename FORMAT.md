@@ -2129,15 +2129,6 @@ namespace in it, `minecraft` included. CraftEngine art is named by resource
 location (`minecraft:item/custom/ruby`), so that is where it has to land; a
 collision with another pack is warned about as `overrides/` collisions are.
 
-**It may carry version overlays too.** A `resourcepack/pack.mcmeta` declaring
-`overlays.entries`, written exactly as a resource pack's own, has each listed
-directory beside it (`resourcepack/<directory>/...`) copied to the root of the
-built pack, and its entries added to the built pack's `pack.mcmeta`. This is
-how a pack ships a file that must only reach some versions of the game, such
-as a core shader whose GLSL would stop older or newer clients loading the pack
-at all. A directory name is lower-case letters, digits, `_` and `-`; anything
-else is skipped with a warning.
-
 **Every pack is read before any is translated**, because CraftEngine's own
 content depends on that: templates are defined in one pack (its
 `default_templates`) and used in another, and an item's `<lang:...>` name is
