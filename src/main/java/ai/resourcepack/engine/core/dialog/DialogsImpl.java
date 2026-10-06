@@ -257,6 +257,9 @@ public final class DialogsImpl implements Dialogs {
         }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
+        // A Studio dialog's live progress bars, filled from the numbers the
+        // pass above has just put in their markers: DialogBars.
+        json = DialogBars.fill(json);
         // The player's own items in a Studio dialog's inventory slots, the one
         // they have picked up lit, and no item tooltip this server would refuse
         // the dialog over: DialogItems.
