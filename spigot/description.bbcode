@@ -1,0 +1,106 @@
+[CENTER][IMG]BANNER_IMAGE_URL[/IMG]
+
+[B]Spigot and Paper 1.19.4 and newer[/B] · Java 17+ · [B]Free and open source[/B] (GPL-3.0) · No client mods
+
+[SIZE=4][URL='https://resourcepack.ai/docs/rp-engine'][B]Documentation[/B][/URL]  ·  [URL='https://resourcepack.ai/discord'][B]Discord[/B][/URL]  ·  [URL='https://github.com/resourcepack-ai/rp-engine'][B]Source code[/B][/URL]  ·  [URL='https://resourcepack.ai/rp-engine/addons'][B]Addons[/B][/URL][/SIZE][/CENTER]
+
+[SIZE=5][B][COLOR=#3670f8]What is RP Engine?[/COLOR][/B][/SIZE]
+RP Engine turns a folder of YAML on your own server into custom items, blocks, furniture, animated models, player emotes, vehicles, screens, HUDs, dialogs, sounds and recipes. Then it builds the resource pack and hands it to every player who joins.
+
+[B]You write the content. The engine writes the pack.[/B]
+
+[CODE]# plugins/RPEngine/content/mypack/items/gems.yml
+ruby:
+  material: DIAMOND
+  name: "Ruby"[/CODE]
+Drop [ICODE]ruby.png[/ICODE] next to it, run [ICODE]/rp reload[/ICODE], then [ICODE]/rp give mypack:ruby[/ICODE]. The model, the texture, the pack and the item component that ties them together are all worked out for you.
+
+[SIZE=5][B][COLOR=#3670f8]Features[/COLOR][/B][/SIZE]
+[IMG]FEATURES_GIF_URL[/IMG]
+[LIST]
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Custom items[/B]: names, lore, enchantments, attributes, durability, food, and actions when they are used.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Custom blocks[/B]: hardness, the right tool, light and drops, plus stairs, slabs, doors, trapdoors, plants and lamps.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Furniture[/B]: place any Blockbench model. The hitbox is measured from the model, and pieces can be seats, lights or storage.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Animated models[/B]: drop in a [ICODE].bbmodel[/ICODE] and its bones and animations play as you made them. Place it in the world, or put it on a mob, including MythicMobs mobs and Citizens NPCs.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Player emotes[/B]: [ICODE]/emote wave[/ICODE], on your own or with a cast of friends who are asked first. Movement sets replace how a player walks.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Vehicles you drive[/B]: cars, bikes, boats, aeroplanes and helicopters, with real handling, passenger seats, sounds, particles and an animation for each state.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Custom mobs[/B]: your own entities with your own models.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Armour[/B]: any item can be worn with its own art.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]GUI screens and HUD overlays[/B]: your own menu backgrounds and on-screen art.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Dialogs[/B] (1.21.6+): Minecraft's own dialog screens, with pages, player settings, live placeholders and item slots.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Sounds[/B] and [B]chat icons[/B]: type [ICODE]:mypack:heart:[/ICODE] in chat and the picture appears.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Recipes[/B]: crafting, cooking, campfire, stonecutter, smithing and trims, anvil, and brewing on Paper.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]Liquids[/B]: mark out a pool of acid, slime or anything else. It is real water or lava with your rules applied to whoever is in it.
+[*][COLOR=#2e7d32][B]✔[/B][/COLOR] [B]The pack is built and hosted for you[/B], with the right pack format for your server's version. Or switch the host off and serve the zip from your own web server.
+[/LIST]
+
+[SIZE=5][B][COLOR=#3670f8]Edit in your browser[/COLOR][/B][/SIZE]
+[IMG]EDITOR_GIF_URL[/IMG]
+[ICODE]/rp edit mypack:chair[/ICODE] gives you a link. It opens the model in a proper 3D editor in your browser: move the cubes, repaint it, then press [B]Send to server[/B]. The file in your content folder changes and reloads. No account and no sign-in. The link works once and lasts three hours, and it carries only the one thing you named.
+
+[SIZE=5][B][COLOR=#3670f8]Moving from another plugin?[/COLOR][/B][/SIZE]
+RP Engine reads [B]ItemsAdder[/B], [B]Nexo[/B], [B]Oraxen[/B], [B]CraftEngine[/B], [B]Model Engine[/B] and [B]BetterModel[/B] content folders as they are. Put the folder in, reload, and your items, furniture, blocks, models and recipes come across. Anything that cannot come across is named in a warning at load, with the reason, so nothing goes missing silently.
+
+[URL='https://resourcepack.ai/plugin-compatibility.pdf']What comes across from each plugin, row by row[/URL]
+
+[SIZE=5][B][COLOR=#3670f8]Works with[/COLOR][/B][/SIZE]
+All optional. RP Engine runs fine without any of them.
+[LIST]
+[*][B]PlaceholderAPI[/B]: RP Engine's own placeholders for scoreboards, menus and holograms, and any plugin's placeholders in HUD text and item actions.
+[*][B]MythicMobs[/B] and [B]Citizens[/B]: put animated models on their mobs and NPCs.
+[*][B]WorldGuard[/B]: region flags for where models can be placed and custom items used.
+[/LIST]
+
+[SIZE=5][B][COLOR=#3670f8]Installing[/COLOR][/B][/SIZE]
+[LIST=1]
+[*]Drop [ICODE]RPEngine.jar[/ICODE] into [ICODE]plugins/[/ICODE] and start the server.
+[*]In [ICODE]plugins/RPEngine/config.yml[/ICODE], set [ICODE]host.public-address[/ICODE] to an address your players can reach, and open that port (8181 by default). This is how players download the pack.
+[*]Add a content folder under [ICODE]plugins/RPEngine/content/[/ICODE] and run [ICODE]/rp reload[/ICODE].
+[/LIST]
+Full guide: [URL='https://resourcepack.ai/docs/rp-engine/install']resourcepack.ai/docs/rp-engine/install[/URL]
+
+[B]Requirements:[/B] Spigot, Paper or a fork of either, Minecraft 1.19.4 or newer, Java 17 or newer. Everything from 1.19.4 to the current version works. On an older server, the few features that need a newer game are switched off, and the startup log names each one.
+
+[SPOILER=Commands and permissions]
+Every subcommand has its own permission, [ICODE]rpengine.<subcommand>[/ICODE]. [ICODE]rpengine.admin[/ICODE] (default: op) grants all of them. [ICODE]/rp[/ICODE], [ICODE]/rpe[/ICODE] and [ICODE]/rpengine[/ICODE] are the same command.
+
+[TABLE]
+[TR][TH]Command[/TH][TH]What it does[/TH][/TR]
+[TR][TD]/rp reload[/TD][TD]Reread the content folder and rebuild the pack[/TD][/TR]
+[TR][TD]/rp give <id> [player][/TD][TD]Give a custom item[/TD][/TR]
+[TR][TD]/rp items, /rp models, /rp entities[/TD][TD]List what the server holds[/TD][/TR]
+[TR][TD]/rp spawn <id>[/TD][TD]Spawn a custom entity[/TD][/TR]
+[TR][TD]/rp bind <id>, /rp unbind[/TD][TD]Put a model on the mob you are looking at, or take it off[/TD][/TR]
+[TR][TD]/rp vehicle <id>[/TD][TD]Park a vehicle where you stand[/TD][/TR]
+[TR][TD]/rp screen <id> [player][/TD][TD]Open a GUI screen[/TD][/TR]
+[TR][TD]/rp hud <id|clear> [player][/TD][TD]Show or clear a HUD overlay[/TD][/TR]
+[TR][TD]/rp dialog <id> [player][/TD][TD]Open a dialog[/TD][/TR]
+[TR][TD]/rp sound <id> [player][/TD][TD]Play a custom sound[/TD][/TR]
+[TR][TD]/rp liquid corner | fill <id> | clear[/TD][TD]Mark out a liquid pool[/TD][/TR]
+[TR][TD]/rp edit <id>[/TD][TD]Open it in the browser editor[/TD][/TR]
+[TR][TD]/emote <name> [players...][/TD][TD]Play an emote, alone or with others[/TD][/TR]
+[/TABLE]
+
+Every command and permission: [URL='https://resourcepack.ai/docs/rp-engine/commands']resourcepack.ai/docs/rp-engine/commands[/URL]
+[/SPOILER]
+
+[SIZE=5][B][COLOR=#3670f8]Addons[/COLOR][/B][/SIZE]
+Plugins built on RP Engine's public API, each a second jar you drop in beside it. The first is [URL='https://resourcepack.ai/rp-engine/addons/skateboards'][B]Skateboards[/B][/URL]: push, tuck, jump, flick it round, and try not to bail.
+
+[B]For developers:[/B] RP Engine has a full API for items, models, vehicles, emotes, screens and events. See [URL='https://github.com/resourcepack-ai/rp-engine/blob/main/API.md']API.md[/URL].
+
+[SIZE=5][B][COLOR=#3670f8]What it connects to[/COLOR][/B][/SIZE]
+[LIST]
+[*][B]Usage count.[/B] Every 30 seconds the plugin sends resourcepack.ai a random id that it made up the first time it started, so we know how many servers run it. Nothing else is sent: no address, server name, version, player or content. It is on by default. Turn it off with [ICODE]telemetry.enabled: false[/ICODE] in [ICODE]config.yml[/ICODE].
+[*][B]Browser editing[/B] only connects when you run [ICODE]/rp edit[/ICODE], and only sends the one file you named. Turn it off with [ICODE]edit.enabled: false[/ICODE].
+[*][B]Studio pushes and published packs[/B] only connect after you pair with [ICODE]/rp sync[/ICODE] or [ICODE]/rp distribute[/ICODE].
+[/LIST]
+With all of that off, the plugin talks to nothing but your own players.
+
+[SIZE=5][B][COLOR=#3670f8]Support[/COLOR][/B][/SIZE]
+Ask on [URL='https://resourcepack.ai/discord']Discord[/URL] or open an issue on [URL='https://github.com/resourcepack-ai/rp-engine/issues']GitHub[/URL]. Please don't post bugs in the reviews; we can't reply there, and we would rather fix it.
+
+RP Engine is free software under the GPL-3.0 licence. The source is on [URL='https://github.com/resourcepack-ai/rp-engine']GitHub[/URL], and contributions are welcome.
+
+[SIZE=5][B][COLOR=#3670f8]Made by ResourcePack AI[/COLOR][/B][/SIZE]
+RP Engine comes from [URL='https://resourcepack.ai']resourcepack.ai[/URL], a web editor for resource packs that can generate models, textures, GUIs, emotes and vehicles and push them straight to your server for live testing. You never need it: a hand-written content folder gets the whole plugin.
