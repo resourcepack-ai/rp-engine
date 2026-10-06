@@ -658,6 +658,18 @@ engine.dialogs().set(player, "coins", null);   // remove it
 engine.dialogs().value(player, "coins");       // what you last set
 ```
 
+A LIST — rows drawn in Studio, one per item, row k reading `{warps_k}` — is
+filled all at once. Rows past the end are hidden, their clicks with them:
+
+```java
+engine.dialogs().list(player, "warps", List.of("Spawn", "Shop", "Arena"));
+engine.dialogs().listRows(player, "warps", List.of(Map.of("", "Spawn", "note", "Where you start")));
+```
+
+`list` sets `warps_1`… and `warps_count` through `set`, and removes the items a
+longer list set before. The command that opens a dialog can give a whole list
+too, `warps=Spawn,Shop,Arena`, for that opening alone.
+
 A placeholder is looked up in five places, and the first answer wins:
 
 1. **What you handed to `show`**, matched without regard to case.
