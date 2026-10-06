@@ -354,6 +354,12 @@ public final class DialogPlaceholders {
      * The entry of a choice a value picks: the one whose key is the value, the
      * last when none is — which is also what an absent value gets. Empty only
      * when the choice has no well-formed entry at all, and is left as written.
+     *
+     * <p>A key of {@code *} matches ANY value that is not empty. It is how a
+     * row of a Studio list is shown only when it has something in it:
+     * {@code {warps_3?*:<the row>|-:}}, the row's picture when {@code warps_3}
+     * is set and nothing when it is not. Studio's {@code verify:dialogs} runs
+     * the same rule in JavaScript, so the two move together.
      */
     static Optional<String> choose(String entries, Optional<String> value) {
         String wanted = value.map(v -> v.trim().toLowerCase(Locale.ROOT)).orElse(null);
@@ -365,13 +371,16 @@ public final class DialogPlaceholders {
             }
             String key = entry.substring(0, colon).trim().toLowerCase(Locale.ROOT);
             String text = entry.substring(colon + 1);
-            if (wanted != null && key.equals(wanted)) {
+            if (wanted != null && (key.equals(wanted) || (ANY.equals(key) && !wanted.isEmpty()))) {
                 return Optional.of(text);
             }
             last = text;
         }
         return Optional.ofNullable(last);
     }
+
+    /** The choice key that matches any value that is not empty. */
+    static final String ANY = "*";
 
     /**
      * A value made safe to land anywhere in a dialog. Formatting codes go: a
