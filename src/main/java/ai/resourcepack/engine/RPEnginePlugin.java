@@ -299,6 +299,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * pushed to again rather than believed.
      */
     private final Map<UUID, BuiltPack> studioPacks = new ConcurrentHashMap<>();
+
+    /**
+     * Each player's own rig, in a pack of its own stacked on the server's,
+     * for somebody whose skin arrived after the build they were sent. See
+     * {@link #offerOwnRig}. Emptied on quit, like {@link #studioPacks}.
+     */
+    private final Map<UUID, BuiltPack> ownRigs = new ConcurrentHashMap<>();
+
+    /**
+     * Players who have joined and not been sent their packs yet, because
+     * their skin is on its way and the pack that shows it to them can go in
+     * the same send. See {@link #onJoin}.
+     */
+    private final Set<UUID> holdingPacks = ConcurrentHashMap.newKeySet();
+
+    /** The rigs the last build baked, so a newcomer's own can be stacked on exactly that build. */
+    private RigAssets currentRigs;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -467,7 +484,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         emoteStore.load(getLogger());
         skinCache = new SkinCache(this);
         bakeOnJoin = getConfig().getBoolean("emotes.bake-on-join", true);
-        skinCache.onNewSkin(this::rebakeSoon);
+        skinCache.onNewSkin(player -> {
+            offerOwnRig(player);
+            rebakeSoon();
+        });
         // A pushed screen's player heads are drawn from the same kept skins.
         overlays.faces(skinCache::face);
         // What a pushed pack holds that a command can name. Loaded here rather
@@ -1096,16 +1116,134 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // fifty milliseconds and reads as immediate.
         long wait = since >= REBAKE_COOLDOWN_MS ? 1L : Math.max(1L, (REBAKE_COOLDOWN_MS - since + 49) / 50);
         rebaking = true;
-        getServer().getScheduler().runTaskLater(this, () -> {
+        long booked = System.currentTimeMillis();
+        getServer().getScheduler().runTaskLater(this, () -> rebakeWhenQuiet(booked), wait);
+    }
+
+    /** The longest a rebuild for a new skin waits for downloads to finish before running anyway. */
+    private static final long REBAKE_QUIET_LIMIT_MS = 30_000L;
+
+    /**
+     * Runs the rebuild {@link #rebakeSoon} booked, once nobody is mid-download.
+     *
+     * <p>A rebuild replaces the file every download in flight is reading, so
+     * the player it was booked FOR - who joined a moment ago and is usually
+     * still downloading - would have that download fail and be sent the whole
+     * new build again: two loading screens for one join. Their own rig is
+     * already in front of them (see {@link #offerOwnRig}), and the rebuild is
+     * only for whoever joins next, so it can wait a few seconds. Not for
+     * ever: a client that never answers would hold it off indefinitely.
+     */
+    private void rebakeWhenQuiet(long booked) {
+        if (!isEnabled()) {
             rebaking = false;
-            lastRebake = System.currentTimeMillis();
-            // The content only, not config.yml as well: a skin arriving is not
-            // somebody asking for their edited settings to take effect.
-            rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
+            return;
+        }
+        if (System.currentTimeMillis() - booked < REBAKE_QUIET_LIMIT_MS) {
             for (Player player : getServer().getOnlinePlayers()) {
-                delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
+                if (holdingPacks.contains(player.getUniqueId()) || delivery.loads().waiting(player.getUniqueId())) {
+                    getServer().getScheduler().runTaskLater(this, () -> rebakeWhenQuiet(booked), 20L);
+                    return;
+                }
             }
-        }, wait);
+        }
+        rebaking = false;
+        lastRebake = System.currentTimeMillis();
+        // The content only, not config.yml as well: a skin arriving is not
+        // somebody asking for their edited settings to take effect.
+        rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
+        for (Player player : getServer().getOnlinePlayers()) {
+            delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
+        }
+    }
+
+    /**
+     * Lets one player see their own rig now, rather than after the rebuild
+     * their skin has just booked reaches them.
+     *
+     * <p>A rig is pack content and the pack is shared, so the rebuild that
+     * bakes a newcomer's skin is only ever sent to whoever joins next - sending
+     * it to everybody online reloads everybody online. That left the newcomer
+     * themselves riding and dancing as Steve until they rejoined, which is the
+     * first thing anybody notices. So THEY get a small pack of their own, on top
+     * of the build they hold: their sheet, their models, and the shared bone
+     * definitions with their case added (see RigAssets.self). Everybody else
+     * sees them as Steve until their own next pack, which the definitions'
+     * fallback makes a Steve rather than a missing model.
+     *
+     * <p>Stacked on THIS build and no other, and only while this build lacks
+     * them: once a rebuild has baked their skin, {@link #desiredFor} stops
+     * asking for it, because the next pack they are sent has it already.
+     */
+    private void offerOwnRig(Player player) {
+        if (player == null || !player.isOnline() || currentRigs == null || defaultBundle.isEmpty()
+                || !packHost.running() || !delivery.stacks() || bedrock.isBedrock(player.getUniqueId())) {
+            releasePacks(player);
+            return;
+        }
+        RigAssets.Self self = currentRigs.self(skinCache, player.getUniqueId());
+        BuiltPack pack = self == null ? null : writeOwnRig(self);
+        if (pack != null) {
+            packHost.register(pack);
+            ownRigs.put(player.getUniqueId(), pack);
+            emoteStore.addNativeRig(self.key(), self.rig());
+        }
+        if (!releasePacks(player) && pack != null) {
+            delivery.apply(player, desiredFor(player));
+        }
+    }
+
+    /** Where a player's own rig pack is written, beside the bundles but never mistaken for one. */
+    private Path ownRigFolder() {
+        return getDataFolder().toPath().resolve("output").resolve("rigs");
+    }
+
+    private BuiltPack writeOwnRig(RigAssets.Self self) {
+        ai.resourcepack.engine.core.pack.DeterministicZip zip = new ai.resourcepack.engine.core.pack.DeterministicZip();
+        for (Map.Entry<String, byte[]> file : self.files().entrySet()) {
+            zip.add(file.getKey(), file.getValue());
+        }
+        zip.add("pack.mcmeta", ("{\n  \"pack\": {\n    \"pack_format\": " + compatibility.packFormat()
+                + ",\n    \"description\": \"RP Engine - your rig\"\n  }\n}\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String bundle = "rig-" + self.key();
+        try {
+            Files.createDirectories(ownRigFolder());
+            Path file = ownRigFolder().resolve(self.key() + ".zip");
+            String sha1 = zip.writeTo(file);
+            return BuiltPack.of(bundle, file, sha1, Files.size(file), zip.size());
+        } catch (IOException e) {
+            getLogger().warning("Could not write a rig pack for " + self.key() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Sends a player held at join their packs.
+     *
+     * @return whether they were being held, and so have now been sent them
+     */
+    private boolean releasePacks(Player player) {
+        if (player == null || !holdingPacks.remove(player.getUniqueId())) {
+            return false;
+        }
+        if (player.isOnline()) {
+            delivery.apply(player, desiredFor(player));
+        }
+        return true;
+    }
+
+    /** Drops a player's own rig pack: they left, or the build they would stack it on has them now. */
+    private void dropOwnRig(UUID player) {
+        BuiltPack pack = ownRigs.remove(player);
+        if (pack == null) {
+            return;
+        }
+        packHost.unregister(pack.bundle());
+        try {
+            Files.deleteIfExists(pack.file());
+        } catch (IOException ignored) {
+            // A few kilobytes left in output/rigs, overwritten if they come back.
+        }
     }
 
     /** {@code /rp push}: forget what they are holding and send it again. */
@@ -1474,6 +1612,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         RigAssets rigAssets = RigAssets.bake(skinCache,
                 getConfig().getBoolean("emotes.rigs", true) && !compatibility.itemEra().needsNumbers());
         emoteStore.setNativeRigs(rigAssets.players());
+        currentRigs = rigAssets;
+        // Somebody whose own rig pack was keeping them company until now
+        // still wears their rig: it is in the build, under the same names.
+        for (UUID owner : List.copyOf(ownRigs.keySet())) {
+            Player online = getServer().getPlayer(owner);
+            if (online == null) {
+                dropOwnRig(owner);
+            } else if (!rigAssets.has(SkinCache.keyOf(owner))) {
+                RigAssets.Self self = rigAssets.self(skinCache, owner);
+                if (self != null) {
+                    emoteStore.addNativeRig(self.key(), self.rig());
+                }
+            }
+        }
 
         OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
         OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
@@ -1785,6 +1937,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // rather than the claimer's, since somebody sharing a sync may be in a
         // different world — so a pack under test is tried against the server it
         // will actually run on.
+        // Their own rig, while the build under it lacks them: see offerOwnRig.
+        // Straight on the server's pack, because that is the build it was
+        // made to sit on.
+        BuiltPack ownRig = player == null ? null : ownRigs.get(player.getUniqueId());
+        if (ownRig != null && !stack.isEmpty() && currentRigs != null
+                && !currentRigs.has(SkinCache.keyOf(player.getUniqueId()))) {
+            stack.add(ownRig);
+        }
         BuiltPack pushedPack = player == null ? null : studioPacks.get(player.getUniqueId());
         if (pushedPack != null) {
             stack.add(pushedPack);
@@ -1831,16 +1991,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         });
     }
 
+    /** The longest a join waits for its skin before sending the packs without it: two seconds. */
+    private static final long JOIN_SKIN_WAIT_TICKS = 40L;
+
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
         // the real start of that session and this join is not.
         joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
-        if (skinCache != null) {
-            skinCache.noticed(event.getPlayer());
+        Player joined = event.getPlayer();
+        // Held for a moment while their skin is fetched, when it is one this
+        // server's pack has no rig for: the pack that shows them their own rig
+        // can then go in the same send as everything else, one loading screen
+        // rather than two. offerOwnRig releases them; the timer is for a fetch
+        // that is slow or fails.
+        holdingPacks.add(joined.getUniqueId());
+        SkinCache.Noticed skin = skinCache == null ? SkinCache.Noticed.SETTLED : skinCache.noticed(joined);
+        announcePresence(joined, true);
+        if (skin == SkinCache.Noticed.FETCHING && currentRigs != null && currentRigs.count() > 0
+                && !currentRigs.has(SkinCache.keyOf(joined.getUniqueId()))
+                && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
+            getServer().getScheduler().runTaskLater(this, () -> releasePacks(joined), JOIN_SKIN_WAIT_TICKS);
+        } else {
+            releasePacks(joined);
         }
-        announcePresence(event.getPlayer(), true);
-        delivery.apply(event.getPlayer(), desiredFor(event.getPlayer()));
         // JOIN-triggered overlays, a tick later. The pack is still being
         // applied at this moment — `delivery.apply` above is what starts it —
         // and an overlay drawn before the client has the font is a run of
@@ -1908,6 +2082,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         sessions.forget(event.getPlayer().getUniqueId());
         delivery.loads().forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
+        holdingPacks.remove(event.getPlayer().getUniqueId());
+        dropOwnRig(event.getPlayer().getUniqueId());
         // A push nobody holds any more leaves the catalogue, unless it is the
         // last one (kept on disk) or the one this server publishes.
         if (pushedPacks.release(event.getPlayer().getUniqueId())) {

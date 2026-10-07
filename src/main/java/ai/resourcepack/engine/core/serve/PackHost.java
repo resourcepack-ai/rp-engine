@@ -110,6 +110,11 @@ public final class PackHost {
     }
 
     /** The URL for a bundle, if one is registered. */
+    /** Stops serving {@code bundle}, for a pack that belonged to a player who has left. */
+    public void unregister(String bundle) {
+        byPath.entrySet().removeIf(entry -> entry.getValue().bundle().equals(bundle));
+    }
+
     public Optional<String> url(String bundle) {
         for (Map.Entry<String, BuiltPack> entry : byPath.entrySet()) {
             if (entry.getValue().bundle().equals(bundle)) {
