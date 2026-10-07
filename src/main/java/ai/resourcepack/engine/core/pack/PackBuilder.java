@@ -193,6 +193,8 @@ public final class PackBuilder {
         // Who wrote each zip path, so a collision can name both sides rather
         // than saying only that one happened.
         Map<String, String> writtenBy = new HashMap<>();
+        // Overlay entries the packs' own pack.mcmeta declared, in pack order.
+        com.google.gson.JsonArray overlays = new com.google.gson.JsonArray();
 
         for (String namespace : bundle.namespaces()) {
             Path packFolder = contentRoot.resolve(namespace);
@@ -206,6 +208,7 @@ public final class PackBuilder {
                     namespace, bundle, zip, writtenBy, diagnostics);
             copyTree(packFolder.resolve(RESOURCE_PACK).resolve(ASSETS), ASSETS,
                     namespace, bundle, zip, writtenBy, diagnostics);
+            copyOverlays(packFolder.resolve(RESOURCE_PACK), namespace, bundle, zip, writtenBy, overlays, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
 
@@ -215,7 +218,7 @@ public final class PackBuilder {
             contributor.contribute(bundle, loaded, new Sink(contentRoot, zip, writtenBy, diagnostics));
         }
 
-        zip.add("pack.mcmeta", mcmeta(bundle).getBytes(StandardCharsets.UTF_8));
+        zip.add("pack.mcmeta", mcmeta(bundle, overlays).getBytes(StandardCharsets.UTF_8));
 
         Path file = outputDir.resolve(bundle.name() + ".zip");
         try {
@@ -300,15 +303,63 @@ public final class PackBuilder {
      *
      * <p>Two fields and no user input beyond a description we control the
      * escaping of. Pulling in a serializer for this would be more moving parts
-     * than the file has.
+     * than the file has. The overlays a pack declared ready-made are the one
+     * part that is somebody else's JSON, and those go through Gson.
      */
-    private String mcmeta(Bundle bundle) {
-        return "{\n"
-                + "  \"pack\": {\n"
+    private String mcmeta(Bundle bundle, com.google.gson.JsonArray overlays) {
+        String pack = "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
                 + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
-                + "  }\n"
-                + "}\n";
+                + "  }";
+        if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
+        com.google.gson.JsonObject entries = new com.google.gson.JsonObject();
+        entries.add("entries", overlays);
+        return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + "\n}\n";
+    }
+
+    /** An overlay directory: what Minecraft accepts, and nothing that climbs out of the pack. */
+    private static final java.util.regex.Pattern OVERLAY_DIRECTORY = java.util.regex.Pattern.compile("[a-z0-9_-]{1,64}");
+
+    /**
+     * Version OVERLAYS a pack ships ready-made: {@code resourcepack/pack.mcmeta}
+     * declares them exactly as a resource pack's own would, and each declared
+     * directory beside it is copied to the zip's root, where the game looks.
+     * The entries are carried into the bundle's pack.mcmeta as written.
+     *
+     * <p>This is the one way a content folder can ship a file that must sit
+     * outside {@code assets/}: a core shader for some versions only, say,
+     * which in the base pack would break every client its GLSL does not
+     * compile on. Studio's dialogs use it for the shader that draws a live
+     * player head at its full size.
+     */
+    private void copyOverlays(Path resourcePack, String namespace, Bundle bundle, DeterministicZip zip,
+                              Map<String, String> writtenBy, com.google.gson.JsonArray overlays,
+                              List<Diagnostic> diagnostics) {
+        Path meta = resourcePack.resolve("pack.mcmeta");
+        if (!Files.isRegularFile(meta)) return;
+        com.google.gson.JsonArray declared;
+        try {
+            com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(Files.readString(meta, StandardCharsets.UTF_8));
+            com.google.gson.JsonElement list = root.isJsonObject() && root.getAsJsonObject().has("overlays")
+                    ? root.getAsJsonObject().getAsJsonObject("overlays").get("entries") : null;
+            if (list == null || !list.isJsonArray()) return;
+            declared = list.getAsJsonArray();
+        } catch (IOException | RuntimeException e) {
+            diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
+                    "Could not be read, so its overlays are not shipped. " + message(e)));
+            return;
+        }
+        for (com.google.gson.JsonElement entry : declared) {
+            if (!entry.isJsonObject() || !entry.getAsJsonObject().has("directory")) continue;
+            String directory = entry.getAsJsonObject().get("directory").getAsString();
+            if (!OVERLAY_DIRECTORY.matcher(directory).matches() || directory.equals(ASSETS)) {
+                diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
+                        "Overlay directory '" + directory + "' is not a name the game accepts; skipped."));
+                continue;
+            }
+            copyTree(resourcePack.resolve(directory), directory, namespace, bundle, zip, writtenBy, diagnostics);
+            overlays.add(entry);
+        }
     }
 
     private static String escape(String text) {
