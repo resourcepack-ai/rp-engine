@@ -103,6 +103,11 @@ public final class PackDelivery {
         return true;
     }
 
+    /** Whether a client here can hold more than one pack, which a pack stacked on top of another needs. */
+    public boolean stacks() {
+        return sending.stacks();
+    }
+
     /**
      * Which of the packs sent here each client has said it loaded. The plugin
      * feeds it the status events; {@link #resendUnfinished} reads it.

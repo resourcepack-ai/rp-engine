@@ -522,6 +522,17 @@ public final class EmoteStore {
     }
 
     /**
+     * Adds one player's rig between builds, for somebody who has been sent it
+     * in a pack of their own (see {@link RigAssets#self}). The next
+     * {@link #setNativeRigs} replaces it with the same rig from the build.
+     */
+    public void addNativeRig(String key, PlayerRig rig) {
+        if (key != null && rig != null && rig.item != null) {
+            nativePlayers.put(key.toLowerCase(Locale.ROOT), rig);
+        }
+    }
+
+    /**
      * Replaces every hand-authored emote with what the content folders hold
      * now — see {@link AuthoredEmotes}.
      *
