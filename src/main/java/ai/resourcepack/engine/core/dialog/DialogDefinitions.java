@@ -73,8 +73,8 @@ public final class DialogDefinitions {
                         "json: " + file.get() + " is not a file in this pack."));
                 return Optional.empty();
             }
-            return Optional.of(opened(DialogInfo.authored(definition.id(), json, name, vars(body, origin, where, diagnostics)),
-                    body, origin, where, diagnostics));
+            return Optional.of(opened(DialogInfo.authored(definition.id(), compact(json, file.get(), origin, where, diagnostics),
+                    name, vars(body, origin, where, diagnostics)), body, origin, where, diagnostics));
         }
 
         List<String> lines = body.strings("body");
@@ -162,6 +162,34 @@ public final class DialogDefinitions {
      * A command that is not one plain word is warned about and dropped; the
      * dialog still loads and still opens with {@code /rp dialog}.
      */
+    /**
+     * A {@code json:} file written the way a pushed dialog is: on one line, its
+     * escapes read back into the characters they stand for.
+     *
+     * <p>Still transported unread — no field is looked at, added or dropped;
+     * only the spelling of the same JSON changes. It has to, because the passes
+     * that fill a dialog for each player ({@link DialogPlaceholders}) work on
+     * its TEXT, as Studio sends it: a live value's room is the character just
+     * before its brace, and a live head is found by its marker's exact text.
+     * A dialog exported from Studio as a file is indented and writes those
+     * characters as backslash-u escapes, which say the same thing to the game
+     * and nothing to those passes — so a pasted export opened with its heads
+     * blank and its values never fitted to their room.
+     *
+     * <p>A file that is not JSON is kept as written and warned about; the
+     * game's own refusal, when it is opened, says more than a parser here can.
+     */
+    static String compact(String json, String file, String origin, String where, List<Diagnostic> diagnostics) {
+        try {
+            return com.google.gson.JsonParser.parseString(json).toString();
+        } catch (RuntimeException e) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "json: " + file + " is not valid JSON, so it is sent exactly as written and the game will "
+                            + "most likely refuse it: " + e.getMessage()));
+            return json;
+        }
+    }
+
     private static DialogInfo opened(DialogInfo dialog, DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
         Optional<String> command = body.string("command");
