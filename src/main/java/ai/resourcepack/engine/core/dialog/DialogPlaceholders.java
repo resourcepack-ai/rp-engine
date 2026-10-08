@@ -309,12 +309,6 @@ public final class DialogPlaceholders {
      *
      * @param mark the live mark in front of the placeholder: see {@link #LIVE_MARK_BASE}
      */
-    private static final int SECTION = 0xA7;
-
-    private static boolean isKeptCode(int code, boolean bold) {
-        return "0123456789abcdef".indexOf(Character.toLowerCase(code)) >= 0 || (bold && Character.toLowerCase(code) == 'l');
-    }
-
     static String fitLive(String value, int mark) {
         int code = mark - LIVE_MARK_BASE;
         int mode = code / 512;
@@ -324,32 +318,12 @@ public final class DialogPlaceholders {
         StringBuilder out = new StringBuilder(value.length());
         int used = 0;
         int ellipsis = DialogGlyphWidths.advance(ELLIPSIS, scale, bold);
-        // A colour code (and, in bold words, a bold one to keep them bold after
-        // it) is kept: the game draws neither character, in the words or in
-        // their twin, so the line still comes to its width. Anything else after
-        // a section sign would change a width only one of the two copies has.
-        int[] raw = value.codePoints().toArray();
-        java.util.List<Integer> kept = new java.util.ArrayList<>(raw.length);
-        for (int i = 0; i < raw.length; i++) {
-            int cp = raw[i];
-            if (cp == SECTION && i + 1 < raw.length && isKeptCode(raw[i + 1], bold)) {
-                kept.add(cp);
-                kept.add(raw[++i]);
-                continue;
-            }
-            kept.add(cp == ' ' || cp == LIVE_SPACE ? LIVE_SPACE : cp != SECTION && DialogGlyphWidths.covers(cp) ? cp : '?');
-        }
-        int[] codepoints = kept.stream().mapToInt(Integer::intValue).toArray();
-        // A kept code and the character after it move the pen nowhere.
-        int[] advances = new int[codepoints.length];
-        for (int i = 0; i < codepoints.length; i++) {
-            // Every section sign left is a kept code's: any other became a '?'.
-            boolean format = codepoints[i] == SECTION || (i > 0 && codepoints[i - 1] == SECTION);
-            advances[i] = format ? 0 : liveAdvance(codepoints[i], scale, bold);
-        }
+        int[] codepoints = value.codePoints()
+                .map(cp -> cp == ' ' || cp == LIVE_SPACE ? LIVE_SPACE : DialogGlyphWidths.covers(cp) ? cp : '?')
+                .toArray();
         int total = 0;
-        for (int advance : advances) {
-            total += advance;
+        for (int cp : codepoints) {
+            total += liveAdvance(cp, scale, bold);
         }
         if (total <= room) {
             for (int cp : codepoints) {
@@ -357,12 +331,12 @@ public final class DialogPlaceholders {
             }
             return out.toString();
         }
-        for (int i = 0; i < codepoints.length; i++) {
-            int advance = advances[i];
+        for (int cp : codepoints) {
+            int advance = liveAdvance(cp, scale, bold);
             if (used + advance + ellipsis > room) {
                 break;
             }
-            out.appendCodePoint(codepoints[i]);
+            out.appendCodePoint(cp);
             used += advance;
         }
         if (used + ellipsis <= room) {
