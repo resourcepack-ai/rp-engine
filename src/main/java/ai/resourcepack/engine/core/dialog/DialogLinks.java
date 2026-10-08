@@ -186,6 +186,47 @@ public final class DialogLinks {
      * or without its slash — which is how the engine tells which page a player
      * is on when the client turned to it without asking.
      */
+    public static boolean clicksCommand(String json, String command) {
+        if (json == null || command == null) {
+            return false;
+        }
+        String bare = command.startsWith("/") ? command.substring(1) : command;
+        Matcher m = TEXT_CLICK.matcher(json);
+        while (m.find()) {
+            String held;
+            try {
+                held = GSON.fromJson("\"" + m.group(1) + "\"", String.class);
+            } catch (JsonParseException e) {
+                continue;
+            }
+            if (held.startsWith("/")) {
+                held = held.substring(1);
+            }
+            // A placeholder in it was filled as the dialog opened: anything stands for it.
+            StringBuilder pattern = new StringBuilder();
+            Matcher p = PLACEHOLDER.matcher(held);
+            int at = 0;
+            while (p.find()) {
+                pattern.append(Pattern.quote(held.substring(at, p.start()))).append(".*?");
+                at = p.end();
+            }
+            pattern.append(Pattern.quote(held.substring(at)));
+            if (Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A click on the picture: a text component's {@code click_event}, never a footer button's action. */
+    private static final Pattern TEXT_CLICK = Pattern.compile(
+            "\"action\"[ ]*:[ ]*\"run_command\"[ ]*,[ ]*\"command\"[ ]*:[ ]*\"((?:[^\"\\\\]|\\\\.)*)\"");
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{[^{}]+}");
+
+    /**
+     * Whether a dialog's JSON holds a click running exactly {@code command}, with
+     * or without its slash.
+     */
     public static boolean holdsCommand(String json, String command) {
         if (json == null || command == null) {
             return false;
