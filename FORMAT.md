@@ -2826,6 +2826,12 @@ The file is the `minecraft:dialog` object, written as the game documents it,
 and the engine transports it without reading a field of it. Use it for anything
 the keys above cannot say.
 
+A dialog exported from Studio as a file can go here as it is, and opened this
+way it gets everything a synced one does: its `{placeholders}` filled, its live
+heads, bars and inventory slots. The file is read once as it loads and sent on
+one line with its escapes written out, which is the same JSON to the game.
+Studio's ItemsAdder export writes these files for you, ready to copy in.
+
 ### Drawing one
 
 The buttons are the game's own widgets and the pack cannot move them — but a

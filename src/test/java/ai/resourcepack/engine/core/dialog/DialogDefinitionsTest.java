@@ -165,6 +165,59 @@ class DialogDefinitionsTest {
         assertEquals("{\"type\":\"minecraft:something_new\"}", one(parse(), "mypack:future").json());
     }
 
+    /**
+     * A file is spelt the way a pushed dialog is, because the passes that fill
+     * one for each player read its text. Studio's export is indented and writes
+     * its invisible characters as escapes; loaded, it is the pushed JSON byte
+     * for byte, so the live value's room is read and the live head is found.
+     */
+    @Test
+    void anExportedFileIsSpeltAsAPushedOne() throws IOException {
+        String u = "\\" + "u";
+        write("mypack/dialogs/raw.json", "{\n"
+                + "  \"type\": \"minecraft:notice\",\n"
+                + "  \"body\": [\n"
+                + "    {\n"
+                + "      \"type\": \"minecraft:plain_message\",\n"
+                + "      \"contents\": [\n"
+                + "        { \"text\": \"" + u + "f012{player}\" },\n"
+                + "        {\n"
+                + "          \"text\": \"" + u + "e003\",\n"
+                + "          \"font\": \"minecraft:dialog_space\",\n"
+                + "          \"color\": \"#fcf7ff\",\n"
+                + "          \"insertion\": \"rp:head:{player}\"\n"
+                + "        }\n"
+                + "      ]\n"
+                + "    }\n"
+                + "  ]\n"
+                + "}\n");
+        write("mypack/dialogs/menus.yml",
+                "future:\n"
+                        + "  json: mypack/dialogs/raw.json\n");
+        DialogDefinitions.Result result = parse();
+        String pushed = "{\"type\":\"minecraft:notice\",\"body\":[{\"type\":\"minecraft:plain_message\",\"contents\":["
+                + "{\"text\":\"{player}\"},"
+                + "{\"text\":\"\",\"font\":\"minecraft:dialog_space\",\"color\":\"#fcf7ff\",\"insertion\":\"rp:head:{player}\"}"
+                + "]}]}";
+        assertEquals(pushed, one(result, "mypack:future").json());
+        assertTrue(result.diagnostics().isEmpty());
+        String filled = DialogPlaceholders.fill(one(result, "mypack:future").json(), name -> java.util.Optional.of("Steve"), true);
+        assertTrue(filled.contains("\"object\":\"player\",\"player\":\"Steve\""), filled);
+    }
+
+    /** A file that is not JSON goes as written, with a warning, and the game has the last word. */
+    @Test
+    void aFileThatIsNotJsonIsSentAsWritten() throws IOException {
+        write("mypack/dialogs/raw.json", "{ \"type\": ");
+        write("mypack/dialogs/menus.yml",
+                "future:\n"
+                        + "  json: mypack/dialogs/raw.json\n");
+        DialogDefinitions.Result result = parse();
+        assertEquals("{ \"type\": ", one(result, "mypack:future").json());
+        assertTrue(result.diagnostics().stream()
+                .anyMatch(d -> d.severity() == Diagnostic.Severity.WARNING));
+    }
+
     @Test
     void aMissingJsonFileIsAnError() throws IOException {
         write("mypack/dialogs/menus.yml",
