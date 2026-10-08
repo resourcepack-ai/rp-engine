@@ -220,16 +220,31 @@ public interface Dialogs {
             }
         }).orElse(0);
         int count = rows == null ? 0 : rows.size();
+        // The fields the last list's rows had, so a row past the end loses its
+        // words as well as its value: a hidden row's text is still drawn.
+        java.util.Set<String> fields = new java.util.LinkedHashSet<>();
+        value(viewer, name + "_fields").ifPresent(f -> {
+            for (String field : f.split(",")) {
+                if (!field.isBlank()) fields.add(field.trim());
+            }
+        });
+        java.util.Set<String> now = new java.util.LinkedHashSet<>();
         for (int k = 1; k <= count; k++) {
             for (Map.Entry<String, String> field : rows.get(k - 1).entrySet()) {
-                String key = field.getKey() == null || field.getKey().isEmpty() ? name + "_" + k : name + "_" + k + "_" + field.getKey();
-                set(viewer, key, field.getValue());
+                boolean own = field.getKey() == null || field.getKey().isEmpty();
+                if (!own) now.add(field.getKey());
+                set(viewer, own ? name + "_" + k : name + "_" + k + "_" + field.getKey(), field.getValue());
             }
         }
-        for (int k = count + 1; k <= before; k++) {
+        fields.addAll(now);
+        for (int k = count + 1; k <= Math.max(before, count); k++) {
             set(viewer, name + "_" + k, null);
+            for (String field : fields) {
+                set(viewer, name + "_" + k + "_" + field, null);
+            }
         }
         set(viewer, name + "_count", String.valueOf(count));
+        set(viewer, name + "_fields", now.isEmpty() ? null : String.join(",", now));
     }
 
     /**
