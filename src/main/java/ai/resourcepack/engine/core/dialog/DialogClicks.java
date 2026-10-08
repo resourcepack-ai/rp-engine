@@ -28,5 +28,11 @@ public final class DialogClicks implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         dialogs.noteCommand(event.getPlayer(), event.getMessage());
+        // The game's own click, which a click on a dialog's picture does not
+        // make by itself: its buttons click, a run of its body's text does not.
+        if (dialogs.clickedPicture(event.getPlayer(), event.getMessage())) {
+            event.getPlayer().playSound(event.getPlayer().getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK,
+                    org.bukkit.SoundCategory.MASTER, 0.25f, 1f);
+        }
     }
 }

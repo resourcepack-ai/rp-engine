@@ -443,6 +443,16 @@ public final class DialogsImpl implements Dialogs {
         }
     }
 
+    /**
+     * Whether {@code command} is what a click on the PICTURE of the dialog the
+     * player was last shown runs: an area of a Studio dialog's body, which the
+     * game does not click for by itself the way it does a button.
+     */
+    public boolean clickedPicture(Player viewer, String command) {
+        Shown shown = viewer == null || command == null ? null : lastShown.get(viewer);
+        return shown != null && info(viewer, shown.id()).map(i -> DialogLinks.clicksCommand(i.json(), command)).orElse(false);
+    }
+
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
         return viewer == null ? Optional.empty() : Optional.ofNullable(lastShown.get(viewer));
