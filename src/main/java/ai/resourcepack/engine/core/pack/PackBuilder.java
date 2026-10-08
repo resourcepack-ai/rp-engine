@@ -312,9 +312,52 @@ public final class PackBuilder {
                 + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
                 + "  }";
         if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
+        // A pack whose overlays reach past format 64 must say, at the top,
+        // which formats it supports (1.21.9+ refuses the whole pack
+        // otherwise): from the oldest to the newest it or any overlay names.
+        // Older clients read the same range as supported_formats.
+        int min = packFormat;
+        int max = packFormat;
+        for (com.google.gson.JsonElement e : overlays) {
+            int[] range = overlayRange(e);
+            if (range == null) continue;
+            min = Math.min(min, range[0]);
+            max = Math.max(max, range[1]);
+        }
+        pack = "  \"pack\": {\n"
+                + "    \"pack_format\": " + packFormat + ",\n"
+                + "    \"supported_formats\": {\"min_inclusive\": " + min + ", \"max_inclusive\": " + max + "},\n"
+                + "    \"min_format\": " + min + ",\n"
+                + "    \"max_format\": " + max + ",\n"
+                + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
+                + "  }";
         com.google.gson.JsonObject entries = new com.google.gson.JsonObject();
         entries.add("entries", overlays);
         return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + "\n}\n";
+    }
+
+    /** An overlay entry's formats, from min_format/max_format or formats, or null. */
+    private static int[] overlayRange(com.google.gson.JsonElement e) {
+        if (!e.isJsonObject()) return null;
+        com.google.gson.JsonObject o = e.getAsJsonObject();
+        try {
+            if (o.has("min_format") && o.has("max_format")) {
+                return new int[] {major(o.get("min_format")), major(o.get("max_format"))};
+            }
+            com.google.gson.JsonElement f = o.get("formats");
+            if (f != null && f.isJsonObject()) {
+                return new int[] {f.getAsJsonObject().get("min_inclusive").getAsInt(), f.getAsJsonObject().get("max_inclusive").getAsInt()};
+            }
+            if (f != null && f.isJsonPrimitive()) return new int[] {f.getAsInt(), f.getAsInt()};
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    /** A format as written: 75, or [75, 1] whose first number is the major one. */
+    private static int major(com.google.gson.JsonElement e) {
+        return e.isJsonArray() ? e.getAsJsonArray().get(0).getAsInt() : e.getAsInt();
     }
 
     /** An overlay directory: what Minecraft accepts, and nothing that climbs out of the pack. */
