@@ -447,6 +447,9 @@ public final class PackBuilder {
         for (Path file : sortedFiles(from, namespace, diagnostics)) {
             String path = toPrefix + "/" + relative(from, file);
             String previous = writtenBy.get(path);
+            if (previous != null && FONT_FILE.matcher(path).matches() && mergeFont(file, path, namespace, zip, writtenBy)) {
+                continue;
+            }
             if (previous != null) {
                 // Only reachable through overrides/ or a resource pack folder,
                 // since everything else is namespaced. Later-sorted wins, which is stable; the warning
@@ -457,6 +460,45 @@ public final class PackBuilder {
                                 + " in the bundle " + bundle.name() + ". " + namespace + " wins."));
             }
             readInto(file, path, namespace, zip, writtenBy, diagnostics);
+        }
+    }
+
+    /** A font definition, in a pack or in one of its overlays. */
+    private static final java.util.regex.Pattern FONT_FILE = java.util.regex.Pattern.compile("(?:[^/]+/)?assets/[^/]+/font/[^/]+[.]json");
+
+    /**
+     * Two packs that define the same font get one font holding both: its
+     * providers are the first pack's and then whatever of the second's the
+     * first did not already have. A font is a LIST of providers and the game
+     * asks each in turn for a character, so nothing either pack draws is lost
+     * — where replacing the file dropped every character only the loser
+     * declared, and a Studio dialog's line that named one drew the
+     * missing-glyph box and pushed everything after it out of place. False
+     * when either file is not a font this can read; the caller then replaces
+     * it as before.
+     */
+    private boolean mergeFont(Path file, String path, String namespace, DeterministicZip zip, Map<String, String> writtenBy) {
+        try {
+            com.google.gson.JsonObject before = com.google.gson.JsonParser.parseString(
+                    new String(zip.get(path), java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            com.google.gson.JsonObject added = com.google.gson.JsonParser.parseString(
+                    Files.readString(file, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+            com.google.gson.JsonArray providers = before.getAsJsonArray("providers");
+            com.google.gson.JsonArray more = added.getAsJsonArray("providers");
+            if (providers == null || more == null) {
+                return false;
+            }
+            for (com.google.gson.JsonElement provider : more) {
+                if (!providers.contains(provider)) {
+                    providers.add(provider);
+                }
+            }
+            zip.add(path, new com.google.gson.GsonBuilder().disableHtmlEscaping().create().toJson(before)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            writtenBy.put(path, writtenBy.get(path) + "+" + namespace);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
         }
     }
 
