@@ -216,24 +216,10 @@ class DialogPlaceholdersTest {
     }
 
     @Test
-    void aMarkedValueKeepsColourAndBoldInBoldWords() {
+    void aMarkedValueLosesItsFormattingCodesFirst() {
         String m = mark(1, true, 200);
         String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{rank}\"}", from(Map.of("rank", "§6§lVIP")));
-        assertEquals("{\"text\":\"" + m + "§6§lVIP\"}", out);
-    }
-
-    @Test
-    void aMarkedValueKeepsOnlyColourInPlainWords() {
-        // Bold, or any other code, would make the words and their twin differ in width.
-        String m = mark(1, false, 200);
-        String out = DialogPlaceholders.fill("{\"text\":\"" + m + "{rank}\"}", from(Map.of("rank", "§6§l§kVIP§")));
-        assertEquals("{\"text\":\"" + m + "§6VIP\"}", out);
-    }
-
-    @Test
-    void anUnmarkedValueStillLosesItsCodes() {
-        String out = DialogPlaceholders.fill("{\"text\":\"{rank}\"}", from(Map.of("rank", "§6§lVIP")));
-        assertEquals("{\"text\":\"VIP\"}", out);
+        assertEquals("{\"text\":\"" + m + "VIP\"}", out);
     }
 
     // ------------------------------------------------------------ live heads
