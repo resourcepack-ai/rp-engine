@@ -659,6 +659,15 @@ public final class DialogsImpl implements Dialogs {
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }
+        // Paper's own close (1.21.6+ API, looked up by name since this compiles
+        // against an older one) is silent; the command is said to every op in
+        // chat as "[Server: Cleared dialog for ...]".
+        try {
+            viewer.getClass().getMethod("closeDialog").invoke(viewer);
+            return;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Not there: the command, as before.
+        }
         dispatch("minecraft:dialog clear " + viewer.getName(), null, true);
     }
 
