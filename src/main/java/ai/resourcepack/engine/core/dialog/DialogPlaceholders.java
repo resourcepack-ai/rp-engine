@@ -175,11 +175,13 @@ public final class DialogPlaceholders {
                     at = m.end();
                 }
             } else if (value.isPresent()) {
-                String clean = clean(value.get());
                 char before = m.start() > 0 ? json.charAt(m.start() - 1) : 0;
-                if (before >= LIVE_MARK_BASE && before < LIVE_MARK_END) {
-                    clean = fitLive(clean, before);
-                }
+                // Live words in a picture keep a colour code (fitLive decides
+                // which, and makes any other section sign a '?'); everywhere
+                // else the codes come out, as they always have.
+                String clean = before >= LIVE_MARK_BASE && before < LIVE_MARK_END
+                        ? fitLive(value.get(), before)
+                        : clean(value.get());
                 out.append(json, at, m.start()).append(escape(clean));
                 at = m.end();
             }
@@ -332,18 +334,22 @@ public final class DialogPlaceholders {
         java.util.List<Integer> kept = new java.util.ArrayList<>(raw.length);
         for (int i = 0; i < raw.length; i++) {
             int cp = raw[i];
-            if (cp == SECTION && i + 1 < raw.length && isKeptCode(raw[i + 1], bold)) {
-                kept.add(cp);
-                kept.add(raw[++i]);
+            if (cp == SECTION) {
+                // Any other code, and a section sign with nothing after it, goes.
+                if (i + 1 < raw.length && isKeptCode(raw[i + 1], bold)) {
+                    kept.add(cp);
+                    kept.add(raw[i + 1]);
+                }
+                i++;
                 continue;
             }
-            kept.add(cp == ' ' || cp == LIVE_SPACE ? LIVE_SPACE : cp != SECTION && DialogGlyphWidths.covers(cp) ? cp : '?');
+            kept.add(cp == ' ' || cp == LIVE_SPACE ? LIVE_SPACE : DialogGlyphWidths.covers(cp) ? cp : '?');
         }
         int[] codepoints = kept.stream().mapToInt(Integer::intValue).toArray();
         // A kept code and the character after it move the pen nowhere.
         int[] advances = new int[codepoints.length];
         for (int i = 0; i < codepoints.length; i++) {
-            // Every section sign left is a kept code's: any other became a '?'.
+            // Every section sign left is a kept code's: any other was dropped.
             boolean format = codepoints[i] == SECTION || (i > 0 && codepoints[i - 1] == SECTION);
             advances[i] = format ? 0 : liveAdvance(codepoints[i], scale, bold);
         }
