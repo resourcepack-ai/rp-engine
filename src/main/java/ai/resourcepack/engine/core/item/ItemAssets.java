@@ -68,6 +68,8 @@ public final class ItemAssets implements PackContributor {
 
     /** {@code armor-art:} by item, read for this build; see {@link #readArmorArt}. */
     private final Map<ContentId, String> armorArt = new LinkedHashMap<>();
+    /** {@code first-person:}, read straight off the definitions like {@code armor-art:}. */
+    private final Map<ContentId, String> firstPerson = new LinkedHashMap<>();
 
     /** The armour this build wrote that the server will draw with vanilla art. */
     private final List<String> vanillaDrawn = new ArrayList<>();
@@ -136,6 +138,7 @@ public final class ItemAssets implements PackContributor {
         legacyBases.clear();
         vanillaDrawn.clear();
         readArmorArt(loaded);
+        readFirstPerson(loaded);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
@@ -186,6 +189,30 @@ public final class ItemAssets implements PackContributor {
                     .filter(art -> !art.isEmpty())
                     .map(art -> art.endsWith(".png") ? art.substring(0, art.length() - 4) : art)
                     .ifPresent(art -> armorArt.put(definition.id(), art));
+        }
+    }
+
+    /**
+     * {@code first-person:}: the model an item is drawn with while its holder
+     * looks at it, in place of its own.
+     *
+     * <p>What it is for is a gun that is aimed: down the sights the parts behind
+     * the optic (a hopper, a stock) are between the eye and everything else, so
+     * the first-person model leaves them out, and everybody else still sees the
+     * whole thing. Like {@code armor-art:} it is a build instruction and not a
+     * property of the item, so it is read here rather than carried on
+     * {@link ItemInfo}.
+     */
+    private void readFirstPerson(LoadReport loaded) {
+        firstPerson.clear();
+        if (loaded == null) {
+            return;
+        }
+        for (ContentDefinition definition : loaded.definitions(ContentKind.ITEM)) {
+            String model = ItemDefinitions.model(definition.body(), "first-person");
+            if (model != null && !model.isBlank()) {
+                firstPerson.put(definition.id(), model.trim());
+            }
         }
     }
 
@@ -246,9 +273,27 @@ public final class ItemAssets implements PackContributor {
                                 + " may look wrong for everybody on the server. Build it on a "
                                 + "simpler material, or run Minecraft 1.21.4 or newer.");
             }
+            if (firstPerson.containsKey(id)) {
+                into.warn(namespace + "/items", id.path(),
+                        "first-person: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
+                                + "it is seen. On this one the item's own model is drawn in first person too.");
+            }
         } else {
-            into.add("assets/" + namespace + "/items/" + id.path() + ".json",
-                    json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}}"));
+            String own = "{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}";
+            String firstPersonModel = firstPerson.get(id);
+            if (firstPersonModel != null
+                    && writeFirstPerson(item, namespace, firstPersonModel, modelRef + "_first_person", into)) {
+                // The game picks by where the item is being drawn: the holder's
+                // own view gets the first-person model, everything else (a
+                // third-person view, the inventory, the ground) the item's own.
+                into.add("assets/" + namespace + "/items/" + id.path() + ".json",
+                        json("{\"model\":{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
+                                + "\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
+                                + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_first_person\"}}],"
+                                + "\"fallback\":" + own + "}}"));
+            } else {
+                into.add("assets/" + namespace + "/items/" + id.path() + ".json", json("{\"model\":" + own + "}"));
+            }
         }
 
         if (item.model().isPresent()) {
@@ -422,6 +467,37 @@ public final class ItemAssets implements PackContributor {
             }
             requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
         }
+    }
+
+    /**
+     * Writes an item's {@code first-person:} model as {@code ref}, from a JSON
+     * model (a file or written inline; a Blockbench project is not read here,
+     * since a first-person view is a variation on a model the item already has).
+     *
+     * @return whether it was written; when it was not, the error says why and
+     *         the item is drawn with its own model everywhere
+     */
+    private boolean writeFirstPerson(ItemInfo item, String namespace, String name, String ref, Contribution into) {
+        Optional<ModelSources.Found> source = source(into, namespace, name, ".json");
+        Optional<Geometry.Model> model = source.flatMap(found -> Geometry.read(found.bytes(), found.textureNamespace()));
+        if (model.isEmpty()) {
+            into.error(namespace + "/items", item.id().path(),
+                    source.isEmpty()
+                            ? "first-person: no model at " + (ModelSources.isInline(name) ? "(inline model)"
+                            : ModelSources.describe(namespace, name, ".json")) + "."
+                            : "first-person: " + source.get().path() + " is not a model file.");
+            return false;
+        }
+        String path = "assets/" + ref.substring(0, ref.indexOf(':')) + "/models/" + ref.substring(ref.indexOf(':') + 1) + ".json";
+        into.add(path, model.get().json());
+        for (String texture : model.get().textures()) {
+            String textureNamespace = texture.substring(0, texture.indexOf(':'));
+            if (bundle != null && !bundle.namespaces().contains(textureNamespace)) {
+                continue;
+            }
+            requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
+        }
+        return true;
     }
 
     /**

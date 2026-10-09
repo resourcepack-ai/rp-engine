@@ -110,6 +110,22 @@ pick:
 
 It is written out exactly as given, as the item's model.
 
+**`first-person:` is a second model for the holder's own view**, written the
+same three ways as `model:`. The game draws it while the item is held in first
+person and the item's own model everywhere else: other players, the inventory,
+the ground. It is what an aimed gun needs, because down the sights the parts
+behind the optic are between the eye and everything else:
+
+```yaml
+rifle_aimed:
+  material: PAPER
+  model: {parent: mypack:rifle, textures: {skin: mypack:item/rifle}}
+  first-person: {parent: mypack:rifle_sights, textures: {skin: mypack:item/rifle}}
+```
+
+Minecraft 1.21.4 and newer; on an older server the item's own model is drawn in
+first person too, with a warning.
+
 An item can also wear another item's model with `copy-model: mypack:other`.
 Nothing is generated for it; it points at what is already there, which is how
 a pack ships five items that look the same without five copies of one file.
