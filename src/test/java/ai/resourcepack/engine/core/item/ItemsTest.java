@@ -243,6 +243,35 @@ class ItemsTest {
     }
 
     @Test
+    void aFirstPersonModelIsDrawnOnlyInTheHoldersOwnView() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "rifle:\n  material: PAPER\n"
+                + "  model: {parent: mypack:rifle, textures: {skin: mypack:item/rifle}}\n"
+                + "  first-person: {parent: mypack:rifle_sights, textures: {skin: mypack:item/rifle}}\n");
+        write("mypack/assets/textures/item/rifle.png", "PNG");
+
+        Map<String, String> zip = buildAndRead();
+
+        assertEquals("{\"model\":{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
+                        + "\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/rifle_first_person\"}}],"
+                        + "\"fallback\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/rifle\"}}}",
+                zip.get("assets/mypack/items/rifle.json"));
+        assertTrue(zip.get("assets/mypack/models/item/rifle_first_person.json").contains("mypack:rifle_sights"));
+        assertTrue(zip.get("assets/mypack/models/item/rifle.json").contains("\"mypack:rifle\""));
+    }
+
+    @Test
+    void anItemWithoutAFirstPersonModelKeepsItsPlainDefinition() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\n");
+        write("mypack/assets/textures/item/ruby.png", "PNG");
+
+        assertEquals("{\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/ruby\"}}",
+                buildAndRead().get("assets/mypack/items/ruby.json"));
+    }
+
+    @Test
     void aNestedIdKeepsItsPathThroughEveryFile() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "weapons/sword:\n  material: DIAMOND_SWORD\n");
