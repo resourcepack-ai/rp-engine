@@ -173,4 +173,56 @@ class DialogBarsTest {
             assertTrue(m.reach() <= pixels + 1, "reach " + pixels);
         }
     }
+
+    // ------------------------------------------------------- vertical bars
+
+    private static final String VFONT = "minecraft:dialog_vbar_3_10x60_0badf00d";
+
+    private static String vmarker(String insertion) {
+        return "{\"text\":\"\",\"font\":\"" + VFONT + "\",\"color\":\"white\",\"insertion\":\"" + insertion + "\"}";
+    }
+
+    /** How many rows a vertical marker fills: its one glyph's k, or 0 for the empty text it leaves. */
+    private static int rose(String insertion) {
+        JsonArray runs = extra(DialogBars.fill(dialog(vmarker(insertion))));
+        assertEquals(2, runs.size(), "the space and one run");
+        JsonObject run = runs.get(1).getAsJsonObject();
+        String text = run.get("text").getAsString();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        assertEquals(2, text.length(), "one glyph and the step back");
+        assertEquals(DialogBars.VBAR_BACK, text.charAt(1));
+        assertEquals(VFONT, run.get("font").getAsString(), "in the bar's own font");
+        assertEquals("white", run.get("color").getAsString(), "its glyphs carry their colours");
+        assertEquals(0, run.get("shadow_color").getAsInt());
+        return text.charAt(0) - DialogBars.VBAR_BASE;
+    }
+
+    @Test
+    void aVerticalBarRisesTheValueOverTheMostOfItsRoom() {
+        assertEquals(30, rose("rp:vbar:60:1|2"));
+        assertEquals(60, rose("rp:vbar:60:9|9"));
+        assertEquals(52, rose("rp:vbar:60:1,652|1,900"), "1652/1900 of 60, rounded");
+        assertEquals(60, rose("rp:vbar:60:500|20"), "kept to full");
+        assertEquals(0, rose("rp:vbar:60:0|20"));
+        assertEquals(0, rose("rp:vbar:60:{fuel}|{fuel_max}"), "nothing answered");
+        assertEquals(0, rose("rp:vbar:garbage"));
+        assertEquals(DialogBars.VBAR_MAX_ROOM, rose("rp:vbar:9999:1|1"), "kept to the glyphs a font has");
+    }
+
+    @Test
+    void aVerticalBarIsNotReadAsOneAcross() {
+        assertTrue(DialogBars.any(dialog(vmarker("rp:vbar:60:1|2"))));
+        assertTrue(DialogBars.marker(JsonParser.parseString(vmarker("rp:vbar:60:1|2"))).vertical());
+        assertTrue(!DialogBars.marker(JsonParser.parseString(marker("rp:bar:60:#ffffff:1|2"))).vertical());
+    }
+
+    @Test
+    void verticalNumbersArriveThroughTheOrdinaryPass() {
+        String json = dialog(vmarker("rp:vbar:64:{heat}|2000"));
+        String filled = DialogPlaceholders.fill(json, name -> Optional.ofNullable(Map.of("heat", "1500").get(name)), false);
+        JsonArray runs = extra(DialogBars.fill(filled));
+        assertEquals(48, runs.get(1).getAsJsonObject().get("text").getAsString().charAt(0) - DialogBars.VBAR_BASE);
+    }
 }

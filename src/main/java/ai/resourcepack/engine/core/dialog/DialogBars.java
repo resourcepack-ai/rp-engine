@@ -40,6 +40,16 @@ import java.util.regex.Pattern;
  * value or a most that is not a number — a placeholder nothing answered — draws
  * no fill at all, and the track stays empty.
  *
+ * <h2>Bars that stand up</h2>
+ *
+ * A VERTICAL bar fills from the bottom, and a text line only ever advances
+ * across, so its fill cannot be assembled from rectangles. Studio ships every
+ * fill such a bar can show instead: a font of its own in which
+ * {@link #VBAR_BASE} plus k is the bar filled k rows, drawn in its real colours,
+ * and {@link #VBAR_BACK} steps back over one. Its marker's insertion is
+ * {@code rp:vbar:<room>:<value>|<most>}; it becomes that one glyph and the step
+ * back, in white, or nothing at all.
+ *
  * <h2>Why this is not "modelling" a dialog</h2>
  *
  * The same argument as {@link DialogItems}: this walks the JSON's components
@@ -63,6 +73,18 @@ public final class DialogBars {
     /** A step back of 2^i: this plus i. The first, one pixel, closes the gap after each rectangle. */
     public static final int BACK_BASE = 0xE020;
 
+    /** What a VERTICAL bar marker's insertion starts with. Studio writes it. */
+    static final String VERTICAL = "rp:vbar:";
+
+    /** A vertical bar filled k rows, in that bar's own font: this plus k. */
+    public static final int VBAR_BASE = 0xE000;
+
+    /** The step back over one glyph of a vertical bar's font. */
+    public static final int VBAR_BACK = 0xE3FF;
+
+    /** The most rows a vertical bar's font has a glyph for. */
+    public static final int VBAR_MAX_ROOM = 256;
+
     /** Rectangles 1, 2, 4 … 256 wide: enough for any room a bar can have. */
     public static final int STEPS = 9;
 
@@ -82,7 +104,7 @@ public final class DialogBars {
 
     /** Whether a dialog has a live bar in it — so a dialog with none costs one scan. */
     public static boolean any(String json) {
-        return json != null && json.contains(INSERTION);
+        return json != null && (json.contains(INSERTION) || json.contains(VERTICAL));
     }
 
     /**
@@ -132,7 +154,11 @@ public final class DialogBars {
     }
 
     /** A marker, read: its font and colour, and what its insertion says. */
-    record Marker(String font, String color, int room, String rim, String value, String max) {
+    record Marker(String font, String color, int room, String rim, String value, String max, boolean vertical) {
+
+        Marker(String font, String color, int room, String rim, String value, String max) {
+            this(font, color, room, rim, value, max, false);
+        }
     }
 
     /** The marker {@code e} is, or null when it is not one. */
@@ -142,6 +168,9 @@ public final class DialogBars {
         }
         JsonObject o = e.getAsJsonObject();
         String insertion = string(o, "insertion");
+        if (insertion != null && insertion.startsWith(VERTICAL)) {
+            return verticalMarker(o, insertion.substring(VERTICAL.length()));
+        }
         if (insertion == null || !insertion.startsWith(INSERTION)) {
             return null;
         }
@@ -163,6 +192,23 @@ public final class DialogBars {
                 rest.substring(afterRoom + 1, afterRim), rest.substring(afterRim + 1, between), rest.substring(between + 1));
     }
 
+    /** A vertical bar's marker, read from what follows its prefix: {@code <room>:<value>|<most>}. */
+    private static Marker verticalMarker(JsonObject o, String rest) {
+        int afterRoom = rest.indexOf(':');
+        int between = afterRoom < 0 ? -1 : rest.indexOf('|', afterRoom + 1);
+        if (between < 0) {
+            return new Marker(string(o, "font"), "white", 0, null, null, null, true);
+        }
+        int room;
+        try {
+            room = Integer.parseInt(rest.substring(0, afterRoom).trim());
+        } catch (NumberFormatException notARoom) {
+            room = 0;
+        }
+        return new Marker(string(o, "font"), "white", Math.max(0, Math.min(VBAR_MAX_ROOM, room)), null,
+                rest.substring(afterRoom + 1, between), rest.substring(between + 1), true);
+    }
+
     /**
      * What a marker becomes: the fill and its highlight, or — when there is
      * nothing to fill — an empty text, which draws and moves nothing and keeps
@@ -175,6 +221,10 @@ public final class DialogBars {
             JsonObject nothing = new JsonObject();
             nothing.addProperty("text", "");
             return List.of(nothing);
+        }
+        if (marker.vertical()) {
+            // Its glyphs carry their own colours: drawn white, they are drawn as they are.
+            return List.of(part(vertical(pixels), marker.font(), "white"));
         }
         String color = marker.color() != null && HEX.matcher(marker.color()).matches() ? marker.color() : "white";
         String rim = marker.rim() != null && HEX.matcher(marker.rim()).matches() ? marker.rim() : color;
@@ -231,6 +281,11 @@ public final class DialogBars {
             }
         }
         return out.toString();
+    }
+
+    /** The characters a vertical fill of {@code rows} is written in: its glyph and the step back. Studio's {@code vbarRun}. */
+    static String vertical(int rows) {
+        return rows <= 0 ? "" : new String(new char[] {(char) (VBAR_BASE + rows), (char) VBAR_BACK});
     }
 
     /** A number, or null: commas and a percent sign are what people type, and go. */
