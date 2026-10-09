@@ -194,8 +194,8 @@ public final class InterfaceCommands implements Area {
         String command = "rp var " + args[1] + " " + args[2] + " " + args[3];
         java.util.Optional<ContentId> parsed = ContentId.parse(back);
         java.util.Optional<ai.resourcepack.engine.core.dialog.DialogsImpl.Shown> shown = impl.lastShown(player);
-        boolean held = shown.isPresent() && impl.info(player, shown.get().id())
-                .map(info -> ai.resourcepack.engine.core.dialog.DialogLinks.holdsCommand(info.json(), command))
+        boolean held = shown.isPresent() && impl.visibleJson(player, shown.get().id(), shown.get().values())
+                .map(json -> ai.resourcepack.engine.core.dialog.DialogLinks.holdsCommand(json, command))
                 .orElse(false);
         if (parsed.isEmpty() || !held || !impl.declares(name, value)) {
             Reply.to(sender, "The dialog you were shown has no such choice.");
