@@ -49,12 +49,31 @@ public final class OverlayDefinitions {
         return parse(loaded, ContentKind.SCREEN);
     }
 
-    /** Everything of kind HUD, parsed. */
+    /**
+     * Everything of kind HUD, parsed, without reading files.
+     *
+     * <p>A HUD naming a {@code json:} file is left out here: it is a Studio
+     * overlay whose glyphs and shader the content folder ships itself, so the
+     * pack build has nothing to add for it. {@link #huds(LoadReport, Function)}
+     * reads it.
+     */
     public static Result huds(LoadReport loaded) {
-        return parse(loaded, ContentKind.HUD);
+        return parse(loaded, ContentKind.HUD, null);
+    }
+
+    /**
+     * Everything of kind HUD, with {@code json:} overlays read through
+     * {@code readFile} (a path inside the content folder, as dialogs take it).
+     */
+    public static Result huds(LoadReport loaded, java.util.function.Function<String, String> readFile) {
+        return parse(loaded, ContentKind.HUD, readFile);
     }
 
     private static Result parse(LoadReport loaded, ContentKind kind) {
+        return parse(loaded, kind, null);
+    }
+
+    private static Result parse(LoadReport loaded, ContentKind kind, java.util.function.Function<String, String> readFile) {
         Map<ContentId, OverlayInfo> overlays = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
@@ -69,10 +88,42 @@ public final class OverlayDefinitions {
                                 + "screens and HUDs together."));
                 continue;
             }
+            if (kind == ContentKind.HUD && definition.body().string("json").isPresent()) {
+                if (readFile != null) {
+                    studioHud(definition, readFile, diagnostics).ifPresent(overlay -> overlays.put(overlay.id(), overlay));
+                }
+                continue;
+            }
             parseOne(definition, kind, codepoint, diagnostics)
                     .ifPresent(overlay -> overlays.put(overlay.id(), overlay));
         }
         return new Result(Map.copyOf(overlays), List.copyOf(diagnostics));
+    }
+
+    /**
+     * A HUD drawn in Studio and exported into a content folder: {@code json:}
+     * names the overlay as Studio's export wrote it (the same JSON a push
+     * carries), and the folder's {@code resourcepack/} has its glyphs and
+     * shader. Drawn exactly as a pushed one is, but to everybody holding the
+     * bundle, since that is where its picture lives.
+     */
+    private static Optional<OverlayInfo> studioHud(ContentDefinition definition,
+                                                   java.util.function.Function<String, String> readFile,
+                                                   List<Diagnostic> diagnostics) {
+        String origin = definition.origin();
+        String where = definition.id().path();
+        String file = definition.body().string("json").orElse("");
+        String json = readFile.apply(file);
+        if (json == null || json.isBlank()) {
+            diagnostics.add(Diagnostic.error(origin, where, "json: " + file + " is not a file in this pack."));
+            return Optional.empty();
+        }
+        Optional<OverlayInfo> hud = ai.resourcepack.engine.core.sync.StudioContent.authoredHud(definition.id(), json);
+        if (hud.isEmpty()) {
+            diagnostics.add(Diagnostic.error(origin, where, "json: " + file
+                    + " is not a HUD exported from Studio (it has no title, the overlay's picture)."));
+        }
+        return hud;
     }
 
     private static Optional<OverlayInfo> parseOne(ContentDefinition definition, ContentKind kind,

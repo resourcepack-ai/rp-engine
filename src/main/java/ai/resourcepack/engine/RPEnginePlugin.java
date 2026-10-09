@@ -1651,7 +1651,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
 
         OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
-        OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded);
+        // A HUD naming a `json:` file (one drawn in Studio and exported into a
+        // content folder) is read out of the folder its definition came from,
+        // as a dialog's is.
+        OverlayDefinitions.Result parsedHuds = OverlayDefinitions.huds(loaded, name -> readContentFile(content, name));
         report(to, "screens", parsedScreens.diagnostics());
         report(to, "huds", parsedHuds.diagnostics());
         authoredScreens = parsedScreens.overlays();

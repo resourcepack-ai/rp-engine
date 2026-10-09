@@ -616,6 +616,26 @@ draw, so those are main thread only.
 number published for a HUD is already in every dialog that asks for it, and the
 other way round — see Dialogs below.
 
+### Laying a value out
+
+A value can carry icons (`engine.icons().character(id)`) as well as words, and a
+plugin that builds a line out of several (a kill feed: a name, a weapon, a name,
+on a panel) needs to know where each ends. Two calls give it the engine's own
+measurements, the same ones the engine places a HUD's runs with:
+
+```java
+Overlays o = engine.overlays();
+int nameWidth = o.width("Steve");            // pixels the cursor moves, gap included
+String gap = o.space(5);                     // five pixels of nothing
+String back = o.space(-12);                  // twelve pixels back, to draw over
+```
+
+`width` knows vanilla's letters, every icon in the pack at its real size, and
+the spaces `space` makes; `space` is made of the default font's own space and
+the engine's negative spaces, so it works in any text the game draws in the
+default font. A value starting with `space(n)` is a run of words that starts
+`n` pixels along, which is how one HUD run can be lined up against another.
+
 ## Dialogs
 
 A dialog is the screen a server opens on a player — Minecraft 1.21.6 and newer.

@@ -74,6 +74,7 @@ public final class FontAssets implements PackContributor {
             }
             providers.add(bitmap(textureNamespace, texturePathPart,
                     icon.height(), icon.ascent(), chars(icon)));
+            measure(icon, texture, into);
         }
         // The GIFs themselves are source, not something the client reads: the
         // strip beside each is what the font draws. Shipping both would make
@@ -110,6 +111,33 @@ public final class FontAssets implements PackContributor {
 
         if (anyScreen) {
             hideInventoryLabel(bundle, into);
+        }
+    }
+
+    /**
+     * Tells {@link TextWidth} how wide an icon is drawn, so a value carrying it
+     * in an overlay measures as itself. The game scales a bitmap glyph's cell to
+     * the declared height and rounds its width; that rounded width is what is
+     * recorded. Nothing is recorded when the PNG cannot be read.
+     */
+    private static void measure(IconInfo icon, String texture, Contribution into) {
+        java.util.Optional<byte[]> png = into.read(texture);
+        if (png.isEmpty() || png.get().length < 24) {
+            return;
+        }
+        byte[] b = png.get();
+        int width = ((b[16] & 0xff) << 24) | ((b[17] & 0xff) << 16) | ((b[18] & 0xff) << 8) | (b[19] & 0xff);
+        int height = ((b[20] & 0xff) << 24) | ((b[21] & 0xff) << 16) | ((b[22] & 0xff) << 8) | (b[23] & 0xff);
+        int columns = Math.max(1, icon.columns());
+        int rows = Math.max(1, icon.rows()) * Math.max(1, icon.frames());
+        int cellWidth = width / columns;
+        int cellHeight = height / rows;
+        if (cellWidth <= 0 || cellHeight <= 0) {
+            return;
+        }
+        int drawn = (int) Math.round(cellWidth * (double) icon.height() / cellHeight);
+        for (int frame = 0; frame < Math.max(1, icon.frames()); frame++) {
+            TextWidth.glyph(icon.codepoint(frame), drawn);
         }
     }
 

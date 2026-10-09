@@ -85,4 +85,14 @@ public final class OverlaysImpl implements ai.resourcepack.engine.api.Overlays {
     public Optional<String> value(Player viewer, String name) {
         return runtime.value(viewer, name);
     }
+
+    @Override
+    public int width(String text) {
+        return TextWidth.of(text);
+    }
+
+    @Override
+    public String space(int pixels) {
+        return Overlays.space(pixels);
+    }
 }
