@@ -461,6 +461,20 @@ public final class OverlayInfo {
     }
 
     /**
+     * The same overlay, as one a content folder carries rather than a push.
+     *
+     * <p>A Studio overlay exported into a content folder (an addon's jar, a
+     * server owner's folder) is drawn exactly as a pushed one is, from the same
+     * JSON, but it is part of the server's own bundle: every player holding the
+     * bundle has its picture, so it is shown to all of them rather than only to
+     * whoever holds a particular push.
+     */
+    public OverlayInfo authored() {
+        return new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
+                color, font, text, triggers, runs, false, advance, shiftPlus, shiftMinus);
+    }
+
+    /**
      * Whether this engine can place the runs itself.
      *
      * <p>It can only when the pack told it where the picture leaves the cursor
@@ -514,7 +528,7 @@ public final class OverlayInfo {
      * who made it in a shader editor and look for it under that name.
      */
     public boolean isShader() {
-        return pushed && !color.isEmpty();
+        return (pushed || !title.isEmpty()) && !color.isEmpty();
     }
 
     /**

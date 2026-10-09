@@ -737,6 +737,20 @@ public final class Overlays {
     }
 
     /**
+     * Pixels of space either way, as characters of the default font: the
+     * game's own space (four pixels) for the whole of a rightward move, then
+     * {@link #shift} back for what it overshot. Behind
+     * {@link ai.resourcepack.engine.api.Overlays#space}.
+     */
+    static String space(int pixels) {
+        if (pixels <= 0) {
+            return shift(-pixels);
+        }
+        int spaces = (pixels + 3) / 4;
+        return " ".repeat(spaces) + shift(spaces * 4 - pixels);
+    }
+
+    /**
      * Containers whose name in a pack is not their name in Bukkit.
      *
      * <p>Each is a real disagreement rather than an oversight: {@code crafting}

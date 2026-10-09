@@ -1484,6 +1484,32 @@ public final class StudioContent {
     }
 
     /** The positioned text runs a manifest carried. Nulls are skipped. */
+    /**
+     * A HUD overlay Studio drew, read from a CONTENT FOLDER rather than a push.
+     *
+     * <p>The JSON is one entry of a push manifest's {@code huds} list, which is
+     * what Studio's content export writes beside the linked shader and the
+     * glyphs ({@code huds/<id>.yml} names it with {@code json:}). Reading it
+     * with the push's own model is the point: one shape, one reader, and an
+     * exported overlay cannot drift from a pushed one. Empty when the file is
+     * not an overlay.
+     */
+    public static java.util.Optional<OverlayInfo> authoredHud(ContentId id, String json) {
+        Overlay hud;
+        try {
+            hud = new Gson().fromJson(json, Overlay.class);
+        } catch (RuntimeException e) {
+            return java.util.Optional.empty();
+        }
+        if (hud == null || hud.title == null || hud.title.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
+                        hud.color, hud.font, hud.text, triggers(hud.triggers), runs(hud.runs))
+                .withCursor(hud.advance, hud.shiftPlus, hud.shiftMinus)
+                .authored());
+    }
+
     private static List<OverlayInfo.OverlayRun> runs(List<Run> raw) {
         if (raw == null || raw.isEmpty()) {
             return List.of();

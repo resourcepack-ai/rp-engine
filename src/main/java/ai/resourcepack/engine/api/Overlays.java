@@ -97,4 +97,27 @@ public interface Overlays {
 
     /** What {@link #set} last put there, if anything. */
     Optional<String> value(Player viewer, String name);
+
+    /**
+     * How far {@code text} moves the cursor, in pixels, as the engine measures
+     * an overlay's text.
+     *
+     * <p>The same measurement that places a shader object's runs: vanilla's
+     * glyph widths, every icon in the pack at its real size, and the spaces
+     * {@link #space} makes. So a plugin that lays words and icons out in a
+     * value (a kill feed: a name, then a weapon, then a name) can line them up
+     * against what the engine will do with them. Formatting codes measure as
+     * nothing, and bold as a pixel more per character.
+     */
+    int width(String text);
+
+    /**
+     * Characters that move the cursor {@code pixels} to the right (or, when
+     * negative, to the left) and draw nothing.
+     *
+     * <p>The default font's own space and the engine's negative spaces, so it
+     * works in any text drawn in the default font, an overlay's value included,
+     * and {@link #width} measures it exactly. Zero is the empty string.
+     */
+    String space(int pixels);
 }

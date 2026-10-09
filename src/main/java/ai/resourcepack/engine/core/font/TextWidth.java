@@ -25,6 +25,13 @@ package ai.resourcepack.engine.core.font;
  * the great majority of glyphs in the font are. Being a pixel or two out on a
  * label containing Cyrillic is a label a pixel or two out; refusing to measure
  * would be a label somewhere else entirely.
+ *
+ * <p><b>Except for the engine's own glyphs, which it knows exactly.</b> An
+ * icon is a picture this engine put in the font, so its width is not an
+ * estimate: {@link FontAssets} records each one as it builds the font, and a
+ * value that carries an icon (a kill feed's weapon, a status badge) measures
+ * as itself rather than as five pixels, which would put every run after it in
+ * the wrong place.
  */
 public final class TextWidth {
 
@@ -80,7 +87,29 @@ public final class TextWidth {
         return width;
     }
 
+    /** The engine's own glyphs, by codepoint: the drawn width in pixels, without the gap. */
+    private static final java.util.Map<Integer, Integer> GLYPHS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Records how wide one of the engine's own glyphs is drawn, in pixels and
+     * without the one-pixel gap after it. Called as the font is built; a later
+     * build replaces a codepoint's width.
+     */
+    public static void glyph(int codepoint, int width) {
+        GLYPHS.put(codepoint, Math.max(0, width));
+    }
+
     private static int widthOf(int c) {
+        int step = c - FontAssets.FIRST_SPACE_CODEPOINT;
+        if (step >= 0 && step < FontAssets.SPACE_STEPS) {
+            // The engine's negative spaces: the whole move, so less the gap
+            // the caller adds back.
+            return -(1 << step) - GAP;
+        }
+        Integer own = GLYPHS.get(c);
+        if (own != null) {
+            return own;
+        }
         int at = NARROW.indexOf(c);
         return at < 0 ? DEFAULT : NARROW_WIDTH[at];
     }

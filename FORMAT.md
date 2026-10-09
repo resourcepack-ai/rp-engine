@@ -2602,6 +2602,25 @@ mana:
 
 `/rp screen mypack:shop` and `/rp hud mypack:mana` open and draw them.
 
+**A HUD drawn in ResourcePack AI Studio** (a shader object, with labels, bars
+and live values) ships as the JSON Studio exports, named by `json:` instead of
+a picture:
+
+```yaml
+# huds/huds.yml
+hud:
+  json: mypack/huds/hud.json   # under the content folder, like a dialog's json:
+```
+
+The file is the overlay exactly as a Studio push carries it, so it is drawn the
+same way: its runs, their colours, its `{placeholders}`. Its glyphs and its core
+shader are in the pack's `resourcepack/` folder (with the version overlays the
+shader needs), and Studio's exporter writes both. A value can carry icons from
+the pack (`engine.icons().character(...)`): the engine measures every icon at
+its real width, so the runs after it still land where they were drawn. Draw an
+icon's rightmost column, even with one barely visible pixel, because the game
+measures a glyph to its last inked column and the engine measures the cell.
+
 **A GUI is a real container wearing a picture.** The rows and the slots are
 vanilla's; only the backdrop is yours, so `container:` has to name one the game
 actually has. Anything else is refused at load with the list in the message,
