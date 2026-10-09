@@ -92,6 +92,7 @@ public final class AddonContent {
             return false;
         }
         int written = 0;
+        Path root = into.toAbsolutePath().normalize();
         try (JarFile file = new JarFile(jar)) {
             Enumeration<JarEntry> entries = file.entries();
             while (entries.hasMoreElements()) {
@@ -106,7 +107,16 @@ public final class AddonContent {
                 if (relative.isEmpty() || relative.contains("..")) {
                     continue;
                 }
-                Path target = into.resolve(relative);
+                // And the result is held to the folder as well, since `..`
+                // is not the only way out: `ns//etc/x` or `C:/x` resolves to
+                // an absolute path, which replaces `into` entirely.
+                Path target = root.resolve(relative).normalize();
+                if (!target.startsWith(root) || target.equals(root)) {
+                    java.util.logging.Logger.getLogger(AddonContent.class.getName()).warning(
+                            "Skipped " + entry.getName() + " in " + jar.getName()
+                                    + ": it names a file outside " + into + ".");
+                    continue;
+                }
                 Files.createDirectories(target.getParent());
                 Path part = target.resolveSibling(target.getFileName() + ".part");
                 try (InputStream in = file.getInputStream(entry)) {
