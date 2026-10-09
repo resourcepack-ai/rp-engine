@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.bedrock;
 
+import ai.resourcepack.engine.core.sync.StudioPush;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import org.bukkit.Bukkit;
@@ -30,7 +31,6 @@ import org.geysermc.geyser.api.predicate.item.ItemMatchPredicate;
 import org.geysermc.geyser.api.util.Identifier;
 import org.geysermc.geyser.session.GeyserSession;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -448,17 +448,16 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     private static byte[] fetch(String url) throws Exception {
+        // Held to the same rules as the Java pack it is the twin of: a pushed
+        // URL is https (or a studio on this machine), and no bigger than a pack.
+        if (!StudioPush.acceptableUrl(url)) {
+            throw new IllegalArgumentException("not an https URL");
+        }
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(10_000);
         connection.setReadTimeout(30_000);
-        try (InputStream in = connection.getInputStream();
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] chunk = new byte[8192];
-            int n;
-            while ((n = in.read(chunk)) != -1) {
-                out.write(chunk, 0, n);
-            }
-            return out.toByteArray();
+        try (InputStream in = connection.getInputStream()) {
+            return StudioPush.readCapped(in, StudioPush.MAX_BYTES);
         }
     }
 

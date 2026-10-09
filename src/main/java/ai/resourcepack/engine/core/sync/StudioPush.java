@@ -32,7 +32,14 @@ public final class StudioPush {
     public static final String BUNDLE = "studio";
 
     /** A pack larger than this is not a pack, it is a mistake or an attack. */
-    private static final long MAX_BYTES = 256L * 1024 * 1024;
+    public static final long MAX_BYTES = 256L * 1024 * 1024;
+
+    /**
+     * The same for a manifest. They are JSON describing what a pack holds, the
+     * pictures stay in the pack, and the largest is a few megabytes of emote
+     * keyframes; this is several times that.
+     */
+    public static final int MAX_TEXT_BYTES = 16 * 1024 * 1024;
 
     private StudioPush() {
     }
@@ -49,7 +56,7 @@ public final class StudioPush {
      */
     public static Fetch fetch(String payload, Path outputDir) {
         String url = packUrl(payload);
-        if (url.isEmpty()) {
+        if (url.isEmpty() || !acceptableUrl(url)) {
             return Fetch.failed("bad-payload");
         }
         Path target = outputDir.resolve(BUNDLE + ".zip");
@@ -210,8 +217,61 @@ public final class StudioPush {
         return value.isEmpty() || value.equals("-") ? Optional.empty() : Optional.of(value);
     }
 
+    /**
+     * Whether a pushed URL is one this server will fetch: https, or plain http
+     * to this machine for a studio running locally.
+     *
+     * <p>The URLs arrive over the sync socket, and Java's URL handlers reach
+     * far more than the web: {@code file:} reads the server's own disk and
+     * {@code jar:} and {@code ftp:} go where nothing pushed has any business.
+     * Redirects cannot widen this, because a connection never follows one to
+     * another scheme.
+     */
+    public static boolean acceptableUrl(String url) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
+            if (host.isEmpty()) {
+                return false;
+            }
+            if (scheme.equals("https")) {
+                return true;
+            }
+            return scheme.equals("http")
+                    && (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("[::1]"));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
+     * All of {@code in}, refusing anything longer than {@code max} bytes
+     * rather than reading it into memory to find out.
+     */
+    public static byte[] readCapped(InputStream in, long max) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[16 * 1024];
+        long size = 0;
+        int read;
+        while ((read = in.read(buffer)) > 0) {
+            size += read;
+            if (size > max) {
+                throw new IOException("more than " + max + " bytes");
+            }
+            out.write(buffer, 0, read);
+        }
+        return out.toByteArray();
+    }
+
     /** Downloads a manifest as text, or empty if it could not be had. */
     public static Optional<String> fetchText(String url) {
+        if (!acceptableUrl(url)) {
+            return Optional.empty();
+        }
         try {
             HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
             connection.setConnectTimeout(15_000);
@@ -221,7 +281,7 @@ public final class StudioPush {
                 return Optional.empty();
             }
             try (InputStream in = connection.getInputStream()) {
-                return Optional.of(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                return Optional.of(new String(readCapped(in, MAX_TEXT_BYTES), java.nio.charset.StandardCharsets.UTF_8));
             }
         } catch (IOException | IllegalArgumentException e) {
             return Optional.empty();
