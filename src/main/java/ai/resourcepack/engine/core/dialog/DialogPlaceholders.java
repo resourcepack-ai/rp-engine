@@ -114,8 +114,9 @@ public final class DialogPlaceholders {
     /**
      * A placeholder: a name of letters, digits and underscores between braces —
      * or, after a {@code ?}, the entries of a choice, which hold no brace.
+     * {@link DialogConditions} fills a condition's operands with it too.
      */
-    private static final Pattern NAME = Pattern.compile("\\{([A-Za-z0-9_]{1,48})(?:\\?([^{}]*))?\\}");
+    static final Pattern NAME = Pattern.compile("\\{([A-Za-z0-9_]{1,48})(?:\\?([^{}]*))?\\}");
 
     /** A legacy formatting code. The game refuses a whole dialog over one in a command. */
     private static final Pattern LEGACY = Pattern.compile("§.?");

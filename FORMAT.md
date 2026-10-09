@@ -2721,6 +2721,14 @@ checkbox, segmented control or dropdown a **player setting**: it draws every
 state of the control and puts all of them in a choice, so each player sees
 theirs.
 
+**A piece of a Studio dialog can be there only for some players.** Give it
+conditions in Studio ("Show when") — a player setting or any placeholder
+compared with a value, or a permission the player has or lacks — and RP Engine
+0.2.2 leaves it out for anybody they do not hold for: its picture, its words,
+its items and its clicks, which a player cannot run by typing them either. Two
+vaults behind a segmented control, the second also behind `vaults.vip`, is the
+shape it was made for.
+
 **A dialog can have pages.** Make each page a dialog of its own and turn
 between them with `/rp page`:
 

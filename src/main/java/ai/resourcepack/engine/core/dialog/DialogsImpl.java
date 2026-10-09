@@ -267,7 +267,9 @@ public final class DialogsImpl implements Dialogs {
         json = DialogItems.fill(json, slots.reader(viewer), slots.held(viewer, id).orElse(null), info.itemIcons());
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
-        Set<ContentId> instant = instantPages(viewer, id, info.json());
+        // Followed from what this player can see: a link in a piece hidden from
+        // them reaches nothing they could turn to.
+        Set<ContentId> instant = instantPages(viewer, id, visibleJson(viewer, id, values).orElse(info.json()));
         if (!instant.isEmpty()) {
             json = DialogLinks.swap(json, instant::contains);
         }
@@ -403,8 +405,10 @@ public final class DialogsImpl implements Dialogs {
         Set<ContentId> out = new LinkedHashSet<>();
         for (Map.Entry<ContentId, String> page : pages.entrySet()) {
             // Nothing filled per player can come from the registry's copy: not a
-            // placeholder, and not a player's inventory in a page's slots.
-            if (DialogPlaceholders.any(page.getValue()) || DialogItems.perPlayer(page.getValue())) {
+            // placeholder, not a player's inventory in a page's slots, and not a
+            // piece only some players see.
+            if (DialogPlaceholders.any(page.getValue()) || DialogItems.perPlayer(page.getValue())
+                    || DialogConditions.any(page.getValue())) {
                 continue;
             }
             if (!datapack.registered(page.getKey(), DialogDatapack.fileContent(page.getValue(), pages))) {
@@ -427,16 +431,16 @@ public final class DialogsImpl implements Dialogs {
         if (shown == null || shown.reach().isEmpty()) {
             return;
         }
-        DialogInfo current = info(viewer, shown.id()).orElse(null);
-        if (current != null && DialogLinks.holdsCommand(current.json(), command)) {
+        String current = visibleJson(viewer, shown.id(), shown.values()).orElse(null);
+        if (current != null && DialogLinks.holdsCommand(current, command)) {
             return;
         }
         for (ContentId page : shown.reach()) {
             if (page.equals(shown.id())) {
                 continue;
             }
-            Optional<DialogInfo> info = info(viewer, page);
-            if (info.isPresent() && DialogLinks.holdsCommand(info.get().json(), command)) {
+            Optional<String> json = visibleJson(viewer, page, shown.values());
+            if (json.isPresent() && DialogLinks.holdsCommand(json.get(), command)) {
                 lastShown.put(viewer, new Shown(page, shown.values(), shown.reach()));
                 return;
             }
@@ -450,7 +454,7 @@ public final class DialogsImpl implements Dialogs {
      */
     public boolean clickedPicture(Player viewer, String command) {
         Shown shown = viewer == null || command == null ? null : lastShown.get(viewer);
-        return shown != null && info(viewer, shown.id()).map(i -> DialogLinks.clicksCommand(i.json(), command)).orElse(false);
+        return shown != null && visibleJson(viewer, shown.id(), shown.values()).map(json -> DialogLinks.clicksCommand(json, command)).orElse(false);
     }
 
     /** The dialog a player was last shown, and what it was opened with. */
@@ -525,7 +529,7 @@ public final class DialogsImpl implements Dialogs {
         from.add(shown.id());
         from.addAll(shown.reach());
         for (ContentId page : from) {
-            info(viewer, page).ifPresent(info -> out.addAll(DialogLinks.targets(info.json())));
+            visibleJson(viewer, page, shown.values()).ifPresent(json -> out.addAll(DialogLinks.targets(json)));
         }
         return List.copyOf(out);
     }
@@ -583,11 +587,44 @@ public final class DialogsImpl implements Dialogs {
      * {@link #setSetting} for it.
      */
     private String filled(Player viewer, String json, Map<String, String> values) {
-        boolean placeholders = DialogPlaceholders.any(json);
+        boolean conditions = DialogConditions.any(json);
         boolean rows = DialogRows.any(json);
-        if (!placeholders && !rows) {
+        if (!conditions && !rows && !DialogPlaceholders.any(json)) {
             return json;
         }
+        java.util.function.Function<String, Optional<String>> lookup = lookup(viewer, values);
+        // The pieces this player is not to see go first, so nothing in one is
+        // looked up and no marker in one is there for the passes after this.
+        String out = conditions ? DialogConditions.strip(json, lookup, permissions(viewer)) : json;
+        out = DialogPlaceholders.any(out) ? DialogPlaceholders.fill(out, lookup) : out;
+        // An empty row of a list keeps no click and no tooltip.
+        return rows ? DialogRows.strip(out, lookup) : out;
+    }
+
+    /**
+     * A dialog's JSON with only the pieces this player may see in it
+     * ({@link DialogConditions}), for every check of a command against "the
+     * dialog they were shown": a click on a piece that was hidden from them
+     * was never theirs to make, and typing its command by hand must not make
+     * it — a second vault behind a permission, say, is the player's own
+     * storage, and {@code /rp slot} would otherwise move items in it.
+     */
+    public Optional<String> visibleJson(Player viewer, ContentId id, Map<String, String> values) {
+        return info(viewer, id).map(info -> DialogConditions.any(info.json())
+                ? DialogConditions.strip(info.json(), lookup(viewer, values), permissions(viewer))
+                : info.json());
+    }
+
+    /** What a condition's {@code perm:} asks of the player. */
+    private static java.util.function.Predicate<String> permissions(Player viewer) {
+        return node -> viewer != null && viewer.hasPermission(node);
+    }
+
+    /**
+     * Every source a placeholder is answered from, in order — see
+     * {@link #filled}.
+     */
+    private java.util.function.Function<String, Optional<String>> lookup(Player viewer, Map<String, String> values) {
         Map<String, String> given = new java.util.HashMap<>();
         if (values != null) {
             values.forEach((k, v) -> {
@@ -609,13 +646,10 @@ public final class DialogsImpl implements Dialogs {
         };
         // Last, a row of a list (DialogRows): an item of a list given whole to
         // the opener, or nothing for a row past the end of a list of known length.
-        java.util.function.Function<String, Optional<String>> lookup = name -> {
+        return name -> {
             Optional<String> found = direct.apply(name);
             return found.isPresent() ? found : DialogRows.item(name, given, direct);
         };
-        String out = placeholders ? DialogPlaceholders.fill(json, lookup) : json;
-        // An empty row of a list keeps no click and no tooltip.
-        return rows ? DialogRows.strip(out, lookup) : out;
     }
 
     /** What players have picked up in dialogs whose items move, and the containers slots can show. */
@@ -642,15 +676,16 @@ public final class DialogsImpl implements Dialogs {
     /**
      * Whether the dialog a player was last shown holds a click running
      * {@code rp slot <key>} — the check every {@code /rp slot} passes, because a
-     * player runs it: see {@link DialogSlots}.
+     * player runs it: see {@link DialogSlots}. A slot in a piece hidden from
+     * them is not held ({@link #visibleJson}).
      */
     public boolean holdsSlot(Player viewer, DialogSlots.Key key) {
         Shown shown = viewer == null || key == null ? null : lastShown.get(viewer);
         if (shown == null) {
             return false;
         }
-        Optional<DialogInfo> info = info(viewer, shown.id());
-        return info.isPresent() && DialogLinks.holdsCommand(info.get().json(), DialogSlots.COMMAND + " " + key);
+        Optional<String> json = visibleJson(viewer, shown.id(), shown.values());
+        return json.isPresent() && DialogLinks.holdsCommand(json.get(), DialogSlots.COMMAND + " " + key);
     }
 
     @Override
