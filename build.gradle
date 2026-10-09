@@ -114,7 +114,7 @@ dependencies {
     // The small library every ResourcePack AI plugin shades in (the update
     // check, for one). Relocated below like the rest, so two of our plugins
     // on one server each run their own copy.
-    implementation 'ai.resourcepack:common:0.1.0'
+    implementation 'ai.resourcepack:common:0.1.1'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'

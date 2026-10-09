@@ -85,8 +85,9 @@ distribution:
 telemetry:
   enabled: true
 
-# Say so when a newer RP Engine is out: once in the console, and to anybody
-# with rpengine.update (ops) as they join, with a link to its SpigotMC page.
+# While a newer RP Engine is out, say so, with a link to its SpigotMC page: on
+# every check, in the console and to anybody online with rpengine.update (ops),
+# and to each of them every time they join.
 #
 # It asks SpigotMC which version is current, a few seconds after start and
 # every six hours after, and sends nothing about this server in doing so.
