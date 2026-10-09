@@ -288,7 +288,7 @@ public final class DialogsImpl implements Dialogs {
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
         Optional<String> inline = DialogSnbt.of(json);
-        if (inline.isPresent() && dispatch("minecraft:dialog show " + viewer.getName() + " " + inline.get(),
+        if (inline.isPresent() && dispatch("minecraft:dialog show " + target(viewer) + " " + inline.get(),
                 named, false) == Outcome.SHOWN) {
             lastShown.put(viewer, shown);
             return true;
@@ -303,7 +303,7 @@ public final class DialogsImpl implements Dialogs {
         // Its own refusal is worth a line only when the dialog never got that
         // far as itself: otherwise it says the id is not in the registry, which
         // reads like the problem and is not.
-        Outcome byName = dispatch("minecraft:dialog show " + viewer.getName() + " " + named, named,
+        Outcome byName = dispatch("minecraft:dialog show " + target(viewer) + " " + named, named,
                 inline.isEmpty() && refused == null);
         if (byName == Outcome.SHOWN) {
             lastShown.put(viewer, shown);
@@ -703,7 +703,18 @@ public final class DialogsImpl implements Dialogs {
         } catch (ReflectiveOperationException | RuntimeException e) {
             // Not there: the command, as before.
         }
-        dispatch("minecraft:dialog clear " + viewer.getName(), null, true);
+        dispatch("minecraft:dialog clear " + target(viewer), null, true);
+    }
+
+    /**
+     * Who a dialog command is aimed at: the player's UUID, which the game's
+     * entity argument reads as exactly one entity. Never their name. On an
+     * offline-mode server a name is whatever the client said, and a player
+     * called {@code @a} would turn every dialog anybody opened into one shown
+     * to the whole server.
+     */
+    static String target(Player viewer) {
+        return viewer.getUniqueId().toString();
     }
 
     /**
