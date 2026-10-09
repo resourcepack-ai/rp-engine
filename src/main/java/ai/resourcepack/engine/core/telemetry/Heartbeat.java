@@ -21,15 +21,25 @@ import java.util.UUID;
 
 /**
  * Tells resourcepack.ai that this server is running RP Engine, so we know how
- * many servers are, and which RP Engine addons they run.
+ * many servers are, how many players are on them, and which RP Engine addons
+ * they run.
  *
- * <p><b>What is sent is a random id and the names of the installed addons, and
- * nothing else.</b> The id is made up the first time the plugin starts and kept
- * in {@code server-id} in its data folder; it is not derived from anything about
- * the server, so it says nothing about the server. An addon is any enabled
- * plugin that declares RP Engine as a dependency, and only its name goes, as its
- * {@code plugin.yml} spells it. No address, server name, version, player or
- * content goes with them, and the answer is never read.
+ * <p><b>This is the whole of RP Engine's telemetry, and it is anonymous.</b>
+ * One beat is exactly three things, and nothing else is collected anywhere in
+ * the plugin:
+ * <ul>
+ *   <li>a random id, made up the first time the plugin starts and kept in
+ *       {@code server-id} in its data folder. It is not derived from anything
+ *       about the server, so it says nothing about the server;</li>
+ *   <li>how many players are online, as one number. Never who: no name, UUID,
+ *       address or anything else about any player;</li>
+ *   <li>the names of the installed addons: any enabled plugin that declares RP
+ *       Engine as a dependency, by its {@code plugin.yml} name.</li>
+ * </ul>
+ * No server address, server name, version, MOTD, world, player or content goes
+ * with them, and the answer is never read. Anybody changing {@link #body} is
+ * changing that promise, which the docs, the store listings and
+ * {@code config.yml} all make in these words.
  * {@code telemetry.enabled: false} in {@code config.yml} sends nothing at all.
  *
  * <p>The list is read on every beat rather than once, because an addon can be
@@ -65,9 +75,15 @@ public final class Heartbeat {
         this.serverId = serverId(plugin.getDataFolder().toPath());
     }
 
-    /** The beat's JSON, built by hand: the id is a UUID and needs nothing, the names are escaped here. */
-    static String body(String serverId, List<String> addons) {
-        StringBuilder json = new StringBuilder("{\"id\":\"").append(serverId).append("\",\"addons\":[");
+    /**
+     * The beat's JSON, and the whole of what is sent: see the class comment.
+     * Built by hand: the id is a UUID and the count a number, so neither needs
+     * escaping; the names are escaped here.
+     */
+    static String body(String serverId, int players, List<String> addons) {
+        StringBuilder json = new StringBuilder("{\"id\":\"").append(serverId)
+                .append("\",\"players\":").append(Math.max(0, players))
+                .append(",\"addons\":[");
         for (int i = 0; i < addons.size(); i++) {
             if (i > 0) {
                 json.append(',');
@@ -103,6 +119,19 @@ public final class Heartbeat {
         return new ArrayList<>(names);
     }
 
+    /**
+     * How many players are online: a count, nothing about who. Read off the
+     * main thread, which is fine for a size: the worst a join landing at the
+     * same moment can do is make it one out for thirty seconds.
+     */
+    private static int players() {
+        try {
+            return Bukkit.getOnlinePlayers().size();
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
     public void start() {
         stop();
         long ticks = INTERVAL_SECONDS * 20L;
@@ -122,7 +151,7 @@ public final class Heartbeat {
                     .uri(endpoint)
                     .header("content-type", "application/json")
                     .timeout(TIMEOUT)
-                    .POST(HttpRequest.BodyPublishers.ofString(body(serverId, addons())))
+                    .POST(HttpRequest.BodyPublishers.ofString(body(serverId, players(), addons())))
                     .build();
             http.send(request, HttpResponse.BodyHandlers.discarding());
         } catch (InterruptedException e) {
