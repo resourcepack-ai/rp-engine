@@ -53,7 +53,7 @@ final class VehicleYaml {
         if (vehicle.name != null && !vehicle.name.isEmpty()) {
             out.append(INDENT).append("name: ").append(quote(vehicle.name)).append('\n');
         }
-        out.append(INDENT).append("medium: ").append(vehicle.medium == null ? "land" : vehicle.medium).append('\n');
+        out.append(INDENT).append("medium: ").append(medium(vehicle.medium)).append('\n');
         out.append(INDENT).append("speed: ").append(number(vehicle.speed)).append('\n');
         out.append(INDENT).append("acceleration: ").append(number(vehicle.acceleration)).append('\n');
         out.append(INDENT).append("turn-speed: ").append(number(vehicle.turnSpeed)).append('\n');
@@ -86,7 +86,7 @@ final class VehicleYaml {
         // Only an aircraft, and only what the wire carried: a car's file never
         // gains a block the parser would warn about, and an aircraft that
         // declared nothing keeps declaring nothing unless the editor sent it.
-        if ("air".equals(vehicle.medium) && (vehicle.takeoffSpeed != null || vehicle.climbRate != null
+        if ("air".equals(medium(vehicle.medium)) && (vehicle.takeoffSpeed != null || vehicle.climbRate != null
                 || vehicle.diveRate != null || vehicle.stallSink != null)) {
             out.append(INDENT).append("flight:\n");
             flightNumber(out, "takeoff-speed", vehicle.takeoffSpeed);
@@ -104,7 +104,7 @@ final class VehicleYaml {
         if (vehicle.animations != null && !vehicle.animations.isEmpty()) {
             out.append(INDENT).append("animations:\n");
             for (Map.Entry<String, String> entry : vehicle.animations.entrySet()) {
-                out.append(INDENT).append(INDENT).append(entry.getKey()).append(": ")
+                out.append(INDENT).append(INDENT).append(key(entry.getKey())).append(": ")
                         .append(quote(entry.getValue())).append('\n');
             }
         }
@@ -112,7 +112,7 @@ final class VehicleYaml {
         if (vehicle.sounds != null && !vehicle.sounds.isEmpty()) {
             out.append(INDENT).append("sounds:\n");
             for (Map.Entry<String, String> entry : vehicle.sounds.entrySet()) {
-                out.append(INDENT).append(INDENT).append(entry.getKey()).append(": ")
+                out.append(INDENT).append(INDENT).append(key(entry.getKey())).append(": ")
                         .append(quote(entry.getValue())).append('\n');
             }
         }
@@ -128,7 +128,7 @@ final class VehicleYaml {
             out.append(INDENT).append("addons:\n");
             for (Map.Entry<String, Map<String, Object>> addon : vehicle.addons.entrySet()) {
                 if (addon.getKey() == null || addon.getValue() == null) continue;
-                out.append(INDENT).append(INDENT).append(addon.getKey()).append(":\n");
+                out.append(INDENT).append(INDENT).append(key(addon.getKey())).append(":\n");
                 writeMap(out, addon.getValue(), 3);
             }
         }
@@ -189,7 +189,7 @@ final class VehicleYaml {
         out.append(INDENT).append(INDENT).append(INDENT).append("animations:\n");
         for (Map.Entry<String, String> entry : seat.animations.entrySet()) {
             out.append(INDENT).append(INDENT).append(INDENT).append(INDENT)
-                    .append(entry.getKey()).append(": ").append(quote(entry.getValue())).append('\n');
+                    .append(key(entry.getKey())).append(": ").append(quote(entry.getValue())).append('\n');
         }
     }
 
@@ -197,14 +197,14 @@ final class VehicleYaml {
     private static void emitter(StringBuilder out, EditWire.Emitter emitter) {
         String pad = INDENT + INDENT + INDENT;
         out.append(INDENT).append(INDENT).append("- effect: ")
-                .append(emitter.effect == null ? "" : emitter.effect.toLowerCase(Locale.ROOT)).append('\n');
+                .append(emitter.effect == null ? "" : key(emitter.effect.toLowerCase(Locale.ROOT))).append('\n');
         StringBuilder states = new StringBuilder();
         if (emitter.states != null) {
             for (String state : emitter.states) {
                 if (states.length() > 0) {
                     states.append(", ");
                 }
-                states.append(state);
+                states.append(key(state));
             }
         }
         out.append(pad).append("states: [").append(states).append("]\n");
@@ -241,10 +241,10 @@ final class VehicleYaml {
             if (entry.getKey() == null || entry.getValue() == null) continue;
             Object value = entry.getValue();
             if (value instanceof Map) {
-                out.append(pad).append(entry.getKey()).append(":\n");
+                out.append(pad).append(key(entry.getKey())).append(":\n");
                 writeMap(out, (Map<String, Object>) value, depth + 1);
             } else if (value instanceof List) {
-                out.append(pad).append(entry.getKey()).append(": [");
+                out.append(pad).append(key(entry.getKey())).append(": [");
                 List<?> list = (List<?>) value;
                 for (int i = 0; i < list.size(); i++) {
                     if (i > 0) out.append(", ");
@@ -252,7 +252,7 @@ final class VehicleYaml {
                 }
                 out.append("]\n");
             } else {
-                out.append(pad).append(entry.getKey()).append(": ").append(scalar(value)).append('\n');
+                out.append(pad).append(key(entry.getKey())).append(": ").append(scalar(value)).append('\n');
             }
         }
     }
@@ -286,16 +286,64 @@ final class VehicleYaml {
      * animation ids that come from an editor, and the values that need quoting
      * — one starting with {@code &}, one that reads as a number, one holding a
      * colon — are exactly the ones an author is most likely to write.
+     *
+     * <p>A line break, a tab or any other control character is written as its
+     * escape, never as itself. The value comes from a browser, and a raw line
+     * break would end the string and let whatever followed it be read as keys
+     * of this vehicle, or as a vehicle of its own.
      */
     static String quote(String value) {
         StringBuilder out = new StringBuilder("\"");
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            if (c == '"' || c == '\\') {
-                out.append('\\');
+            switch (c) {
+                case '"':
+                case '\\':
+                    out.append('\\').append(c);
+                    break;
+                case '\n':
+                    out.append("\\n");
+                    break;
+                case '\r':
+                    out.append("\\r");
+                    break;
+                case '\t':
+                    out.append("\\t");
+                    break;
+                default:
+                    // The rest of C0 and C1, DEL, and the two Unicode line
+                    // separators YAML also breaks lines on.
+                    if (c < 0x20 || (c >= 0x7f && c <= 0x9f) || c == '\u2028' || c == '\u2029') {
+                        out.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
             }
-            out.append(c);
         }
         return out.append('"').toString();
+    }
+
+    /**
+     * A key, or a word written bare: as itself when it is plainly one word,
+     * which is every key an editor sends, and quoted when it is not. Keys
+     * arrive from the browser as freely as values do, so one holding a line
+     * break or a colon could otherwise write lines of its own.
+     */
+    static String key(String value) {
+        if (value != null && !value.isEmpty() && value.matches("[A-Za-z0-9_.-]+")) {
+            return value;
+        }
+        return quote(value == null ? "" : value);
+    }
+
+    /** {@code medium:} is written bare, so only its three words are written at all. */
+    private static String medium(String value) {
+        if (value != null) {
+            String lower = value.toLowerCase(Locale.ROOT);
+            if (lower.equals("land") || lower.equals("water") || lower.equals("air")) {
+                return lower;
+            }
+        }
+        return "land";
     }
 }

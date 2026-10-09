@@ -366,4 +366,49 @@ class VehicleYamlTest {
         assertEquals(0x3670f8, emitter.color().orElseThrow());
         assertEquals(emitter, roundTrip(original).emitters().get(0));
     }
+
+    /**
+     * Everything the browser sends is text it chose, so a line break in a
+     * value or a key must not be able to write lines of its own: an extra key
+     * on this vehicle, or a vehicle of its own.
+     */
+    @Test
+    void nothingTheEditorSendsCanWriteLinesOfItsOwn() throws IOException {
+        write("mypack/vehicles/cars.yml", String.join("\n",
+                "bus:",
+                "  model: mypack:bus",
+                "  speed: 10",
+                "  seats:",
+                "    - {role: driver, y: 0.6}",
+                ""));
+        VehicleInfo original = parse("mypack:bus");
+        EditWire.Vehicle wire = EditTargets.wire(original);
+        wire.name = "Bus\"\n  speed: 999\nevil:\n  model: mypack:evil\n  seats: []\n\u2028\t";
+        wire.medium = "land\n  speed: 999";
+        wire.animations = new java.util.LinkedHashMap<>();
+        wire.animations.put("idle\nevil2:\n  model: mypack:evil", "x");
+        wire.sounds = new java.util.LinkedHashMap<>();
+        wire.sounds.put("moving: \"a\"\n  speed", "y");
+
+        String block = VehicleYaml.write("bus", "mypack:bus", wire);
+        String file = Files.readString(content.resolve("mypack/vehicles/cars.yml"), StandardCharsets.UTF_8);
+        write("mypack/vehicles/cars.yml", YamlBlocks.replace(file, "bus", block));
+
+        LoadReport loaded = new ContentFolderLoader(new ContentRegistryImpl())
+                .load(content, ContentSource.AUTHORED);
+        var vehicles = VehicleDefinitions.parse(loaded).vehicles();
+        assertEquals(1, vehicles.size(), "no vehicle was spliced in: " + vehicles.keySet());
+        VehicleInfo back = vehicles.get(ContentId.parse("mypack:bus").orElseThrow());
+        assertEquals(10, back.speed(), 0.001);
+        assertTrue(back.name().orElseThrow().contains("speed: 999"), "the name is kept, as a name");
+        assertEquals(0, block.chars().filter(c -> c == '\u2028' || c == '\t').count());
+    }
+
+    @Test
+    void aQuotedStringEscapesWhatWouldBreakALine() {
+        assertEquals("\"a\\nb\\r\\tc\\\\\\\"\"", VehicleYaml.quote("a\nb\r\tc\\\""));
+        assertEquals("\"\\u0000\\u2028\"", VehicleYaml.quote("\u0000\u2028"));
+        assertEquals("idle", VehicleYaml.key("idle"));
+        assertEquals("\"a b\"", VehicleYaml.key("a b"));
+    }
 }
