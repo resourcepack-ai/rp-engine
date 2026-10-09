@@ -3,3 +3,11 @@ plugins {
 }
 
 rootProject.name = 'rp-engine'
+
+// ai.resourcepack:common, the small library every ResourcePack AI plugin
+// shades in. Built from source when its directory sits beside this one, as it
+// does where these plugins are developed; anywhere else it comes from
+// repo.resourcepack.ai like any other dependency.
+if (file('../plugin-common').isDirectory()) {
+    includeBuild('../plugin-common')
+}
