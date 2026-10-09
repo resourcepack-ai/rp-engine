@@ -126,9 +126,20 @@ public final class ActionRunner {
                         net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
                                 colour(text(player, step.argument()))));
                 break;
-            case CONSOLE:
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), text(player, step.argument()));
+            case CONSOLE: {
+                String command = commandText(player, step.argument());
+                if (command == null) {
+                    // A value that would have been more than one argument. The
+                    // console runs with every permission there is, so a name or
+                    // a placeholder that can add words to its command is a
+                    // player writing that command.
+                    Bukkit.getLogger().warning("[RPEngine] Skipped a console action for " + player.getName()
+                            + ": a value put into \"" + step.argument() + "\" had a space or a control character in it.");
+                    break;
+                }
+                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
                 break;
+            }
             case RUN:
                 // As the player, with the player's own permissions — which is
                 // the whole difference between the two and the reason both
@@ -353,6 +364,66 @@ public final class ActionRunner {
                 .replace("{y}", String.valueOf(at.getBlockY()))
                 .replace("{z}", String.valueOf(at.getBlockZ()));
         return placeholders(player, out);
+    }
+
+    /** A {@code {name}} this class fills, or a PlaceholderAPI {@code %placeholder%}. */
+    private static final java.util.regex.Pattern COMMAND_VALUE =
+            java.util.regex.Pattern.compile("\\{(player|uuid|world|x|y|z)\\}|%[^%\\s]+%");
+
+    /**
+     * The author's text for a console command, or null if anything put into it
+     * is not one word.
+     *
+     * <p>The same values as {@link #text}, resolved one at a time so each can
+     * be looked at: a nickname with a space in it is two arguments, and on a
+     * console command the second is the player's to choose. Each value is put
+     * in once, so one that looks like a placeholder is left as it is.
+     */
+    private static String commandText(Player player, String written) {
+        Location at = player.getLocation();
+        Map<String, String> values = Map.of(
+                "player", player.getName(),
+                "uuid", player.getUniqueId().toString(),
+                "world", at.getWorld() == null ? "" : at.getWorld().getName(),
+                "x", String.valueOf(at.getBlockX()),
+                "y", String.valueOf(at.getBlockY()),
+                "z", String.valueOf(at.getBlockZ()));
+        boolean papi = Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null;
+        return fillCommand(written, values, token -> papi ? placeholders(player, token) : token);
+    }
+
+    /**
+     * {@code written} with each {@code {name}} from {@code values} and each
+     * {@code %placeholder%} through {@code placeholder}, or null if any value
+     * holds whitespace or a control character.
+     */
+    static String fillCommand(String written, Map<String, String> values,
+                              java.util.function.UnaryOperator<String> placeholder) {
+        java.util.regex.Matcher m = COMMAND_VALUE.matcher(written);
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        while (m.find()) {
+            String value = m.group(1) != null ? values.getOrDefault(m.group(1), m.group()) : placeholder.apply(m.group());
+            if (value == null) {
+                value = m.group();
+            }
+            if (!oneWord(value)) {
+                return null;
+            }
+            out.append(written, last, m.start()).append(value);
+            last = m.end();
+        }
+        return out.append(written, last, written.length()).toString();
+    }
+
+    private static boolean oneWord(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isWhitespace(c) || Character.isSpaceChar(c) || Character.isISOControl(c)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String placeholders(Player player, String text) {
