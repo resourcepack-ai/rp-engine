@@ -291,7 +291,14 @@ public final class DialogDatapack {
             for (DialogInfo dialog : dialogs) {
                 ContentId id = dialog.id();
                 Path folder = data.resolve(id.namespace()).resolve("dialog");
-                Path file = folder.resolve(id.path() + ".json");
+                Path file = folder.resolve(id.path() + ".json").normalize();
+                // ContentId already refuses a path that climbs, but an id can
+                // arrive from a push, so the file is held to its folder here
+                // too: nothing this writes may land outside the datapack.
+                if (!file.startsWith(folder.normalize())) {
+                    log.warning("Leaving " + id + " out of the dialog datapack: its id is not a path inside it.");
+                    continue;
+                }
                 // The file's own folder rather than dialog/: a path may carry
                 // slashes (an authored `menus/shop` is dialog/menus/shop.json),
                 // and one that did threw here and stopped every write after it.

@@ -79,4 +79,22 @@ class ContentIdTest {
         assertTrue(ContentId.isValidPath("a/b/c"));
         assertFalse(ContentId.isValidPath("a b"));
     }
+
+    @Test
+    void aPathCannotClimbOutOfTheFolderItIsWrittenTo() {
+        // A dialog id is written to data/<namespace>/dialog/<path>.json, and an
+        // id can arrive from a push.
+        assertTrue(ContentId.parse("mypack:../../../ops").isEmpty());
+        assertTrue(ContentId.parse("mypack:menus/../../x").isEmpty());
+        assertTrue(ContentId.parse("mypack:..").isEmpty());
+        assertTrue(ContentId.parse("mypack:./x").isEmpty());
+        assertTrue(ContentId.parse("mypack:/home/container/whitelist").isEmpty(), "leading slash");
+        assertTrue(ContentId.parse("mypack:menus/").isEmpty(), "trailing slash");
+        assertTrue(ContentId.parse("mypack:menus//shop").isEmpty(), "empty segment");
+        assertTrue(ContentId.parse("mypack:c:\\windows").isEmpty());
+        assertFalse(ContentId.isValidPath("a\\b"));
+        assertFalse(ContentId.isValidPath("..\\..\\ops"));
+        // Dots inside a name are still just characters.
+        assertTrue(ContentId.parse("mypack:v1.0/chair..oak/.hidden").isPresent());
+    }
 }

@@ -17,6 +17,14 @@ import java.util.Optional;
  * {@code /}. Neither may be empty. Nothing here is case-folded for you: an
  * uppercase letter is a rejection rather than a silent lowercase, because the
  * two ids would otherwise be equal here and distinct to the client.
+ *
+ * <p>The path is also a FILE path: a dialog id becomes
+ * {@code data/<namespace>/dialog/<path>.json} on the server's disk, and an id
+ * can arrive from a push. So the path's slashes must separate real names: no
+ * empty segment (which is also a leading or trailing slash) and no {@code .}
+ * or {@code ..} segment, any of which would let an id climb out of the folder
+ * it is written into. A resource location the client would accept but no file
+ * system means the same thing by is not worth holding.
  */
 public final class ContentId implements Comparable<ContentId> {
 
@@ -65,7 +73,15 @@ public final class ContentId implements Comparable<ContentId> {
 
     /** Whether {@code path} is usable as the right half of an id. */
     public static boolean isValidPath(String path) {
-        return isValid(path, true);
+        if (!isValid(path, true)) {
+            return false;
+        }
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isValid(String value, boolean allowSlash) {
