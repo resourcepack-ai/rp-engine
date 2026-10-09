@@ -74,6 +74,14 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
+# Anonymous usage counting, and the only telemetry RP Engine has. Every 30
+# seconds it sends resourcepack.ai three things: a random id it made up the
+# first time it started (kept in server-id, and not derived from anything about
+# this server), how many players are online as a single number, and the names
+# of installed plugins that depend on RP Engine. Nothing else: no address,
+# server name, version, player names or UUIDs, worlds or content.
+#
+# false sends nothing at all.
 telemetry:
   enabled: true
 

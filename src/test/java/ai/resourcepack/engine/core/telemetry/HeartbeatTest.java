@@ -10,14 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class HeartbeatTest {
 
     @Test
-    void theBodyIsTheIdAndTheAddonNames() {
-        assertEquals("{\"id\":\"abc\",\"addons\":[\"RPESkateboards\",\"RPEBmx\"]}",
-                Heartbeat.body("abc", List.of("RPESkateboards", "RPEBmx")));
-        assertEquals("{\"id\":\"abc\",\"addons\":[]}", Heartbeat.body("abc", List.of()));
+    void theBodyIsTheIdThePlayerCountAndTheAddonNames() {
+        assertEquals("{\"id\":\"abc\",\"players\":12,\"addons\":[\"RPESkateboards\",\"RPEBmx\"]}",
+                Heartbeat.body("abc", 12, List.of("RPESkateboards", "RPEBmx")));
+        assertEquals("{\"id\":\"abc\",\"players\":0,\"addons\":[]}", Heartbeat.body("abc", 0, List.of()));
     }
 
     @Test
     void aNameCannotBreakOutOfItsString() {
-        assertEquals("{\"id\":\"abc\",\"addons\":[\"a\\\"b\\\\c\"]}", Heartbeat.body("abc", List.of("a\"b\\c\n")));
+        assertEquals("{\"id\":\"abc\",\"players\":0,\"addons\":[\"a\\\"b\\\\c\"]}", Heartbeat.body("abc", 0, List.of("a\"b\\c\n")));
     }
 }
