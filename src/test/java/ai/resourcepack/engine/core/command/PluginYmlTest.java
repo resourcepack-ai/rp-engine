@@ -38,9 +38,10 @@ class PluginYmlTest {
      * {@code :wave:} in chat — so it is also not something
      * {@code rpengine.admin} should grant: admin is "every command", and a
      * server that gives its ops every command has not thereby said only ops
-     * may use an emoji.
+     * may use an emoji. {@code update} is who is told on joining that a newer
+     * RP Engine is out.
      */
-    private static final Set<String> NOT_SUBCOMMANDS = Set.of("emote.cast", "emote.force", "chat.icons");
+    private static final Set<String> NOT_SUBCOMMANDS = Set.of("emote.cast", "emote.force", "chat.icons", "update");
 
     /**
      * The subcommands that can be pointed at ANOTHER player, each of which

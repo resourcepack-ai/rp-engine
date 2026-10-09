@@ -77,6 +77,14 @@ distribution:
 telemetry:
   enabled: true
 
+# Say so when a newer RP Engine is out: once in the console, and to anybody
+# with rpengine.update (ops) as they join, with a link to its SpigotMC page.
+#
+# It asks SpigotMC which version is current, a few seconds after start and
+# every six hours after, and sends nothing about this server in doing so.
+# false turns it off; /rp reload is enough.
+update-check: true
+
 models:
   # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
   # says where that piece's seat is; this corrects how the game DRAWS somebody

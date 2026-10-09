@@ -88,6 +88,11 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         return Reply.style().prefix();
     }
 
+    /** The whole palette, for those same places when a line needs more than the prefix. */
+    public static ChatStyle chatStyle() {
+        return Reply.style();
+    }
+
     /**
      * One prefixed line, for those same places.
      *

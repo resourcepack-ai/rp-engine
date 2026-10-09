@@ -258,6 +258,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private EditSessions edits;
     /** The usage heartbeat; null when {@code telemetry.enabled} is off. */
     private ai.resourcepack.engine.core.telemetry.Heartbeat heartbeat;
+
+    /** This plugin's SpigotMC resource id: the number in its page's URL, and what the update check asks about. */
+    private static final int SPIGOT_RESOURCE = 138740;
+
+    /** Tells the console and joining ops when SpigotMC has a newer RP Engine; {@code update-check} turns it off. */
+    private ai.resourcepack.common.update.UpdateCheck updates;
     private SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -792,6 +798,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     getConfig().getString("telemetry.url", "https://studio.resourcepack.ai"));
             heartbeat.start();
         }
+
+        // Asks SpigotMC, not us: see UpdateCheck for why, and for exactly what
+        // the request carries (nothing about this server).
+        updates = ai.resourcepack.common.update.UpdateCheck.spigot(this, SPIGOT_RESOURCE)
+                .name("RP Engine")
+                .permission("rpengine.update")
+                .enabledWhen(() -> getConfig().getBoolean("update-check", true))
+                .player((player, update) -> {
+                    ai.resourcepack.engine.core.command.ChatStyle style = EngineCommand.chatStyle();
+                    ai.resourcepack.engine.core.Chat.link(player, style.prefix() + "RP Engine " + style.accent() + update.latest()
+                                    + style.body() + " is out (you have " + update.running() + "). " + style.accent(),
+                            "Get it on SpigotMC", update.url());
+                })
+                .start();
     }
 
     /**
@@ -1272,6 +1292,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     public void onDisable() {
         if (heartbeat != null) {
             heartbeat.stop();
+        }
+        if (updates != null) {
+            updates.stop();
         }
         if (dialogs != null) {
             // The commands dialogs are opened with (/shop) were put into the

@@ -78,8 +78,12 @@ permissions:
       rpengine.armor.others: true
       rpengine.bind.others: true
       rpengine.unbind.others: true
+      rpengine.update: true
   rpengine.reload:
     description: Reload content and config.
+    default: op
+  rpengine.update:
+    description: Be told on joining when a newer RP Engine is on SpigotMC.
     default: op
   rpengine.info:
     description: See what this server holds.
