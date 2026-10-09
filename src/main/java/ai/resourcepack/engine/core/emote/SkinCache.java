@@ -376,7 +376,34 @@ public final class SkinCache {
         }
     }
 
+    /** Where a skin or cape sheet may be fetched from: Mojang's texture host, and nowhere else. */
+    static final String TEXTURE_HOST = "textures.minecraft.net";
+
+    /** The most of a sheet that is read. A real one is a few kilobytes. */
+    static final int MAX_SHEET_BYTES = 1_000_000;
+
+    /**
+     * Whether {@code url} is on Mojang's texture host. The client draws a skin
+     * from nowhere else (a profile naming another host shows Steve), so a skin
+     * plugin on an offline-mode server uploads to it too, and a URL that names
+     * anywhere else is one this server has no reason to visit. Mojang writes
+     * these as plain http, so both schemes are allowed for that host.
+     */
+    static boolean isTextureUrl(String url) {
+        try {
+            java.net.URI uri = java.net.URI.create(url);
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+            return (scheme.equals("http") || scheme.equals("https"))
+                    && TEXTURE_HOST.equalsIgnoreCase(uri.getHost());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return false;
+        }
+    }
+
     private static byte[] fetch(String url) {
+        if (!isTextureUrl(url)) {
+            return null;
+        }
         try {
             HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
             connection.setConnectTimeout(10_000);
@@ -386,15 +413,24 @@ public final class SkinCache {
                 return null;
             }
             try (InputStream in = connection.getInputStream()) {
-                byte[] bytes = in.readAllBytes();
+                byte[] bytes = readSheet(in);
                 // A sheet is a 64x64 PNG of a few kilobytes. Anything else is
                 // an error page or a legacy 64x32 sheet, and baking either
                 // would put a checkerboard on somebody's face.
-                return bytes.length > 100 && bytes.length < 1_000_000 && isPng(bytes) ? bytes : null;
+                return bytes != null && bytes.length > 100 && isPng(bytes) ? bytes : null;
             }
         } catch (IOException | RuntimeException e) {
             return null;
         }
+    }
+
+    /**
+     * The sheet, or null once it passes {@link #MAX_SHEET_BYTES}: stopped
+     * there rather than read whole to find out.
+     */
+    static byte[] readSheet(InputStream in) throws IOException {
+        byte[] bytes = in.readNBytes(MAX_SHEET_BYTES);
+        return in.read() < 0 ? bytes : null;
     }
 
     private static boolean isPng(byte[] bytes) {
