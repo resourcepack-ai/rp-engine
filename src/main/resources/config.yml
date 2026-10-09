@@ -74,14 +74,24 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
-# Anonymous usage counting, and the only telemetry RP Engine has. Every 30
-# seconds it sends resourcepack.ai three things: a random id it made up the
-# first time it started (kept in server-id, and not derived from anything about
-# this server), how many players are online as a single number, and the names
-# of installed plugins that depend on RP Engine. Nothing else: no address,
-# server name, version, player names or UUIDs, worlds or content.
+# Anonymous usage counting, and the only telemetry RP Engine has. It is ON
+# unless you turn it off here.
 #
-# false sends nothing at all.
+# Every 30 seconds, from a background thread, it POSTs one small JSON message
+# to https://studio.resourcepack.ai/api/rp-engine/heartbeat holding three
+# things, and nothing else:
+#   - id: a random id it made up the first time it started, kept in the
+#     server-id file in this folder. It is not derived from anything about
+#     this server; delete the file and a new one is made.
+#   - players: how many players are online, as a single number.
+#   - addons: the names of enabled plugins that depend (or soft-depend) on
+#     RP Engine.
+# No server address, server name, version, MOTD, player names or UUIDs, worlds
+# or content. Like any web request it comes from your server's IP address,
+# which is how the internet works rather than part of the message. The answer
+# is never read, and a beat that fails is dropped silently.
+#
+# enabled: false sends nothing at all, from the next restart.
 telemetry:
   enabled: true
 
