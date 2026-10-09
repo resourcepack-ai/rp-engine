@@ -85,13 +85,7 @@ distribution:
 telemetry:
   enabled: true
 
-# While a newer RP Engine is out, say so, with a link to its SpigotMC page: on
-# every check, in the console and to anybody online with rpengine.update (ops),
-# and to each of them every time they join.
-#
-# It asks SpigotMC which version is current, a few seconds after start and
-# every six hours after, and sends nothing about this server in doing so.
-# false turns it off; /rp reload is enough.
+# Nudges you in the console on startup and in chat on join when an update is out.
 update-check: true
 
 models:
