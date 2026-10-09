@@ -130,19 +130,11 @@ public final class ItemDefinitions {
      * which is carried as its JSON.
      */
     public static String model(DefinitionNode body) {
-        return model(body, "model");
-    }
-
-    /**
-     * A model field under another name ({@code first-person:}), read the way
-     * {@code model:} is: a name, a resource location, or a model inline.
-     */
-    public static String model(DefinitionNode body, String key) {
-        Object raw = body.raw(key);
+        Object raw = body.raw("model");
         if (raw instanceof Map) {
             return new com.google.gson.GsonBuilder().disableHtmlEscaping().create().toJson(raw);
         }
-        return body.string(key).orElse(null);
+        return body.string("model").orElse(null);
     }
 
     /**
