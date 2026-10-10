@@ -269,6 +269,14 @@ public final class StudioRelay {
                 sync.giveFailed(code, "player-offline");
                 return;
             }
+            // The console runs this, so only the handful of shapes Studio
+            // actually sends get through; see GiveCommands.
+            Optional<String> refused = GiveCommands.refusal(command, player.getName());
+            if (refused.isPresent()) {
+                log.warning("Refused a Studio give for " + player.getName() + " (" + refused.get() + "): " + command);
+                sync.giveFailed(code, "not-allowed");
+                return;
+            }
             try {
                 // "execute at" so that @p in the command resolves against the
                 // player's own position rather than the console's, which is
