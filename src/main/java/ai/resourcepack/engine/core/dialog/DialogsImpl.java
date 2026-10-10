@@ -74,8 +74,34 @@ public final class DialogsImpl implements Dialogs {
      * a click that changes one of their values can open it again, drawn in the
      * new state, about the same somebody. Weak on the player: a session that
      * ends takes its entry with it.
+     *
+     * <p>It is also what every {@code /rp page}, {@code /rp slot} and list pick
+     * is checked against, so it does not last for ever: see {@link #current}.
      */
-    private final Map<Player, Shown> lastShown = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+    private final Map<Player, Entry> lastShown = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /**
+     * How long a dialog counts as the one a player is looking at, since it was
+     * last drawn for them or clicked in. The game does not tell the server when
+     * a dialog is closed with Escape, so without a limit a player shown a vault
+     * once could type its {@code /rp slot} and {@code /rp page} commands for the
+     * rest of their session. Every page turn and item move draws the dialog
+     * again, so this is ten minutes of doing nothing in it, not ten minutes in
+     * all.
+     */
+    static final long SHOWN_FOR_MILLIS = java.util.concurrent.TimeUnit.MINUTES.toMillis(10);
+
+    /** Milliseconds, from any fixed origin. Replaced in a test. */
+    private volatile java.util.function.LongSupplier clock = () -> System.nanoTime() / 1_000_000L;
+
+    /**
+     * A dialog shown, when, and the permissions the player held that opening
+     * it may have depended on: the dialog's own {@code permission}, held as it
+     * opened, and those of the dialog it was followed from. A player who loses
+     * one of them loses the dialog too.
+     */
+    private record Entry(Shown shown, long at, Set<String> gates) {
+    }
 
     /**
      * A dialog as it was shown to somebody, and the pages its links turn to on
@@ -278,7 +304,7 @@ public final class DialogsImpl implements Dialogs {
         // Decode JSON directly so multiline text and other values need not
         // pass through the command parser or wait for the datapack registry.
         if (DialogPackets.show(viewer, json)) {
-            lastShown.put(viewer, shown);
+            remember(viewer, shown, followed);
             return true;
         }
         // Null when the codec read it and something else went wrong, or there
@@ -290,7 +316,7 @@ public final class DialogsImpl implements Dialogs {
         Optional<String> inline = DialogSnbt.of(json);
         if (inline.isPresent() && dispatch("minecraft:dialog show " + target(viewer) + " " + inline.get(),
                 named, false) == Outcome.SHOWN) {
-            lastShown.put(viewer, shown);
+            remember(viewer, shown, followed);
             return true;
         }
 
@@ -306,7 +332,7 @@ public final class DialogsImpl implements Dialogs {
         Outcome byName = dispatch("minecraft:dialog show " + target(viewer) + " " + named, named,
                 inline.isEmpty() && refused == null);
         if (byName == Outcome.SHOWN) {
-            lastShown.put(viewer, shown);
+            remember(viewer, shown, followed);
             // A show that worked is the only proof available that the server
             // has read what was written — nothing can ask the registry
             // directly. So it is what clears the flag, and without this
@@ -427,7 +453,8 @@ public final class DialogsImpl implements Dialogs {
      * rather than the one they came from.
      */
     public void noteCommand(Player viewer, String command) {
-        Shown shown = viewer == null || command == null ? null : lastShown.get(viewer);
+        Entry entry = command == null ? null : currentEntry(viewer);
+        Shown shown = entry == null ? null : entry.shown();
         if (shown == null || shown.reach().isEmpty()) {
             return;
         }
@@ -441,7 +468,8 @@ public final class DialogsImpl implements Dialogs {
             }
             Optional<String> json = visibleJson(viewer, page, shown.values());
             if (json.isPresent() && DialogLinks.holdsCommand(json.get(), command)) {
-                lastShown.put(viewer, new Shown(page, shown.values(), shown.reach()));
+                lastShown.put(viewer, new Entry(new Shown(page, shown.values(), shown.reach()),
+                        clock.getAsLong(), entry.gates()));
                 return;
             }
         }
@@ -453,13 +481,60 @@ public final class DialogsImpl implements Dialogs {
      * game does not click for by itself the way it does a button.
      */
     public boolean clickedPicture(Player viewer, String command) {
-        Shown shown = viewer == null || command == null ? null : lastShown.get(viewer);
+        Shown shown = command == null ? null : current(viewer);
         return shown != null && visibleJson(viewer, shown.id(), shown.values()).map(json -> DialogLinks.clicksCommand(json, command)).orElse(false);
     }
 
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
-        return viewer == null ? Optional.empty() : Optional.ofNullable(lastShown.get(viewer));
+        return Optional.ofNullable(current(viewer));
+    }
+
+    /**
+     * The dialog a player was last shown, while it still counts as theirs: shown
+     * or clicked in within {@link #SHOWN_FOR_MILLIS}, not closed by the server
+     * since, and with every permission it was opened on still held. Null
+     * otherwise, and the entry is forgotten.
+     */
+    private Shown current(Player viewer) {
+        Entry entry = currentEntry(viewer);
+        return entry == null ? null : entry.shown();
+    }
+
+    private Entry currentEntry(Player viewer) {
+        Entry entry = viewer == null ? null : lastShown.get(viewer);
+        if (entry == null) {
+            return null;
+        }
+        boolean stale = clock.getAsLong() - entry.at() > SHOWN_FOR_MILLIS;
+        if (stale || !entry.gates().stream().allMatch(viewer::hasPermission)) {
+            lastShown.remove(viewer, entry);
+            return null;
+        }
+        return entry;
+    }
+
+    /**
+     * Records what a player has just been shown. A dialog reached from the one
+     * before it (a page, a move) keeps that one's permissions to recheck, since
+     * a second page has no permission of its own and is only as open as the
+     * first.
+     */
+    void remember(Player viewer, Shown shown, boolean followed) {
+        Set<String> gates = new LinkedHashSet<>();
+        if (followed) {
+            Entry before = currentEntry(viewer);
+            if (before != null) {
+                gates.addAll(before.gates());
+            }
+        }
+        info(viewer, shown.id()).flatMap(DialogInfo::permission).filter(viewer::hasPermission).ifPresent(gates::add);
+        lastShown.put(viewer, new Entry(shown, clock.getAsLong(), Set.copyOf(gates)));
+    }
+
+    /** Replaces the clock, for a test. */
+    void clock(java.util.function.LongSupplier clock) {
+        this.clock = clock;
     }
 
     /**
@@ -469,7 +544,7 @@ public final class DialogsImpl implements Dialogs {
      */
     @Override
     public boolean reopen(Player viewer) {
-        Shown shown = viewer == null ? null : lastShown.get(viewer);
+        Shown shown = current(viewer);
         return shown != null && info(viewer, shown.id()).isPresent() && follow(viewer, shown.id(), shown.values());
     }
 
@@ -520,7 +595,7 @@ public final class DialogsImpl implements Dialogs {
      * through it, and the server has no other way to know the player is there.
      */
     public List<ContentId> linked(Player viewer) {
-        Shown shown = viewer == null ? null : lastShown.get(viewer);
+        Shown shown = current(viewer);
         if (shown == null) {
             return List.of();
         }
@@ -680,7 +755,7 @@ public final class DialogsImpl implements Dialogs {
      * them is not held ({@link #visibleJson}).
      */
     public boolean holdsSlot(Player viewer, DialogSlots.Key key) {
-        Shown shown = viewer == null || key == null ? null : lastShown.get(viewer);
+        Shown shown = key == null ? null : current(viewer);
         if (shown == null) {
             return false;
         }
@@ -691,6 +766,10 @@ public final class DialogsImpl implements Dialogs {
     @Override
     public void close(Player viewer) {
         slots.forget(viewer);
+        // Closed by the server, so nothing in it can be clicked any more.
+        if (viewer != null) {
+            lastShown.remove(viewer);
+        }
         if (!supported || viewer == null || !viewer.isOnline()) {
             return;
         }
