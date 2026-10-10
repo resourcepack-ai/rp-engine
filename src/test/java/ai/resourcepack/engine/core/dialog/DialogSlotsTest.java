@@ -2,9 +2,12 @@ package ai.resourcepack.engine.core.dialog;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,5 +75,48 @@ class DialogSlotsTest {
     void aDifferentItemSwaps() {
         assertEquals(DialogSlots.Kind.SWAP, DialogSlots.plan(1, 64, false, 64).kind());
         assertEquals(DialogSlots.Kind.SWAP, DialogSlots.plan(64, 1, false, 1).kind());
+    }
+    /** A box that says what happened to it. */
+    private static final class Fake implements DialogSlots.Box {
+        private final String name;
+        private final boolean live;
+        private final boolean keeps;
+        private final List<String> log;
+
+        Fake(String name, boolean live, boolean keeps, List<String> log) {
+            this.name = name;
+            this.live = live;
+            this.keeps = keeps;
+            this.log = log;
+        }
+
+        @Override public int size() { return 1; }
+        @Override public org.bukkit.inventory.ItemStack get(int slot) { return null; }
+        @Override public void set(int slot, org.bukkit.inventory.ItemStack stack) { }
+        @Override public boolean prepare() { log.add("prepare " + name); return keeps; }
+        @Override public boolean live() { return live; }
+        @Override public void commit() { log.add("commit " + name); }
+    }
+
+    @Test
+    void aBackpackThatCannotBeWrittenStopsTheMoveBeforeTheInventoryMoves() {
+        List<String> log = new ArrayList<>();
+        boolean kept = DialogSlots.commitAll(List.of(
+                new Fake("inventory", true, true, log),
+                new Fake("backpack", false, false, log)));
+
+        assertFalse(kept);
+        assertTrue(log.stream().noneMatch(line -> line.startsWith("commit")), log.toString());
+    }
+
+    @Test
+    void theLiveSideIsWrittenBeforeTheBytes() {
+        List<String> log = new ArrayList<>();
+        boolean kept = DialogSlots.commitAll(List.of(
+                new Fake("backpack", false, true, log),
+                new Fake("inventory", true, true, log)));
+
+        assertTrue(kept);
+        assertEquals(List.of("prepare backpack", "prepare inventory", "commit inventory", "commit backpack"), log);
     }
 }

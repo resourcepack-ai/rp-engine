@@ -18,7 +18,10 @@ import org.bukkit.plugin.Plugin;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -219,6 +222,14 @@ public final class DialogSlots {
     /**
      * One of a player's containers, opened for one click or one fill: read
      * once, changed slot by slot, written back once by {@link #commit}.
+     *
+     * <p>Nothing a box is told to {@link #set} reaches the container before
+     * the commit, and every box of a click is {@link #prepare prepared} before
+     * any of them commits. A backpack's or a player storage's contents are
+     * bytes, and turning items into bytes can fail; when the live inventory
+     * had already moved by then, a failed write was items copied out of the
+     * bytes or lost into them. Now a box that cannot keep its side of a move
+     * stops the whole move before anything is touched.
      */
     interface Box {
         /** How many slots a dialog may reach. */
@@ -243,8 +254,47 @@ public final class DialogSlots {
             return true;
         }
 
-        /** Keeps what was changed. */
+        /**
+         * Readies what {@link #commit} will keep, touching nothing: false when
+         * it could not be kept, which abandons the whole click.
+         */
+        default boolean prepare() {
+            return true;
+        }
+
+        /** Whether this writes to a live container rather than to bytes; live ones commit first. */
+        default boolean live() {
+            return true;
+        }
+
+        /** Keeps what was changed. Called only after every box of the click prepared. */
         default void commit() {
+        }
+    }
+
+    /** What a live container is to be told, slot by slot, held back until commit. */
+    private static final class Staged {
+        private final Map<Integer, ItemStack> slots = new LinkedHashMap<>();
+
+        boolean has(int slot) {
+            return slots.containsKey(slot);
+        }
+
+        ItemStack get(int slot) {
+            ItemStack stack = slots.get(slot);
+            return empty(stack) ? null : stack.clone();
+        }
+
+        void set(int slot, ItemStack stack) {
+            slots.put(slot, empty(stack) ? null : stack);
+        }
+
+        boolean any() {
+            return !slots.isEmpty();
+        }
+
+        void writeTo(Inventory inventory) {
+            slots.forEach(inventory::setItem);
         }
     }
 
@@ -252,6 +302,7 @@ public final class DialogSlots {
     private static final class LiveBox implements Box {
         private final Inventory inventory;
         private final int size;
+        private final Staged staged = new Staged();
 
         LiveBox(Inventory inventory, int size) {
             this.inventory = inventory;
@@ -265,25 +316,35 @@ public final class DialogSlots {
 
         @Override
         public ItemStack get(int slot) {
+            if (staged.has(slot)) {
+                return staged.get(slot);
+            }
             ItemStack stack = slot >= 0 && slot < size ? inventory.getItem(slot) : null;
             return empty(stack) ? null : stack.clone();
         }
 
         @Override
         public void set(int slot, ItemStack stack) {
-            inventory.setItem(slot, empty(stack) ? null : stack);
+            staged.set(slot, stack);
         }
 
         @Override
         public int most(ItemStack stack) {
             return Math.max(1, Math.min(stack.getMaxStackSize(), inventory.getMaxStackSize()));
         }
+
+        @Override
+        public void commit() {
+            staged.writeTo(inventory);
+        }
     }
 
     /** Contents kept as bytes: read on opening, written on commit. */
-    private abstract static class BytesBox implements Box {
+    private abstract class BytesBox implements Box {
         ItemStack[] contents;
         boolean dirty;
+        /** The bytes to keep, or null for nothing to keep; set by {@link #prepare}. */
+        byte[] prepared;
 
         BytesBox(ItemStack[] contents) {
             this.contents = contents == null ? new ItemStack[0] : contents;
@@ -317,6 +378,34 @@ public final class DialogSlots {
             }
             return Arrays.copyOf(contents, end);
         }
+
+        @Override
+        public boolean prepare() {
+            if (!dirty) {
+                return true;
+            }
+            ItemStack[] keep = trimmed();
+            try {
+                prepared = ItemBytes.anything(keep) ? ItemBytes.write(keep) : null;
+                return true;
+            } catch (IOException | RuntimeException e) {
+                // Loud: the alternative is silence about somebody's items.
+                // Nothing has moved, and what was kept before stays kept.
+                if (plugin != null) {
+                    plugin.getLogger().severe("Could not keep a dialog's " + what()
+                            + ", so the move was not made: " + e.getMessage());
+                }
+                return false;
+            }
+        }
+
+        @Override
+        public boolean live() {
+            return false;
+        }
+
+        /** What this is, for the log. */
+        abstract String what();
     }
 
     /** Storage kept on the player under a name. */
@@ -331,21 +420,19 @@ public final class DialogSlots {
         }
 
         @Override
+        String what() {
+            return "storage (" + key + ")";
+        }
+
+        @Override
         public void commit() {
             if (!dirty) {
                 return;
             }
-            ItemStack[] keep = trimmed();
-            if (!ItemBytes.anything(keep)) {
+            if (prepared == null) {
                 data.remove(key);
-                return;
-            }
-            try {
-                data.set(key, PersistentDataType.BYTE_ARRAY, ItemBytes.write(keep));
-            } catch (IOException | RuntimeException e) {
-                // Loud: the alternative is silence about somebody's items. What
-                // was kept before stays kept.
-                plugin.getLogger().severe("Could not keep a dialog's storage (" + key + "): " + e.getMessage());
+            } else {
+                data.set(key, PersistentDataType.BYTE_ARRAY, prepared);
             }
         }
     }
@@ -368,12 +455,33 @@ public final class DialogSlots {
         }
 
         @Override
+        String what() {
+            return "backpack";
+        }
+
+        @Override
+        public boolean prepare() {
+            if (!dirty) {
+                return true;
+            }
+            // The backpack has to be there to be written to. It cannot leave
+            // the inventory in this click (see allowed), so present now is
+            // present at commit.
+            int at = find(inventory, tag);
+            ItemStack stack = at < 0 ? null : inventory.getItem(at);
+            if (stack == null || stack.getItemMeta() == null) {
+                return false;
+            }
+            return super.prepare();
+        }
+
+        @Override
         public void commit() {
             if (!dirty) {
                 return;
             }
-            // Found again now, after every other change of this click: the
-            // inventory may have moved it.
+            // Found again now, after the live containers have been written:
+            // this click may have moved it within the inventory.
             int at = find(inventory, tag);
             if (at < 0) {
                 return;
@@ -383,16 +491,10 @@ public final class DialogSlots {
             if (meta == null) {
                 return;
             }
-            ItemStack[] keep = trimmed();
-            try {
-                if (ItemBytes.anything(keep)) {
-                    meta.getPersistentDataContainer().set(contentsKey, PersistentDataType.BYTE_ARRAY, ItemBytes.write(keep));
-                } else {
-                    meta.getPersistentDataContainer().remove(contentsKey);
-                }
-            } catch (IOException | RuntimeException e) {
-                plugin.getLogger().severe("Could not keep what is in a backpack: " + e.getMessage());
-                return;
+            if (prepared == null) {
+                meta.getPersistentDataContainer().remove(contentsKey);
+            } else {
+                meta.getPersistentDataContainer().set(contentsKey, PersistentDataType.BYTE_ARRAY, prepared);
             }
             stack.setItemMeta(meta);
             inventory.setItem(at, stack);
@@ -404,7 +506,7 @@ public final class DialogSlots {
         private final Player viewer;
         private final DialogContainer container;
         private final Inventory inventory;
-        private boolean dirty;
+        private final Staged staged = new Staged();
 
         ApiBox(Player viewer, DialogContainer container, Inventory inventory) {
             this.viewer = viewer;
@@ -419,14 +521,16 @@ public final class DialogSlots {
 
         @Override
         public ItemStack get(int slot) {
+            if (staged.has(slot)) {
+                return staged.get(slot);
+            }
             ItemStack stack = slot >= 0 && slot < size() ? inventory.getItem(slot) : null;
             return empty(stack) ? null : stack.clone();
         }
 
         @Override
         public void set(int slot, ItemStack stack) {
-            inventory.setItem(slot, empty(stack) ? null : stack);
-            dirty = true;
+            staged.set(slot, stack);
         }
 
         @Override
@@ -446,7 +550,8 @@ public final class DialogSlots {
 
         @Override
         public void commit() {
-            if (dirty) {
+            if (staged.any()) {
+                staged.writeTo(inventory);
                 container.changed(viewer);
             }
         }
@@ -523,11 +628,37 @@ public final class DialogSlots {
             return open.computeIfAbsent(name, n -> Optional.ofNullable(DialogSlots.this.open(player, n))).orElse(null);
         }
 
-        void commit() {
-            for (Optional<Box> box : open.values()) {
-                box.ifPresent(Box::commit);
+        /**
+         * Keeps every change of the click, or none: false, with nothing
+         * touched, when any box could not prepare. The live containers are
+         * written before the bytes, because a backpack is found in the
+         * inventory by its tag and this click may have moved it there.
+         */
+        boolean commit() {
+            List<Box> boxes = new ArrayList<>();
+            open.values().forEach(box -> box.ifPresent(boxes::add));
+            return commitAll(boxes);
+        }
+    }
+
+    /** {@link Boxes#commit}, over any boxes: all prepared first, then the live ones written, then the bytes. */
+    static boolean commitAll(List<? extends Box> boxes) {
+        for (Box box : boxes) {
+            if (!box.prepare()) {
+                return false;
             }
         }
+        for (Box box : boxes) {
+            if (box.live()) {
+                box.commit();
+            }
+        }
+        for (Box box : boxes) {
+            if (!box.live()) {
+                box.commit();
+            }
+        }
+        return true;
     }
 
     /**
@@ -787,7 +918,10 @@ public final class DialogSlots {
                 return Result.NOTHING;
             }
         }
-        boxes.commit();
+        if (!boxes.commit()) {
+            // Nothing moved: one side of it could not be kept (logged as it failed).
+            return Result.NOTHING;
+        }
         return Result.PUT;
     }
 
