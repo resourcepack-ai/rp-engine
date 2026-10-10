@@ -110,8 +110,11 @@ public final class InterfaceCommands implements Area {
      * in a Studio dialog runs, as the player who clicked it.
      *
      * <p>Every player may run it, because the click is theirs; so it sets only
-     * a variable some loaded dialog declares, and only to a value that dialog
-     * lists — see {@link ai.resourcepack.engine.core.dialog.DialogVariables}.
+     * a variable the dialog they were last shown declares (or a page their
+     * client turned to from it), and only to a value that dialog lists — see
+     * {@link ai.resourcepack.engine.core.dialog.DialogVariables}. A name only
+     * some other dialog on the server declares is refused: it was never
+     * offered to them.
      * Then it opens the dialog they were looking at again, which reads their
      * values as it opens and so shows the control in its new state. Silent when
      * it works, because the answer is on their screen; a line when it does not,
@@ -151,8 +154,13 @@ public final class InterfaceCommands implements Area {
         }
         String name = args[1].toLowerCase(Locale.ROOT);
         String value = args[2];
-        if (!impl.declares(name, value)) {
-            Reply.to(sender, "No dialog has a setting called " + name + " that can be " + value + ".");
+        // A player setting their own: only what the dialog in front of them
+        // offers. Staff setting somebody else's: anything a dialog declares.
+        boolean own = sender == target;
+        if (own ? !impl.declaresShown(target, name, value) : !impl.declares(name, value)) {
+            Reply.to(sender, own
+                    ? "The dialog you were shown has no setting called " + name + " that can be " + value + "."
+                    : "No dialog has a setting called " + name + " that can be " + value + ".");
             return true;
         }
         if (!impl.variables().set(target, name, value)) {

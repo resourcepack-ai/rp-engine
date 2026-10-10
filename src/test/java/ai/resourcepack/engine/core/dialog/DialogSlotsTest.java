@@ -72,6 +72,17 @@ class DialogSlotsTest {
     }
 
     @Test
+    void aContainerKeptAsBytesStopsGrowingAtItsLimit() {
+        int most = DialogSlots.MOST_BYTES;
+        assertFalse(DialogSlots.tooBig(0, most), "up to the limit is fine");
+        assertTrue(DialogSlots.tooBig(most, most + 1), "past it is refused");
+        assertTrue(DialogSlots.tooBig(0, most * 4));
+        // One already over it, from before the limit: emptying it is still allowed.
+        assertFalse(DialogSlots.tooBig(most * 4, most * 3));
+        assertTrue(DialogSlots.tooBig(most * 3, most * 3 + 1));
+    }
+
+    @Test
     void aDifferentItemSwaps() {
         assertEquals(DialogSlots.Kind.SWAP, DialogSlots.plan(1, 64, false, 64).kind());
         assertEquals(DialogSlots.Kind.SWAP, DialogSlots.plan(64, 1, false, 1).kind());

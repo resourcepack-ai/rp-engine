@@ -179,9 +179,9 @@ public final class DialogInfo {
      * three — to a name, and draws it in whatever state each player's own
      * value says ({@code {name?value:…}} in its JSON). These are the names it
      * binds. They are also the whole of what a player may SET: {@code /rp var}
-     * is run by the player whose click it is, so it accepts a name only if some
-     * dialog declares it, and a value only if that dialog lists it. Empty for a
-     * dialog that binds nothing.
+     * is run by the player whose click it is, so it accepts a name only if the
+     * dialog they were last shown declares it, and a value only if that dialog
+     * lists it. Empty for a dialog that binds nothing.
      */
     public Map<String, List<String>> variables() {
         return variables;

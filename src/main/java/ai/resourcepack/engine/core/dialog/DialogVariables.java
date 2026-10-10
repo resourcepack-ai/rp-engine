@@ -40,8 +40,11 @@ import java.util.regex.Pattern;
  *
  * Nothing the server did not offer. {@code /rp var} is a command every player
  * may run — it has to be, a click on a dialog runs it as them — so it accepts
- * only a name some loaded dialog declares and only one of the values that
- * dialog declares for it (see {@link DialogsImpl#declares}). The names and
+ * only a name the dialog they were last shown declares and only one of the
+ * values that dialog declares for it (see {@link DialogsImpl#declaresShown}).
+ * And what a player puts here is read after every other source of a value
+ * ({@code DialogsImpl.filled}), so it can never stand in for a built-in, a
+ * published value or a PlaceholderAPI one. The names and
  * values themselves are held to a small alphabet here as well, and the map to
  * {@link #MAX_VARIABLES}, so no path can grow it without limit.
  */

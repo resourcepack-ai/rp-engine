@@ -610,19 +610,52 @@ public final class DialogsImpl implements Dialogs {
     }
 
     /**
-     * Whether a loaded dialog lets a player set {@code name} to {@code value}:
-     * some dialog declares the name, and lists the value for it. The check
-     * every {@code /rp var} passes, because a player runs it — see
-     * {@link DialogVariables}.
+     * Whether a loaded dialog lets {@code name} be set to {@code value}: some
+     * dialog declares the name, and lists the value for it. What staff naming
+     * another player's setting are held to; a player setting their own is held
+     * to {@link #declaresShown}, which is narrower.
      */
     public boolean declares(String name, String value) {
         for (DialogInfo info : dialogs.values()) {
-            java.util.List<String> values = info.variables().get(name);
-            if (values != null && values.stream().anyMatch(v -> v.equalsIgnoreCase(value))) {
+            if (lists(info, name, value)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Whether the dialog this player was last shown lets them set {@code name}
+     * to {@code value}: it, or one of the pages their client could have turned
+     * to from it by itself, declares the name and lists the value. The check
+     * every {@code /rp var} a player runs on themselves passes, because the
+     * click is theirs and so is the command — see {@link DialogVariables}.
+     *
+     * <p>Narrower than {@link #declares} on purpose. A name some OTHER dialog
+     * declares is not one this player was offered, and a value it lists is not
+     * one they could have clicked; a dialog they have not been in for
+     * {@link #SHOWN_FOR_MILLIS} is not one they are clicking in.
+     */
+    public boolean declaresShown(Player viewer, String name, String value) {
+        Shown shown = current(viewer);
+        if (shown == null) {
+            return false;
+        }
+        Set<ContentId> pages = new LinkedHashSet<>();
+        pages.add(shown.id());
+        pages.addAll(shown.reach());
+        for (ContentId page : pages) {
+            Optional<DialogInfo> info = info(viewer, page);
+            if (info.isPresent() && lists(info.get(), name, value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean lists(DialogInfo info, String name, String value) {
+        java.util.List<String> values = info.variables().get(name);
+        return values != null && values.stream().anyMatch(v -> v.equalsIgnoreCase(value));
     }
 
     /** Every variable any loaded dialog declares, with the values it may take. */
@@ -650,16 +683,20 @@ public final class DialogsImpl implements Dialogs {
     /**
      * The dialog's JSON with its placeholders filled for this viewer — see
      * {@link DialogPlaceholders}. What a caller handed over wins, matched
-     * without regard to case; then the player's own dialog settings (what a
-     * bound control shows); then what a plugin published for them
+     * without regard to case; then what a plugin published for them
      * ({@link #set}, shared with the overlays); then the built-ins and
-     * PlaceholderAPI.
+     * PlaceholderAPI; and only then the player's own dialog settings (what a
+     * bound control shows).
      *
-     * <p>Settings come before published values on purpose. A click on a bound
-     * switch sets the setting and opens the dialog again, and the switch has to
-     * come back in the state the click chose — a published value of the same
-     * name would freeze it. A plugin that means to change a setting has
-     * {@link #setSetting} for it.
+     * <p>Settings come LAST because the player writes them. {@code /rp var} is
+     * a command every player has, and a dialog may hide a piece behind
+     * {@code {level} >= 30} or behind a value a plugin publishes: were settings
+     * read first, a setting called {@code level} would answer for the real
+     * level. A bound control is unaffected so long as its name is its own. One
+     * that shares a name with a built-in, a published value or a
+     * PlaceholderAPI placeholder shows that value instead, and clicking it
+     * changes nothing on screen. A plugin that means to move a setting has
+     * {@link #setSetting}.
      */
     private String filled(Player viewer, String json, Map<String, String> values) {
         boolean conditions = DialogConditions.any(json);
@@ -714,10 +751,13 @@ public final class DialogsImpl implements Dialogs {
             if (mine != null) {
                 return Optional.of(mine);
             }
-            Optional<String> stored = variables == null ? Optional.empty() : variables.get(viewer, name);
-            return stored.isPresent()
-                    ? stored
-                    : ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, plugins);
+            // Published, built-in and PlaceholderAPI values before the player's
+            // own settings, so a setting can never stand in for one: see filled().
+            Optional<String> known = ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, plugins);
+            if (known.isPresent()) {
+                return known;
+            }
+            return variables == null ? Optional.empty() : variables.get(viewer, name);
         };
         // Last, a row of a list (DialogRows): an item of a list given whole to
         // the opener, or nothing for a row past the end of a list of known length.

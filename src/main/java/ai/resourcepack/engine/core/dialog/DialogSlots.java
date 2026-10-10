@@ -85,13 +85,20 @@ import java.util.regex.Pattern;
  *   <li>{@code api.<name>} — a plugin's {@link DialogContainer}.</li>
  * </ul>
  *
- * <h2>Two rules that are not the inventory's</h2>
+ * <h2>Three rules that are not the inventory's</h2>
  *
  * <ul>
- *   <li><b>No backpack goes in a backpack.</b> An item holding contents of its
- *   own (anything that has been opened as a backpack) cannot be put in an
- *   {@code item} container: one inside another is a stack of contents nobody
- *   can see, and the open one inside itself would be gone.</li>
+ *   <li><b>No container goes in a container kept as bytes</b> (a backpack,
+ *   {@code item}, or a player's storage, {@code player.<name>}). That is a
+ *   shulker box, a bundle, any item carrying a block's inventory, and anything
+ *   this engine keeps contents on: something opened as a backpack, or a storage
+ *   piece picked up full. One inside another is a stack of contents nobody can
+ *   see, the open one inside itself would be gone, and nesting is how a single
+ *   item grows to many times the size the game allows one: big enough to kick
+ *   whoever is sent it and to lag the server that saves it.</li>
+ *   <li><b>Nor does a container kept as bytes grow past {@link #MOST_BYTES}.</b>
+ *   A move that would take one over is refused; one already over (from before
+ *   this limit) can still be emptied.</li>
  *   <li><b>The open backpack stays in the player's inventory.</b> Its contents
  *   are on it, and its grid is found by finding it there; moved into an ender
  *   chest it would leave a grid of nothing behind it.</li>
@@ -125,6 +132,16 @@ public final class DialogSlots {
 
     /** The most slots a container shows: Studio's biggest grid, 13 × 8. */
     public static final int MOST_SLOTS = 104;
+
+    /**
+     * The most bytes a container kept as bytes may come to: 256 KiB. A backpack
+     * keeps its contents on the item, and every item in a player's inventory is
+     * sent to them whole, so this is what one backpack can add to that. It is
+     * room for every slot of the biggest grid holding an enchanted, named item
+     * with lore, and for a couple of full books, and nowhere near what it takes
+     * to make a packet the client refuses.
+     */
+    public static final int MOST_BYTES = 256 * 1024;
 
     /** A slot of one of a player's containers. */
     public record Key(String container, int index) {
@@ -178,6 +195,8 @@ public final class DialogSlots {
     private final NamespacedKey itemTag;
     /** The key a backpack's contents are kept under, on the item. */
     private final NamespacedKey contentsKey;
+    /** The key a storage piece picked up full keeps its contents under, on its item. */
+    private final NamespacedKey carriedKey;
 
     /** Weak on the player, so a session that ends takes its entries with it. */
     private final Map<Player, Held> held = Collections.synchronizedMap(new WeakHashMap<>());
@@ -189,6 +208,8 @@ public final class DialogSlots {
         this.plugin = plugin;
         this.itemTag = plugin == null ? null : new NamespacedKey(plugin, "dialog-item");
         this.contentsKey = plugin == null ? null : new NamespacedKey(plugin, "dialog-contents");
+        // The storage pieces' own key (Storages): a crate picked up full.
+        this.carriedKey = plugin == null ? null : new NamespacedKey(plugin, "storage");
     }
 
     /** Whether a container's name is one this engine fills — its shape, not whether this player has one. */
@@ -345,9 +366,18 @@ public final class DialogSlots {
         boolean dirty;
         /** The bytes to keep, or null for nothing to keep; set by {@link #prepare}. */
         byte[] prepared;
+        /** How many bytes the contents came to as read. */
+        private final int was;
 
-        BytesBox(ItemStack[] contents) {
+        BytesBox(ItemStack[] contents, byte[] read) {
             this.contents = contents == null ? new ItemStack[0] : contents;
+            this.was = read == null ? 0 : read.length;
+        }
+
+        @Override
+        public boolean mayPlace(int slot, ItemStack stack) {
+            // No container in a container: see the class note.
+            return !holdsContainer(stack);
         }
 
         @Override
@@ -387,6 +417,11 @@ public final class DialogSlots {
             ItemStack[] keep = trimmed();
             try {
                 prepared = ItemBytes.anything(keep) ? ItemBytes.write(keep) : null;
+                int now = prepared == null ? 0 : prepared.length;
+                if (tooBig(was, now)) {
+                    // Refused, not logged: a player filling a backpack is not news.
+                    return false;
+                }
                 return true;
             } catch (IOException | RuntimeException e) {
                 // Loud: the alternative is silence about somebody's items.
@@ -413,8 +448,8 @@ public final class DialogSlots {
         private final PersistentDataContainer data;
         private final NamespacedKey key;
 
-        PlayerBox(PersistentDataContainer data, NamespacedKey key, ItemStack[] contents) {
-            super(contents);
+        PlayerBox(PersistentDataContainer data, NamespacedKey key, byte[] read) throws IOException {
+            super(ItemBytes.read(read), read);
             this.data = data;
             this.key = key;
         }
@@ -442,16 +477,10 @@ public final class DialogSlots {
         private final PlayerInventory inventory;
         private final String tag;
 
-        ItemBox(PlayerInventory inventory, String tag, ItemStack[] contents) {
-            super(contents);
+        ItemBox(PlayerInventory inventory, String tag, byte[] read) throws IOException {
+            super(ItemBytes.read(read), read);
             this.inventory = inventory;
             this.tag = tag;
-        }
-
-        @Override
-        public boolean mayPlace(int slot, ItemStack stack) {
-            // No backpack in a backpack: see the class note.
-            return !holdsContents(stack);
         }
 
         @Override
@@ -595,7 +624,7 @@ public final class DialogSlots {
             if (name.startsWith(PLAYER) && NAME.matcher(name.substring(PLAYER.length())).matches()) {
                 NamespacedKey key = new NamespacedKey(plugin, "dialog-storage/" + name.substring(PLAYER.length()));
                 PersistentDataContainer data = player.getPersistentDataContainer();
-                return new PlayerBox(data, key, ItemBytes.read(data.get(key, PersistentDataType.BYTE_ARRAY)));
+                return new PlayerBox(data, key, data.get(key, PersistentDataType.BYTE_ARRAY));
             }
             if (ITEM.equals(name)) {
                 Opened from = opened.get(player);
@@ -606,7 +635,7 @@ public final class DialogSlots {
                 ItemStack stack = player.getInventory().getItem(at);
                 ItemMeta meta = stack == null ? null : stack.getItemMeta();
                 byte[] bytes = meta == null ? null : meta.getPersistentDataContainer().get(contentsKey, PersistentDataType.BYTE_ARRAY);
-                return new ItemBox(player.getInventory(), from.item(), ItemBytes.read(bytes));
+                return new ItemBox(player.getInventory(), from.item(), bytes);
             }
         } catch (IOException e) {
             plugin.getLogger().warning("Could not read what is in " + name + " for " + player.getName() + ": "
@@ -735,17 +764,52 @@ public final class DialogSlots {
         return meta == null ? null : meta.getPersistentDataContainer().get(itemTag, PersistentDataType.STRING);
     }
 
-    /** Whether a stack has contents of its own: anything that has been opened as a backpack. */
-    boolean holdsContents(ItemStack stack) {
-        if (empty(stack) || itemTag == null) {
+    /**
+     * Whether a move leaves a container kept as bytes too big to keep: over
+     * {@link #MOST_BYTES}, and bigger than it was. A container already over the
+     * limit can still be emptied, a slot at a time.
+     */
+    static boolean tooBig(int was, int now) {
+        return now > MOST_BYTES && now > was;
+    }
+
+    /**
+     * Whether a stack is a container, or carries one's contents — what may not
+     * go into a container kept as bytes (see the class note). A shulker box, a
+     * bundle, any item holding a block's inventory (a chest or a barrel picked
+     * up with its contents), and anything this engine keeps contents on.
+     *
+     * <p>A shulker box and a bundle are refused even empty: an empty one is put
+     * in, and filled, by the next player who opens the backpack it is in. A
+     * chest or barrel is refused only carrying a block's state, because an
+     * ordinary one carries none and holds nothing.
+     */
+    boolean holdsContainer(ItemStack stack) {
+        if (empty(stack)) {
             return false;
+        }
+        org.bukkit.Material type = stack.getType();
+        if (org.bukkit.Tag.SHULKER_BOXES.isTagged(type) || type.name().endsWith("BUNDLE")) {
+            return true;
         }
         ItemMeta meta = stack.getItemMeta();
         if (meta == null) {
             return false;
         }
+        if (meta instanceof org.bukkit.inventory.meta.BundleMeta) {
+            return true;
+        }
+        if (meta instanceof org.bukkit.inventory.meta.BlockStateMeta state && state.hasBlockState()
+                && state.getBlockState() instanceof org.bukkit.inventory.InventoryHolder) {
+            return true;
+        }
+        if (itemTag == null) {
+            return false;
+        }
         PersistentDataContainer data = meta.getPersistentDataContainer();
-        return data.has(itemTag, PersistentDataType.STRING) || data.has(contentsKey, PersistentDataType.BYTE_ARRAY);
+        return data.has(itemTag, PersistentDataType.STRING)
+                || data.has(contentsKey, PersistentDataType.BYTE_ARRAY)
+                || data.has(carriedKey, PersistentDataType.BYTE_ARRAY);
     }
 
     /** What opening a dialog from an item came to. */

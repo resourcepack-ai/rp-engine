@@ -2742,10 +2742,18 @@ settings:
 `/rp var <name> <value>` sets the value for whoever runs it and opens the dialog
 they were looking at again, now showing it — so that button flips the setting
 and the screen updates in place. Every player may run it (a click on a dialog is
-theirs), but it only accepts a name some loaded dialog declares, and only one of
-the values that dialog lists. Settings are kept on the player and survive
-restarts. Your other plugins read them as `%rpengine_var_show_sidebar%`, and a
-dialog as `{show_sidebar}` like any other placeholder.
+theirs), but it only accepts a name the dialog they were last shown declares,
+and only one of the values that dialog lists: a setting some other dialog on the
+server declares cannot be set from this one. Settings are kept on the player and
+survive restarts. Your other plugins read them as `%rpengine_var_show_sidebar%`,
+and a dialog as `{show_sidebar}` like any other placeholder.
+
+**A setting never stands in for a real value.** A placeholder is answered by the
+values the dialog was opened with, then by what plugins published, the built-ins
+and PlaceholderAPI, and only then by the player's own settings. So a player
+cannot make `{level}` read 99 by setting `level`, and a piece hidden behind it
+stays hidden. Give a setting a name of its own: one called `level`, `world` or
+the name of a PlaceholderAPI placeholder always shows that value instead.
 
 Quote `on`, `off`, `yes` and `no`: unquoted, YAML reads them as true and false.
 Under `vars:` an unquoted one is read back as `on` or `off`, which is nearly
@@ -2926,6 +2934,14 @@ grid, up to 104 slots:
 
 - `player.<name>` — storage kept on each player, their own, across restarts: a
   vault. Every dialog naming the same storage shows the same items.
+
+  Neither of these two takes a container: no shulker box or bundle (even an
+  empty one), no item carrying a block's inventory, no backpack and no storage
+  piece picked up full. And each holds at most 256 KiB of items as the engine
+  stores them, which is the whole grid of named, enchanted items with lore and
+  room to spare; a move that would go past it does nothing. Both keep one
+  container from holding a whole server's worth of items, which is big enough
+  to disconnect whoever is sent it.
 - `api.<name>` — a plugin's own, registered with `dialogs().container(name, …)`
   (see `API.md`).
 

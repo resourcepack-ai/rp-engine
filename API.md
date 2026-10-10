@@ -693,13 +693,16 @@ too, `warps=Spawn,Shop,Arena`, for that opening alone.
 A placeholder is looked up in five places, and the first answer wins:
 
 1. **What you handed to `show`**, matched without regard to case.
-2. **The player's own settings** — see below. Before your published values on
-   purpose: a click on a bound switch sets the setting and reopens the dialog,
-   and the switch has to come back in the state the click chose.
-3. **What you published with `set`** (or `overlays().set`).
-4. **The engine's built-ins**, the same ones an overlay has — `{player}`,
+2. **What you published with `set`** (or `overlays().set`).
+3. **The engine's built-ins**, the same ones an overlay has — `{player}`,
    `{ping}`, `{world}`… all about the player it is shown to.
-5. **PlaceholderAPI**, if it is installed.
+4. **PlaceholderAPI**, if it is installed.
+5. **The player's own settings** — see below. Last on purpose: a player sets
+   these themselves, with a command every player has, so a setting must never
+   be able to answer for a real value. A dialog that shows a piece only at
+   `{level} >= 30` keeps it hidden from a player who sets `level` to 99. The
+   cost is that a setting sharing a name with one of the four above shows that
+   value instead, so give your settings names of their own.
 
 A name nothing answers is left as it was written, so a dialog that happens to
 say `{VIP}` is not rewritten. Formatting codes are taken out of a value (a
@@ -944,9 +947,18 @@ if (AddonContent.install(this, engine, "skateboards")) {
 A `.version` stamp beside the files says which build last wrote them, so
 restarting on the same jar copies nothing and reloads nothing - a reload
 rebuilds every pack on the server, which is not something to do on every boot
-for files that have not changed. A new build overwrites its own files and only
+for files that have not changed. A new build writes its own files and only
 its own: whatever the server owner added to the folder stays, because the
 folder is theirs to extend. Files are written whole or not at all.
+
+**A file the server owner has changed survives your update.** An `.installed`
+file beside the content records a hash of each file as it was installed. On a
+new build, a file still matching its hash is updated, a new file is added, and
+a file that no longer matches (somebody fixed a typo in it, say) is kept as it
+is, with a console line naming it and saying to delete it to take the new
+version. A folder installed before this record existed has no hashes, so its
+first update writes every shipped file as installs always did, then writes the
+record; edits are protected from the update after that.
 
 Catch the `IOException` and disable your plugin over it. Content that did not
 install is items that do not exist, and failing at boot beats a command that

@@ -36,17 +36,20 @@ import java.util.Optional;
  * <ol>
  *   <li>the values the dialog was opened with ({@link #show(Player, ContentId, Map)},
  *       or {@code name=value} on {@code /rp dialog});</li>
- *   <li>the player's own settings — what a Studio dialog's bound switches and
- *       sliders show ({@link #setting});</li>
  *   <li>what a plugin published for the player with {@link #set} — the same
  *       values {@link Overlays#set} publishes, because a number called
  *       {@code coins} means one thing on a HUD and in a shop;</li>
  *   <li>the engine's built-ins ({@code {player}}, {@code {health}},
  *       {@code {world}} …, all about the player it is shown to);</li>
- *   <li>PlaceholderAPI, if the server has it.</li>
+ *   <li>PlaceholderAPI, if the server has it;</li>
+ *   <li>the player's own settings — what a Studio dialog's bound switches and
+ *       sliders show ({@link #setting}).</li>
  * </ol>
  *
- * A name none of them answers is left as written. A dialog is drawn once, as it
+ * Settings are last because the player sets them, with a command every player
+ * has: a setting must never answer for a value a dialog's condition trusts, such
+ * as {@code {level}}. A setting that shares a name with anything above it shows
+ * that value instead. A name none of them answers is left as written. A dialog is drawn once, as it
  * opens: a value that changes afterwards shows the next time it opens, which
  * {@link #reopen} does on purpose.
  */
@@ -168,8 +171,9 @@ public interface Dialogs {
      * thread: it records the value and draws nothing. A dialog already open
      * keeps what it showed; {@link #reopen} draws it again.
      *
-     * <p>The values a dialog was opened with, and the player's own settings,
-     * win over this — see the interface note for the order.
+     * <p>The values a dialog was opened with win over this, and this wins over
+     * the built-ins, PlaceholderAPI and the player's own settings — see the
+     * interface note for the order.
      */
     default void set(Player viewer, String name, String value) {
     }
