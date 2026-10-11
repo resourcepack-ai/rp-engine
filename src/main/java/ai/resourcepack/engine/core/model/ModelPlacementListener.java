@@ -393,9 +393,12 @@ public final class ModelPlacementListener implements Listener {
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.setRotation(yaw, 0f);
             if (scale != 1f) {
-                Transformation transformation = d.getTransformation();
-                transformation.getScale().set(scale);
-                d.setTransformation(transformation);
+                // Scaled about the model's centre, half a block up: lifted by
+                // the same half block times (scale - 1) so its floor stays on
+                // the block's floor, as an animated piece's parts already are
+                // (RigMath.scaledTransformation). Without it a piece twice the
+                // size stood half a block in the ground.
+                d.setTransformation(ai.resourcepack.engine.core.animation.RigMath.scaledTransformation(scale));
             }
             // Culled otherwise: a large piece disappears when its anchor block
             // leaves the frustum, which reads as flickering model.
@@ -953,10 +956,12 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
         Transformation now = display.getTransformation();
+        float scale = info.scale() * multiplierOf(hitbox);
         org.joml.Vector3f translation = state == null
                 ? new org.joml.Vector3f()
-                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ())
-                        .mul(info.scale() * multiplierOf(hitbox));
+                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ()).mul(scale);
+        // The lift that keeps a scaled piece's floor on the block's floor (see place()).
+        translation.y += 0.5f * (scale - 1f);
         // Adding to a yaw is a NEGATIVE turn about y: the display is drawn
         // turned by -yaw, so this composes into -(yaw + turn).
         org.joml.Quaternionf turn = state == null
