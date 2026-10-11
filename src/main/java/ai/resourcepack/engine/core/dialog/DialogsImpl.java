@@ -114,8 +114,11 @@ public final class DialogsImpl implements Dialogs {
         }
     }
 
-    /** How far a dialog's pages are followed looking for the ones that turn on the client. */
-    private static final int MAX_PAGES = 64;
+    /**
+     * How far a dialog's pages are followed looking for the ones that turn on
+     * the client. Above the most pages a Studio dialog may have (99).
+     */
+    private static final int MAX_PAGES = 128;
 
     /**
      * Each player's own version of a pushed dialog. Null until told, which
