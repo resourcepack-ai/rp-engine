@@ -118,12 +118,12 @@ class ShaderHeadRunTest {
     }
 
     /**
-     * The legacy boss bar title (the fallback where the server has no component
-     * boss bars) draws the same runs, positioned the same way.
+     * The boss bar draws the same runs, positioned the same way.
      *
-     * <p>It spells the exact RGB the shader matches on with {@code §x}. What it
-     * cannot spell is a font, which this overlay does not name; see
-     * {@link #aFontOnlySurvivesAsComponents} for one that does.
+     * <p>It could not, once: a legacy string has no code for a font, and the
+     * canvas glyph used to live in one of its own. The glyph is in the pack's
+     * default font now, so the only thing legacy has to spell is the exact RGB
+     * the shader matches on — which {@code §x} does.
      */
     @Test void theBossBarCarriesThePictureTheShiftsAndTheColour() {
         String legacy = Overlays.legacyComposed(overlay(OverlayInfo.Slot.BOSS_BAR),
@@ -135,38 +135,5 @@ class ShaderHeadRunTest {
         assertTrue(legacy.contains("§x§f§0§0§0§0§8"), legacy);
         assertTrue(legacy.chars().anyMatch(c -> PLUS.indexOf(c) >= 0 || MINUS.indexOf(c) >= 0),
                 "the runs are positioned rather than appended");
-    }
-
-    /**
-     * An overlay whose canvas and shifts live in a font of their own only draws
-     * as components.
-     *
-     * <p>A boss bar's legacy title has no way to name the font, so the canvas
-     * glyph and every shift character fall back to the default font, which has
-     * none of them: the picture is missing and each shift is a missing-glyph
-     * box. That is why a boss bar is sent the composed components wherever the
-     * server can take them, and this pins the two halves of that: the
-     * components name the font on the canvas and on every shift, and the legacy
-     * string cannot.
-     */
-    @Test void aFontOnlySurvivesAsComponents() {
-        OverlayInfo info = OverlayInfo.pushed(ContentId.parse("test:hud").orElseThrow(), "canvas", "",
-                        OverlayInfo.Slot.BOSS_BAR, "#fe0001", "test:hud", "", List.of(),
-                        List.of(new OverlayInfo.OverlayRun("", 40, "{player}", "", "#f00010")))
-                .withCursor(257, PLUS, MINUS);
-        BaseComponent[] parts = Overlays.compose(info, Map.of("player", "Alice"), null);
-        assertEquals("test:hud", parts[0].getFontRaw(), "the canvas keeps its font");
-        for (int i = 1; i < parts.length; i++) {
-            TextComponent part = (TextComponent) parts[i];
-            if (part.getColorRaw() == null) {
-                assertEquals("test:hud", part.getFontRaw(), "a shift is in the overlay's font: " + part.getText());
-            } else {
-                assertEquals(null, part.getFontRaw(), "a label is in the default font");
-            }
-        }
-        String json = net.md_5.bungee.chat.ComponentSerializer.toString(parts);
-        assertTrue(json.contains("\"font\":\"test:hud\""), json);
-        assertTrue(!Overlays.legacyComposed(info, Map.of("player", "Alice"), null).contains("test:hud"),
-                "a legacy string has nowhere to put a font");
     }
 }

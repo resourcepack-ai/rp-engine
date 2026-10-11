@@ -33,10 +33,7 @@ import java.util.Optional;
  * <p>Two sources, one shape. Studio pushes sets (see {@code StudioContent});
  * a content folder's {@code armor3d/} names a {@code .bbmodel}, which
  * {@link Armor3dBaker} turns into the same parts and this engine's own pack
- * builder writes out ({@link Armor3dAssets}). Both can ALSO be drawn by the
- * client itself, with core shaders, for viewers whose version has a shader
- * port ({@link #drawnBy}); an authored set may turn the displays off for
- * everybody else ({@code displays: false}), leaving them the helmet. Either way the art is named by a
+ * builder writes out ({@link Armor3dAssets}). Either way the art is named by a
  * string {@code custom_model_data} on paper, so a set only exists on a server
  * that can read one (1.21.4 and up). An authored set ALSO names each model by
  * an {@code item_model} ({@link #itemModel}), because the engine's pack cannot

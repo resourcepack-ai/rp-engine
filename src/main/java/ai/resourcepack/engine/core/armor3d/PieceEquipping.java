@@ -13,9 +13,7 @@ import org.bukkit.inventory.meta.components.EquippableComponent;
  * is the whole trick. With no asset the armour layer draws nothing, so the
  * body pieces are left to the displays, and the helmet falls through to the
  * layer that draws any head item as its model, which is what the pack built it
- * for. A set the client's own shaders can draw gives its body pieces an asset
- * after all: the encoded layers, which only a client inside a shader range
- * has. See {@link Armor3dSet}.
+ * for. See {@link Armor3dSet}.
  */
 final class PieceEquipping {
 

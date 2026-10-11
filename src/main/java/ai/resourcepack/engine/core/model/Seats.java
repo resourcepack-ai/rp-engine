@@ -38,21 +38,16 @@ public final class Seats implements Listener {
     /**
      * How far a seated player is drawn ABOVE their own position.
      *
-     * <p>{@code seat:} in a pack means "where somebody's backside goes": the
-     * height of the seat's SURFACE. A riding player's legs swing forward about
-     * the hip, 12 pixels above their position, and a leg is 4 pixels thick, so
-     * the underside of the thigh rests 10 pixels up. That is the number.
+     * <p>{@code seat:} in a pack means "where somebody's backside goes", and
+     * the game draws a riding player with their hips about a third of a block
+     * over the entity position their feet are at. Without this, a chair whose
+     * surface is 0.6 up sits somebody with their waist at 0.6 and their legs
+     * hanging through it.
      *
-     * <p>It was 0.3 until 2026-10-12, which sat everybody a third of a block
-     * above every chair, floating over the canvas of a director's chair whose
-     * {@code seat: 0.5} was exactly right. Vehicles carry 12/16 for the same
-     * leg (VehicleRuntime) because a vehicle seat's point is the hip, not the
-     * surface under it.
-     *
-     * <p>{@link #calibrate(double)} still adds to it, for a rig nobody here
-     * built.
+     * <p>It is a default rather than a constant because a rig is whatever
+     * somebody built: see {@link #calibrate(double)}.
      */
-    private static final double SEATED_POSE = 10 / 16.0;
+    private static final double SEATED_POSE = 0.3;
 
     private final Plugin plugin;
 

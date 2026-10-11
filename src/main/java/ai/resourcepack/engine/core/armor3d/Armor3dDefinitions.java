@@ -22,15 +22,7 @@ import java.util.Set;
  * santa:
  *   name: "Santa Suit"   # optional; the id when absent
  *   model: armor_santa   # assets/models/armor_santa.bbmodel; the id's path when absent
- *   displays: false      # optional, default true; see below
  * }</pre>
- *
- * <p>{@code displays} decides what a viewer whose client does not draw the set
- * itself is shown. A client inside one of the shader ranges draws the body
- * pieces on its own limbs; everybody else gets display entities posed onto
- * the body, or, with {@code displays: false}, nothing but the helmet (which the
- * game draws as a head item on every client). For a server that only admits
- * clients the shaders cover, or would rather show less than show it late.
  *
  * <p>A set cannot be understood without its model: which pieces it has, and
  * where a turned part's display stands, are in the cubes. So the model is read
@@ -40,7 +32,7 @@ import java.util.Set;
  */
 public final class Armor3dDefinitions {
 
-    private static final Set<String> KEYS = Set.of("name", "model", "displays");
+    private static final Set<String> KEYS = Set.of("name", "model");
 
     private Armor3dDefinitions() {
     }
@@ -76,7 +68,7 @@ public final class Armor3dDefinitions {
             for (String written : body.keys()) {
                 if (!KEYS.contains(written)) {
                     diagnostics.add(Diagnostic.warning(origin, key, written + " is not a 3D armour setting, "
-                            + "so it was ignored. A set takes name, model and displays."));
+                            + "so it was ignored. A set takes name and model."));
                 }
             }
             String model = body.string("model").orElse(key);
@@ -93,20 +85,12 @@ public final class Armor3dDefinitions {
             if (source.isEmpty()) {
                 continue;
             }
-            boolean displays = body.bool("displays").orElse(true);
             Armor3dBaker.Baked set = Armor3dBaker.bake(namespace, key, body.string("name").orElse(null),
-                    source.get(), displays);
+                    source.get());
             if (set.set().pieces().isEmpty()) {
                 diagnostics.add(Diagnostic.error(origin, key, "The model has no cubes on any bone, so the set "
                         + "has no pieces. Name its groups " + Armor3dBaker.BONES.keySet() + "."));
                 continue;
-            }
-            boolean body3d = set.set().pieces().keySet().stream().anyMatch(p -> p != Armor3dSet.Piece.HELMET);
-            if (set.shaderProblem() != null && body3d) {
-                diagnostics.add(Diagnostic.warning(origin, key, "This set cannot be drawn by the client's own "
-                        + "shaders (" + set.shaderProblem() + "), so "
-                        + (displays ? "every viewer is shown display entities instead."
-                                : "with displays: false nobody sees more of it than the helmet.")));
             }
             sets.put(set.set().id(), set.set());
             baked.put(set.set().id(), set);

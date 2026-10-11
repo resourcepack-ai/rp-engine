@@ -33,11 +33,6 @@ public final class Overlays {
     private volatile Map<ContentId, OverlayInfo> screens = Map.of();
     private volatile Map<ContentId, OverlayInfo> huds = Map.of();
     private final Map<UUID, BossBar> bars = new HashMap<>();
-    /**
-     * Component boss bars, where the server has them; null on Spigot. See
-     * {@link #showBossBar} for why a boss bar wants them.
-     */
-    private final AdventureBossBars adventure = AdventureBossBars.find().orElse(null);
 
     /**
      * Each player's own version of a pushed overlay. Null until told, which
@@ -221,7 +216,17 @@ public final class Overlays {
             return false;
         }
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
-            showBossBar(viewer, info, java.util.Map.of());
+            // One composer for both surfaces — see legacyComposed(), which also
+            // records why a boss bar can hold a shader overlay now when it once
+            // could not.
+            BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
+                    key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
+            bar.setTitle(legacyComposed(info, java.util.Map.of(), viewer));
+            // Invisible bar, visible art: the bar itself is a rendering
+            // surface here rather than a meter.
+            bar.setProgress(0d);
+            bar.addPlayer(viewer);
+            bar.setVisible(true);
         } else {
             // ACTION_BAR, and it really is the action bar.
             //
@@ -257,65 +262,43 @@ public final class Overlays {
         }
         java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
-            showBossBar(viewer, info, filled);
+            BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
+                    key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
+            bar.setTitle(legacyComposed(info, filled, viewer));
+            // Invisible bar, visible art: the bar itself is a rendering surface
+            // here rather than a meter.
+            bar.setProgress(0d);
+            bar.addPlayer(viewer);
+            bar.setVisible(true);
             return;
         }
         // Whatever was on the boss bar comes off. An overlay that changed slot
         // between two pushes would otherwise be drawn twice — once on the bar
         // nothing is updating any more, and once where it now lives.
-        clear(viewer);
+        BossBar stale = bars.remove(viewer.getUniqueId());
+        if (stale != null) {
+            stale.removeAll();
+        }
         viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                 compose(info, filled, viewer));
     }
 
     /**
-     * Puts an overlay on this player's boss bar.
+     * The same composed run, as the legacy string a boss bar takes.
      *
-     * <p><b>Components where the server can take them, a legacy string where it
-     * cannot.</b> Bukkit's boss bar takes a legacy string, and legacy formatting
-     * has no code for a font. That is harmless for an overlay whose every
-     * character is in the default font, and fatal for one that names a font of
-     * its own: the picture glyph and the negative-space characters are then
-     * looked up in the default font, the picture vanishes, each shift draws as
-     * a missing-glyph box and nothing after it is where it was put. So where
-     * Adventure is available (Paper) the bar is given exactly the components
-     * the action bar is sent, fonts and all, and the legacy title is only the
-     * fallback.
-     */
-    private void showBossBar(Player viewer, OverlayInfo info, java.util.Map<String, String> filled) {
-        if (adventure != null) {
-            if (adventure.show(viewer, compose(info, filled, viewer))) {
-                // A legacy bar left over from before (it cannot happen today,
-                // but two bars drawing one overlay is the failure to rule out).
-                BossBar stale = bars.remove(viewer.getUniqueId());
-                if (stale != null) {
-                    stale.removeAll();
-                }
-                return;
-            }
-            adventure.clear(viewer);
-        }
-        BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
-                key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
-        bar.setTitle(legacyComposed(info, filled, viewer));
-        // Invisible bar, visible art: the bar itself is a rendering surface
-        // here rather than a meter.
-        bar.setProgress(0d);
-        bar.addPlayer(viewer);
-        bar.setVisible(true);
-    }
-
-    /**
-     * The same composed run, as the legacy string a boss bar takes where the
-     * server has no component boss bars (Spigot).
+     * <p><b>A boss bar can carry a shader overlay now, and once could not.</b>
+     * The objection was real: legacy formatting has codes for colour and none
+     * for a font, so a canvas glyph living in a font of its own could not be
+     * named here at all. The glyph moved into the pack's DEFAULT font — which it
+     * did for an unrelated reason, so that a stale pack draws nothing rather
+     * than four missing-glyph boxes — and with it the shift characters. Nothing
+     * in a shader overlay needs a font any more, and {@code §x} spells the exact
+     * RGB the shader matches on.
      *
-     * <p>Walks the same cursor {@link #compose} does, over the same runs, and
-     * differs in how it spells a colour ({@code §x} gives the exact RGB a
-     * shader matches on) and in having no way to name a font. So it is right
-     * for an overlay whose picture, shifts and runs are all in the default
-     * font, and wrong for one that is not: everything that names a font is
-     * drawn in the default one instead. {@link #showBossBar} uses it only when
-     * components are not available.
+     * <p>So this walks the same cursor {@link #compose} does, over the same
+     * runs, and differs only in how it spells a colour. A run that genuinely
+     * does name a font is the one thing that cannot survive: it is drawn
+     * unstyled rather than dropped.
      */
     static String legacyComposed(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
         StringBuilder out = new StringBuilder(legacy(info));
@@ -715,9 +698,6 @@ public final class Overlays {
         BossBar bar = bars.remove(viewer.getUniqueId());
         if (bar != null) {
             bar.removeAll();
-        }
-        if (adventure != null) {
-            adventure.clear(viewer);
         }
     }
 
