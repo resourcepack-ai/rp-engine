@@ -4,6 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,8 +30,18 @@ import java.util.TreeMap;
  * one model per bone for the cubes a block model can hold as drawn, one per
  * group of cubes turned in a way it cannot (carrying the turn on the display,
  * the free-rotation trick), the shrink that keeps a model inside the format's
- * bounds, and an inventory icon per piece. What it does NOT do is Studio's
- * shader rendering: a hand-authored set is shown by displays alone.
+ * bounds, and an inventory icon per piece.
+ *
+ * <p><strong>It also does Studio's shader rendering</strong>, for the body
+ * pieces: the set is encoded into equipment layers by
+ * {@link Armor3dShaderEncoder} (after {@link Armor3dSeparation}), and clients
+ * inside one of {@link Armor3dShaders#RANGES} draw it themselves, on their own
+ * limbs, with no displays. Everybody else is shown the displays, unless the
+ * set turned them off ({@code displays: false}), in which case they see only
+ * the helmet. The helmet is the one difference from Studio's shader path: it
+ * stays the game's head item on every client rather than wearing an equipment
+ * asset too, so it is never missing for anybody, at the price of a free turn
+ * being drawn at its nearest legal angle.
  *
  * <p>Where it differs from Studio is only in naming. Studio's pack owns
  * vanilla paper's item definition and dispatches every model string from it;
@@ -98,10 +112,20 @@ public final class Armor3dBaker {
     /**
      * A baked set.
      *
-     * @param set   what {@code /rp armor} and the API wear
-     * @param files every file it puts in the pack, by zip path, sorted
+     * @param set           what {@code /rp armor} and the API wear
+     * @param files         every file it puts in the base pack, by zip path, sorted
+     * @param overlayFiles  what goes into each shader range's overlay besides
+     *                      the shaders: the equipment assets, by path relative
+     *                      to the overlay directory. Empty when the set could
+     *                      not be encoded
+     * @param shaderProblem why the set is not drawn by shaders, or null
      */
-    public record Baked(Armor3dSet set, String namespace, Map<String, byte[]> files) {
+    public record Baked(Armor3dSet set, String namespace, Map<String, byte[]> files,
+                        Map<String, byte[]> overlayFiles, String shaderProblem) {
+
+        public Baked(Armor3dSet set, String namespace, Map<String, byte[]> files) {
+            this(set, namespace, files, Map.of(), null);
+        }
     }
 
     /**
@@ -113,6 +137,18 @@ public final class Armor3dBaker {
      * @param name      what players are told it is called, or null for the id
      */
     public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source) {
+        return bake(namespace, key, name, source, true);
+    }
+
+    /**
+     * Bakes one set.
+     *
+     * @param displays whether viewers whose client does not draw the set get
+     *                 display entities for its body pieces. Off, they see the
+     *                 helmet and nothing else
+     */
+    public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source,
+                             boolean displays) {
         String setId = namespace + ":" + key;
         Map<String, byte[]> files = new TreeMap<>();
 
@@ -204,7 +240,9 @@ public final class Armor3dBaker {
                         elements.add(element(cube, pivot, Turn.KEEP));
                     }
                     double k = fitBounds(elements);
-                    models.put(model, model(textures, elements, null));
+                    if (displays) {
+                        models.put(model, model(textures, elements, null));
+                    }
                     parts.add(new Armor3dSet.Part(bone, modelString(setId, model), floats(pivot), null,
                             k != 1 ? (float) r4(k) : 1f));
                 }
@@ -217,12 +255,37 @@ public final class Armor3dBaker {
                         elements.add(element(cube, origin, Turn.SQUARE));
                     }
                     double k = fitBounds(elements);
-                    models.put(model, model(textures, elements, null));
+                    if (displays) {
+                        models.put(model, model(textures, elements, null));
+                    }
                     parts.add(new Armor3dSet.Part(bone, modelString(setId, model), floats(r4(origin)),
                             floats(r4(group.get(0).rotation())), k != 1 ? (float) r4(k) : 1f));
                 }
             }
-            pieces.put(piece, new Armor3dSet.Worn(piece, modelString(setId, piece.wire()), List.copyOf(parts), null));
+            pieces.put(piece, new Armor3dSet.Worn(piece, modelString(setId, piece.wire()),
+                    displays ? List.copyOf(parts) : List.of(), null));
+        }
+
+        // The shader-drawn set. One that cannot be encoded is still a set: it
+        // is shown by displays (or, with them off, by its helmet), and the
+        // reason is said when the folder is read.
+        Map<String, byte[]> overlayFiles = Map.of();
+        String shaderProblem = null;
+        List<int[]> shaderProtocols = List.of();
+        try {
+            Armor3dShaderEncoder.Encoded encoded = encodeShaderSet(namespace, key, source);
+            files.putAll(encoded.baseFiles());
+            overlayFiles = encoded.overlayFiles();
+            shaderProtocols = Armor3dShaders.protocols();
+            for (Map.Entry<Armor3dSet.Piece, String> asset : encoded.equipment().entrySet()) {
+                Armor3dSet.Worn worn = pieces.get(asset.getKey());
+                if (worn != null && asset.getKey() != Armor3dSet.Piece.HELMET) {
+                    pieces.put(asset.getKey(), new Armor3dSet.Worn(worn.piece(), worn.item(), worn.parts(),
+                            asset.getValue()));
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            shaderProblem = e.getMessage();
         }
 
         for (Map.Entry<String, JsonObject> model : models.entrySet()) {
@@ -238,9 +301,106 @@ public final class Armor3dBaker {
                     json(definition));
         }
 
-        Armor3dSet set = new Armor3dSet(setId, name, pieces, List.of(),
+        Armor3dSet set = new Armor3dSet(setId, name, pieces, shaderProtocols,
                 namespace + ":armor3d/" + key + "/");
-        return new Baked(set, namespace, Collections.unmodifiableMap(files));
+        return new Baked(set, namespace, Collections.unmodifiableMap(files),
+                Collections.unmodifiableMap(new TreeMap<>(overlayFiles)), shaderProblem);
+    }
+
+    // ---- the shader-drawn set ------------------------------------------------
+
+    /**
+     * The body pieces as equipment layers: every image the project embedded
+     * stacked into one atlas, the cubes separated as Studio separates a set,
+     * the helmet left out (it is the game's head item, see the class note),
+     * and the rest encoded.
+     *
+     * @throws IllegalArgumentException when they cannot be, with why
+     */
+    static Armor3dShaderEncoder.Encoded encodeShaderSet(String namespace, String key,
+                                                        Armor3dBlockbench.Source source) {
+        // The atlas: each image under the last, at least 23 wide (the
+        // encoder's header needs the room; the padding is never sampled).
+        List<BufferedImage> images = new ArrayList<>();
+        int width = 23;
+        int height = 0;
+        for (byte[] png : source.textures()) {
+            BufferedImage image;
+            try {
+                image = ImageIO.read(new ByteArrayInputStream(png));
+            } catch (IOException | RuntimeException e) {
+                image = null;
+            }
+            if (image == null) {
+                throw new IllegalArgumentException("one of its images could not be read");
+            }
+            images.add(image);
+            width = Math.max(width, image.getWidth());
+            height += image.getHeight();
+        }
+        if (height == 0) {
+            throw new IllegalArgumentException("it has no images");
+        }
+        byte[] rgba = new byte[width * height * 4];
+        int[] top = new int[images.size()];
+        int y0 = 0;
+        for (int t = 0; t < images.size(); t++) {
+            BufferedImage image = images.get(t);
+            top[t] = y0;
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    int argb = image.getRGB(x, y);
+                    int i = ((y0 + y) * width + x) * 4;
+                    rgba[i] = (byte) (argb >> 16);
+                    rgba[i + 1] = (byte) (argb >> 8);
+                    rgba[i + 2] = (byte) argb;
+                    rgba[i + 3] = (byte) (argb >>> 24);
+                }
+            }
+            y0 += image.getHeight();
+        }
+
+        // Every cube on the body, separated together as Studio separates a
+        // whole set, so a body piece lands where it would from Studio.
+        List<Armor3dBlockbench.Cube> cubes = new ArrayList<>();
+        List<Armor3dSeparation.Part> separated = new ArrayList<>();
+        for (Armor3dBlockbench.Cube cube : source.cubes()) {
+            if (!BONES.containsKey(cube.bone())) {
+                continue;
+            }
+            cubes.add(cube);
+            separated.add(new Armor3dSeparation.Part(cube.from().clone(), cube.to().clone(), cube.rotation(),
+                    cube.origin(), cube.faces().keySet()));
+        }
+        Armor3dSeparation.separate(separated);
+
+        List<Armor3dShaderEncoder.Part> parts = new ArrayList<>();
+        for (int i = 0; i < cubes.size(); i++) {
+            Armor3dBlockbench.Cube cube = cubes.get(i);
+            if (cube.piece() == Armor3dSet.Piece.HELMET) {
+                continue;
+            }
+            Map<String, Armor3dShaderEncoder.FaceArt> faces = new LinkedHashMap<>();
+            for (Map.Entry<String, Armor3dBlockbench.Face> entry : cube.faces().entrySet()) {
+                Armor3dBlockbench.Face face = entry.getValue();
+                if (face.texture() < 0 || face.texture() >= images.size()) {
+                    continue;
+                }
+                BufferedImage image = images.get(face.texture());
+                double sx = image.getWidth() / face.uvWidth();
+                double sy = image.getHeight() / face.uvHeight();
+                double oy = top[face.texture()];
+                faces.put(entry.getKey(), new Armor3dShaderEncoder.FaceArt(new double[]{
+                        face.uv()[0] * sx, oy + face.uv()[1] * sy, face.uv()[2] * sx, oy + face.uv()[3] * sy},
+                        face.rotation()));
+            }
+            parts.add(new Armor3dShaderEncoder.Part(cube.bone(), separated.get(i).from(), separated.get(i).to(),
+                    cube.rotation(), cube.origin(), faces));
+        }
+        if (parts.isEmpty()) {
+            throw new IllegalArgumentException("it has nothing below the neck, which is all the shaders draw");
+        }
+        return Armor3dShaderEncoder.encode(namespace, "armor3d/" + key, parts, width, height, rgba);
     }
 
     /** The string a model is dispatched by: {@code armor3d:<set>/<name>}. */

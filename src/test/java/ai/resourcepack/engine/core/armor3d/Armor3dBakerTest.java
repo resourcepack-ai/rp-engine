@@ -29,6 +29,7 @@ import java.util.zip.ZipInputStream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -118,7 +119,44 @@ class Armor3dBakerTest {
         assertEquals(List.of(Armor3dSet.Piece.HELMET, Armor3dSet.Piece.CHESTPLATE, Armor3dSet.Piece.BOOTS),
                 new ArrayList<>(set.pieces().keySet()));
         assertTrue(set.authored());
-        assertTrue(set.shaderProtocols().isEmpty());
+        // Drawn by 26.1 - 26.2's own shaders, displays for everybody else.
+        assertEquals(1, set.shaderProtocols().size());
+        assertArrayEquals(new int[]{775, 776}, set.shaderProtocols().get(0));
+        assertTrue(set.drawnBy(775));
+        assertFalse(set.drawnBy(774));
+    }
+
+    @Test
+    void theBodyPiecesWearEquipmentAssetsAndTheHelmetDoesNot() {
+        Armor3dBaker.Baked baked = bake(santa(), new ArrayList<>());
+
+        assertNull(baked.shaderProblem());
+        assertEquals("christmas:armor3d/santa_chestplate",
+                baked.set().piece(Armor3dSet.Piece.CHESTPLATE).orElseThrow().asset());
+        assertEquals("christmas:armor3d/santa_boots",
+                baked.set().piece(Armor3dSet.Piece.BOOTS).orElseThrow().asset());
+        assertNull(baked.set().piece(Armor3dSet.Piece.HELMET).orElseThrow().asset());
+        // The layer texture in the base pack, the assets only in the overlay.
+        assertTrue(baked.files().containsKey(
+                "assets/christmas/textures/entity/equipment/humanoid/armor3d/santa.png"));
+        assertEquals(List.of("assets/christmas/equipment/armor3d/santa_boots.json",
+                "assets/christmas/equipment/armor3d/santa_chestplate.json"),
+                new ArrayList<>(baked.overlayFiles().keySet()));
+    }
+
+    @Test
+    void displaysOffLeavesNoDisplaysAndNoDisplayModels() {
+        Armor3dBlockbench.Source source = Armor3dBlockbench.read(santa().getBytes(StandardCharsets.UTF_8),
+                "christmas/armor3d/costumes.yml", "santa", new ArrayList<>()).orElseThrow();
+        Armor3dBaker.Baked baked = Armor3dBaker.bake("christmas", "santa", "Santa Suit", source, false);
+
+        for (Armor3dSet.Worn worn : baked.set().pieces().values()) {
+            assertTrue(worn.parts().isEmpty(), worn.piece().wire());
+        }
+        assertNotNull(baked.set().piece(Armor3dSet.Piece.CHESTPLATE).orElseThrow().asset());
+        // The icons stay: a piece is still an item somebody holds.
+        assertTrue(baked.files().containsKey(MODELS + "chestplate.json"));
+        assertFalse(baked.files().containsKey(MODELS + "boots.left_foot.json"));
     }
 
     @Test
@@ -234,8 +272,8 @@ class Armor3dBakerTest {
         Armor3dBaker.Baked baked = bake(santa(), new ArrayList<>());
 
         // 7 models (helmet, chestplate icon + 3 parts, boots icon + 1 part),
-        // an item definition each, and the texture.
-        assertEquals(15, baked.files().size());
+        // an item definition each, the texture, and the shader layer texture.
+        assertEquals(16, baked.files().size());
         assertTrue(baked.files().containsKey("assets/christmas/textures/item/armor3d/santa.png"));
         JsonObject definition = json(baked, "assets/christmas/items/armor3d/santa/chestplate.right_arm.0.json");
         assertEquals("christmas:item/armor3d/santa/chestplate.right_arm.0",
@@ -355,6 +393,21 @@ class Armor3dBakerTest {
         assertTrue(zip.containsKey(MODELS + "boots.left_foot.json"));
         // The source is consumed: a client cannot read a .bbmodel.
         assertFalse(zip.containsKey("assets/christmas/models/armor_santa.bbmodel"));
+
+        // The shader range's overlay: the assets, the shaders, the licence, declared.
+        String overlay = "rpai_armor3d_26_1/";
+        assertTrue(zip.containsKey(overlay + "assets/christmas/equipment/armor3d/santa_chestplate.json"));
+        assertFalse(zip.containsKey("assets/christmas/equipment/armor3d/santa_chestplate.json"));
+        assertTrue(zip.containsKey(overlay + "assets/minecraft/shaders/core/entity.vsh"));
+        assertTrue(zip.containsKey(overlay + "assets/minecraft/shaders/include/objmc_main.glsl"));
+        assertTrue(zip.containsKey(overlay + "OBJCUBED-LICENSE.txt"));
+        JsonObject mcmeta = JsonParser.parseString(new String(zip.get("pack.mcmeta"), StandardCharsets.UTF_8))
+                .getAsJsonObject();
+        JsonObject entry = mcmeta.getAsJsonObject("overlays").getAsJsonArray("entries").get(0).getAsJsonObject();
+        assertEquals("rpai_armor3d_26_1", entry.get("directory").getAsString());
+        assertEquals(84, entry.get("min_format").getAsInt());
+        assertEquals(88, entry.get("max_format").getAsInt());
+        assertFalse(entry.has("formats"));
     }
 
     @Test
