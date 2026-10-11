@@ -188,28 +188,8 @@ public final class Compatibility {
      * distribution manifest can never be two different answers.
      */
     public static String readServerVersion() {
-        return releaseOf(org.bukkit.Bukkit.getBukkitVersion());
-    }
-
-    /**
-     * The release a server's version string names: its leading digits and
-     * dots, so {@code "1.21.8-R0.1-SNAPSHOT"} is {@code 1.21.8} and Paper
-     * 26.x's {@code "26.3.build.12-stable"} is {@code 26.3} rather than the
-     * {@code 26.3.build.12} Studio cannot look up. What {@link McVersion#parse}
-     * reads anyway, so the gate and the report still agree.
-     */
-    static String releaseOf(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        int end = 0;
-        while (end < raw.length() && (Character.isDigit(raw.charAt(end)) || raw.charAt(end) == '.')) {
-            end++;
-        }
-        String out = raw.substring(0, end);
-        while (out.endsWith(".")) {
-            out = out.substring(0, out.length() - 1);
-        }
-        return out.isEmpty() ? raw : out;
+        String raw = org.bukkit.Bukkit.getBukkitVersion();
+        int dash = raw.indexOf('-');
+        return dash > 0 ? raw.substring(0, dash) : raw;
     }
 }

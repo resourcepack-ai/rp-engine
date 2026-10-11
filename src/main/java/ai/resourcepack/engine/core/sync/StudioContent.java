@@ -169,31 +169,6 @@ public final class StudioContent {
         String command;
         /** What a player needs to use that command. Absent: anybody may. */
         String permission;
-        /**
-         * What a click on its picture sounds like — see
-         * {@link ai.resourcepack.engine.api.DialogInfo#clickSound()}. Absent:
-         * the server's configured click.
-         */
-        DialogSound clickSound;
-        /** The clicks with a sound of their own, each naming its command. */
-        List<DialogSound> clickSounds;
-        /**
-         * The engine closes it after a click that opens nothing else — see
-         * {@link ai.resourcepack.engine.api.DialogInfo#closesAfterClick()}.
-         * Studio's "Seamless", sent with {@code after_action: none}. Absent: false.
-         */
-        Boolean closeAfterClick;
-    }
-
-    /**
-     * A click sound: a sound event (empty is silence), its volume and pitch,
-     * and, in a dialog's {@code clickSounds}, the command whose click it is.
-     */
-    static final class DialogSound {
-        String sound;
-        Float volume;
-        Float pitch;
-        String command;
     }
 
     /** A variable a dialog declares: see {@link ai.resourcepack.engine.api.DialogInfo#variables()}. */
@@ -862,21 +837,9 @@ public final class StudioContent {
                     }
                 });
             }
-            // A sound that is not an event name is left out rather than read
-            // as silence, so a typo keeps the click as it was.
-            ai.resourcepack.engine.api.DialogInfo.ClickSound clickSound = clickSoundOf(dialog.clickSound);
-            List<ai.resourcepack.engine.api.DialogInfo.CommandSound> clickSounds = new ArrayList<>();
-            for (DialogSound sound : dialog.clickSounds == null ? List.<DialogSound>of() : dialog.clickSounds) {
-                ai.resourcepack.engine.api.DialogInfo.ClickSound read = clickSoundOf(sound);
-                if (read != null && sound.command != null && !sound.command.isBlank() && sound.command.length() <= 1024) {
-                    clickSounds.add(new ai.resourcepack.engine.api.DialogInfo.CommandSound(sound.command, read));
-                }
-            }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
-                            .withCommand(dialog.command, dialog.permission)
-                            .withClickSounds(clickSound, clickSounds)
-                            .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))));
+                            .withCommand(dialog.command, dialog.permission)));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
@@ -948,22 +911,6 @@ public final class StudioContent {
             }
         }
         return pieces.isEmpty() ? null : new Armor3dSet(set.id, set.name, pieces, ranges);
-    }
-
-    /** A dialog's click sound as it arrived, or null when it is absent or not a sound. */
-    private static ai.resourcepack.engine.api.DialogInfo.ClickSound clickSoundOf(DialogSound sound) {
-        return sound == null || sound.sound == null ? null
-                : ai.resourcepack.engine.api.DialogInfo.ClickSound.of(sound.sound, sound.volume, sound.pitch);
-    }
-
-    /** A click sound back out, in the shape it arrived in. */
-    private static DialogSound soundOut(ai.resourcepack.engine.api.DialogInfo.ClickSound sound, String command) {
-        DialogSound out = new DialogSound();
-        out.sound = sound.sound();
-        out.volume = sound.volume();
-        out.pitch = sound.pitch();
-        out.command = command;
-        return out;
     }
 
     /** A set back out, in the shape it arrived in — a restart reads nothing else. */
@@ -1344,13 +1291,6 @@ public final class StudioContent {
             }
             dialog.command = entry.getValue().command().orElse(null);
             dialog.permission = entry.getValue().permission().orElse(null);
-            dialog.clickSound = entry.getValue().clickSound().map(sound -> soundOut(sound, null)).orElse(null);
-            if (!entry.getValue().clickSounds().isEmpty()) {
-                dialog.clickSounds = new ArrayList<>();
-                for (ai.resourcepack.engine.api.DialogInfo.CommandSound sound : entry.getValue().clickSounds()) {
-                    dialog.clickSounds.add(soundOut(sound.sound(), sound.command()));
-                }
-            }
             manifest.dialogs.add(dialog);
         }
         manifest.armor3d = new ArrayList<>();

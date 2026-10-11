@@ -36,26 +36,6 @@ class DialogLinksTest {
             + "\"hover_event\":{\"action\":\"show_text\",\"value\":\"rp page studio:secret\"}}]},\"width\":400}],"
             + "\"action\":{\"label\":\"Close\"}}";
 
-    // Every click a dialog has, footer button or picture, and a dynamic
-    // button's template with whatever the player typed in it.
-
-    @Test
-    void runsCommandFindsEveryKindOfClick() {
-        String json = "{\"type\":\"minecraft:multi_action\",\"actions\":["
-                + "{\"label\":\"Spawn\",\"action\":{\"type\":\"minecraft:run_command\",\"command\":\"/spawn\"}},"
-                + "{\"label\":\"Pay\",\"action\":{\"type\":\"minecraft:dynamic/run_command\",\"template\":\"pay $(who) 10\"}}],"
-                + "\"body\":[{\"type\":\"minecraft:plain_message\",\"contents\":{\"text\":\"x\","
-                + "\"click_event\":{\"action\":\"run_command\",\"command\":\"warp {name}\"}}}]}";
-        assertTrue(DialogLinks.runsCommand(json, "/spawn"));
-        assertTrue(DialogLinks.runsCommand(json, "spawn"));
-        assertTrue(DialogLinks.runsCommand(json, "/pay Steve 10"));
-        assertTrue(DialogLinks.runsCommand(json, "/warp nether"));
-        assertFalse(DialogLinks.runsCommand(json, "/spawn now"));
-        assertFalse(DialogLinks.runsCommand(json, "/pay Steve 100"));
-        assertFalse(DialogLinks.runsCommand(json, "/"));
-        assertFalse(DialogLinks.runsCommand(null, "/spawn"));
-    }
-
     @Test
     void findsALinkInTheBody() {
         assertTrue(DialogLinks.opens(STUDIO_PAGE, id("studio:settings.audio")));
@@ -97,18 +77,6 @@ class DialogLinksTest {
         assertEquals(List.of(id("studio:settings.audio"), id("studio:settings")), found);
         assertEquals(List.of(), DialogLinks.targets("{\"title\":\"No links here\"}"));
         assertEquals(List.of(), DialogLinks.targets(null));
-    }
-
-    @Test
-    void aClickSoundFindsItsClickByCommand() {
-        // Studio keys a piece's click sound by the command as the JSON writes it,
-        // placeholders and all; the server hears it filled in, slash or not.
-        assertTrue(DialogLinks.sameCommand("rp page studio:shop.ranks", "/rp page studio:shop.ranks"));
-        assertTrue(DialogLinks.sameCommand("buy {item} {amount}", "buy diamond_sword 3"));
-        assertTrue(DialogLinks.sameCommand("rp var mode {mode?a:b|b:a}", "rp var mode b"));
-        assertFalse(DialogLinks.sameCommand("rp page studio:shop", "rp page studio:shop.ranks"));
-        assertFalse(DialogLinks.sameCommand("buy {item}", "sell diamond"));
-        assertFalse(DialogLinks.sameCommand(null, "buy"));
     }
 
     @Test

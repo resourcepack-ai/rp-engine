@@ -199,77 +199,24 @@ public final class DialogLinks {
             } catch (JsonParseException e) {
                 continue;
             }
-            if (sameCommand(held, bare)) {
+            if (held.startsWith("/")) {
+                held = held.substring(1);
+            }
+            // A placeholder in it was filled as the dialog opened: anything stands for it.
+            StringBuilder pattern = new StringBuilder();
+            Matcher p = PLACEHOLDER.matcher(held);
+            int at = 0;
+            while (p.find()) {
+                pattern.append(Pattern.quote(held.substring(at, p.start()))).append(".*?");
+                at = p.end();
+            }
+            pattern.append(Pattern.quote(held.substring(at)));
+            if (Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches()) {
                 return true;
             }
         }
         return false;
     }
-
-    /**
-     * Whether a click written as {@code held} (as a dialog's JSON has it,
-     * placeholders and all) is the one that ran {@code command}. Either may
-     * carry its slash. A placeholder was filled as the dialog opened, so
-     * anything stands for it.
-     */
-    public static boolean sameCommand(String held, String command) {
-        if (held == null || command == null) {
-            return false;
-        }
-        String written = held.startsWith("/") ? held.substring(1) : held;
-        String bare = command.startsWith("/") ? command.substring(1) : command;
-        StringBuilder pattern = new StringBuilder();
-        Matcher p = PLACEHOLDER.matcher(written);
-        int at = 0;
-        while (p.find()) {
-            pattern.append(Pattern.quote(written.substring(at, p.start()))).append(".*?");
-            at = p.end();
-        }
-        pattern.append(Pattern.quote(written.substring(at)));
-        return Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches();
-    }
-
-    /**
-     * Whether any click in a dialog runs {@code command}: a footer button's
-     * {@code run_command}, a run of the picture's text, or a button that builds
-     * its command from the dialog's inputs (a {@code dynamic/run_command}
-     * template, whose {@code $(input)} could be anything). Placeholders as in
-     * {@link #sameCommand}. With or without the slash.
-     */
-    public static boolean runsCommand(String json, String command) {
-        if (json == null || command == null) {
-            return false;
-        }
-        String bare = command.startsWith("/") ? command.substring(1) : command;
-        if (bare.isBlank()) {
-            return false;
-        }
-        Matcher m = ANY_COMMAND.matcher(json);
-        while (m.find()) {
-            String held;
-            try {
-                held = GSON.fromJson("\"" + m.group(2) + "\"", String.class);
-            } catch (JsonParseException e) {
-                continue;
-            }
-            if (held == null) {
-                continue;
-            }
-            if (m.group(1).equals("template")) {
-                held = MACRO.matcher(held).replaceAll("{input}");
-            }
-            if (sameCommand(held, bare)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** A command a click runs, as a button's or a text run's {@code command}, or a dynamic button's {@code template}. */
-    private static final Pattern ANY_COMMAND = Pattern.compile(
-            "\"(command|template)\"[ ]*:[ ]*\"((?:[^\"\\\\]|\\\\.)*)\"");
-    /** An input's value in a dynamic button's template. */
-    private static final Pattern MACRO = Pattern.compile("\\$\\([A-Za-z0-9_]+\\)");
 
     /** A click on the picture: a text component's {@code click_event}, never a footer button's action. */
     private static final Pattern TEXT_CLICK = Pattern.compile(

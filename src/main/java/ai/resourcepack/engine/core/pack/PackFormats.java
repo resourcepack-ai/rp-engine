@@ -103,7 +103,6 @@ public final class PackFormats {
         ranges.add(range(McVersion.of(1, 21, 11), McVersion.of(1, 21, 11), 75, "1.21.11"));
         ranges.add(range(McVersion.of(26, 1), McVersion.of(26, 1), 84, "26.1"));
         ranges.add(range(McVersion.of(26, 2), McVersion.of(26, 2), 88, "26.2"));
-        ranges.add(range(McVersion.of(26, 3), McVersion.of(26, 3), 97, "26.3"));
         return ranges;
     }
 

@@ -673,11 +673,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
         // A page the client turned to by itself is only heard of through the next
-        // command clicked on it, and a click on a picture sounds only if we play
-        // it: see DialogClicks.
+        // command clicked on it: see DialogClicks.
         if (dialogs != null) {
-            getServer().getPluginManager().registerEvents(
-                    new ai.resourcepack.engine.core.dialog.DialogClicks(dialogs, this::dialogClickSound), this);
+            getServer().getPluginManager().registerEvents(new ai.resourcepack.engine.core.dialog.DialogClicks(dialogs), this);
         }
         wornArmour.start();
         getServer().getPluginManager().registerEvents(
@@ -825,21 +823,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                             "Get it on SpigotMC", update.url());
                 })
                 .start();
-    }
-
-    /**
-     * What a click on a dialog's picture sounds like when the dialog does not
-     * say: {@code dialogs.click-sound}, {@code click-volume} and {@code
-     * click-pitch} in config.yml, blank for none. A sound that is not an event
-     * name is the game's click.
-     */
-    private ai.resourcepack.engine.api.DialogInfo.ClickSound dialogClickSound() {
-        ai.resourcepack.engine.api.DialogInfo.ClickSound game = ai.resourcepack.engine.api.DialogInfo.ClickSound.GAME;
-        ai.resourcepack.engine.api.DialogInfo.ClickSound read = ai.resourcepack.engine.api.DialogInfo.ClickSound.of(
-                getConfig().getString("dialogs.click-sound", game.sound()),
-                getConfig().getDouble("dialogs.click-volume", game.volume()),
-                getConfig().getDouble("dialogs.click-pitch", game.pitch()));
-        return read == null ? game : read;
     }
 
     /**

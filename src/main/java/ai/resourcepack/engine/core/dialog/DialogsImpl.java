@@ -91,15 +91,6 @@ public final class DialogsImpl implements Dialogs {
      */
     static final long SHOWN_FOR_MILLIS = java.util.concurrent.TimeUnit.MINUTES.toMillis(10);
 
-    /**
-     * How many dialogs each player has been shown, so an answer to a click can
-     * tell whether one arrived since ({@link #answerClick}). Weak on the player.
-     */
-    private final Map<Player, Long> shows = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
-
-    /** For scheduling an answer to a click; null until {@link #attach}. */
-    private volatile org.bukkit.plugin.Plugin plugin;
-
     /** Milliseconds, from any fixed origin. Replaced in a test. */
     private volatile java.util.function.LongSupplier clock = () -> System.nanoTime() / 1_000_000L;
 
@@ -497,33 +488,6 @@ public final class DialogsImpl implements Dialogs {
         return shown != null && visibleJson(viewer, shown.id(), shown.values()).map(json -> DialogLinks.clicksCommand(json, command)).orElse(false);
     }
 
-    /**
-     * What a click on the picture of the dialog the player was last shown
-     * sounds like, when {@code command} is what one runs: that click's own
-     * sound, else the dialog's, else {@code fallback} (the server's configured
-     * click). Empty when it was no click on a picture: a footer button clicks
-     * by itself, on the client.
-     */
-    public Optional<DialogInfo.ClickSound> pictureClickSound(Player viewer, String command, DialogInfo.ClickSound fallback) {
-        Shown shown = command == null ? null : current(viewer);
-        if (shown == null || !visibleJson(viewer, shown.id(), shown.values())
-                .map(json -> DialogLinks.clicksCommand(json, command)).orElse(false)) {
-            return Optional.empty();
-        }
-        DialogInfo info = info(viewer, shown.id()).orElse(null);
-        if (info != null) {
-            for (DialogInfo.CommandSound sound : info.clickSounds()) {
-                if (DialogLinks.sameCommand(sound.command(), command)) {
-                    return Optional.of(sound.sound());
-                }
-            }
-            if (info.clickSound().isPresent()) {
-                return info.clickSound();
-            }
-        }
-        return Optional.ofNullable(fallback);
-    }
-
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
         return Optional.ofNullable(current(viewer));
@@ -569,107 +533,6 @@ public final class DialogsImpl implements Dialogs {
         }
         info(viewer, shown.id()).flatMap(DialogInfo::permission).filter(viewer::hasPermission).ifPresent(gates::add);
         lastShown.put(viewer, new Entry(shown, clock.getAsLong(), Set.copyOf(gates)));
-        shows.merge(viewer, 1L, Long::sum);
-    }
-
-    /**
-     * Answers a click on the dialog a player is looking at, when that dialog
-     * leaves the answering to the server — the client will not take it away by
-     * itself. Two kinds do:
-     *
-     * <ul>
-     *   <li>one the engine closes after a click ({@link DialogInfo#closesAfterClick},
-     *       Studio's Seamless): sent as {@code after_action: none}, so it is
-     *       still on the screen, exactly as it was;</li>
-     *   <li>one sent with {@code wait_for_response}: the client has swapped it
-     *       for its own "Waiting for Server" screen, whose Back button only wakes
-     *       five seconds later, and which the game's clear_dialog does not
-     *       close ({@link #closeAnswered}).</li>
-     * </ul>
-     *
-     * <p>A click is a command the player sent; this is called for every command
-     * a player sends, and does nothing unless a click in that dialog runs it.
-     * Then: a command of this plugin's ({@code /rp page}, {@code /rp var}, a
-     * dialog's own {@code /shop}) usually opens the next dialog, which takes
-     * this one's place on the screen with nothing in between, so the dialog is
-     * closed on the next tick only if none came. Any other plugin's command is
-     * answered NOW, before it runs: the engine cannot see what another plugin
-     * opens, and a close sent after its dialog (or its chest) would shut that.
-     */
-    public void answerClick(Player viewer, String command) {
-        Entry entry = command == null || viewer == null ? null : currentEntry(viewer);
-        if (entry == null) {
-            return;
-        }
-        Shown shown = entry.shown();
-        DialogInfo info = info(viewer, shown.id()).orElse(null);
-        if (info == null) {
-            return;
-        }
-        boolean waits = waitsForResponse(info.json());
-        if (!info.closesAfterClick() && !waits) {
-            return;
-        }
-        if (!DialogLinks.runsCommand(visibleJson(viewer, shown.id(), shown.values()).orElse(info.json()), command)) {
-            return;
-        }
-        org.bukkit.plugin.Plugin scheduler = plugin;
-        if (scheduler != null && ownCommand(command)) {
-            long before = shows.getOrDefault(viewer, 0L);
-            Bukkit.getScheduler().runTask(scheduler, () -> {
-                if (viewer.isOnline() && shows.getOrDefault(viewer, 0L) == before) {
-                    closeAnswered(viewer, waits);
-                }
-            });
-        } else {
-            closeAnswered(viewer, waits);
-        }
-    }
-
-    /**
-     * Closes a dialog a click was answered with. On the waiting screen the
-     * game's clear_dialog does nothing (it closes a DIALOG, and that screen is
-     * not one), so the player's inventory is closed too, which the client
-     * answers by setting no screen at all.
-     */
-    private void closeAnswered(Player viewer, boolean waiting) {
-        close(viewer);
-        if (waiting) {
-            try {
-                viewer.closeInventory();
-            } catch (RuntimeException e) {
-                // Nothing more to try: the Back button wakes in five seconds.
-            }
-        }
-    }
-
-    /** Whether a dialog is sent to wait for the server's response: its own {@code after_action}, not an inlined one's. */
-    static boolean waitsForResponse(String json) {
-        if (json == null || !json.contains("wait_for_response")) {
-            return false;
-        }
-        try {
-            com.google.gson.JsonElement after = com.google.gson.JsonParser.parseString(json).getAsJsonObject().get("after_action");
-            return after != null && after.isJsonPrimitive() && "wait_for_response".equals(after.getAsString());
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
-    /**
-     * Whether a command is this plugin's: {@code /rp}, {@code /rpe},
-     * {@code /rpengine}, anything under {@code rpengine:}, and the commands
-     * dialogs are opened with.
-     */
-    private boolean ownCommand(String command) {
-        String bare = command.startsWith("/") ? command.substring(1) : command;
-        int space = bare.indexOf(' ');
-        String label = (space < 0 ? bare : bare.substring(0, space)).toLowerCase(java.util.Locale.ROOT);
-        if (label.startsWith("rpengine:") || label.equals("rp") || label.equals("rpe") || label.equals("rpengine")) {
-            return true;
-        }
-        DialogCommands own = commands;
-        return own != null && own.owns(label);
     }
 
     /** Replaces the clock, for a test. */
@@ -918,7 +781,6 @@ public final class DialogsImpl implements Dialogs {
      * registered a container.
      */
     public void attach(org.bukkit.plugin.Plugin plugin) {
-        this.plugin = plugin;
         this.slots = new DialogSlots(plugin);
         // Dialogs that name a command are opened with it — only where they can open.
         this.commands = supported ? new DialogCommands(plugin, this) : null;

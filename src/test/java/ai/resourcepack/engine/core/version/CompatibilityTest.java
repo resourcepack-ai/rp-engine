@@ -181,16 +181,4 @@ class CompatibilityTest {
                             + "always present and does not belong here");
         }
     }
-
-    @Test
-    void aServerVersionIsItsRelease() {
-        // Paper 26.x reports "26.3.build.12-stable": the build is not part of
-        // the release Studio looks a pack up by, nor of what the engine gates on.
-        assertEquals("1.21.8", Compatibility.releaseOf("1.21.8-R0.1-SNAPSHOT"));
-        assertEquals("26.3", Compatibility.releaseOf("26.3.build.12-stable"));
-        assertEquals("26.2", Compatibility.releaseOf("26.2.build.133-stable"));
-        assertEquals("1.21.9", Compatibility.releaseOf("1.21.9-pre2"));
-        assertEquals(McVersion.of(26, 3), McVersion.parse(Compatibility.releaseOf("26.3.build.12-stable")).orElseThrow());
-        assertTrue(PackFormats.forVersion(McVersion.of(26, 3)).isPresent(), "no pack format covers 26.3");
-    }
 }

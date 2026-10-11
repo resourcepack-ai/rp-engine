@@ -73,12 +73,8 @@ public final class DialogDefinitions {
                         "json: " + file.get() + " is not a file in this pack."));
                 return Optional.empty();
             }
-            // The JSON says what the client does after a click. Whether the
-            // engine closes it afterwards (a Studio dialog sent as none for that)
-            // is the one thing a file cannot say: DialogInfo.closesAfterClick.
             return Optional.of(opened(DialogInfo.authored(definition.id(), compact(json, file.get(), origin, where, diagnostics),
-                    name, vars(body, origin, where, diagnostics)).withClosesAfterClick(body.bool("close-after-click").orElse(false)),
-                    body, origin, where, diagnostics));
+                    name, vars(body, origin, where, diagnostics)), body, origin, where, diagnostics));
         }
 
         List<String> lines = body.strings("body");
@@ -99,20 +95,16 @@ public final class DialogDefinitions {
         json.append("  \"title\": ").append(quote(body.string("title").orElse(name))).append(",\n");
         json.append("  \"can_close_with_escape\": ")
                 .append(body.bool("can_close_with_escape").orElse(Boolean.TRUE)).append(",\n");
-        String after = after(body.string("after").orElse("seamless"));
-        // Seamless is none on the wire, and the engine closes the dialog after
-        // a click that opens nothing else: DialogInfo.closesAfterClick.
-        boolean seamless = after.equals("seamless");
-        String afterAction = seamless ? "none" : after;
+        String afterAction = after(body.string("after").orElse("close"));
         // A dialog that pauses has to close when it is used: the game refuses
         // one that pauses under `none` ("Dialogs that pause the game must use
         // after_action values that unpause it after user action!") — the whole
-        // dialog, at open. So `after: none` (and seamless) does not pause unless
-        // told to, and told to, it is warned about and does not.
+        // dialog, at open. So `after: none` does not pause unless told to, and
+        // told to, it is warned about and does not.
         boolean pauses = body.bool("pause").orElse(!afterAction.equals("none"));
         if (pauses && afterAction.equals("none")) {
             diagnostics.add(Diagnostic.warning(origin, where,
-                    "pause: true does not go with after: " + after + " — the game refuses a dialog that pauses and "
+                    "pause: true does not go with after: none — the game refuses a dialog that pauses and "
                             + "stays open — so this one does not pause."));
             pauses = false;
         }
@@ -136,11 +128,6 @@ public final class DialogDefinitions {
         if (type.equals("notice")) {
             if (!rendered.isEmpty()) {
                 json.append("  \"action\": ").append(rendered.get(0)).append("\n");
-            } else if (seamless) {
-                // The game's own Ok does nothing under none, which a seamless
-                // dialog is sent as: this one closes it.
-                json.append("  \"action\": { \"label\": { \"translate\": \"gui.done\" }, \"action\": "
-                        + "{ \"type\": \"minecraft:run_command\", \"command\": \"rp page close\" } }\n");
             } else {
                 // Vanilla's default is an Ok button, so a notice with none is
                 // still perfectly usable — the trailing comma is what has to go.
@@ -159,8 +146,8 @@ public final class DialogDefinitions {
             json.append("  ]\n");
         }
         json.append("}\n");
-        return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics))
-                        .withClosesAfterClick(seamless), body, origin, where, diagnostics));
+        return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics)),
+                body, origin, where, diagnostics));
     }
 
     /**
@@ -203,9 +190,8 @@ public final class DialogDefinitions {
         }
     }
 
-    private static DialogInfo opened(DialogInfo authored, DefinitionNode body, String origin, String where,
+    private static DialogInfo opened(DialogInfo dialog, DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
-        DialogInfo dialog = sounded(authored, body, origin, where, diagnostics);
         Optional<String> command = body.string("command");
         if (command.isEmpty()) {
             return dialog;
@@ -217,53 +203,6 @@ public final class DialogDefinitions {
             return dialog;
         }
         return dialog.withCommand(command.get(), body.string("permission").orElse(null));
-    }
-
-    /**
-     * What a click on the dialog's picture sounds like, when it says:
-     *
-     * <pre>
-     * click-sound: entity.experience_orb.pickup     # or "" for none
-     * click-sound: { sound: ui.button.click, volume: 0.4, pitch: 1.5 }
-     * click-sounds:                                 # a click that runs this command
-     *   - { command: "rp page mypack:shop.ranks", sound: block.note_block.chime }
-     * </pre>
-     *
-     * A sound that is not an event name is warned about and left out, so the
-     * click keeps the sound it had.
-     */
-    private static DialogInfo sounded(DialogInfo dialog, DefinitionNode body, String origin, String where,
-                                      List<Diagnostic> diagnostics) {
-        DialogInfo.ClickSound clickSound = body.node("click-sound")
-                .map(node -> clickSound(node, "click-sound", origin, where, diagnostics))
-                .orElseGet(() -> body.string("click-sound")
-                        .map(sound -> clickSound(DefinitionNode.of(Map.of("sound", sound)), "click-sound", origin, where, diagnostics))
-                        .orElse(null));
-        List<DialogInfo.CommandSound> clickSounds = new ArrayList<>();
-        for (DefinitionNode node : body.nodes("click-sounds")) {
-            Optional<String> command = node.string("command").filter(c -> !c.isBlank());
-            if (command.isEmpty()) {
-                diagnostics.add(Diagnostic.warning(origin, where, "click-sounds: an entry has no command: it would be no click's sound."));
-                continue;
-            }
-            DialogInfo.ClickSound sound = clickSound(node, "click-sounds", origin, where, diagnostics);
-            if (sound != null) {
-                clickSounds.add(new DialogInfo.CommandSound(command.get().trim(), sound));
-            }
-        }
-        return clickSound == null && clickSounds.isEmpty() ? dialog : dialog.withClickSounds(clickSound, clickSounds);
-    }
-
-    private static DialogInfo.ClickSound clickSound(DefinitionNode node, String key, String origin, String where,
-                                                    List<Diagnostic> diagnostics) {
-        String sound = node.string("sound").orElse("");
-        DialogInfo.ClickSound read = DialogInfo.ClickSound.of(sound, node.decimal("volume").orElse(null), node.decimal("pitch").orElse(null));
-        if (read == null) {
-            diagnostics.add(Diagnostic.warning(origin, where,
-                    key + ": \"" + sound + "\" is not a sound event - lower-case letters, digits, _ . - and /, "
-                            + "with a namespace: in front if it has one. The click keeps its sound."));
-        }
-        return read;
     }
 
     /**
@@ -388,7 +327,7 @@ public final class DialogDefinitions {
 
     private static String after(String value) {
         String lower = value.trim().toLowerCase(Locale.ROOT);
-        return lower.equals("none") || lower.equals("wait_for_response") || lower.equals("seamless") ? lower : "close";
+        return lower.equals("none") || lower.equals("wait_for_response") ? lower : "close";
     }
 
     /** A JSON string. Minimal and correct — this is the only escaping here. */

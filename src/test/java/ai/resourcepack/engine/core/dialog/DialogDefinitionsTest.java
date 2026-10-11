@@ -142,34 +142,6 @@ class DialogDefinitionsTest {
         assertTrue(result.diagnostics().size() >= 2, "a bad name and a bad value are both warned about");
     }
 
-    /** What a click on the picture sounds like: a word, or a sound with its volume and pitch, and per command. */
-    @Test
-    void aDialogSaysWhatItsClicksSoundLike() throws IOException {
-        write("mypack/dialogs/menus.yml",
-                "quiet:\n"
-                        + "  title: Quiet\n"
-                        + "  click-sound: \"\"\n"
-                        + "  buttons:\n"
-                        + "    - label: Ok\n"
-                        + "shop:\n"
-                        + "  title: Shop\n"
-                        + "  click-sound: { sound: block.note_block.chime, volume: 0.5, pitch: 1.5 }\n"
-                        + "  click-sounds:\n"
-                        + "    - { command: \"rp page mypack:shop.ranks\", sound: entity.experience_orb.pickup }\n"
-                        + "    - { sound: entity.cat.purr }\n"
-                        + "    - { command: \"buy\", sound: \"Not A Sound\" }\n"
-                        + "  buttons:\n"
-                        + "    - label: Ok\n");
-        DialogDefinitions.Result result = parse();
-        assertTrue(one(result, "mypack:quiet").clickSound().orElseThrow().silent());
-        DialogInfo shop = one(result, "mypack:shop");
-        assertEquals("block.note_block.chime", shop.clickSound().orElseThrow().sound());
-        assertEquals(1.5f, shop.clickSound().orElseThrow().pitch());
-        assertEquals(1, shop.clickSounds().size(), "an entry with no command, and one with no real sound, are left out");
-        assertEquals("rp page mypack:shop.ranks", shop.clickSounds().get(0).command());
-        assertTrue(result.diagnostics().size() >= 2, "both are warned about");
-    }
-
     /** A screen with no way out is the one thing refused rather than warned about. */
     @Test
     void aDialogNobodyCanLeaveIsRefused() throws IOException {
@@ -288,7 +260,6 @@ class DialogDefinitionsTest {
                         + "    - label: Close\n"
                         + "      command: rp page close\n"
                         + "plain:\n"
-                        + "  after: close\n"
                         + "  buttons:\n"
                         + "    - label: Ok\n");
         DialogDefinitions.Result result = parse();
@@ -301,57 +272,5 @@ class DialogDefinitionsTest {
         assertTrue(one(result, "mypack:plain").json().contains("\"pause\": true"), "a dialog that closes still pauses");
         // And the page link an authored button writes is one /rp page honours.
         assertTrue(DialogLinks.opens(settings, ContentId.parse("mypack:audio").orElseThrow()));
-    }
-
-    // Seamless, the default: sent as none (so it neither pauses nor leaves the
-    // screen on a click), and closed by the engine after a click that opens
-    // nothing else. A notice with no button of its own gets one that closes it,
-    // since the game's Ok does nothing under none.
-
-    @Test
-    void seamlessIsTheDefault() throws IOException {
-        write("mypack/dialogs/menu.yml",
-                "menu:\n"
-                        + "  buttons:\n"
-                        + "    - label: Spawn\n"
-                        + "      command: spawn\n"
-                        + "    - label: Shop\n"
-                        + "      command: rp dialog mypack:shop\n"
-                        + "shop:\n"
-                        + "  after: seamless\n"
-                        + "  body: [Nothing for sale]\n"
-                        + "waits:\n"
-                        + "  after: wait_for_response\n"
-                        + "  buttons:\n"
-                        + "    - label: Go\n"
-                        + "      command: spawn\n"
-                        + "closes:\n"
-                        + "  after: close\n"
-                        + "  buttons:\n"
-                        + "    - label: Go\n"
-                        + "      command: spawn\n");
-        DialogDefinitions.Result result = parse();
-        DialogInfo menu = one(result, "mypack:menu");
-        assertTrue(menu.closesAfterClick());
-        assertTrue(menu.json().contains("\"after_action\": \"none\""));
-        assertTrue(menu.json().contains("\"pause\": false"));
-        assertFalse(result.diagnostics().stream().anyMatch(d -> d.severity() == Diagnostic.Severity.WARNING),
-                "a default says nothing");
-
-        DialogInfo shop = one(result, "mypack:shop");
-        assertTrue(shop.closesAfterClick());
-        assertTrue(shop.json().contains("\"translate\": \"gui.done\""), "a notice gets an Ok that closes");
-        assertTrue(DialogLinks.runsCommand(shop.json(), "/rp page close"));
-
-        DialogInfo waits = one(result, "mypack:waits");
-        assertFalse(waits.closesAfterClick());
-        assertTrue(DialogsImpl.waitsForResponse(waits.json()));
-        assertFalse(DialogsImpl.waitsForResponse(menu.json()));
-
-        DialogInfo closes = one(result, "mypack:closes");
-        assertFalse(closes.closesAfterClick());
-        assertTrue(closes.json().contains("\"after_action\": \"close\""));
-        // The flag survives what is added after it.
-        assertTrue(menu.withCommand("menu", null).withClickSounds(null, java.util.List.of()).closesAfterClick());
     }
 }

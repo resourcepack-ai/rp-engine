@@ -299,18 +299,6 @@ prompt:
   # for declining is a decision a server makes, not one a plugin makes for it.
   force: false
 
-# Dialogs (Minecraft 1.21.6+).
-dialogs:
-  # A click on a dialog's picture makes no sound in the game: only its own
-  # buttons click. So the engine plays this when one reaches the server. A
-  # Studio dialog can ask for its own sound, per dialog or per piece, and that
-  # wins. Blank for none. Any sound event: the game's, or one your pack adds.
-  click-sound: "ui.button.click"
-  # 0 to 1.
-  click-volume: 0.25
-  # 0.5 to 2; 2 is an octave up.
-  click-pitch: 1.0
-
 # How this plugin looks when it speaks.
 #
 # The palette is yours: a plugin that shouts in its own brand colours on

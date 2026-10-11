@@ -2743,7 +2743,8 @@ welcome:
     - Pick somewhere to start.
   columns: 2                       # how many buttons sit side by side
   can_close_with_escape: true
-  after: seamless                  # seamless (the default) | close | none | wait_for_response
+  pause: true
+  after: close                     # close | none | wait_for_response
   buttons:
     - label: Spawn
       command: spawn               # the PLAYER runs it, with their permissions
@@ -2754,24 +2755,6 @@ welcome:
 ```
 
 `/rp dialogs` lists them and `/rp dialog mypack:welcome` opens one.
-
-**What a dialog does after a click** is `after:`. `seamless`, the default since
-0.2.6, keeps it on the screen exactly as it is until the engine has answered
-the click: a dialog the click opens (`rp dialog`, `rp page`, a dialog's own
-command, another plugin's) takes its place with nothing in between, and when
-none comes the engine closes it. A command that belongs to another plugin is
-answered before it runs, so whatever that command opens arrives after the
-close rather than being shut by it. `close` closes at once, so a dialog the
-click opens comes after a glimpse of the world; `none` stays as it is; and
-`wait_for_response` shows the game's "Waiting for Server" screen until the
-engine answers, which it does for every click it hears.
-
-A seamless dialog does not pause a single-player game (`pause: true` wants
-`close` or `wait_for_response`), and a click the server never hears (`url:`,
-or a command a proxy handles itself, such as `/server`) leaves it open; Escape
-closes it. A notice with no button gets a Done that closes it. A `json:` dialog
-whose file says `"after_action": "none"` can be closed the same way with
-`close-after-click: true` beside `json:`.
 
 **A dialog can have a command of its own**, so players open it themselves:
 
@@ -2865,28 +2848,6 @@ compared with a value, or a permission the player has or lacks — and RP Engine
 its items and its clicks, which a player cannot run by typing them either. Two
 vaults behind a segmented control, the second also behind `vaults.vip`, is the
 shape it was made for.
-
-**A click on a dialog's picture has a sound you choose.** The game makes no
-sound for a click on a dialog's text (only its buttons click), so RP Engine
-plays `dialogs.click-sound` from config.yml when one reaches the server. A
-dialog can ask for its own, and for its own per command:
-
-```yaml
-shop:
-  json: shop.json
-  click-sound: { sound: block.note_block.chime, volume: 0.5, pitch: 1.5 }
-  click-sounds:
-    - { command: "rp page mypack:shop.ranks", sound: entity.experience_orb.pickup }
-    - { command: "buy {item}", sound: "" }        # this click is silent
-```
-
-`click-sound: ""` silences the whole dialog. A sound is any sound event, the
-game's or one a pack adds; volume is 0 to 1 and pitch 0.5 to 2, and each is the
-game's click (0.25 and 1) when left out. A command in `click-sounds:` is
-matched the way a page link is: whole, with or without its slash, and a
-`{placeholder}` in it stands for whatever was filled in. Footer buttons are the
-game's own and always click by themselves. Studio's **Click sound** fields
-write exactly this.
 
 **A dialog can have pages.** Make each page a dialog of its own and turn
 between them with `/rp page`:

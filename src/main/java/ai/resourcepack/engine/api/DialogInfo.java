@@ -45,9 +45,6 @@ public final class DialogInfo {
     private final Map<String, Integer> itemIcons;
     private final String command;
     private final String permission;
-    private final ClickSound clickSound;
-    private final List<CommandSound> clickSounds;
-    private final boolean closesAfterClick;
 
     /** A command a dialog may be opened with: what a player types after the slash. */
     private static final Pattern COMMAND = Pattern.compile("[a-z0-9_-]{1,32}");
@@ -66,12 +63,6 @@ public final class DialogInfo {
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission) {
-        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false);
-    }
-
-    private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
-                       Map<String, Integer> itemIcons, String command, String permission,
-                       ClickSound clickSound, List<CommandSound> clickSounds, boolean closesAfterClick) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -97,17 +88,6 @@ public final class DialogInfo {
         this.command = commandName(command);
         this.permission = this.command == null || permission == null || !PERMISSION.matcher(permission.trim()).matches()
                 ? null : permission.trim();
-        this.clickSound = clickSound;
-        List<CommandSound> sounds = new java.util.ArrayList<>();
-        if (clickSounds != null) {
-            for (CommandSound sound : clickSounds) {
-                if (sound != null) {
-                    sounds.add(sound);
-                }
-            }
-        }
-        this.clickSounds = List.copyOf(sounds);
-        this.closesAfterClick = closesAfterClick;
     }
 
     /**
@@ -117,29 +97,7 @@ public final class DialogInfo {
      * off) is no command at all.
      */
     public DialogInfo withCommand(String command, String permission) {
-        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick);
-    }
-
-    /**
-     * The same dialog, with what a click on its picture sounds like: {@code
-     * clickSound} for any click, and {@code clickSounds} for the clicks that
-     * run one of their commands, which come first. Null and empty leave the
-     * engine's own click.
-     */
-    public DialogInfo withClickSounds(ClickSound clickSound, List<CommandSound> clickSounds) {
-        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick);
-    }
-
-    /**
-     * The same dialog, closed by the engine after a click — see
-     * {@link #closesAfterClick()}. Its JSON should say {@code after_action:
-     * none}, or the client closes it (or waits) by itself first.
-     */
-    public DialogInfo withClosesAfterClick(boolean closes) {
-        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closes);
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission);
     }
 
     /**
@@ -252,90 +210,6 @@ public final class DialogInfo {
     /** What a player needs to open it with its {@link #command()}; empty when anybody may. */
     public Optional<String> permission() {
         return Optional.ofNullable(permission);
-    }
-
-    /**
-     * What a click on this dialog's picture sounds like. A click on a run of a
-     * dialog's body text makes no sound in the game (only its buttons click),
-     * so the engine plays one when such a click reaches the server: this, or
-     * the server's configured click when it is empty. A {@link ClickSound}
-     * with no sound is silence.
-     */
-    public Optional<ClickSound> clickSound() {
-        return Optional.ofNullable(clickSound);
-    }
-
-    /**
-     * The clicks with a sound of their own, by the command each runs, as the
-     * dialog's JSON writes it ({@code {placeholders}} and all). Looked at
-     * before {@link #clickSound()}; the first that matches is the one.
-     */
-    public List<CommandSound> clickSounds() {
-        return clickSounds;
-    }
-
-    /**
-     * Whether the engine closes this dialog after a click on it: "seamless".
-     *
-     * <p>Such a dialog goes to the client as {@code after_action: none}, so a
-     * click leaves it on the screen exactly as it is, with no waiting screen and
-     * no flash of the world. The engine then answers the click: a dialog it
-     * opens takes this one's place, and when none does, the engine closes it.
-     * A click that runs another plugin's command closes it BEFORE that command
-     * runs, so whatever the command opens (its own dialog, a chest) arrives
-     * after the close rather than being shut by it.
-     *
-     * <p>A click the server never hears of stays open: a link, a copy, and a
-     * proxy's command ({@code /server}), which never reaches this server.
-     */
-    public boolean closesAfterClick() {
-        return closesAfterClick;
-    }
-
-    /**
-     * A click sound: a sound event, the game's ({@code ui.button.click}) or a
-     * pack's ({@code custom.laser}), with its volume and pitch. An empty
-     * {@code sound} is silence.
-     */
-    public record ClickSound(String sound, float volume, float pitch) {
-
-        /**
-         * A sound event as the server takes one: an optional namespace, then a
-         * lower-case path. Studio's {@code CLICK_SOUND_EVENT} is the same rule.
-         */
-        public static final Pattern SOUND = Pattern.compile("(?:[a-z0-9_.-]+:)?[a-z0-9_./-]{1,200}");
-
-        /** What a click on a picture sounds like when nothing says otherwise: the game's button click, quietly. */
-        public static final ClickSound GAME = new ClickSound("ui.button.click", 0.25f, 1f);
-
-        /**
-         * A click sound from what was written, or null when the sound is not
-         * an event name (a typo should leave the click as it was rather than
-         * silence it). The volume is kept to 0..1 and the pitch to the game's
-         * 0.5..2; either missing is the {@link #GAME} click's.
-         */
-        public static ClickSound of(String sound, Number volume, Number pitch) {
-            String key = sound == null ? "" : sound.trim().toLowerCase(Locale.ROOT);
-            if (!key.isEmpty() && !SOUND.matcher(key).matches()) {
-                return null;
-            }
-            float v = volume == null || !Float.isFinite(volume.floatValue()) ? GAME.volume : volume.floatValue();
-            float p = pitch == null || !Float.isFinite(pitch.floatValue()) ? GAME.pitch : pitch.floatValue();
-            return new ClickSound(key, Math.max(0f, Math.min(1f, v)), Math.max(0.5f, Math.min(2f, p)));
-        }
-
-        /** Whether this is the silence a dialog asked for. */
-        public boolean silent() {
-            return sound.isEmpty() || volume <= 0f;
-        }
-    }
-
-    /** A click sound for the clicks that run {@code command}, as a dialog's JSON writes it. */
-    public record CommandSound(String command, ClickSound sound) {
-        public CommandSound {
-            Objects.requireNonNull(command, "command");
-            Objects.requireNonNull(sound, "sound");
-        }
     }
 
     @Override
