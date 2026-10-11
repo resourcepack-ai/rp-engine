@@ -80,6 +80,18 @@ class DialogLinksTest {
     }
 
     @Test
+    void aClickSoundFindsItsClickByCommand() {
+        // Studio keys a piece's click sound by the command as the JSON writes it,
+        // placeholders and all; the server hears it filled in, slash or not.
+        assertTrue(DialogLinks.sameCommand("rp page studio:shop.ranks", "/rp page studio:shop.ranks"));
+        assertTrue(DialogLinks.sameCommand("buy {item} {amount}", "buy diamond_sword 3"));
+        assertTrue(DialogLinks.sameCommand("rp var mode {mode?a:b|b:a}", "rp var mode b"));
+        assertFalse(DialogLinks.sameCommand("rp page studio:shop", "rp page studio:shop.ranks"));
+        assertFalse(DialogLinks.sameCommand("buy {item}", "sell diamond"));
+        assertFalse(DialogLinks.sameCommand(null, "buy"));
+    }
+
+    @Test
     void theCommandIsWhatTheCheckFinds() {
         // Studio writes the command this returns; the check has to find it again.
         ContentId page = id("studio:guide.chapter_2");

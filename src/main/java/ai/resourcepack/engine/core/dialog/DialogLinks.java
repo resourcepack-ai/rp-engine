@@ -199,23 +199,34 @@ public final class DialogLinks {
             } catch (JsonParseException e) {
                 continue;
             }
-            if (held.startsWith("/")) {
-                held = held.substring(1);
-            }
-            // A placeholder in it was filled as the dialog opened: anything stands for it.
-            StringBuilder pattern = new StringBuilder();
-            Matcher p = PLACEHOLDER.matcher(held);
-            int at = 0;
-            while (p.find()) {
-                pattern.append(Pattern.quote(held.substring(at, p.start()))).append(".*?");
-                at = p.end();
-            }
-            pattern.append(Pattern.quote(held.substring(at)));
-            if (Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches()) {
+            if (sameCommand(held, bare)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a click written as {@code held} (as a dialog's JSON has it,
+     * placeholders and all) is the one that ran {@code command}. Either may
+     * carry its slash. A placeholder was filled as the dialog opened, so
+     * anything stands for it.
+     */
+    public static boolean sameCommand(String held, String command) {
+        if (held == null || command == null) {
+            return false;
+        }
+        String written = held.startsWith("/") ? held.substring(1) : held;
+        String bare = command.startsWith("/") ? command.substring(1) : command;
+        StringBuilder pattern = new StringBuilder();
+        Matcher p = PLACEHOLDER.matcher(written);
+        int at = 0;
+        while (p.find()) {
+            pattern.append(Pattern.quote(written.substring(at, p.start()))).append(".*?");
+            at = p.end();
+        }
+        pattern.append(Pattern.quote(written.substring(at)));
+        return Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches();
     }
 
     /** A click on the picture: a text component's {@code click_event}, never a footer button's action. */

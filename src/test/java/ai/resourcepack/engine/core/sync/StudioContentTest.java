@@ -158,6 +158,37 @@ class StudioContentTest {
     }
 
     @Test
+    void aPushedDialogsClickSoundsSurviveARestart(@TempDir Path dir) {
+        // What a click on the picture sounds like: the dialog's, and one piece's
+        // own by the command its click runs. A sound that is not an event name
+        // is left out rather than read as silence.
+        String manifest = """
+                {"packId":"ian8vezm",
+                 "dialogs":[{"id":"shop","name":"Shop",
+                   "json":{"type":"minecraft:notice","title":"Shop"},
+                   "clickSound":{"sound":"custom.pop","volume":0.6,"pitch":1.4},
+                   "clickSounds":[{"command":"rp page studio:shop.ranks","sound":"","volume":0.25,"pitch":1},
+                                  {"command":"buy {item}","sound":"Not A Sound!","volume":1,"pitch":1},
+                                  {"command":"buy vip","sound":"entity.experience_orb.pickup","volume":7,"pitch":0.1}]}]}
+                """;
+        StudioContent content = read(dir, manifest);
+        ContentId id = ContentId.parse("studio:shop").orElseThrow();
+        ai.resourcepack.engine.api.DialogInfo pushed = content.dialogs().get(id);
+        assertEquals("custom.pop", pushed.clickSound().orElseThrow().sound());
+        assertEquals(2, pushed.clickSounds().size(), "the entry with no real sound is dropped");
+        assertTrue(pushed.clickSounds().get(0).sound().silent());
+        assertEquals(1f, pushed.clickSounds().get(1).sound().volume(), "volume is kept to 0..1");
+        assertEquals(0.5f, pushed.clickSounds().get(1).sound().pitch(), "pitch is kept to the game's 0.5..2");
+        content.save(LOG);
+
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        ai.resourcepack.engine.api.DialogInfo after = reloaded.dialogs().get(id);
+        assertEquals(pushed.clickSound(), after.clickSound());
+        assertEquals(pushed.clickSounds(), after.clickSounds());
+    }
+
+    @Test
     void aDialogCommandIsOnePlainWord(@TempDir Path dir) {
         assertEquals("shop", ai.resourcepack.engine.api.DialogInfo.commandName(" /Shop "));
         assertEquals(null, ai.resourcepack.engine.api.DialogInfo.commandName("shop now"));

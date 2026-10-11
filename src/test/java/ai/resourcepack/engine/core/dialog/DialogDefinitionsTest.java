@@ -142,6 +142,34 @@ class DialogDefinitionsTest {
         assertTrue(result.diagnostics().size() >= 2, "a bad name and a bad value are both warned about");
     }
 
+    /** What a click on the picture sounds like: a word, or a sound with its volume and pitch, and per command. */
+    @Test
+    void aDialogSaysWhatItsClicksSoundLike() throws IOException {
+        write("mypack/dialogs/menus.yml",
+                "quiet:\n"
+                        + "  title: Quiet\n"
+                        + "  click-sound: \"\"\n"
+                        + "  buttons:\n"
+                        + "    - label: Ok\n"
+                        + "shop:\n"
+                        + "  title: Shop\n"
+                        + "  click-sound: { sound: block.note_block.chime, volume: 0.5, pitch: 1.5 }\n"
+                        + "  click-sounds:\n"
+                        + "    - { command: \"rp page mypack:shop.ranks\", sound: entity.experience_orb.pickup }\n"
+                        + "    - { sound: entity.cat.purr }\n"
+                        + "    - { command: \"buy\", sound: \"Not A Sound\" }\n"
+                        + "  buttons:\n"
+                        + "    - label: Ok\n");
+        DialogDefinitions.Result result = parse();
+        assertTrue(one(result, "mypack:quiet").clickSound().orElseThrow().silent());
+        DialogInfo shop = one(result, "mypack:shop");
+        assertEquals("block.note_block.chime", shop.clickSound().orElseThrow().sound());
+        assertEquals(1.5f, shop.clickSound().orElseThrow().pitch());
+        assertEquals(1, shop.clickSounds().size(), "an entry with no command, and one with no real sound, are left out");
+        assertEquals("rp page mypack:shop.ranks", shop.clickSounds().get(0).command());
+        assertTrue(result.diagnostics().size() >= 2, "both are warned about");
+    }
+
     /** A screen with no way out is the one thing refused rather than warned about. */
     @Test
     void aDialogNobodyCanLeaveIsRefused() throws IOException {
