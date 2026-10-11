@@ -56,6 +56,18 @@ public final class ModelsImpl implements Models {
      */
     private volatile BoundModels bound;
 
+    /**
+     * The content folder's pieces: what an item's {@code place:} block puts
+     * down. Set after construction for the reason {@link #bound} is; null
+     * answers empty.
+     */
+    private volatile ModelPlacementListener authored;
+
+    /** Wires the content-folder half. Called once at startup. */
+    public void authored(ModelPlacementListener authored) {
+        this.authored = authored;
+    }
+
     /** Wires the bind half. Called once at startup. */
     public void bound(BoundModels bound) {
         this.bound = bound;
@@ -200,6 +212,36 @@ public final class ModelsImpl implements Models {
     }
 
     @Override
+    public Optional<Placement> place(Location at, ai.resourcepack.engine.api.ContentId item, PlaceOptions options) {
+        Host.requireMainThread();
+        ModelPlacementListener pieces = authored;
+        if (at == null || at.getWorld() == null || item == null || pieces == null) return Optional.empty();
+        PlaceOptions opts = options == null ? PlaceOptions.defaults() : options;
+        ai.resourcepack.engine.api.ModelInfo info = pieces.forItem(item).orElse(null);
+        if (info == null) return Optional.empty();
+
+        Block target = at.getBlock();
+        // The checks a player's click passes: the space is empty, and no other
+        // piece of either kind already stands in it. What the click checks
+        // about the FACE it was made against (a wall lamp on a wall) has no
+        // meaning here, because there is no face: the caller chose the block.
+        if (!target.getType().isAir() || pieces.findAt(target) != null || placements.findRig(target) != null) {
+            return Optional.empty();
+        }
+
+        // Announced only where there is somebody to announce - see
+        // PlaceOptions.placer - and with the id a player's placement names.
+        if (opts.placer() != null) {
+            ModelPlaceEvent ask = new ModelPlaceEvent(opts.placer(), info.id(), target);
+            Bukkit.getPluginManager().callEvent(ask);
+            if (ask.isCancelled()) return Optional.empty();
+        }
+
+        return Optional.of(new Handle(pieces.placeFor(target, info, at.getYaw(), clampScale(opts.scale()),
+                opts.placer())));
+    }
+
+    @Override
     public Optional<ItemStack> itemFor(String modelId, ItemOptions options) {
         Host.requireMainThread();
         if (modelId == null || modelId.isEmpty()) return Optional.empty();
@@ -240,7 +282,11 @@ public final class ModelsImpl implements Models {
 
         @Override
         public String modelId() {
-            return animator.modelIdOf(hitbox);
+            String rig = animator.modelIdOf(hitbox);
+            if (rig != null) return rig;
+            // A still content-folder piece: no rig, but an id of its own.
+            ModelPlacementListener pieces = authored;
+            return pieces == null ? null : pieces.idOf(hitbox).map(Object::toString).orElse(null);
         }
 
         @Override
@@ -302,6 +348,16 @@ public final class ModelsImpl implements Models {
         public boolean remove(boolean dropItem) {
             Host.requireMainThread();
             if (!hitbox.isValid()) return false;
+            // A content-folder piece, animated or still, comes apart the way a
+            // player's punch takes it apart: its barrier and light go, its
+            // seat is vacated, its contents spill, and its item (or the drop
+            // its pack names) is given back.
+            ModelPlacementListener pieces = authored;
+            Optional<ai.resourcepack.engine.api.ContentId> piece =
+                    pieces == null ? Optional.empty() : pieces.idOf(hitbox);
+            if (piece.isPresent()) {
+                return pieces.remove(hitbox, piece.get(), null, dropItem);
+            }
             String modelId = animator.modelIdOf(hitbox);
             if (modelId == null) return false;
 

@@ -150,6 +150,9 @@ public final class ContentFolderLoader {
         // because that is the form the editor exports and nobody should have
         // to convert keyframes by hand.
         map.put("emotes", ContentKind.EMOTE);
+        // 3D armour: a set names a .bbmodel with MythicArmors' bone names in
+        // it; see Armor3dDefinitions.
+        map.put("armor3d", ContentKind.ARMOR3D);
         return Map.copyOf(map);
     }
 

@@ -1,19 +1,16 @@
 package ai.resourcepack.engine.core.command;
 
-import ai.resourcepack.engine.core.armor3d.Armor3dItems;
+import ai.resourcepack.engine.core.armor3d.Armor3dCatalogue;
 import ai.resourcepack.engine.core.armor3d.Armor3dSet;
+import ai.resourcepack.engine.core.armor3d.Wardrobe;
 import ai.resourcepack.engine.core.armor3d.WornArmour;
 
-import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.EntityEquipment;
-import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /**
  * 3D armour: {@code armor}.
@@ -22,20 +19,22 @@ import java.util.function.Supplier;
  * see what there is, put a set on, hand its pieces over, and look at your own.
  * {@code wear} is what Studio's Give in-game button runs, relayed through the
  * console as {@code wear studio:<id> @p} — the {@code studio:} is accepted and
- * dropped, so the command reads like every other one Studio sends.
+ * dropped, so the command reads like every other one Studio sends. A set from
+ * a content folder is named by its id, {@code christmas:santa}, and is listed,
+ * worn and handed over exactly like a pushed one; see {@link Armor3dCatalogue}.
  */
 public final class Armor3dCommands implements Area {
 
-    private final Supplier<Map<String, Armor3dSet>> sets;
-    private final Armor3dItems items;
+    private final Armor3dCatalogue sets;
+    private final Wardrobe wardrobe;
     private final WornArmour worn;
     /** Null where the server cannot draw one; the command then says why. */
     private final String unsupported;
 
-    public Armor3dCommands(Supplier<Map<String, Armor3dSet>> sets, Armor3dItems items, WornArmour worn,
+    public Armor3dCommands(Armor3dCatalogue sets, Wardrobe wardrobe, WornArmour worn,
                            String unsupported) {
         this.sets = sets;
-        this.items = items;
+        this.wardrobe = wardrobe;
         this.worn = worn;
         this.unsupported = unsupported;
     }
@@ -85,8 +84,8 @@ public final class Armor3dCommands implements Area {
         }
         if (args.length == 3 && (args[1].equalsIgnoreCase("wear") || args[1].equalsIgnoreCase("give"))) {
             List<String> ids = new ArrayList<>();
-            for (String id : sets.get().keySet()) {
-                ids.add("studio:" + id);
+            for (String id : sets.all().keySet()) {
+                ids.add(Armor3dCatalogue.label(id));
             }
             return Completions.matching(args[2], ids);
         }
@@ -97,14 +96,15 @@ public final class Armor3dCommands implements Area {
     }
 
     private boolean list(CommandSender sender) {
-        Map<String, Armor3dSet> known = sets.get();
+        Map<String, Armor3dSet> known = sets.all();
         if (known.isEmpty()) {
-            Reply.note(sender, "No 3D armour yet. Sync a Studio pack that has some.");
+            Reply.note(sender, "No 3D armour yet. Sync a Studio pack that has some, "
+                    + "or add a set to a content folder's armor3d/.");
             return true;
         }
         Reply.heading(sender, "3D armour", Reply.plural(known.size(), "set"));
         for (Armor3dSet set : known.values()) {
-            Reply.row(sender, "studio:" + set.id(), set.name());
+            Reply.row(sender, Armor3dCatalogue.label(set), set.name());
         }
         return true;
     }
@@ -115,8 +115,7 @@ public final class Armor3dCommands implements Area {
             Reply.error(sender, "Which set? /rp armor " + (wear ? "wear" : "give") + " <set> [player]");
             return true;
         }
-        String id = args[2].startsWith("studio:") ? args[2].substring("studio:".length()) : args[2];
-        Armor3dSet set = sets.get().get(id);
+        Armor3dSet set = sets.find(args[2]);
         if (set == null) {
             Reply.error(sender, "No 3D armour called " + Reply.accent(args[2]) + ". /rp armor lists them.");
             return true;
@@ -130,24 +129,12 @@ public final class Armor3dCommands implements Area {
             Targets.refuse(sender, "armor", wear ? "dress" : "give armour to");
             return true;
         }
-        for (Armor3dSet.Worn piece : set.pieces().values()) {
-            ItemStack stack = items.piece(set, piece);
-            if (!wear) {
-                give(player, stack);
-                continue;
-            }
-            EntityEquipment equipment = player.getEquipment();
-            if (equipment == null) {
-                give(player, stack);
-                continue;
-            }
-            ItemStack was = equipment.getItem(piece.piece().slot());
-            // What they had on goes back in their bag rather than into the
-            // void: a diamond chestplate swapped for a test set is theirs.
-            if (was != null && was.getType() != Material.AIR && items.read(was).isEmpty()) {
-                give(player, was);
-            }
-            equipment.setItem(piece.piece().slot(), stack);
+        // The same path the API's Armor.wear runs: what they had on goes back
+        // in their bag rather than into the void.
+        if (wear) {
+            wardrobe.wear(player, set);
+        } else {
+            wardrobe.give(player, set);
         }
         if (wear) {
             Reply.to(player, "You're wearing " + Reply.accent(set.name()) + ".");
@@ -162,12 +149,6 @@ public final class Armor3dCommands implements Area {
             Reply.to(sender, (wear ? "Dressed " : "Gave ") + player.getName() + " in " + set.name() + ".");
         }
         return true;
-    }
-
-    private static void give(Player player, ItemStack stack) {
-        for (ItemStack left : player.getInventory().addItem(stack).values()) {
-            player.getWorld().dropItemNaturally(player.getLocation(), left);
-        }
     }
 
     private boolean self(CommandSender sender) {

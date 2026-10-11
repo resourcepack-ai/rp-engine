@@ -62,5 +62,11 @@ public enum ContentKind {
     LIQUID,
 
     /** A model people ride, with an ordered list of seats. */
-    VEHICLE
+    VEHICLE,
+
+    /**
+     * A 3D armour set: a Blockbench model whose groups are the body's bones,
+     * worn as four pieces. See {@link Armor}.
+     */
+    ARMOR3D
 }

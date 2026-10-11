@@ -200,6 +200,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** 3D armour: the pieces, and the displays on whoever has them on. See core/armor3d. */
     private ai.resourcepack.engine.core.armor3d.Armor3dItems armor3dItems;
     private ai.resourcepack.engine.core.armor3d.WornArmour wornArmour;
+    private ai.resourcepack.engine.core.armor3d.Wardrobe armor3dWardrobe;
+    /**
+     * Every 3D armour set: the content folder's, replaced on each load, and
+     * every live push's. One catalogue, so the command, the API and the
+     * displays never disagree about what exists.
+     */
+    private final ai.resourcepack.engine.core.armor3d.Armor3dCatalogue armor3dSets =
+            new ai.resourcepack.engine.core.armor3d.Armor3dCatalogue(() -> pushedAll.armor3d());
 
     /**
      * What a PUSHED model is shaped like, read out of the pack on disk.
@@ -577,6 +585,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         liquids = new Liquids(this, pools);
         liquidBiomes = new LiquidBiomes(getLogger());
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
+        // Models.place(Location, ContentId, ...) puts these down for a plugin.
+        models.authored(placements);
         placements.bedrock(bedrock);
         placements.actions(actionRunner);
         // Containers. One service for everything that holds items, so a custom
@@ -653,12 +663,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vehicles.registerDismount(this);
         vehicles.start();
         liquids.start();
-        // 3D armour. Only where a pushed pack can name its art (a string
+        // 3D armour. Only where a set's art can be named (a string
         // custom_model_data, 1.21.4) — below that the loop never starts and
         // the command says why, rather than dressing people in blank paper.
         armor3dItems = new ai.resourcepack.engine.core.armor3d.Armor3dItems(this, compatibility);
+        armor3dWardrobe = new ai.resourcepack.engine.core.armor3d.Wardrobe(armor3dItems);
         wornArmour = new ai.resourcepack.engine.core.armor3d.WornArmour(this, compatibility, armor3dItems,
-                () -> pushedAll.armor3d(), compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
+                armor3dSets::all, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
         // A page the client turned to by itself is only heard of through the next
@@ -846,7 +857,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 liquidCommands,
                 new VehicleCommands(vehicles),
                 new EditCommands(edits, registry, items, vehicles, editing),
-                new ai.resourcepack.engine.core.command.Armor3dCommands(() -> pushedAll.armor3d(), armor3dItems,
+                new ai.resourcepack.engine.core.command.Armor3dCommands(armor3dSets, armor3dWardrobe,
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
                                 ? null
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
@@ -1288,6 +1299,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return new ai.resourcepack.engine.core.vehicle.VehiclesImpl(vehicles);
     }
 
+    /** The 3D armour sets this server holds, and putting them on people. */
+    public ai.resourcepack.engine.api.Armor armor() {
+        return new ai.resourcepack.engine.core.armor3d.ArmorImpl(armor3dSets, armor3dItems, armor3dWardrobe,
+                compatibility != null && armor3dItems != null
+                        && compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS));
+    }
+
     @Override
     public void onDisable() {
         if (heartbeat != null) {
@@ -1670,6 +1688,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredDialogs = parsedDialogs.dialogs();
         dialogs.replace(authoredDialogs);
 
+        // Hand-authored 3D armour: each set's .bbmodel read and baked now,
+        // because which pieces a set has and where a turned part stands are in
+        // its cubes. The build writes what this baked, below.
+        boolean armourDrawn = compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS);
+        ai.resourcepack.engine.core.armor3d.Armor3dDefinitions.Result parsedArmour =
+                ai.resourcepack.engine.core.armor3d.Armor3dDefinitions.parse(loaded,
+                        ai.resourcepack.engine.core.pack.PackFiles.folder(content));
+        report(to, "armor3d", parsedArmour.diagnostics());
+        armor3dSets.replaceAuthored(parsedArmour.sets());
+        if (armor3dItems != null) {
+            armor3dItems.forgetArt();
+        }
+
         // The allocator only on the versions that address models by number;
         // null tells the writer this server names them instead.
         ItemAssets itemAssets = new ItemAssets(
@@ -1684,6 +1715,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new FontAssets())
                 .with(new BlockAssets(blockStates))
                 .with(rigAssets)
+                .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
         // After the build, because the build is the last thing that can ask

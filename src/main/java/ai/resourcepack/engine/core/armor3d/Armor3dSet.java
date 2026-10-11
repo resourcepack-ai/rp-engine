@@ -30,10 +30,15 @@ import java.util.Optional;
  *       drawing that limb. See {@link WornArmour} and {@link WornPose}.</li>
  * </ul>
  *
- * <p>Pushed by Studio today and by nothing else — see {@code StudioContent}.
- * Art is named the way a pushed pack names art, by a string
- * {@code custom_model_data} on paper, so a set only exists on a server that
- * can read one (1.21.4 and up).
+ * <p>Two sources, one shape. Studio pushes sets (see {@code StudioContent});
+ * a content folder's {@code armor3d/} names a {@code .bbmodel}, which
+ * {@link Armor3dBaker} turns into the same parts and this engine's own pack
+ * builder writes out ({@link Armor3dAssets}). Either way the art is named by a
+ * string {@code custom_model_data} on paper, so a set only exists on a server
+ * that can read one (1.21.4 and up). An authored set ALSO names each model by
+ * an {@code item_model} ({@link #itemModel}), because the engine's pack cannot
+ * own vanilla paper's item definition: a pushed pack does, and two packs
+ * cannot both.
  */
 public final class Armor3dSet {
 
@@ -124,17 +129,28 @@ public final class Armor3dSet {
     private final String name;
     private final Map<Piece, Worn> pieces;
     private final List<int[]> shaderProtocols;
+    private final String itemModelRoot;
 
     public Armor3dSet(String id, String name, Map<Piece, Worn> pieces) {
         this(id, name, pieces, List.of());
     }
 
+    public Armor3dSet(String id, String name, Map<Piece, Worn> pieces, List<int[]> shaderProtocols) {
+        this(id, name, pieces, shaderProtocols, null);
+    }
+
     /**
      * @param shaderProtocols inclusive protocol ranges whose clients draw the
      *                        set THEMSELVES — see {@link #drawnBy(int)}
+     * @param itemModelRoot   for a set this engine baked, the item definition
+     *                        folder its models are under
+     *                        ({@code christmas:armor3d/santa/}); null for a
+     *                        pushed set, whose pack dispatches the strings
      */
-    public Armor3dSet(String id, String name, Map<Piece, Worn> pieces, List<int[]> shaderProtocols) {
+    public Armor3dSet(String id, String name, Map<Piece, Worn> pieces, List<int[]> shaderProtocols,
+                      String itemModelRoot) {
         this.id = id;
+        this.itemModelRoot = itemModelRoot;
         this.shaderProtocols = List.copyOf(shaderProtocols);
         this.name = name == null || name.isEmpty() ? id : name;
         Map<Piece, Worn> copy = new EnumMap<>(Piece.class);
@@ -182,5 +198,28 @@ public final class Armor3dSet {
 
     public List<int[]> shaderProtocols() {
         return shaderProtocols;
+    }
+
+    /** Whether this engine baked the set from a content folder, rather than Studio pushing it. */
+    public boolean authored() {
+        return itemModelRoot != null;
+    }
+
+    /**
+     * The {@code item_model} that draws one of this set's model strings, or
+     * null for a pushed set.
+     *
+     * <p>A pushed set's art is reached through vanilla paper's own item
+     * definition, which the pushed pack ships with a case per string. An
+     * authored set cannot use that file (see the class note), so each of its
+     * models has an item definition of its own, named after the last segment
+     * of the string: {@code armor3d:christmas:santa/helmet} is
+     * {@code christmas:armor3d/santa/helmet}.
+     */
+    public String itemModel(String model) {
+        if (itemModelRoot == null || model == null) {
+            return null;
+        }
+        return itemModelRoot + model.substring(model.lastIndexOf('/') + 1);
     }
 }

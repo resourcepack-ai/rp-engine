@@ -789,8 +789,11 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             packet.setBodyRotation(yaw);
             // A model placed at 4x is 4x for Java viewers; without this it
             // stood at its own size for Bedrock ones.
-            Float scale = contentScale != null ? contentScale
-                : hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
+            // A content-folder piece a plugin put down bigger carries the
+            // multiplier on its hitbox, on top of its own place: scale.
+            Float placedScale = hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
+            Float scale = contentScale == null ? placedScale
+                : placedScale != null && placedScale > 0f ? contentScale * placedScale : contentScale;
             if (scale != null && scale != 1f) {
                 packet.getMetadata().put(org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes.SCALE, scale);
             }

@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class Armor3dItems {
 
-    /** The prefix of every model string a set's art is named by — Studio's {@code lib/armor3d/pack.ts}. */
+    /** The prefix of every model string a set's art is named by, Studio's and {@link Armor3dBaker}'s alike. */
     public static final String MODEL_PREFIX = "armor3d:";
 
     /** Studio's Bedrock marker for a piece; GeyserBridge registers the pool it names. */
@@ -44,6 +44,13 @@ public final class Armor3dItems {
     }
 
     private final Equipper equipping;
+
+    /** Puts an {@code item_model} on a stack, where the server can name one. */
+    private interface Namer {
+        void name(ItemMeta meta, String itemModel);
+    }
+
+    private final Namer naming;
     private final Map<String, ItemStack> art = new ConcurrentHashMap<>();
 
     public Armor3dItems(Plugin plugin, Compatibility compatibility) {
@@ -55,6 +62,9 @@ public final class Armor3dItems {
         this.equipping = compatibility.has(Feature.EQUIPPABLE_ITEMS)
                 ? (meta, slot, asset) -> PieceEquipping.wearable(meta, slot, asset, withArt)
                 : (meta, slot, asset) -> { };
+        this.naming = compatibility.has(Feature.ITEM_DEFINITIONS)
+                ? ArmourItemModels::name
+                : (meta, itemModel) -> { };
     }
 
     /** One piece of a set, as an item somebody can hold and put on. */
@@ -73,6 +83,10 @@ public final class Armor3dItems {
         meta.setDisplayName(ChatColor.RESET + set.name() + " " + worn.piece().label());
         meta.setLore(List.of(ChatColor.GRAY + "3D armour"));
         equipping.wear(meta, worn.piece().slot(), worn.asset());
+        String itemModel = set.itemModel(worn.item());
+        if (itemModel != null) {
+            naming.name(meta, itemModel);
+        }
         stack.setItemMeta(meta);
         return stack;
     }
@@ -103,17 +117,32 @@ public final class Armor3dItems {
         return Armor3dSet.Piece.of(marked.substring(slash + 1)).map(piece -> new Worn(setId, piece));
     }
 
-    /** Paper wearing {@code model}: what one display holds. Built once per string. */
-    ItemStack art(String model) {
+    /**
+     * Paper wearing {@code model}: what one display holds. Built once per
+     * string, which is safe because a model string names its set.
+     */
+    ItemStack art(Armor3dSet set, String model) {
         return art.computeIfAbsent(model, m -> {
             ItemStack stack = new ItemStack(Material.PAPER);
             ItemMeta meta = stack.getItemMeta();
             if (meta != null) {
                 tags.write(meta, List.of(m));
+                String itemModel = set.itemModel(m);
+                if (itemModel != null) {
+                    naming.name(meta, itemModel);
+                }
                 stack.setItemMeta(meta);
             }
             return stack;
         }).clone();
+    }
+
+    /**
+     * Forgets the display art built so far. A reload can bake a set under the
+     * same strings with a different {@code item_model}, or none.
+     */
+    public void forgetArt() {
+        art.clear();
     }
 
     /** A piece somebody has on, by name. */

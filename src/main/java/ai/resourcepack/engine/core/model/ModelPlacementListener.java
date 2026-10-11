@@ -89,6 +89,8 @@ public final class ModelPlacementListener implements Listener {
 
     /** The placement's heading, on the hitbox — see the write in {@code place}. */
     private final NamespacedKey placedYawKey;
+    /** How much bigger than its definition a plugin put it down; absent is 1. */
+    private final NamespacedKey placedScaleKey;
 
     private volatile Map<ContentId, ModelInfo> model = Map.of();
 
@@ -110,6 +112,7 @@ public final class ModelPlacementListener implements Listener {
         this.displaysKey = host.key("display-uuids");
         this.partKey = host.key("part-index");
         this.placedYawKey = host.key("model-yaw");
+        this.placedScaleKey = host.key(RigAnimator.SCALE_KEY);
     }
 
     /** Who to tell when a piece comes or goes, for players the displays do not reach. */
@@ -224,6 +227,11 @@ public final class ModelPlacementListener implements Listener {
         return parsed == null ? Optional.empty() : Optional.ofNullable(model.get(parsed));
     }
 
+    /** The piece an item puts down, if it has a {@code place:} block. */
+    public Optional<ModelInfo> forItem(ContentId item) {
+        return item == null ? Optional.empty() : byItem(item);
+    }
+
     private Optional<ModelInfo> byItem(ContentId item) {
         for (ModelInfo one : model.values()) {
             if (one.item().equals(item)) {
@@ -312,7 +320,34 @@ public final class ModelPlacementListener implements Listener {
 
     /** Puts a piece into a block space. Main thread only. */
     public Interaction place(Block target, ModelInfo info, float yaw, ItemStack source) {
+        return place(target, info, yaw, source, 1f);
+    }
+
+    /**
+     * Puts a piece down for a plugin, as a player's placement would, and runs
+     * the item's {@code place} actions as {@code placer} when there is one.
+     * The caller has already asked {@code ModelPlaceEvent}. Main thread only.
+     *
+     * @param multiplier how much bigger than its own {@code place: scale}
+     */
+    public Interaction placeFor(Block target, ModelInfo info, float yaw, float multiplier, Player placer) {
+        Interaction hitbox = place(target, info, yaw, null, multiplier);
+        act(placer, info.id(), ai.resourcepack.engine.api.ItemAction.Trigger.PLACE,
+                target.getLocation().add(0.5, 0, 0.5));
+        return hitbox;
+    }
+
+    /**
+     * As {@link #place(Block, ModelInfo, float, ItemStack)}, {@code multiplier}
+     * times the size the piece's own definition asks for.
+     *
+     * <p>A multiplier other than 1 is written on the hitbox under the same key
+     * a Studio rig's placement scale uses, which is where vehicle collision
+     * already looks, and the seat and a state's offset are scaled by it too.
+     */
+    private Interaction place(Block target, ModelInfo info, float yaw, ItemStack source, float multiplier) {
         World world = target.getWorld();
+        final float scale = info.scale() * multiplier;
         ItemStack shown = source != null && source.getType() != Material.AIR
                 ? asOne(source)
                 : items.create(info.item()).orElse(null);
@@ -336,7 +371,7 @@ public final class ModelPlacementListener implements Listener {
         // branch over what to spawn rather than a second place().
         RigStore.Rig rig = rigs == null ? null : rigs.get(info.id().toString());
         List<String> partIds = rig != null && rig.parts != null && !rig.parts.isEmpty()
-                ? spawns.parts(target, info.id().toString(), rig, yaw, null, info.scale(),
+                ? spawns.parts(target, info.id().toString(), rig, yaw, null, scale,
                                 part -> partStack(info, part))
                         .stream().map(display -> display.getUniqueId().toString()).toList()
                 : null;
@@ -357,16 +392,16 @@ public final class ModelPlacementListener implements Listener {
             // honestly be.
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.setRotation(yaw, 0f);
-            if (info.scale() != 1f) {
+            if (scale != 1f) {
                 Transformation transformation = d.getTransformation();
-                transformation.getScale().set(info.scale());
+                transformation.getScale().set(scale);
                 d.setTransformation(transformation);
             }
             // Culled otherwise: a large piece disappears when its anchor block
             // leaves the frustum, which reads as flickering model.
             d.setViewRange(1.5f);
-            d.setDisplayWidth(Math.max(1f, info.width() * info.scale()));
-            d.setDisplayHeight(Math.max(1f, info.height() * info.scale()));
+            d.setDisplayWidth(Math.max(1f, info.width() * scale));
+            d.setDisplayHeight(Math.max(1f, info.height() * scale));
             d.setBillboard(Display.Billboard.FIXED);
         });
 
@@ -374,14 +409,17 @@ public final class ModelPlacementListener implements Listener {
         // one sits on the block floor and grows upward.
         Location base = target.getLocation().add(0.5, 0.0, 0.5);
         Interaction hitbox = world.spawn(base, Interaction.class, i -> {
-            i.setInteractionWidth(info.width() * info.scale());
-            i.setInteractionHeight(info.height() * info.scale());
+            i.setInteractionWidth(info.width() * scale);
+            i.setInteractionHeight(info.height() * scale);
             i.setResponsive(true);
             i.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, info.id().toString());
             // On the HITBOX as well as on the parts, for the reason the studio
             // placement writes it: vehicle collision turns the model's own
             // boxes by this, and the hitbox is the only entity it looks at.
             i.getPersistentDataContainer().set(placedYawKey, PersistentDataType.FLOAT, yaw);
+            if (multiplier != 1f) {
+                i.getPersistentDataContainer().set(placedScaleKey, PersistentDataType.FLOAT, multiplier);
+            }
             i.getPersistentDataContainer().set(displayKey, PersistentDataType.STRING,
                     partIds != null ? String.join(",", partIds) : display.getUniqueId().toString());
             if (partIds != null) {
@@ -601,7 +639,7 @@ public final class ModelPlacementListener implements Listener {
         // a decision about somebody's server, which is what the event is for —
         // and a listener that cancels gets its way before this runs.
         if (piece != null && piece.sittable()) {
-            seats.sit(clicker, seatOf(hitbox, piece));
+            seats.sit(clicker, seatOf(hitbox, piece, multiplierOf(hitbox)));
         }
     }
 
@@ -917,7 +955,8 @@ public final class ModelPlacementListener implements Listener {
         Transformation now = display.getTransformation();
         org.joml.Vector3f translation = state == null
                 ? new org.joml.Vector3f()
-                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ()).mul(info.scale());
+                : new org.joml.Vector3f(state.offsetX(), state.offsetY(), state.offsetZ())
+                        .mul(info.scale() * multiplierOf(hitbox));
         // Adding to a yaw is a NEGATIVE turn about y: the display is drawn
         // turned by -yaw, so this composes into -(yaw + turn).
         org.joml.Quaternionf turn = state == null
@@ -1070,7 +1109,7 @@ public final class ModelPlacementListener implements Listener {
      * itself. Turning them with the yaw is the whole reason they are stated as
      * side and forward rather than as x and z in the world.
      */
-    private static Location seatOf(Interaction hitbox, ModelInfo info) {
+    private static Location seatOf(Interaction hitbox, ModelInfo info, float multiplier) {
         Location at = hitbox.getLocation();
         float yaw = at.getYaw();
         double radians = Math.toRadians(yaw);
@@ -1078,15 +1117,22 @@ public final class ModelPlacementListener implements Listener {
         double cos = Math.cos(radians);
 
         // Minecraft's yaw: 0 faces south (+z), and +x is to the west of that.
-        double side = info.seatSide() * info.scale();
-        double forward = info.seatForward() * info.scale();
+        double scale = info.scale() * multiplier;
+        double side = info.seatSide() * scale;
+        double forward = info.seatForward() * scale;
 
         Location seat = at.clone().add(
                 side * cos - forward * sin,
-                info.seat() * info.scale(),
+                info.seat() * scale,
                 side * sin + forward * cos);
         seat.setYaw(yaw);
         return seat;
+    }
+
+    /** How much bigger than its definition a plugin put this piece down: 1 for anything placed by hand. */
+    private float multiplierOf(Interaction hitbox) {
+        Float stored = hitbox.getPersistentDataContainer().get(placedScaleKey, PersistentDataType.FLOAT);
+        return stored == null || !(stored > 0f) || !Float.isFinite(stored) ? 1f : stored;
     }
 
     /** The model standing as {@code hitbox}, or empty if that is not one of ours. */
@@ -1117,12 +1163,16 @@ public final class ModelPlacementListener implements Listener {
         remove(hitbox, id.get(), player, drop);
     }
 
-    /** Takes a piece apart, dropping its item unless told otherwise. */
-    public void remove(Interaction hitbox, ContentId id, Player breaker, boolean dropItem) {
+    /**
+     * Takes a piece apart, dropping its item unless told otherwise.
+     *
+     * @return false if a listener refused
+     */
+    public boolean remove(Interaction hitbox, ContentId id, Player breaker, boolean dropItem) {
         ModelBreakEvent ask = new ModelBreakEvent(id, hitbox.getLocation(), breaker, dropItem);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
-            return;
+            return false;
         }
 
         Location where = hitbox.getLocation();
@@ -1137,14 +1187,14 @@ public final class ModelPlacementListener implements Listener {
         act(breaker, id, ai.resourcepack.engine.api.ItemAction.Trigger.REMOVE, where);
 
         if (world == null) {
-            return;
+            return true;
         }
         if (!ask.isDropItem()) {
             // The piece is not given back — a creative break, or a plugin that
             // said so — but what was IN it was never the piece's to lose. It
             // spills, as a chest's contents do whoever breaks the chest.
             spill(world, where, gone.contents);
-            return;
+            return true;
         }
         // A configured drop beats what it was holding: a piece that gives
         // back something other than itself is a decision the pack made, and
@@ -1165,6 +1215,7 @@ public final class ModelPlacementListener implements Listener {
             world.dropItemNaturally(where.clone().add(0, 0.5, 0), fallback);
         }
         spill(world, where, contents);
+        return true;
     }
 
     /**
@@ -1341,13 +1392,15 @@ public final class ModelPlacementListener implements Listener {
     Interaction grow(Interaction hitbox, ModelInfo from, ModelInfo into) {
         Float stored = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
         float yaw = stored != null ? stored : hitbox.getLocation().getYaw();
+        // A piece a plugin put down bigger grows into something as much bigger.
+        float multiplier = multiplierOf(hitbox);
         Location where = hitbox.getLocation();
         Block block = where.getBlock();
         Dismantled gone = dismantle(hitbox, from);
         if (where.getWorld() != null) {
             spill(where.getWorld(), where, gone.contents);
         }
-        return place(block, into, yaw, null);
+        return place(block, into, yaw, null, multiplier);
     }
 
     /** Puts a container's contents on the ground where it stood. */

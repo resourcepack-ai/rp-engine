@@ -171,6 +171,30 @@ public interface Models {
     Optional<Placement> place(Location at, String modelId, PlaceOptions options);
 
     /**
+     * Puts down a content-folder item's {@code place:} model, exactly as a
+     * player placing that item would: its hitbox, seat, light, solid block,
+     * storage and states, an animated rig where the model has animations, and
+     * the item's {@code place} actions, run as the placer when there is one.
+     * It is saved with the chunk like any placed piece, and a punch breaks it.
+     *
+     * <p>The location names a block, as for the other {@code place}: the piece
+     * stands in the block containing {@code at}. The yaw is taken as given,
+     * not snapped the way the piece's {@code facing} snaps a player's.
+     * {@code options.scale()} multiplies the item's own {@code place: scale},
+     * so 1 is the size the pack asked for. {@code options.placer()} fires
+     * {@link ai.resourcepack.engine.api.event.ModelPlaceEvent} first, as
+     * above; {@code options.animation()} is not read, since a content-folder
+     * piece plays what its triggers say.
+     *
+     * @param item the item whose {@code place:} block to put down, the id a
+     *             player holds
+     * @return the new placement, or empty if the item has no {@code place:}
+     *         block, the block is not empty or already holds a model, the
+     *         world is not loaded, or a listener cancelled it
+     */
+    Optional<Placement> place(Location at, ContentId item, PlaceOptions options);
+
+    /**
      * The item that places this model when right-clicked - the same stack the
      * studio panel hands out.
      *

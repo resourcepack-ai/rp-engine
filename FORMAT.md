@@ -24,6 +24,7 @@ plugins/RPEngine/content/
     liquids/     *.yml
     vehicles/    *.yml
     emotes/      *.json      also *.yml - see Emotes below
+    armor3d/     *.yml       3D armour sets - see 3D armour below
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -833,6 +834,60 @@ a stick does nothing; on 1.21.2 and 1.21.3 any item can be worn but draws with
 vanilla artwork. The item itself works either way, the plugin says which
 you are on at startup, and every build names the armour that will be worn with
 vanilla art.
+
+## 3D armour
+
+Armour with real depth: pauldrons that stand off the shoulder, a cape, a crown
+taller than the head. Built in Blockbench and named here:
+
+```yaml
+# armor3d/costumes.yml
+santa:
+  name: "Santa Suit"     # optional; the id when absent
+  model: armor_santa     # assets/models/armor_santa.bbmodel; the id when absent
+```
+
+That is the set `mypack:santa`, and `/rp armor wear mypack:santa` puts it on.
+`/rp armor` lists every set, `/rp armor give` hands the pieces over, and each
+piece goes on by hand like any armour. Plugins reach the same sets through
+`engine.armor()` (see API.md).
+
+**The model is a Blockbench project** (`.bbmodel`, saved as it is, with its
+textures embedded; there is nothing to export) built on the player template,
+the same file MythicArmors reads. Its frame is the player's: feet on y = 0, the
+front facing +Z, the wearer's right at -X, 16 units to a block. Cubes go in
+groups named after the bone they ride:
+
+| Group | Piece |
+|---|---|
+| `head` | helmet |
+| `body`, `right_arm`, `left_arm` | chestplate |
+| `waist`, `right_leg`, `left_leg` | leggings |
+| `right_foot`, `left_foot` | boots |
+
+A piece with no cubes is not part of the set, so a crown alone is a set with
+one piece. A group inside a bone (a `cape` inside `body`) rides that bone, and
+a group with any other name is warned about by name, because a typo there
+means a pauldron glued to the wrong limb or to nothing. A cube in no bone at
+all is left out and counted in the warning.
+
+Cubes may be turned any way at all, on any axis and by any angle, and groups
+may be turned too. The block model format only allows one axis and five
+angles, so a cube turned past that is drawn as a piece of its own that the
+engine turns. Faces with no texture are left out, and any number of textures
+is fine.
+
+**How it is drawn.** A vanilla client cannot draw 3D armour on a body, so the
+pieces are drawn two ways. The helmet is the game's: any item on the head is
+drawn from its model, the pack's helmet is built to land exactly on the head,
+and it follows the head on every client with nothing from the server. The
+rest is display entities the engine poses onto the limbs, moving with the
+wearer's walk, swing and crouch. The wearer does not see their own in first
+person; `/rp armor self` shows it to them in F5.
+
+**Needs Minecraft 1.21.4 or newer**, where art can be named by a string. On an
+older server the sets still load (and are checked, so the warnings are worth
+reading), nothing is built into the pack, and `/rp armor` says why.
 
 ## Entities
 

@@ -14,6 +14,7 @@ engine.items();     // custom items
 engine.models();    // studio models, and the rigs standing in your worlds
 engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
+engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
@@ -66,6 +67,25 @@ engine.models().itemFor("golem", ItemOptions.defaults());
 engine.models().near(location, 16);      // what is standing around here
 engine.models().at(entity);              // is this entity part of a rig?
 ```
+
+`place(Location, String, ...)` stands up a Studio model. A content folder's
+model is an item's `place:` block, and is put down by naming the item:
+
+```java
+ContentId tree = ContentId.parse("christmas:tree").orElseThrow();
+engine.models().place(location, tree, PlaceOptions.defaults().placer(player));
+```
+
+That is exactly what a player placing the item does: the hitbox, seat, light,
+solid block, storage, states, an animated rig if the model has animations, and
+the item's `place` actions (run as the placer, when there is one). It stands in
+the block containing the location and is saved with the chunk. The yaw is used
+as given rather than snapped by the piece's `facing`, and `scale()` multiplies
+the item's own `place: scale`, so 1 is the size the pack asked for. A placer
+fires `ModelPlaceEvent` first. Empty comes back when the item has no `place:`
+block, the block is not empty or already holds a model, or a listener
+cancelled it. `remove` on the placement takes it apart the way a punch does,
+dropping the item (or the pack's `drop:`) when asked to.
 
 A `Placement` is a handle on a rig that is standing in a world: it can be
 asked what it is, told to play an animation, and removed. `playhead()` is
@@ -195,6 +215,46 @@ public void onRig(EmoteRigSpawnEvent event) {
 
 It fires for every rig, not only the ones you put on, so check the player is
 yours. When the rig comes off, `EmoteEndEvent` fires and the displays are gone.
+
+## 3D armour
+
+```java
+ContentId santa = ContentId.parse("christmas:santa").orElseThrow();
+
+engine.armor().ids();                                 // every set: content folders' and Studio pushes'
+engine.armor().info(santa);                           // its name and which pieces it has
+engine.armor().create(santa, ArmorPiece.HELMET);      // one piece, as an item
+ArmorResult result = engine.armor().wear(player, santa); // the whole set, now
+engine.armor().wearing(player);                       // which set each worn piece belongs to
+engine.armor().strip(player);                         // every 3D piece off
+```
+
+A set from a content folder is named `namespace:path`; one a Studio push
+brought is `studio:<id>`. Both are worn the same way.
+
+**A piece is an item, and wearing it is all it takes.** Each piece is paper
+carrying the piece's art and an `equippable` naming its slot, so it goes on by
+hand like armour, and the engine draws whatever anybody has on. `wear` is a
+convenience for putting all four on at once; it is the same code
+`/rp armor wear` runs. What was in a slot is handed back to the player, into
+their inventory or at their feet when it is full, and
+`ArmorResult.displaced()` lists it, so a plugin that wants to keep somebody's
+own armour while they are in a costume can take it back out. A slot the set has
+no piece for is left alone. `strip` takes off only 3D armour, and the pieces it
+returns are not given to anybody.
+
+`ArmorResult` carries a reason (`WORN`, `UNKNOWN_SET`, `UNSUPPORTED`) rather
+than a sentence. 3D armour needs Minecraft 1.21.4 or newer; below that
+`available()` is false and `wear` and `create` refuse.
+
+The helmet is drawn by the game on the head and so is right on every client
+with no help. The rest is display entities posed on the limbs by the engine,
+which a viewer sees a moment behind the wearer's own movement, and which the
+wearer does not see of themselves unless they ask (`/rp armor self`). A set
+pushed from Studio has its art in that push's pack, so only somebody holding
+that pack sees it drawn; a content folder's set is in the server's own pack.
+
+Main thread only, except `available`, `ids` and `info`.
 
 ## Sounds
 

@@ -682,10 +682,10 @@ public final class StudioContent {
     /**
      * The pushed 3D armour sets, keyed by their bare id.
      *
-     * <p>Not registry content, and that is a known gap rather than a choice:
-     * nothing but a push can define one yet, so there is no second source for
-     * the registry to hold an opinion about. A hand-authored set (a
-     * {@code .bbmodel} with MythicArmors' bone names) is the missing half.
+     * <p>Half of the server's sets: a content folder's {@code armor3d/} is the
+     * other, and {@code Armor3dCatalogue} is where the two are one list. A
+     * pushed id never has a colon in it and an authored one always does, so
+     * the two cannot collide.
      */
     public Map<String, Armor3dSet> armor3d() {
         return armor3d;

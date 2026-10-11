@@ -23,3 +23,4 @@ ai/resourcepack/engine/core/emote/NativeRigItems.java
 ai/resourcepack/engine/core/armor3d/PieceEquipping.java
 ai/resourcepack/engine/core/model/ComponentDiscs.java
 ai/resourcepack/engine/core/dialog/DialogItemModels.java
+ai/resourcepack/engine/core/armor3d/ArmourItemModels.java
