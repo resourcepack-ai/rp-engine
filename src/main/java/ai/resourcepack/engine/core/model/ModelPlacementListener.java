@@ -1470,8 +1470,14 @@ public final class ModelPlacementListener implements Listener {
     public Interaction findAt(Block block) {
         Location centre = block.getLocation().add(0.5, 0.5, 0.5);
         for (Entity entity : block.getWorld().getNearbyEntities(centre, 0.5, 0.5, 0.5)) {
+            // The piece standing IN this block, not any piece whose hitbox
+            // reaches over it: a wide piece's box spans its neighbours, and
+            // counting that refused a chair a block away from a wide wall.
+            Location at = entity.getLocation();
             if (entity instanceof Interaction
-                    && entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)) {
+                    && entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)
+                    && at.getBlockX() == block.getX() && at.getBlockY() == block.getY()
+                    && at.getBlockZ() == block.getZ()) {
                 return (Interaction) entity;
             }
         }
