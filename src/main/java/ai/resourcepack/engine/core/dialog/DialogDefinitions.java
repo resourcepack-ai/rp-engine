@@ -190,8 +190,9 @@ public final class DialogDefinitions {
         }
     }
 
-    private static DialogInfo opened(DialogInfo dialog, DefinitionNode body, String origin, String where,
+    private static DialogInfo opened(DialogInfo authored, DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
+        DialogInfo dialog = sounded(authored, body, origin, where, diagnostics);
         Optional<String> command = body.string("command");
         if (command.isEmpty()) {
             return dialog;
@@ -203,6 +204,53 @@ public final class DialogDefinitions {
             return dialog;
         }
         return dialog.withCommand(command.get(), body.string("permission").orElse(null));
+    }
+
+    /**
+     * What a click on the dialog's picture sounds like, when it says:
+     *
+     * <pre>
+     * click-sound: entity.experience_orb.pickup     # or "" for none
+     * click-sound: { sound: ui.button.click, volume: 0.4, pitch: 1.5 }
+     * click-sounds:                                 # a click that runs this command
+     *   - { command: "rp page mypack:shop.ranks", sound: block.note_block.chime }
+     * </pre>
+     *
+     * A sound that is not an event name is warned about and left out, so the
+     * click keeps the sound it had.
+     */
+    private static DialogInfo sounded(DialogInfo dialog, DefinitionNode body, String origin, String where,
+                                      List<Diagnostic> diagnostics) {
+        DialogInfo.ClickSound clickSound = body.node("click-sound")
+                .map(node -> clickSound(node, "click-sound", origin, where, diagnostics))
+                .orElseGet(() -> body.string("click-sound")
+                        .map(sound -> clickSound(DefinitionNode.of(Map.of("sound", sound)), "click-sound", origin, where, diagnostics))
+                        .orElse(null));
+        List<DialogInfo.CommandSound> clickSounds = new ArrayList<>();
+        for (DefinitionNode node : body.nodes("click-sounds")) {
+            Optional<String> command = node.string("command").filter(c -> !c.isBlank());
+            if (command.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where, "click-sounds: an entry has no command: it would be no click's sound."));
+                continue;
+            }
+            DialogInfo.ClickSound sound = clickSound(node, "click-sounds", origin, where, diagnostics);
+            if (sound != null) {
+                clickSounds.add(new DialogInfo.CommandSound(command.get().trim(), sound));
+            }
+        }
+        return clickSound == null && clickSounds.isEmpty() ? dialog : dialog.withClickSounds(clickSound, clickSounds);
+    }
+
+    private static DialogInfo.ClickSound clickSound(DefinitionNode node, String key, String origin, String where,
+                                                    List<Diagnostic> diagnostics) {
+        String sound = node.string("sound").orElse("");
+        DialogInfo.ClickSound read = DialogInfo.ClickSound.of(sound, node.decimal("volume").orElse(null), node.decimal("pitch").orElse(null));
+        if (read == null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    key + ": \"" + sound + "\" is not a sound event - lower-case letters, digits, _ . - and /, "
+                            + "with a namespace: in front if it has one. The click keeps its sound."));
+        }
+        return read;
     }
 
     /**

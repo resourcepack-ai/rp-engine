@@ -488,6 +488,33 @@ public final class DialogsImpl implements Dialogs {
         return shown != null && visibleJson(viewer, shown.id(), shown.values()).map(json -> DialogLinks.clicksCommand(json, command)).orElse(false);
     }
 
+    /**
+     * What a click on the picture of the dialog the player was last shown
+     * sounds like, when {@code command} is what one runs: that click's own
+     * sound, else the dialog's, else {@code fallback} (the server's configured
+     * click). Empty when it was no click on a picture: a footer button clicks
+     * by itself, on the client.
+     */
+    public Optional<DialogInfo.ClickSound> pictureClickSound(Player viewer, String command, DialogInfo.ClickSound fallback) {
+        Shown shown = command == null ? null : current(viewer);
+        if (shown == null || !visibleJson(viewer, shown.id(), shown.values())
+                .map(json -> DialogLinks.clicksCommand(json, command)).orElse(false)) {
+            return Optional.empty();
+        }
+        DialogInfo info = info(viewer, shown.id()).orElse(null);
+        if (info != null) {
+            for (DialogInfo.CommandSound sound : info.clickSounds()) {
+                if (DialogLinks.sameCommand(sound.command(), command)) {
+                    return Optional.of(sound.sound());
+                }
+            }
+            if (info.clickSound().isPresent()) {
+                return info.clickSound();
+            }
+        }
+        return Optional.ofNullable(fallback);
+    }
+
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
         return Optional.ofNullable(current(viewer));
