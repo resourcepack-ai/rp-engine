@@ -61,6 +61,19 @@ public interface PackContributor {
          */
         void drop(String zipPath);
 
+        /**
+         * Declares a version overlay: {@code directory} at the zip's root is
+         * read only by clients of resource pack formats {@code minFormat} to
+         * {@code maxFormat}. The files are {@link #add}ed under it as usual.
+         * Declaring the same directory twice declares it once.
+         *
+         * <p>For what must not reach other versions at all: a core shader
+         * written against one renderer, which a client of another would fail
+         * to compile, refusing the whole pack.
+         */
+        default void overlay(String directory, int minFormat, int maxFormat) {
+        }
+
         /** Reports a problem against a file in the content folder. */
         void warn(String origin, String where, String message);
 

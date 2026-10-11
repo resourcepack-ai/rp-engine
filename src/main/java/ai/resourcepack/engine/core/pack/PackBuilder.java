@@ -214,9 +214,12 @@ public final class PackBuilder {
 
         // After the copy, so a contributor can ask whether a texture it is
         // about to point at was actually shipped.
+        Map<String, int[]> generatedOverlays = new java.util.LinkedHashMap<>();
         for (PackContributor contributor : contributors) {
-            contributor.contribute(bundle, loaded, new Sink(contentRoot, zip, writtenBy, diagnostics));
+            contributor.contribute(bundle, loaded,
+                    new Sink(contentRoot, zip, writtenBy, diagnostics, generatedOverlays));
         }
+        addGeneratedOverlays(overlays, generatedOverlays);
 
         zip.add("pack.mcmeta", mcmeta(bundle, overlays).getBytes(StandardCharsets.UTF_8));
 
@@ -237,13 +240,22 @@ public final class PackBuilder {
         private final DeterministicZip zip;
         private final Map<String, String> writtenBy;
         private final List<Diagnostic> diagnostics;
+        private final Map<String, int[]> overlays;
 
         private Sink(Path contentRoot, DeterministicZip zip,
-                     Map<String, String> writtenBy, List<Diagnostic> diagnostics) {
+                     Map<String, String> writtenBy, List<Diagnostic> diagnostics, Map<String, int[]> overlays) {
             this.contentRoot = contentRoot;
             this.zip = zip;
             this.writtenBy = writtenBy;
             this.diagnostics = diagnostics;
+            this.overlays = overlays;
+        }
+
+        @Override
+        public void overlay(String directory, int minFormat, int maxFormat) {
+            if (directory != null && OVERLAY_DIRECTORY.matcher(directory).matches() && !directory.equals(ASSETS)) {
+                overlays.putIfAbsent(directory, new int[]{minFormat, maxFormat});
+            }
         }
 
         @Override
@@ -335,6 +347,49 @@ public final class PackBuilder {
         entries.add("entries", overlays);
         return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + "\n}\n";
     }
+
+    /**
+     * The overlays contributors declared, after the ones the packs shipped
+     * (a directory a pack already declared keeps the pack's entry).
+     *
+     * <p>Written the way Studio writes its own: {@code min_format} and
+     * {@code max_format}, plus the older {@code formats} only when some entry
+     * reaches a format before 65, which is when a client that needs it could
+     * be reading the pack at all.
+     */
+    private static void addGeneratedOverlays(com.google.gson.JsonArray overlays, Map<String, int[]> generated) {
+        if (generated.isEmpty()) return;
+        java.util.Set<String> declared = new java.util.HashSet<>();
+        boolean anyOld = false;
+        for (com.google.gson.JsonElement e : overlays) {
+            if (e.isJsonObject() && e.getAsJsonObject().has("directory")) {
+                declared.add(e.getAsJsonObject().get("directory").getAsString());
+            }
+            int[] range = overlayRange(e);
+            anyOld |= range != null && range[0] <= LAST_OLD_PACK_FORMAT;
+        }
+        for (int[] range : generated.values()) {
+            anyOld |= range[0] <= LAST_OLD_PACK_FORMAT;
+        }
+        for (Map.Entry<String, int[]> entry : generated.entrySet()) {
+            if (declared.contains(entry.getKey())) continue;
+            com.google.gson.JsonObject o = new com.google.gson.JsonObject();
+            int[] range = entry.getValue();
+            if (anyOld) {
+                com.google.gson.JsonObject formats = new com.google.gson.JsonObject();
+                formats.addProperty("min_inclusive", range[0]);
+                formats.addProperty("max_inclusive", range[1]);
+                o.add("formats", formats);
+            }
+            o.addProperty("min_format", range[0]);
+            o.addProperty("max_format", range[1]);
+            o.addProperty("directory", entry.getKey());
+            overlays.add(o);
+        }
+    }
+
+    /** The last resource pack format whose clients read an overlay's range from {@code formats}. */
+    private static final int LAST_OLD_PACK_FORMAT = 64;
 
     /** An overlay entry's formats, from min_format/max_format or formats, or null. */
     private static int[] overlayRange(com.google.gson.JsonElement e) {

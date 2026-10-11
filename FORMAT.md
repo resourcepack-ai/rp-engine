@@ -845,6 +845,7 @@ taller than the head. Built in Blockbench and named here:
 santa:
   name: "Santa Suit"     # optional; the id when absent
   model: armor_santa     # assets/models/armor_santa.bbmodel; the id when absent
+  displays: false        # optional, default true; see How it is drawn
 ```
 
 That is the set `mypack:santa`, and `/rp armor wear mypack:santa` puts it on.
@@ -878,12 +879,27 @@ engine turns. Faces with no texture are left out, and any number of textures
 is fine.
 
 **How it is drawn.** A vanilla client cannot draw 3D armour on a body, so the
-pieces are drawn two ways. The helmet is the game's: any item on the head is
-drawn from its model, the pack's helmet is built to land exactly on the head,
-and it follows the head on every client with nothing from the server. The
-rest is display entities the engine poses onto the limbs, moving with the
-wearer's walk, swing and crouch. The wearer does not see their own in first
-person; `/rp armor self` shows it to them in F5.
+pieces are drawn in up to three ways. The helmet is the game's: any item on the
+head is drawn from its model, the pack's helmet is built to land exactly on the
+head, and it follows the head on every client with nothing from the server.
+
+The rest is drawn by **the client's own core shaders** wherever a shader port
+exists for its version, which today is **Minecraft 26.1 to 26.2**: the pack
+carries the set encoded into armour layers, and the client turns them back into
+the set's cubes on the player's own limbs. That is part of the body, so it
+never lags, not even for the wearer, and it is drawn on anything that wears
+armour, an armour stand included. Faces that would sit in one plane are nudged
+a fraction of a pixel apart first, because the game draws armour from both
+sides. The shaders live in a version overlay only those clients load, so they
+cannot break the pack for anybody else.
+
+Every other viewer is shown **display entities** the engine poses onto the
+limbs, moving with the wearer's walk, swing and crouch, unless the set says
+`displays: false`, in which case they see only the helmet. Turn them off when
+your server only admits the versions the shaders cover, or when you would
+rather show less than show it a moment behind (a display can never be quite as
+quick as the body). The wearer does not see their own displays in first person;
+`/rp armor self` shows them in F5.
 
 **Needs Minecraft 1.21.4 or newer**, where art can be named by a string. On an
 older server the sets still load (and are checked, so the warnings are worth
