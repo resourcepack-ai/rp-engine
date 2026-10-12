@@ -233,6 +233,9 @@ public final class BedrockGeometry {
             if (loop) {
                 out.addProperty("loop", true);
                 loops.add(id);
+            } else if (animation.has("mode") && "hold".equals(animation.get("mode").getAsString())) {
+                // Bedrock's spelling of a held one-shot: stays on its last frame.
+                out.addProperty("loop", "hold_on_last_frame");
             }
             float length = animation.has("length") ? animation.get("length").getAsFloat() : 1f;
             out.addProperty("animation_length", round(Math.max(0.05f, length)));
