@@ -2708,6 +2708,12 @@ its real width, so the runs after it still land where they were drawn. Draw an
 icon's rightmost column, even with one barely visible pixel, because the game
 measures a glyph to its last inked column and the engine measures the cell.
 
+Such a HUD can go on either surface, and its `slot` is chosen in Studio. A boss
+bar HUD needs **Paper** when its picture lives in a font of its own (the JSON's
+`font`): Spigot's boss bar takes only legacy text, which cannot name a font, so
+there the picture goes missing and the spacing characters draw as boxes. The
+action bar works on both.
+
 **A GUI is a real container wearing a picture.** The rows and the slots are
 vanilla's; only the backdrop is yours, so `container:` has to name one the game
 actually has. Anything else is refused at load with the list in the message,
