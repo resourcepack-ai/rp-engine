@@ -215,7 +215,7 @@ public final class EditSessions {
     }
 
     private String version() {
-        return Bukkit.getBukkitVersion().split("-")[0];
+        return ai.resourcepack.engine.core.version.Compatibility.readServerVersion();
     }
 
     /**
