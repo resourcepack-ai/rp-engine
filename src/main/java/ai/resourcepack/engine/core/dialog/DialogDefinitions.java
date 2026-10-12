@@ -73,8 +73,12 @@ public final class DialogDefinitions {
                         "json: " + file.get() + " is not a file in this pack."));
                 return Optional.empty();
             }
+            // The JSON says what the client does after a click. Whether the
+            // engine closes it afterwards (a Studio dialog sent as none for that)
+            // is the one thing a file cannot say: DialogInfo.closesAfterClick.
             return Optional.of(opened(DialogInfo.authored(definition.id(), compact(json, file.get(), origin, where, diagnostics),
-                    name, vars(body, origin, where, diagnostics)), body, origin, where, diagnostics));
+                    name, vars(body, origin, where, diagnostics)).withClosesAfterClick(body.bool("close-after-click").orElse(false)),
+                    body, origin, where, diagnostics));
         }
 
         List<String> lines = body.strings("body");
@@ -95,16 +99,20 @@ public final class DialogDefinitions {
         json.append("  \"title\": ").append(quote(body.string("title").orElse(name))).append(",\n");
         json.append("  \"can_close_with_escape\": ")
                 .append(body.bool("can_close_with_escape").orElse(Boolean.TRUE)).append(",\n");
-        String afterAction = after(body.string("after").orElse("close"));
+        String after = after(body.string("after").orElse("seamless"));
+        // Seamless is none on the wire, and the engine closes the dialog after
+        // a click that opens nothing else: DialogInfo.closesAfterClick.
+        boolean seamless = after.equals("seamless");
+        String afterAction = seamless ? "none" : after;
         // A dialog that pauses has to close when it is used: the game refuses
         // one that pauses under `none` ("Dialogs that pause the game must use
         // after_action values that unpause it after user action!") — the whole
-        // dialog, at open. So `after: none` does not pause unless told to, and
-        // told to, it is warned about and does not.
+        // dialog, at open. So `after: none` (and seamless) does not pause unless
+        // told to, and told to, it is warned about and does not.
         boolean pauses = body.bool("pause").orElse(!afterAction.equals("none"));
         if (pauses && afterAction.equals("none")) {
             diagnostics.add(Diagnostic.warning(origin, where,
-                    "pause: true does not go with after: none — the game refuses a dialog that pauses and "
+                    "pause: true does not go with after: " + after + " — the game refuses a dialog that pauses and "
                             + "stays open — so this one does not pause."));
             pauses = false;
         }
@@ -128,6 +136,11 @@ public final class DialogDefinitions {
         if (type.equals("notice")) {
             if (!rendered.isEmpty()) {
                 json.append("  \"action\": ").append(rendered.get(0)).append("\n");
+            } else if (seamless) {
+                // The game's own Ok does nothing under none, which a seamless
+                // dialog is sent as: this one closes it.
+                json.append("  \"action\": { \"label\": { \"translate\": \"gui.done\" }, \"action\": "
+                        + "{ \"type\": \"minecraft:run_command\", \"command\": \"rp page close\" } }\n");
             } else {
                 // Vanilla's default is an Ok button, so a notice with none is
                 // still perfectly usable — the trailing comma is what has to go.
@@ -146,8 +159,8 @@ public final class DialogDefinitions {
             json.append("  ]\n");
         }
         json.append("}\n");
-        return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics)),
-                body, origin, where, diagnostics));
+        return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics))
+                        .withClosesAfterClick(seamless), body, origin, where, diagnostics));
     }
 
     /**
@@ -375,7 +388,7 @@ public final class DialogDefinitions {
 
     private static String after(String value) {
         String lower = value.trim().toLowerCase(Locale.ROOT);
-        return lower.equals("none") || lower.equals("wait_for_response") ? lower : "close";
+        return lower.equals("none") || lower.equals("wait_for_response") || lower.equals("seamless") ? lower : "close";
     }
 
     /** A JSON string. Minimal and correct — this is the only escaping here. */

@@ -229,6 +229,48 @@ public final class DialogLinks {
         return Pattern.compile(pattern.toString(), Pattern.DOTALL).matcher(bare).matches();
     }
 
+    /**
+     * Whether any click in a dialog runs {@code command}: a footer button's
+     * {@code run_command}, a run of the picture's text, or a button that builds
+     * its command from the dialog's inputs (a {@code dynamic/run_command}
+     * template, whose {@code $(input)} could be anything). Placeholders as in
+     * {@link #sameCommand}. With or without the slash.
+     */
+    public static boolean runsCommand(String json, String command) {
+        if (json == null || command == null) {
+            return false;
+        }
+        String bare = command.startsWith("/") ? command.substring(1) : command;
+        if (bare.isBlank()) {
+            return false;
+        }
+        Matcher m = ANY_COMMAND.matcher(json);
+        while (m.find()) {
+            String held;
+            try {
+                held = GSON.fromJson("\"" + m.group(2) + "\"", String.class);
+            } catch (JsonParseException e) {
+                continue;
+            }
+            if (held == null) {
+                continue;
+            }
+            if (m.group(1).equals("template")) {
+                held = MACRO.matcher(held).replaceAll("{input}");
+            }
+            if (sameCommand(held, bare)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A command a click runs, as a button's or a text run's {@code command}, or a dynamic button's {@code template}. */
+    private static final Pattern ANY_COMMAND = Pattern.compile(
+            "\"(command|template)\"[ ]*:[ ]*\"((?:[^\"\\\\]|\\\\.)*)\"");
+    /** An input's value in a dynamic button's template. */
+    private static final Pattern MACRO = Pattern.compile("\\$\\([A-Za-z0-9_]+\\)");
+
     /** A click on the picture: a text component's {@code click_event}, never a footer button's action. */
     private static final Pattern TEXT_CLICK = Pattern.compile(
             "\"action\"[ ]*:[ ]*\"run_command\"[ ]*,[ ]*\"command\"[ ]*:[ ]*\"((?:[^\"\\\\]|\\\\.)*)\"");

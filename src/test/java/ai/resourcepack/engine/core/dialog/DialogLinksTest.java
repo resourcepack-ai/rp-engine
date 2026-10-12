@@ -36,6 +36,26 @@ class DialogLinksTest {
             + "\"hover_event\":{\"action\":\"show_text\",\"value\":\"rp page studio:secret\"}}]},\"width\":400}],"
             + "\"action\":{\"label\":\"Close\"}}";
 
+    // Every click a dialog has, footer button or picture, and a dynamic
+    // button's template with whatever the player typed in it.
+
+    @Test
+    void runsCommandFindsEveryKindOfClick() {
+        String json = "{\"type\":\"minecraft:multi_action\",\"actions\":["
+                + "{\"label\":\"Spawn\",\"action\":{\"type\":\"minecraft:run_command\",\"command\":\"/spawn\"}},"
+                + "{\"label\":\"Pay\",\"action\":{\"type\":\"minecraft:dynamic/run_command\",\"template\":\"pay $(who) 10\"}}],"
+                + "\"body\":[{\"type\":\"minecraft:plain_message\",\"contents\":{\"text\":\"x\","
+                + "\"click_event\":{\"action\":\"run_command\",\"command\":\"warp {name}\"}}}]}";
+        assertTrue(DialogLinks.runsCommand(json, "/spawn"));
+        assertTrue(DialogLinks.runsCommand(json, "spawn"));
+        assertTrue(DialogLinks.runsCommand(json, "/pay Steve 10"));
+        assertTrue(DialogLinks.runsCommand(json, "/warp nether"));
+        assertFalse(DialogLinks.runsCommand(json, "/spawn now"));
+        assertFalse(DialogLinks.runsCommand(json, "/pay Steve 100"));
+        assertFalse(DialogLinks.runsCommand(json, "/"));
+        assertFalse(DialogLinks.runsCommand(null, "/spawn"));
+    }
+
     @Test
     void findsALinkInTheBody() {
         assertTrue(DialogLinks.opens(STUDIO_PAGE, id("studio:settings.audio")));

@@ -47,6 +47,7 @@ public final class DialogInfo {
     private final String permission;
     private final ClickSound clickSound;
     private final List<CommandSound> clickSounds;
+    private final boolean closesAfterClick;
 
     /** A command a dialog may be opened with: what a player types after the slash. */
     private static final Pattern COMMAND = Pattern.compile("[a-z0-9_-]{1,32}");
@@ -65,12 +66,12 @@ public final class DialogInfo {
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission) {
-        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of());
+        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false);
     }
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission,
-                       ClickSound clickSound, List<CommandSound> clickSounds) {
+                       ClickSound clickSound, List<CommandSound> clickSounds, boolean closesAfterClick) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -106,6 +107,7 @@ public final class DialogInfo {
             }
         }
         this.clickSounds = List.copyOf(sounds);
+        this.closesAfterClick = closesAfterClick;
     }
 
     /**
@@ -115,7 +117,8 @@ public final class DialogInfo {
      * off) is no command at all.
      */
     public DialogInfo withCommand(String command, String permission) {
-        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds);
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
+                closesAfterClick);
     }
 
     /**
@@ -125,7 +128,18 @@ public final class DialogInfo {
      * engine's own click.
      */
     public DialogInfo withClickSounds(ClickSound clickSound, List<CommandSound> clickSounds) {
-        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds);
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
+                closesAfterClick);
+    }
+
+    /**
+     * The same dialog, closed by the engine after a click — see
+     * {@link #closesAfterClick()}. Its JSON should say {@code after_action:
+     * none}, or the client closes it (or waits) by itself first.
+     */
+    public DialogInfo withClosesAfterClick(boolean closes) {
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
+                closes);
     }
 
     /**
@@ -258,6 +272,24 @@ public final class DialogInfo {
      */
     public List<CommandSound> clickSounds() {
         return clickSounds;
+    }
+
+    /**
+     * Whether the engine closes this dialog after a click on it: "seamless".
+     *
+     * <p>Such a dialog goes to the client as {@code after_action: none}, so a
+     * click leaves it on the screen exactly as it is, with no waiting screen and
+     * no flash of the world. The engine then answers the click: a dialog it
+     * opens takes this one's place, and when none does, the engine closes it.
+     * A click that runs another plugin's command closes it BEFORE that command
+     * runs, so whatever the command opens (its own dialog, a chest) arrives
+     * after the close rather than being shut by it.
+     *
+     * <p>A click the server never hears of stays open: a link, a copy, and a
+     * proxy's command ({@code /server}), which never reaches this server.
+     */
+    public boolean closesAfterClick() {
+        return closesAfterClick;
     }
 
     /**
