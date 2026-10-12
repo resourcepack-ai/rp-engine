@@ -20,8 +20,14 @@ import java.util.function.Supplier;
  * {@code reopen} after a click on the new one would put the old one back. A
  * click that runs a command is the first thing the server hears from the new
  * page, and {@link DialogsImpl#noteCommand} works out from it which page that
- * was. Watched at MONITOR, after anything that might cancel the command, and
- * before the command itself runs.
+ * was.
+ *
+ * <p>It also answers a click on a dialog the server has to take away
+ * ({@link DialogsImpl#answerClick}): a seamless one, still on the screen, or
+ * one the client is waiting on. Watched at LOWEST, before the command runs and
+ * before any other plugin has acted on it, so a close that has to come first
+ * does — and whether something cancels the command later changes nothing: the
+ * player clicked, and the click is answered either way.
  */
 public final class DialogClicks implements Listener {
 
@@ -38,7 +44,7 @@ public final class DialogClicks implements Listener {
         this.serverClick = serverClick;
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST)
     public void onCommand(PlayerCommandPreprocessEvent event) {
         dialogs.noteCommand(event.getPlayer(), event.getMessage());
         // The game's own click, which a click on a dialog's picture does not
@@ -47,6 +53,9 @@ public final class DialogClicks implements Listener {
         dialogs.pictureClickSound(event.getPlayer(), event.getMessage(), serverClick.get())
                 .filter(sound -> !sound.silent())
                 .ifPresent(sound -> play(event.getPlayer(), sound));
+        // Last: an answer may close the dialog, after which nothing above
+        // would find it.
+        dialogs.answerClick(event.getPlayer(), event.getMessage());
     }
 
     private static void play(Player player, DialogInfo.ClickSound sound) {

@@ -146,6 +146,11 @@ public final class DialogCommands {
         return Optional.empty();
     }
 
+    /** Whether {@code /<name>} is one of these: a command that opens a dialog. */
+    public boolean owns(String name) {
+        return name != null && registered.containsKey(name);
+    }
+
     /** Whether a dialog's command was refused because the server already has one by that name. */
     public boolean taken(String name) {
         return name != null && refused.contains(name);

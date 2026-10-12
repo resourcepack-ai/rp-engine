@@ -177,6 +177,12 @@ public final class StudioContent {
         DialogSound clickSound;
         /** The clicks with a sound of their own, each naming its command. */
         List<DialogSound> clickSounds;
+        /**
+         * The engine closes it after a click that opens nothing else — see
+         * {@link ai.resourcepack.engine.api.DialogInfo#closesAfterClick()}.
+         * Studio's "Seamless", sent with {@code after_action: none}. Absent: false.
+         */
+        Boolean closeAfterClick;
     }
 
     /**
@@ -869,7 +875,8 @@ public final class StudioContent {
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
                             .withCommand(dialog.command, dialog.permission)
-                            .withClickSounds(clickSound, clickSounds)));
+                            .withClickSounds(clickSound, clickSounds)
+                            .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();
