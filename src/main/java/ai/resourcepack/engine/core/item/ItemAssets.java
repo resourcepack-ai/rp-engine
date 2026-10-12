@@ -6,6 +6,8 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.ModelInfo;
+import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
@@ -15,10 +17,15 @@ import com.google.gson.JsonObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * Writes the two files an item needs to render, so nobody has to write them by
@@ -105,6 +112,8 @@ public final class ItemAssets implements PackContributor {
      */
     private final Map<String, List<LegacyItemModels.Override>> legacyBases = new LinkedHashMap<>();
     private final Map<String, ModelRigs.Rig> rigs = new LinkedHashMap<>();
+    /** Material and number pairs already in {@link #legacyBases}, so one model is never listed twice. */
+    private final Set<String> legacySeen = new HashSet<>();
 
     /**
      * Items no definition file declares: the one each custom block is placed
@@ -136,6 +145,7 @@ public final class ItemAssets implements PackContributor {
     public void contribute(Bundle bundle, LoadReport loaded, Contribution into) {
         this.bundle = bundle;
         legacyBases.clear();
+        legacySeen.clear();
         vanillaDrawn.clear();
         readArmorArt(loaded);
         readFirstPerson(loaded);
@@ -159,6 +169,7 @@ public final class ItemAssets implements PackContributor {
             }
             writeItem(item, into);
         }
+        writeLooks(loaded, parsed.items(), into);
         writeLegacyBases(into);
         if (!vanillaDrawn.isEmpty()) {
             // One line for the lot rather than one per piece: it is a fact
@@ -216,6 +227,119 @@ public final class ItemAssets implements PackContributor {
         }
     }
 
+    /** One custom model on a base material, numbered eras only. A repeat is ignored. */
+    private void addLegacy(String material, int number, String modelRef) {
+        if (legacySeen.add(material + "#" + number)) {
+            legacyBases.computeIfAbsent(material, key -> new ArrayList<>())
+                    .add(new LegacyItemModels.Override(number, modelRef));
+        }
+    }
+
+    /** A look a placed piece is told to wear by id, and where it was told. */
+    private static final class Look {
+        final ContentId id;
+        final String where;
+        final ContentId piece;
+        /** The materials of the pieces that wear it, which is what their displays carry. */
+        final SortedSet<String> materials = new TreeSet<>();
+
+        Look(ContentId id, String where, ContentId piece) {
+            this.id = id;
+            this.where = where;
+            this.piece = piece;
+        }
+    }
+
+    /**
+     * What a placed piece's other looks need in the pack: each state's
+     * {@code model:}, a jukebox's {@code playing-model:} and each
+     * {@code connects:} shape.
+     *
+     * <p>Each may name an item, or a model with no item of its own. An item
+     * already has what the client needs to draw it; a bare model used to have
+     * nothing, so the display was pointed at an item definition (or, below
+     * 1.21.4, a number) the pack never wrote, and the client drew the missing
+     * model. A bare model is now written exactly as an item of that id would
+     * be, built on the material of the piece that wears it. The runtime already
+     * addresses a look by its own id when no item has it, so it finds what is
+     * written here on every era.
+     *
+     * <p>Below 1.21.4 even a look that IS an item has a second half: its number
+     * is listed on that item's own material, and the display carries the
+     * piece's. Where the two differ the number is listed on the piece's too.
+     */
+    private void writeLooks(LoadReport loaded, Map<ContentId, ItemInfo> items, Contribution into) {
+        if (loaded == null) {
+            return;
+        }
+        Map<ContentId, ModelInfo> pieces = ModelDefinitions.parse(loaded, items).model();
+        Map<String, ModelInfo> sortedPieces = new TreeMap<>();
+        pieces.forEach((id, piece) -> sortedPieces.put(id.toString(), piece));
+        // Sorted throughout, so numbers are handed out in the same order on
+        // every build and two builds of the same content are byte-identical.
+        Map<String, Look> looks = new TreeMap<>();
+        for (ModelInfo piece : sortedPieces.values()) {
+            ItemInfo item = items.get(piece.item());
+            if (item == null || !bundle.namespaces().contains(item.id().namespace())) {
+                continue;
+            }
+            Map<String, ContentId> named = new LinkedHashMap<>();
+            List<ModelInfo.State> states = piece.states();
+            for (int i = 0; i < states.size(); i++) {
+                String where = "states " + (i + 1) + " model";
+                states.get(i).model().ifPresent(model -> named.putIfAbsent(model.toString() + "|" + where, model));
+            }
+            piece.jukebox().flatMap(ModelInfo.Jukebox::playingModel)
+                    .ifPresent(model -> named.putIfAbsent(model + "|jukebox playing-model", model));
+            piece.connects().forEach((shape, model) -> named.putIfAbsent(model + "|connects " + shape, model));
+            for (Map.Entry<String, ContentId> entry : named.entrySet()) {
+                String where = entry.getKey().substring(entry.getKey().indexOf('|') + 1);
+                looks.computeIfAbsent(entry.getValue().toString(),
+                                key -> new Look(entry.getValue(), where, item.id()))
+                        .materials.add(item.material());
+            }
+        }
+        for (Look look : looks.values()) {
+            ItemInfo asItem = items.get(look.id);
+            if (asItem == null) {
+                asItem = blockItems.stream().filter(one -> one.id().equals(look.id)).findFirst().orElse(null);
+            }
+            if (asItem != null) {
+                if (numbered) {
+                    ContentId model = asItem.modelId();
+                    String owner = items.getOrDefault(model, asItem).material();
+                    for (String material : look.materials) {
+                        if (!material.equals(owner)) {
+                            addLegacy(material, numbers.of(model), model.namespace() + ":item/" + model.path());
+                        }
+                    }
+                }
+                continue;
+            }
+            String namespace = look.id.namespace();
+            if (!bundle.namespaces().contains(namespace)) {
+                // Another pack's model, or the game's: nothing of ours to write.
+                continue;
+            }
+            String path = look.id.path();
+            if (source(into, namespace, path, ".bbmodel").isEmpty()
+                    && source(into, namespace, path, ".json").isEmpty()) {
+                into.warn(namespace + "/items", look.piece.path(),
+                        "place " + look.where + ": " + look.id + " is not an item, and there is no model at "
+                                + "assets/models/" + path + ".json or assets/models/" + path + ".bbmodel. "
+                                + "The piece draws as the missing model in that look.");
+                continue;
+            }
+            writeItem(ItemInfo.of(look.id, look.materials.first(), null, null, "item/" + path, path,
+                    null, null, null, 64, false, false), into);
+            if (numbered) {
+                for (String material : look.materials) {
+                    addLegacy(material, numbers.of(look.id), namespace + ":item/" + path);
+                }
+            }
+        }
+    }
+
     /**
      * The base item model files, one per vanilla material this bundle put a
      * custom model on. Only on the numbered eras; the definitions era has
@@ -244,7 +368,7 @@ public final class ItemAssets implements PackContributor {
     private static boolean isBlock(String material) {
         try {
             return org.bukkit.Material.valueOf(material).isBlock();
-        } catch (RuntimeException | NoClassDefFoundError e) {
+        } catch (RuntimeException | LinkageError e) {
             return false;
         }
     }
@@ -261,8 +385,7 @@ public final class ItemAssets implements PackContributor {
         // model, gathered here and written once at the end.
         if (numbered) {
             String material = item.material();
-            legacyBases.computeIfAbsent(material, key -> new ArrayList<>())
-                    .add(new LegacyItemModels.Override(numbers.of(id), modelRef));
+            addLegacy(material, numbers.of(id), modelRef);
             if (LegacyItemModels.isAwkward(material)) {
                 into.warn(namespace + "/items", id.path(),
                         "On this Minecraft a custom model is a predicate inside "
@@ -601,6 +724,13 @@ public final class ItemAssets implements PackContributor {
             // falls out of the piece's own exactly as the piece's fell out of
             // its id. Nothing is allocated here either.
             String path = part.item().substring(part.item().indexOf(':') + 1);
+            if (numbered) {
+                // Below 1.21.4 a part's display is told its model by the part
+                // id's number, on the piece's own material. Without this the
+                // number reached no model and every part drew as the missing one.
+                ContentId.parse(part.item()).ifPresent(partId ->
+                        addLegacy(item.material(), numbers.of(partId), namespace + ":item/" + path));
+            }
             into.add("assets/" + namespace + "/items/" + path + ".json",
                     json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\""
                             + namespace + ":item/" + path + "\"}}"));

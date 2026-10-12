@@ -663,13 +663,21 @@ door:
         sound: minecraft:block.wooden_door.open
 ```
 
+A state's `model:` can name a model you never made an item for:
+`mypack:lamp_on` with only `assets/models/lamp_on.json` (or `.bbmodel`) in the
+pack. The build writes whatever the client needs to draw it, on every version
+the engine runs on, so you do not have to invent an item just to give the piece
+a second look. If there is no item and no model by that name either, the build
+says so and names it. The same goes for a jukebox's `playing-model` and each
+`connects` shape.
+
 Right-click goes to the next state, and after the last one back to the start.
 **Anything a state leaves out is the piece as defined** — a state that only says
 `light: 15` keeps its model, its collision and its angle.
 
 | Key | In a state |
 |---|---|
-| `model` | An item whose model it wears (or a model id with no item of its own) |
+| `model` | An item whose model it wears, or a model id with no item of its own (see below) |
 | `light` | 0-15. `0` is dark |
 | `solid` | Whether a barrier stands in it, as the piece's own `solid:` |
 | `turn` | Degrees added to the way it faces. A hinged door |
