@@ -4,11 +4,20 @@ import ai.resourcepack.engine.api.Bundle;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.core.pack.PackContributor;
 
+import ai.resourcepack.engine.api.BuiltPack;
+import ai.resourcepack.engine.core.pack.DeterministicZip;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 
 /**
- * Puts the baked emote rigs into every bundle.
+ * The baked emote rigs: a pack of their own stacked on the server's bundle
+ * where packs stack ({@link #writePack}), or files put into every bundle
+ * where a player holds one pack at a time ({@link #contribute}).
  *
  * <p>One bake per build, shared by every bundle: the rigs are the same
  * wherever a player is, and a server with three worlds' worth of bundles
@@ -24,6 +33,12 @@ import java.util.Map;
  * as before; it just has none of its own.
  */
 public final class RigAssets implements PackContributor {
+
+    /**
+     * The bundle name the rigs are served under when they are a pack of their
+     * own, stacked on top of the server's bundle. See {@link #writePack}.
+     */
+    public static final String BUNDLE = "rpengine-rigs";
 
     private final RigBaker.Baked baked;
 
@@ -46,6 +61,54 @@ public final class RigAssets implements PackContributor {
         for (Map.Entry<String, byte[]> file : baked.files.entrySet()) {
             into.add(file.getKey(), file.getValue());
         }
+    }
+
+    /** Every file the bake produced: the sheets, the bone models and the shared definitions. */
+    public Map<String, byte[]> files() {
+        return Collections.unmodifiableMap(baked.files);
+    }
+
+    /**
+     * Writes the rigs as a resource pack of their own, under {@link #BUNDLE}.
+     *
+     * <p>Where packs stack (1.20.3+), this is how rigs reach players: a small
+     * pack on top of the server's bundle rather than files inside it. A rig is
+     * a copy of a player's skin, so every newcomer changes the rigs, and while
+     * they were in the bundle every newcomer changed the bundle's SHA-1 and
+     * sent everybody the whole thing again. Apart, the bundle stays
+     * byte-identical while only the set of skins moves, clients keep it
+     * cached, and what is rebuilt and re-sent is a few hundred kilobytes.
+     *
+     * <p>Deterministic, like the bundles: the same skins write the same bytes.
+     *
+     * @return the pack, or null when this build baked nothing
+     */
+    public BuiltPack writePack(Path file, int packFormat, String description) throws IOException {
+        if (baked.files.isEmpty()) {
+            return null;
+        }
+        return write(baked.files, BUNDLE, file, packFormat, description);
+    }
+
+    /**
+     * Zips rig files into a pack of their own, with a {@code pack.mcmeta}.
+     * Shared by the rigs pack and a single player's own rig pack.
+     */
+    public static BuiltPack write(Map<String, byte[]> files, String bundle, Path file, int packFormat,
+                                  String description) throws IOException {
+        DeterministicZip zip = new DeterministicZip();
+        for (Map.Entry<String, byte[]> entry : files.entrySet()) {
+            zip.add(entry.getKey(), entry.getValue());
+        }
+        String escaped = description.replace("\\", "\\\\").replace("\"", "\\\"");
+        zip.add("pack.mcmeta", ("{\n  \"pack\": {\n    \"pack_format\": " + packFormat
+                + ",\n    \"description\": \"" + escaped + "\"\n  }\n}\n").getBytes(StandardCharsets.UTF_8));
+        Path parent = file.toAbsolutePath().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        String sha1 = zip.writeTo(file);
+        return BuiltPack.of(bundle, file, sha1, Files.size(file), zip.size());
     }
 
     /** The rigs baked, by player key, for {@link EmoteStore#setNativeRigs}. */

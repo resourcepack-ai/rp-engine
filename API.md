@@ -930,6 +930,7 @@ All cancellable unless the row says otherwise.
 |---|---|
 | `ContentLoadEvent` | Content finished loading and the packs are built. **Listen to this before anything else** — a reload replaces every definition. Not cancellable |
 | `PackSendEvent` | A pack went out to a player. Not cancellable |
+| `RigPackBuildEvent` | The emote rigs (one per player skin) were baked again: on every content load, and on their own when a new skin arrives or a plugin calls `reloadRigs()`. `alone()` says no content was reloaded; `separate()` says the rigs are a pack of their own stacked on the bundle (1.20.3+). Not cancellable |
 | `ItemUseEvent` | A custom item was right- or left-clicked. Cancelling also cancels the vanilla use |
 | `ModelPlaceEvent` | A model is about to be put down |
 | `ModelBreakEvent` | A model is about to be broken. Carries a drop flag separate from cancelling |
@@ -1062,6 +1063,22 @@ in `depend` so you enable after the engine. The engine has already built its
 packs by the time you enable; the reload is what folds yours in. Everything in
 the folder is ordinary content: items, a vehicle, its emotes, its model, and
 the server owner can read it, edit it, and see exactly what you installed.
+
+### Rebuilding only the rigs
+
+A player's emote rig wears their own skin, and it is pack content: somebody
+who joined after you were sent your packs is the shared default (Steve) on your
+screen until you are sent newer ones. The engine rebakes when a new skin
+arrives but deliberately sends that build only to whoever joins next, because
+every client that receives it reloads its resources. A plugin that needs
+everybody to see everybody's skin *now* (a minigame dressing its players in
+emotes) calls `engine.reloadRigs()`: main thread, every client sent the new
+rigs. Where packs stack (1.20.3+) and the engine serves its own packs, the rigs
+are a small pack stacked on top of the server's bundle, so this rebuilds and
+re-sends only that pack, reloads no content and fires `RigPackBuildEvent`
+rather than `ContentLoadEvent`; the bundle stays byte-identical and clients
+keep it cached. Anywhere else the rigs are inside the bundle and `reloadRigs()`
+is `reload()`.
 
 ## Threading
 

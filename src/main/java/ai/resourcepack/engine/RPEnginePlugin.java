@@ -99,6 +99,7 @@ import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
 import ai.resourcepack.engine.core.serve.PackSending;
+import ai.resourcepack.engine.core.serve.ServerStack;
 import ai.resourcepack.engine.core.serve.PackHost;
 import ai.resourcepack.engine.core.skin.SkinApplier;
 import ai.resourcepack.engine.core.sound.SoundAssets;
@@ -330,6 +331,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     /** The rigs the last build baked, so a newcomer's own can be stacked on exactly that build. */
     private RigAssets currentRigs;
+
+    /**
+     * The rigs as a pack of their own, stacked on the server's bundle, or null
+     * where they ride inside it. See {@link #rigsApart}.
+     */
+    private BuiltPack rigPack;
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -1197,11 +1204,135 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         rebaking = false;
         lastRebake = System.currentTimeMillis();
+        if (rigsApart()) {
+            // Only the rigs changed, and they are a pack of their own: the
+            // server's bundle is not touched, so nobody's copy of it goes stale.
+            rebuildRigs(false);
+            return;
+        }
         // The content only, not config.yml as well: a skin arriving is not
         // somebody asking for their edited settings to take effect.
         rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
         for (Player player : getServer().getOnlinePlayers()) {
             delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
+        }
+    }
+
+    /**
+     * Whether the emote rigs are served as a pack of their own on top of the
+     * server's bundle, rather than baked into it.
+     *
+     * <p>They are wherever a client can hold more than one pack (1.20.3+) and
+     * this server serves its own packs. A rig is a copy of a player's skin, so
+     * inside the bundle every newcomer changed the bundle's SHA-1 and the next
+     * send was the whole bundle again; apart, the bundle stays byte-identical
+     * and only the small rigs pack is rebuilt. With one pack slot there is
+     * nowhere to put a second pack, and with hosting off the owner publishes
+     * the bundle zip themselves, so in both cases the rigs stay inside it.
+     */
+    private boolean rigsApart() {
+        return delivery != null && delivery.stacks() && packHost != null && packHost.running();
+    }
+
+    /**
+     * Rebakes the rigs from every skin the server has kept and rebuilds the
+     * rigs pack, without touching the content or the server's bundle.
+     *
+     * <p>Only where the rigs are apart; anywhere else they are inside the
+     * bundle, and the caller rebuilds that instead.
+     *
+     * @param resend whether everybody online is sent the new rigs. False for
+     *               the automatic rebake after a join, which only re-sends to
+     *               a player whose download of the old rigs pack had not
+     *               finished - see {@link #rebakeSoon}
+     */
+    private void rebuildRigs(boolean resend) {
+        RigAssets rigAssets = bakeRigs();
+        publishRigs(rigAssets, true);
+        getLogger().info("Rebuilt the emote rigs pack: " + plural(rigAssets.count(), "rig")
+                + (rigPack == null ? "" : " (" + rigPack.sha1().substring(0, 8) + ")")
+                + "; the server's bundle is unchanged.");
+        for (Player player : getServer().getOnlinePlayers()) {
+            if (resend) {
+                delivery.apply(player, desiredFor(player));
+            } else {
+                delivery.resendUnfinished(player, RigAssets.BUNDLE, desiredFor(player));
+            }
+        }
+        getServer().getPluginManager().callEvent(
+                new ai.resourcepack.engine.api.event.RigPackBuildEvent(rigAssets.count(), rigPack != null, true));
+    }
+
+    /**
+     * Rebakes the emote rigs and sends everybody online the result.
+     *
+     * <p>For a plugin that needs every player to see every other player's own
+     * skin on their rig now, rather than whenever each is next sent a pack: a
+     * minigame dressing its players in emotes, say. Where the rigs are a pack
+     * of their own (1.20.3+, with the engine serving its packs) only that
+     * small pack is rebuilt and re-sent, and the server's bundle - which the
+     * clients keep cached - is not touched; content is not reloaded and no
+     * {@link ContentLoadEvent} fires, a
+     * {@link ai.resourcepack.engine.api.event.RigPackBuildEvent} does. Anywhere
+     * else the rigs are inside the bundle and this is {@link #reload()}.
+     *
+     * <p>Main thread only. Each client that receives the new rigs reloads its
+     * resources, so call it when that is wanted, not on a timer.
+     */
+    public void reloadRigs() {
+        if (!rigsApart()) {
+            reload();
+            return;
+        }
+        rebuildRigs(true);
+    }
+
+    /**
+     * Bakes every kept skin into rigs and hands them to the emote store, on
+     * any server new enough to name an item model; see RigAssets.
+     */
+    private RigAssets bakeRigs() {
+        RigAssets rigAssets = RigAssets.bake(skinCache,
+                getConfig().getBoolean("emotes.rigs", true) && !compatibility.itemEra().needsNumbers());
+        emoteStore.setNativeRigs(rigAssets.players());
+        currentRigs = rigAssets;
+        // Somebody whose own rig pack was keeping them company until now
+        // still wears their rig: it is in the build, under the same names.
+        for (UUID owner : List.copyOf(ownRigs.keySet())) {
+            Player online = getServer().getPlayer(owner);
+            if (online == null) {
+                dropOwnRig(owner);
+            } else if (!rigAssets.has(SkinCache.keyOf(owner))) {
+                RigAssets.Self self = rigAssets.self(skinCache, owner);
+                if (self != null) {
+                    emoteStore.addNativeRig(self.key(), self.rig());
+                }
+            }
+        }
+        return rigAssets;
+    }
+
+    /**
+     * Writes and serves the rigs pack, or stops serving one when the rigs went
+     * into the bundle instead (or nothing was baked).
+     */
+    private void publishRigs(RigAssets rigAssets, boolean apart) {
+        BuiltPack written = null;
+        if (apart) {
+            try {
+                written = rigAssets.writePack(
+                        getDataFolder().toPath().resolve("output").resolve("rigs").resolve(RigAssets.BUNDLE + ".zip"),
+                        compatibility.packFormat(),
+                        getConfig().getString("pack.description", "RP Engine") + " - emote rigs");
+            } catch (IOException e) {
+                getLogger().warning("Could not write the emote rigs pack: " + e.getMessage());
+            }
+        }
+        rigPack = written;
+        if (written != null) {
+            packHost.register(written);
+        } else if (packHost != null) {
+            packHost.unregister(RigAssets.BUNDLE);
         }
     }
 
@@ -1247,18 +1378,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     private BuiltPack writeOwnRig(RigAssets.Self self) {
-        ai.resourcepack.engine.core.pack.DeterministicZip zip = new ai.resourcepack.engine.core.pack.DeterministicZip();
-        for (Map.Entry<String, byte[]> file : self.files().entrySet()) {
-            zip.add(file.getKey(), file.getValue());
-        }
-        zip.add("pack.mcmeta", ("{\n  \"pack\": {\n    \"pack_format\": " + compatibility.packFormat()
-                + ",\n    \"description\": \"RP Engine - your rig\"\n  }\n}\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        String bundle = "rig-" + self.key();
         try {
-            Files.createDirectories(ownRigFolder());
-            Path file = ownRigFolder().resolve(self.key() + ".zip");
-            String sha1 = zip.writeTo(file);
-            return BuiltPack.of(bundle, file, sha1, Files.size(file), zip.size());
+            return RigAssets.write(self.files(), "rig-" + self.key(), ownRigFolder().resolve(self.key() + ".zip"),
+                    compatibility.packFormat(), "RP Engine - your rig");
         } catch (IOException e) {
             getLogger().warning("Could not write a rig pack for " + self.key() + ": " + e.getMessage());
             return null;
@@ -1667,23 +1789,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         AuthoredEmotes.Result parsedEmotes = AuthoredEmotes.parse(loaded);
         report(to, "emotes", parsedEmotes.diagnostics());
         emoteStore.replaceAuthored(parsedEmotes);
-        RigAssets rigAssets = RigAssets.bake(skinCache,
-                getConfig().getBoolean("emotes.rigs", true) && !compatibility.itemEra().needsNumbers());
-        emoteStore.setNativeRigs(rigAssets.players());
-        currentRigs = rigAssets;
-        // Somebody whose own rig pack was keeping them company until now
-        // still wears their rig: it is in the build, under the same names.
-        for (UUID owner : List.copyOf(ownRigs.keySet())) {
-            Player online = getServer().getPlayer(owner);
-            if (online == null) {
-                dropOwnRig(owner);
-            } else if (!rigAssets.has(SkinCache.keyOf(owner))) {
-                RigAssets.Self self = rigAssets.self(skinCache, owner);
-                if (self != null) {
-                    emoteStore.addNativeRig(self.key(), self.rig());
-                }
-            }
-        }
+        RigAssets rigAssets = bakeRigs();
+        // A pack of their own where packs stack, so the bundle below does not
+        // change every time a skin arrives; inside the bundle otherwise.
+        boolean rigsApart = rigsApart();
 
         OverlayDefinitions.Result parsedScreens = OverlayDefinitions.screens(loaded);
         // A HUD naming a `json:` file (one drawn in Studio and exported into a
@@ -1724,14 +1833,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 compatibility.itemEra().needsNumbers() ? modelNumbers : null,
                 compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART))
                 .withBlockItems(blockItems);
-        BuildReport builtReport = new PackBuilder(
+        PackBuilder builder = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
                 .with(itemAssets)
                 .with(new SoundAssets())
                 .with(new FontAssets())
-                .with(new BlockAssets(blockStates))
-                .with(rigAssets)
+                .with(new BlockAssets(blockStates));
+        if (!rigsApart) {
+            builder.with(rigAssets);
+        }
+        BuildReport builtReport = builder
                 .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
@@ -1767,13 +1879,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
+        publishRigs(rigAssets, rigsApart);
         buildBedrockContent(output);
 
         to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
                 + plural(loaded.definitions().size(), "definition") + ", "
                 + plural(built.size(), "bundle") + " built, "
                 + plural(recipes.size(), "recipe")
-                + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig") : "") + ".");
+                + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig")
+                        + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "") + ".");
 
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
@@ -1789,6 +1903,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // resolved rather than an id needs this on a reload as much as it
         // needs it at startup, which is why one event carries both.
         started = true;
+        getServer().getPluginManager().callEvent(
+                new ai.resourcepack.engine.api.event.RigPackBuildEvent(rigAssets.count(), rigPack != null, false));
         getServer().getPluginManager().callEvent(new ContentLoadEvent(
                 why, loaded.packs().size(), loaded.definitions().size()));
     }
@@ -1999,32 +2115,26 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     private List<BuiltPack> desiredFor(Player player) {
-        List<BuiltPack> stack = new ArrayList<>(2);
+        BuiltPack main = null;
         if (!defaultBundle.isEmpty()) {
             for (BuiltPack pack : built) {
                 if (pack.bundle().equals(defaultBundle)) {
-                    stack.add(pack);
+                    main = pack;
                     break;
                 }
             }
         }
-        // On top of the server's own content, and on top of THEIR bundle
-        // rather than the claimer's, since somebody sharing a sync may be in a
-        // different world — so a pack under test is tried against the server it
-        // will actually run on.
         // Their own rig, while the build under it lacks them: see offerOwnRig.
-        // Straight on the server's pack, because that is the build it was
-        // made to sit on.
         BuiltPack ownRig = player == null ? null : ownRigs.get(player.getUniqueId());
-        if (ownRig != null && !stack.isEmpty() && currentRigs != null
-                && !currentRigs.has(SkinCache.keyOf(player.getUniqueId()))) {
-            stack.add(ownRig);
+        if (ownRig != null && (currentRigs == null || currentRigs.has(SkinCache.keyOf(player.getUniqueId())))) {
+            ownRig = null;
         }
+        // A pushed pack goes on top of the server's own content, and on top of
+        // THEIR bundle rather than the claimer's, since somebody sharing a sync
+        // may be in a different world - so a pack under test is tried against
+        // the server it will actually run on.
         BuiltPack pushedPack = player == null ? null : studioPacks.get(player.getUniqueId());
-        if (pushedPack != null) {
-            stack.add(pushedPack);
-        }
-        return List.copyOf(stack);
+        return ServerStack.of(main, rigPack, ownRig, pushedPack);
     }
 
     /**
