@@ -1443,6 +1443,12 @@ public final class VehicleRuntime implements Listener {
                         // sneak, and must never be refused.
                         return;
                     }
+                    if (((Player) who).isDead() || !((Player) who).isOnline()) {
+                        // Nor is dying or leaving: a hold is about the sneak
+                        // key, and a dead or departing rider kept on the seat
+                        // is a body riding a sled with nobody in it.
+                        return;
+                    }
                     UUID chassis = riders.get(who.getUniqueId());
                     Ride ride = chassis == null ? null : live.get(chassis);
                     if (ride != null && ride.holds(who.getUniqueId())) {
