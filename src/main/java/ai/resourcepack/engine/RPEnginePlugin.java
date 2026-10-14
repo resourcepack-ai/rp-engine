@@ -1374,6 +1374,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * asking for it, because the next pack they are sent has it already.
      */
     private void offerOwnRig(Player player) {
+        if (stale(player)) {
+            // A session that has ended, reached through a fetch or timer it
+            // booked. Its player is back (isOnline() asks by UUID, so says
+            // yes) and their new session books its own; acting for the old
+            // object would send packs down a dead connection.
+            return;
+        }
         if (player == null || !player.isOnline() || currentRigs == null || defaultBundle.isEmpty()
                 || !packHost.running() || !delivery.stacks() || bedrock.isBedrock(player.getUniqueId())) {
             releasePacks(player);
@@ -1412,13 +1419,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * @return whether they were being held, and so have now been sent them
      */
     private boolean releasePacks(Player player) {
-        if (player == null || !holdingPacks.remove(player.getUniqueId())) {
+        // A stale session must not take the hold its successor is under: the
+        // join-wait timer and the skin fetch both outlive a quit, and a
+        // rejoin inside those two seconds had its hold released into the old
+        // connection, leaving the new one with no pack at all.
+        if (player == null || stale(player) || !holdingPacks.remove(player.getUniqueId())) {
             return false;
         }
         if (player.isOnline()) {
             delivery.apply(player, desiredFor(player));
         }
         return true;
+    }
+
+    /**
+     * Whether this is a Player object from a session that has ended while
+     * somebody with the same UUID is online now. {@code isOnline()} cannot
+     * tell: it asks the server by UUID, so the old object answers yes.
+     */
+    private boolean stale(Player player) {
+        if (player == null) {
+            return false;
+        }
+        Player current = getServer().getPlayer(player.getUniqueId());
+        return current != null && current != player;
     }
 
     /** Drops a player's own rig pack: they left, or the build they would stack it on has them now. */
