@@ -366,6 +366,13 @@ public final class WornArmour implements Listener {
         }
         showingSelf.remove(event.getPlayer().getUniqueId());
         protocols.remove(event.getPlayer().getUniqueId());
+        // What they were hidden from goes with their session: a hide is per
+        // client, and a rejoin inside the ten-tick sweep otherwise found its
+        // key still here, so `apply` never hid the display from the new one.
+        String prefix = event.getPlayer().getUniqueId() + "|";
+        for (Wearer other : wearers.values()) {
+            other.hidden.removeIf(key -> key.startsWith(prefix));
+        }
     }
 
     // ---- one wearer -----------------------------------------------------------
@@ -556,7 +563,18 @@ public final class WornArmour implements Listener {
                     }
                 }
             }
-            hidden.removeIf(key -> Bukkit.getPlayer(UUID.fromString(key.substring(0, key.indexOf('|')))) == null);
+            // And entries for displays that are gone: every respawn (a world
+            // change, a piece swapped) makes new display ids, and the old
+            // ones would otherwise sit here for as long as the wearer does.
+            Set<String> live = new HashSet<>();
+            for (ItemDisplay display : shared.displays.values()) {
+                live.add(display.getUniqueId().toString());
+            }
+            hidden.removeIf(key -> {
+                int bar = key.indexOf('|');
+                return !live.contains(key.substring(bar + 1))
+                        || Bukkit.getPlayer(UUID.fromString(key.substring(0, bar))) == null;
+            });
         }
 
         /** One viewer, one display: shown or hidden as {@link #shows} says. */
