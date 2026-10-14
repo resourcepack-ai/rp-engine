@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -62,6 +62,18 @@ permissions:
       rpengine.liquid: true
       rpengine.vehicles: true
       rpengine.vehicle: true
+      rpengine.objects: true
+      rpengine.object: true
+      rpengine.object.spawn: true
+      rpengine.object.state: true
+      rpengine.object.replay: true
+      rpengine.object.play: true
+      rpengine.object.stop: true
+      rpengine.object.move: true
+      rpengine.object.turn: true
+      rpengine.object.size: true
+      rpengine.object.seed: true
+      rpengine.object.remove: true
       rpengine.armor: true
       rpengine.edit: true
       rpengine.sync: true
@@ -220,6 +232,53 @@ permissions:
     default: op
   rpengine.vehicle:
     description: Park a vehicle, or take one away.
+    default: op
+  rpengine.objects:
+    description: List the 3D shader objects this server has.
+    default: op
+  rpengine.object:
+    description: Every /rp object verb. Each also has its own node.
+    default: op
+    children:
+      rpengine.object.spawn: true
+      rpengine.object.state: true
+      rpengine.object.replay: true
+      rpengine.object.play: true
+      rpengine.object.stop: true
+      rpengine.object.move: true
+      rpengine.object.turn: true
+      rpengine.object.size: true
+      rpengine.object.seed: true
+      rpengine.object.remove: true
+  rpengine.object.spawn:
+    description: Put a 3D object down.
+    default: op
+  rpengine.object.state:
+    description: Change the state of the 3D object nearest you.
+    default: op
+  rpengine.object.replay:
+    description: Play the state of the 3D object nearest you again.
+    default: op
+  rpengine.object.play:
+    description: Run a sequence on the 3D object nearest you.
+    default: op
+  rpengine.object.stop:
+    description: Stop the sequence and moves of the 3D object nearest you.
+    default: op
+  rpengine.object.move:
+    description: Move the 3D object nearest you.
+    default: op
+  rpengine.object.turn:
+    description: Turn the 3D object nearest you.
+    default: op
+  rpengine.object.size:
+    description: Resize the 3D object nearest you.
+    default: op
+  rpengine.object.seed:
+    description: Change the seed of the 3D object nearest you.
+    default: op
+  rpengine.object.remove:
+    description: Take 3D objects away.
     default: op
   rpengine.armor:
     description: Put on and look at 3D armour yourself.

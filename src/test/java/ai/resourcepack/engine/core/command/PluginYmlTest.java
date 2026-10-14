@@ -93,6 +93,11 @@ class PluginYmlTest {
             }
             // A qualifier on a subcommand: the same command, aimed at somebody else.
             String sub = node.endsWith(".others") ? node.substring(0, node.length() - ".others".length()) : node;
+            // Or one verb of a subcommand that has several, each its own node
+            // (rpengine.object.spawn), which the code checks by name.
+            if (sub.startsWith("object.")) {
+                sub = "object";
+            }
             assertTrue(subs.contains(sub) || sub.equals("info"),
                     "rpengine." + node + " gates nothing: no such subcommand");
         }

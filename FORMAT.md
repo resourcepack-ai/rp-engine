@@ -25,6 +25,7 @@ plugins/RPEngine/content/
     vehicles/    *.yml
     emotes/      *.json      also *.yml - see Emotes below
     armor3d/     *.yml       3D armour sets - see 3D armour below
+    objects/     *.yml       3D shader objects and their sequences - see below
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -3072,6 +3073,78 @@ grid, up to 104 slots:
 The engine also takes out any item tooltip naming an item this server's version
 of Minecraft does not have, which the game would otherwise refuse the whole
 dialog over. A hand-written dialog gets the same protection.
+
+## 3D shader objects
+
+A 3D shader object is a picture a core shader draws in the world: a black hole,
+a portal, a ball of fire, a bomb that goes off. Its code lives in a resource
+pack (Studio builds one; any pack that draws objects through an item model the
+same way works), and RP Engine places it as an item display and **drives** it:
+which state it shows, where it is, how it is turned and how big it is. Every
+one of those is animated smoothly by the client. Needs Minecraft 1.21.4 or
+newer on the server and a client on a version the pack draws objects for.
+
+An object pushed from Studio is already known as `studio:<id>`. A file here
+either defines one, or adds sequences to one:
+
+```yaml
+# objects/bombs.yml
+nuke:
+  model: rpai:shader3d_0       # the item model that draws it
+  size: 3                      # diameter in blocks, as placed
+  states: [idle, detonate]     # state 0, 1, ... as the object's code numbers them
+  sequences:
+    drop:
+      - state: idle
+      - move: {by: [0, 22, 0]}                     # no `over`: at once
+      - wait: 10                                   # ticks; or 0.5s
+      - move: {by: [0, -22, 0], over: 2.5s, ease: in}
+      - sound: {name: entity.generic.explode, volume: 16, pitch: 0.5}
+      - size: {to: 40, over: 2}
+      - move: {by: [0, 17, 0], over: 2}
+      - state: detonate
+      - wait: 45s
+      - remove
+
+extras:
+  for: studio:portal           # adds sequences to an object that exists already
+  sequences:
+    open:
+      - state: opening
+      - turn: {yaw: 90, by: true, over: 2s, async: true}
+      - size: {times: 2, over: 2s}
+```
+
+**States** are the object's looks. Entering one starts its clock, so a
+one-shot (an explosion, a portal opening) plays once from its start for
+everybody watching, and the code can blend out of the state before it. A state
+left alone for three minutes is shown as finished.
+
+**Steps** run in order:
+
+| Step | Does |
+|---|---|
+| `state: name` | enter a state (nothing if it is already in it) |
+| `replay: name` | enter it, or start it again if it is already in it |
+| `seed: 0-15` | a number the code may use to vary its look |
+| `move: {to: [x,y,z] \| by: [x,y,z], over, ease, async}` | `to` is measured from where the object was when the sequence began, `by` from where it is |
+| `turn: {yaw, pitch, roll, by, over, ease, async}` | degrees; a missing axis stays; `by: true` adds |
+| `size: {to \| times, over, ease, async}` | diameter in blocks, or a multiple |
+| `wait: time` | ticks (`40`) or seconds (`2s`) |
+| `sound: {name, volume, pitch}` | played at the object |
+| `command: "..."` | run by the console; `{x} {y} {z} {world} {size}` are the object's |
+| `settle` | show the current state as finished |
+| `remove` | take it away |
+| `restart` | back to the first step (once a tick at most) |
+
+A move, turn or resize holds the sequence until it is done, unless it says
+`async: true`. `ease` is `linear`, `in`, `out` or `in_out` (the default).
+
+Commands: `/rp objects` lists them; `/rp object spawn <id> [size]` puts one
+down in front of you; `state`, `replay`, `play`, `stop`, `move`, `turn`,
+`size`, `seed` and `remove [all]` act on the one nearest you, and `move` and
+`turn` take `~` for "where it is". Each verb has its own permission,
+`rpengine.object.<verb>`, all granted by `rpengine.object`.
 
 ## Recipes
 

@@ -14,6 +14,7 @@ engine.items();     // custom items
 engine.models();    // studio models, and the rigs standing in your worlds
 engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
+engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
@@ -608,6 +609,28 @@ aboard and takes nothing off them.
 
 Every handle is main thread only, like everything that touches an entity.
 `ids`, `info` and `isRiding` are safe anywhere.
+
+## 3D shader objects
+
+`engine.shaderObjects()` places and drives 3D shader objects (see FORMAT.md):
+
+```java
+ShaderObjects objects = engine.shaderObjects();
+if (!objects.supported()) return;                       // 1.21.4+
+ContentId nuke = ContentId.parse("studio:nuke").orElseThrow();
+ShaderObject bomb = objects.spawn(location, nuke).orElseThrow();
+
+bomb.moveBy(new Vector(0, -20, 0), 50, Easing.IN);      // ticks
+bomb.turnTo(90, 0, 0, 40, Easing.IN_OUT);               // yaw, pitch, roll
+bomb.resize(40, 2, Easing.LINEAR);                      // diameter in blocks
+bomb.state("detonate");                                 // starts its clock
+bomb.play("drop");                                      // a sequence from content/objects/
+```
+
+`at(entity)`, `near(location, radius)` and `loaded()` find the ones already
+standing; a handle survives as long as its entity, and what it was last told
+is kept on the entity, so an object outlives a restart. A sequence or a move
+in progress does not. Main thread only.
 
 ## HUD overlays
 

@@ -84,6 +84,26 @@ public final class StudioContent {
         List<Model> models;
         List<Dialog> dialogs;
         List<Armor3d> armor3d;
+        List<ShaderObject> objects;
+    }
+
+    /**
+     * A 3D shader object a server can place and drive: the item model that
+     * draws it, the size it was made at and the states its code names. The
+     * code itself is in the pack; see {@code core/object/}.
+     */
+    static final class ShaderObject {
+        String id;
+        String model;
+        /** Boxed: absent is 1, and zero would be an object drawn at no size. */
+        Double size;
+        List<ShaderObjectState> states;
+    }
+
+    static final class ShaderObjectState {
+        String name;
+        /** Boxed: an absent value is a state nobody can enter, not state 0. */
+        Integer value;
     }
 
     /**
@@ -589,6 +609,7 @@ public final class StudioContent {
     private volatile Set<String> vehiclePassable = Set.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -627,6 +648,7 @@ public final class StudioContent {
         copy.vehiclePassable = vehiclePassable;
         copy.dialogs = dialogs;
         copy.armor3d = armor3d;
+        copy.objects = objects;
         copy.packId = packId;
         return copy;
     }
@@ -648,6 +670,7 @@ public final class StudioContent {
         Set<String> passable = new java.util.LinkedHashSet<>();
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = new LinkedHashMap<>();
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -660,6 +683,7 @@ public final class StudioContent {
             passable.addAll(pack.vehiclePassable);
             dialogs.putAll(pack.dialogs);
             armor.putAll(pack.armor3d);
+            objects.putAll(pack.objects);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -670,6 +694,7 @@ public final class StudioContent {
         all.vehiclePassable = Set.copyOf(passable);
         all.dialogs = Map.copyOf(dialogs);
         all.armor3d = Map.copyOf(armor);
+        all.objects = Map.copyOf(objects);
         all.packId = last;
         return all;
     }
@@ -716,6 +741,11 @@ public final class StudioContent {
         return armor3d;
     }
 
+    /** The pushed 3D shader objects, keyed by {@code studio:<id>}. */
+    public Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects() {
+        return objects;
+    }
+
     /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
@@ -733,7 +763,7 @@ public final class StudioContent {
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty();
+                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty();
     }
 
     /**
@@ -887,6 +917,22 @@ public final class StudioContent {
             }
         }
 
+        Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> readObjects = new LinkedHashMap<>();
+        for (ShaderObject object : manifest.objects == null ? List.<ShaderObject>of() : manifest.objects) {
+            if (object == null || object.model == null || !object.model.contains(":")) {
+                continue;
+            }
+            Map<String, Integer> states = new LinkedHashMap<>();
+            for (ShaderObjectState state : object.states == null ? List.<ShaderObjectState>of() : object.states) {
+                if (state != null && state.name != null && state.value != null) {
+                    states.put(state.name, state.value);
+                }
+            }
+            double size = object.size == null ? 1 : object.size;
+            id(object.id, log, "3D object").ifPresent(id -> readObjects.put(id,
+                    new ai.resourcepack.engine.api.ShaderObjectInfo(id, object.model, size, states, null)));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -895,10 +941,11 @@ public final class StudioContent {
         vehiclePassable = Set.copyOf(readPassable);
         dialogs = Map.copyOf(readDialogs);
         armor3d = Map.copyOf(readArmor);
+        objects = Map.copyOf(readObjects);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size());
+                        + armor3d.size() + objects.size());
     }
 
     /**
@@ -1356,6 +1403,21 @@ public final class StudioContent {
         manifest.armor3d = new ArrayList<>();
         for (Armor3dSet set : armor3d.values()) {
             manifest.armor3d.add(armor3dOut(set));
+        }
+        manifest.objects = new ArrayList<>();
+        for (ai.resourcepack.engine.api.ShaderObjectInfo info : objects.values()) {
+            ShaderObject object = new ShaderObject();
+            object.id = info.id().path();
+            object.model = info.model();
+            object.size = info.size();
+            object.states = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : info.states().entrySet()) {
+                ShaderObjectState state = new ShaderObjectState();
+                state.name = entry.getKey();
+                state.value = entry.getValue();
+                object.states.add(state);
+            }
+            manifest.objects.add(object);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

@@ -68,5 +68,11 @@ public enum ContentKind {
      * A 3D armour set: a Blockbench model whose groups are the body's bones,
      * worn as four pieces. See {@link Armor}.
      */
-    ARMOR3D
+    ARMOR3D,
+
+    /**
+     * A 3D shader object (a picture a core shader draws in the world), or
+     * sequences for one. See {@link ShaderObjects}.
+     */
+    OBJECT
 }

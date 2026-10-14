@@ -153,6 +153,8 @@ public final class ContentFolderLoader {
         // 3D armour: a set names a .bbmodel with MythicArmors' bone names in
         // it; see Armor3dDefinitions.
         map.put("armor3d", ContentKind.ARMOR3D);
+        // 3D shader objects and their sequences; see ObjectDefinitions.
+        map.put("objects", ContentKind.OBJECT);
         return Map.copyOf(map);
     }
 

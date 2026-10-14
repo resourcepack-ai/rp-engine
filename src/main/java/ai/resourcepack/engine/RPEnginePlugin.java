@@ -209,6 +209,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private final ai.resourcepack.engine.core.armor3d.Armor3dCatalogue armor3dSets =
             new ai.resourcepack.engine.core.armor3d.Armor3dCatalogue(() -> pushedAll.armor3d());
+    /**
+     * 3D shader objects: the pushes' and the content folder's, and the
+     * runtime that places and drives them. See core/object.
+     */
+    private final ai.resourcepack.engine.core.object.ObjectCatalogue objectCatalogue =
+            new ai.resourcepack.engine.core.object.ObjectCatalogue(() -> pushedAll.objects());
+    private ai.resourcepack.engine.core.object.ObjectRuntime objectRuntime;
 
     /**
      * What a PUSHED model is shaped like, read out of the pack on disk.
@@ -569,6 +576,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // else uses rather than a second emote system.
         vehicles = new VehicleRuntime(this, items, compatibility,
                 rigCarrier, emotes(), sounds);
+        // Driven through an item's custom_model_data colour, which is 1.21.4
+        // API; an older server gets a runtime that places nothing.
+        objectRuntime = new ai.resourcepack.engine.core.object.ObjectRuntime(this, objectCatalogue,
+                compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_DEFINITIONS)
+                        ? new ai.resourcepack.engine.core.object.ObjectItems()
+                        : null);
+        getServer().getPluginManager().registerEvents(objectRuntime, this);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         // Before anything reads a plant's state: how many plants tripwire
@@ -669,6 +683,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // annotated method without failing the whole registration.
         vehicles.registerDismount(this);
         vehicles.start();
+        objectRuntime.start();
         liquids.start();
         // 3D armour. Only where a set's art can be named (a string
         // custom_model_data, 1.21.4) — below that the loop never starts and
@@ -880,6 +895,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         this::announceMembers, this::unpush, id -> bedrock.isBedrock(id)),
                 liquidCommands,
                 new VehicleCommands(vehicles),
+                new ai.resourcepack.engine.core.command.ObjectCommands(objectRuntime),
                 new EditCommands(edits, registry, items, vehicles, editing),
                 new ai.resourcepack.engine.core.command.Armor3dCommands(armor3dSets, armor3dWardrobe,
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
@@ -983,6 +999,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Without this, re-syncing leaves a chassis in the world that the
         // catalogue no longer knows how to dress until its chunk reloads.
         vehicles.adoptLoaded();
+        if (objectRuntime != null) {
+            objectRuntime.start();
+        }
     }
 
     /**
@@ -1438,6 +1457,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return new ai.resourcepack.engine.core.vehicle.VehiclesImpl(vehicles);
     }
 
+    /** The 3D shader objects this server holds, and the ones standing in its worlds. */
+    public ai.resourcepack.engine.api.ShaderObjects shaderObjects() {
+        return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);
+    }
+
     /** The 3D armour sets this server holds, and putting them on people. */
     public ai.resourcepack.engine.api.Armor armor() {
         return new ai.resourcepack.engine.core.armor3d.ArmorImpl(armor3dSets, armor3dItems, armor3dWardrobe,
@@ -1461,6 +1485,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (blockGrowth != null) {
             blockGrowth.stop();
+        }
+        if (objectRuntime != null) {
+            objectRuntime.stop();
         }
         if (vehicles != null) {
             vehicles.stop();
@@ -1760,6 +1787,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // model now. A reload can bring back a vehicle whose pack had failed
         // to load, and this is the moment that chassis becomes usable again.
         vehicles.adoptLoaded();
+        if (objectRuntime != null) {
+            objectRuntime.start();
+        }
 
         LiquidDefinitions.Result parsedLiquids = LiquidDefinitions.parse(loaded);
         report(to, "liquids", parsedLiquids.diagnostics());
@@ -1823,6 +1853,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "armor3d", parsedArmour.diagnostics());
         armor3dSets.replaceAuthored(parsedArmour.sets());
+
+        // 3D shader objects and their sequences. Nothing to build: the art is
+        // the pack's, and this only names it.
+        ai.resourcepack.engine.core.object.ObjectDefinitions.Result parsedObjects =
+                ai.resourcepack.engine.core.object.ObjectDefinitions.parse(loaded);
+        report(to, "objects", parsedObjects.diagnostics());
+        objectCatalogue.replaceAuthored(parsedObjects);
         if (armor3dItems != null) {
             armor3dItems.forgetArt();
         }
