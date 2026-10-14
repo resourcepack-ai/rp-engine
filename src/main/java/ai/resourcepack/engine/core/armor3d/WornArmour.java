@@ -121,6 +121,8 @@ public final class WornArmour implements Listener {
     private static final float CULL_HEIGHT = 2.5f;
 
     private final Plugin plugin;
+    /** When a tick failure was last logged, so a failure every tick logs once every 10 s. */
+    private long lastFailureLog;
     private final Armor3dItems items;
     private final Supplier<Map<String, Armor3dSet>> sets;
     private final DisplayCarry glide;
@@ -200,52 +202,61 @@ public final class WornArmour implements Listener {
         boolean pose = tick % POSE_PERIOD == 0;
         boolean visibility = tick % VISIBILITY_PERIOD == 0;
         for (Player player : Bukkit.getOnlinePlayers()) {
-            Wearer wearer = wearers.get(player.getUniqueId());
-            if (readEquipment) {
-                Map<String, Placed> wanted = wanted(player, known);
-                if (wanted.isEmpty()) {
-                    if (wearer != null) {
-                        wearer.clear();
-                        wearers.remove(player.getUniqueId());
+            try {
+                Wearer wearer = wearers.get(player.getUniqueId());
+                if (readEquipment) {
+                    Map<String, Placed> wanted = wanted(player, known);
+                    if (wanted.isEmpty()) {
+                        if (wearer != null) {
+                            wearer.clear();
+                            wearers.remove(player.getUniqueId());
+                        }
+                        continue;
                     }
-                    continue;
+                    if (wearer == null) {
+                        wearer = new Wearer(player);
+                        wearers.put(player.getUniqueId(), wearer);
+                    }
+                    wearer.wanted = wanted;
                 }
                 if (wearer == null) {
-                    wearer = new Wearer(player);
-                    wearers.put(player.getUniqueId(), wearer);
+                    continue;
                 }
-                wearer.wanted = wanted;
-            }
-            if (wearer == null) {
-                continue;
-            }
-            wearer.step(player);
-            wearer.shared.sync(player, wearer.wanted, feet(player), false);
-            // Their own copy is only the parts their client does not already
-            // draw: a set their shaders draw is on their body with no lag at
-            // all, and nothing here could improve on that.
-            Map<String, Placed> ownWanted = new LinkedHashMap<>();
-            int ownProtocol = protocol(player);
-            for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
-                if (!entry.getValue().set().drawnBy(ownProtocol)) {
-                    ownWanted.put(entry.getKey(), entry.getValue());
+                wearer.step(player);
+                wearer.shared.sync(player, wearer.wanted, feet(player), false);
+                // Their own copy is only the parts their client does not already
+                // draw: a set their shaders draw is on their body with no lag at
+                // all, and nothing here could improve on that.
+                Map<String, Placed> ownWanted = new LinkedHashMap<>();
+                int ownProtocol = protocol(player);
+                for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
+                    if (!entry.getValue().set().drawnBy(ownProtocol)) {
+                        ownWanted.put(entry.getKey(), entry.getValue());
+                    }
                 }
-            }
-            boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
-            if (own) {
-                if (wearer.own == null) {
-                    wearer.own = new Copy(true);
+                boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
+                if (own) {
+                    if (wearer.own == null) {
+                        wearer.own = new Copy(true);
+                    }
+                    wearer.own.sync(player, ownWanted, feet(player).add(wearer.lead), wearer.jumped);
+                } else if (wearer.own != null) {
+                    wearer.own.clear();
+                    wearer.own = null;
                 }
-                wearer.own.sync(player, ownWanted, feet(player).add(wearer.lead), wearer.jumped);
-            } else if (wearer.own != null) {
-                wearer.own.clear();
-                wearer.own = null;
-            }
-            if (pose || wearer.poseNow) {
-                wearer.pose(player);
-            }
-            if (visibility) {
-                wearer.mirrorVisibility(player);
+                if (pose || wearer.poseNow) {
+                    wearer.pose(player);
+                }
+                if (visibility) {
+                    wearer.mirrorVisibility(player);
+                }
+            } catch (RuntimeException e) {
+                // One wearer's failure must not skip everybody after them, every tick.
+                long now = System.currentTimeMillis();
+                if (now - lastFailureLog > 10_000) {
+                    lastFailureLog = now;
+                    plugin.getLogger().log(java.util.logging.Level.WARNING, "3D armour tick failed for " + player.getName(), e);
+                }
             }
         }
         // Gone without a quit event: a reload, a kick mid-tick.
