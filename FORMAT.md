@@ -855,6 +855,7 @@ santa:
   name: "Santa Suit"     # optional; the id when absent
   model: armor_santa     # assets/models/armor_santa.bbmodel; the id when absent
   displays: false        # optional, default true; see How it is drawn
+  shader-helmet: false   # optional; see below
 ```
 
 That is the set `mypack:santa`, and `/rp armor wear mypack:santa` puts it on.
@@ -886,6 +887,22 @@ may be turned too. The block model format only allows one axis and five
 angles, so a cube turned past that is drawn as a piece of its own that the
 engine turns. Faces with no texture are left out, and any number of textures
 is fine.
+
+**Mesh elements** (Blockbench's mesh tool) are read too, as quads and
+triangles; a face with more than four corners is left out with a warning, so
+triangulate those. A mesh can be any shape at all, smooth surfaces and thin
+locks of fur included, and a texel whose alpha is below 0.1 is cut out, so a
+quad with strands painted on it reads as hair. **Only the client's shaders can
+draw a mesh**: a block model and a display entity cannot, so a set with meshes
+wants `displays: false` (display viewers would see it without them), and a
+mesh on the head needs `shader-helmet: true` (below). Mesh faces are not
+nudged apart the way cube faces are; keep two of them out of one plane
+yourself. Each bone's faces cost one armour layer per four, drawn every frame,
+so a few hundred per bone is a lot.
+
+**`shader-helmet: true`** hands the helmet to the shaders as well, instead of
+the game drawing it as a head item: it can then be anything the body can (any
+turn, meshes), and a client outside the shader range sees no helmet at all.
 
 **How it is drawn.** A vanilla client cannot draw 3D armour on a body, so the
 pieces are drawn in up to three ways. The helmet is the game's: any item on the
@@ -3140,9 +3157,11 @@ left alone for three minutes is shown as finished.
 A move, turn or resize holds the sequence until it is done, unless it says
 `async: true`. `ease` is `linear`, `in`, `out` or `in_out` (the default).
 
-Commands: `/rp objects` lists them; `/rp object spawn <id> [size]` puts one
-down in front of you; `state`, `replay`, `play`, `stop`, `move`, `turn`,
-`size`, `seed` and `remove [all]` act on the one nearest you, and `move` and
+Commands: `/rp objects` lists them; `/rp object spawn <id> [size] [x y z]`
+puts one down in front of you, or at those coordinates (the only form the
+console can use; a command block can use every verb); `state`, `replay`, `play`, `stop`, `move`, `turn`,
+`size`, `seed` and `remove [all]` act on the one nearest you (for `state` and `play`, the nearest that has
+that state or sequence), and `move` and
 `turn` take `~` for "where it is". Each verb has its own permission,
 `rpengine.object.<verb>`, all granted by `rpengine.object`.
 

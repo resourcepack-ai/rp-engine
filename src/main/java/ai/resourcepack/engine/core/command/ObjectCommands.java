@@ -47,7 +47,7 @@ public final class ObjectCommands implements Area {
     public List<Help> help() {
         return List.of(
                 Help.of("objects", "list the 3D objects, their states and sequences"),
-                Help.of("object", "spawn <id> [size]", "put one down in front of you"),
+                Help.of("object", "spawn <id> [size] [x y z]", "put one down"),
                 Help.of("object", "state <state>", "the nearest one enters a state"),
                 Help.of("object", "replay", "play its state again from the start"),
                 Help.of("object", "play <sequence>", "run a sequence its file wrote"),
@@ -92,26 +92,43 @@ public final class ObjectCommands implements Area {
             Reply.to(sender, "You need rpengine.object." + verb + " for that.");
             return true;
         }
-        if (!(sender instanceof Player player)) {
-            Reply.to(sender, "/rp object is about a place, so it is for players; drive one from afar with a "
-                    + "sequence or the API.");
+        if ("spawn".equals(verb)) {
+            return spawn(sender, args);
+        }
+        // Where the command was typed: a player, a command block, or an entity
+        // running it. The console has no place, so it can only spawn by
+        // coordinates.
+        Location here = placeOf(sender);
+        if (here == null) {
+            Reply.to(sender, "From the console, only spawn works, with coordinates: "
+                    + "/rp object spawn <id> <size> <x> <y> <z> [world]. A command block works for every verb.");
             return true;
         }
-        if ("spawn".equals(verb)) {
-            return spawn(player, args);
-        }
         if ("remove".equals(verb) && args.length >= 3 && "all".equalsIgnoreCase(args[2])) {
-            List<Driven> all = runtime.near(player.getLocation(), REACH);
+            List<Driven> all = runtime.near(here, REACH);
             all.forEach(Driven::remove);
             Reply.to(sender, "Removed " + Reply.plural(all.size(), "object") + ".");
             return true;
         }
-        List<Driven> found = runtime.near(player.getLocation(), REACH);
+        List<Driven> found = runtime.near(here, REACH);
         if (found.isEmpty()) {
             Reply.to(sender, "No 3D object within " + (int) REACH + " blocks of you.");
             return true;
         }
+        // The nearest one that HAS the state or sequence named, so a scene
+        // of several objects can be driven without walking up to each.
         Driven object = found.get(0);
+        if (args.length >= 3 && ("state".equals(verb) || "play".equals(verb))) {
+            for (Driven candidate : found) {
+                boolean has = "state".equals(verb)
+                        ? candidate.info().state(args[2]).isPresent()
+                        : candidate.info().sequences().contains(args[2].toLowerCase(Locale.ROOT));
+                if (has) {
+                    object = candidate;
+                    break;
+                }
+            }
+        }
         switch (verb) {
             case "state":
                 if (args.length < 3) {
@@ -213,31 +230,62 @@ public final class ObjectCommands implements Area {
         return true;
     }
 
-    private boolean spawn(Player player, String[] args) {
+    private boolean spawn(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            Reply.to(player, "/rp object spawn <id> [size]");
+            Reply.to(sender, "/rp object spawn <id> [size] [x y z] [world]");
             return true;
         }
         Optional<ShaderObjectInfo> info = runtime.catalogue().find(args[2]);
         if (info.isEmpty()) {
-            Reply.to(player, "No 3D object called " + args[2] + ". /rp objects lists them.");
+            Reply.to(sender, "No 3D object called " + args[2] + ". /rp objects lists them.");
             return true;
         }
         double size = args.length >= 4 ? number(args[3], info.get().size()) : info.get().size();
-        // In front of them, level with their eyes, far enough off that a big
-        // one does not swallow them: the spot Studio's Show in game uses.
-        Location eye = player.getEyeLocation();
-        Vector ahead = eye.getDirection().setY(0);
-        if (ahead.lengthSquared() < 1e-6) {
-            ahead = new Vector(0, 0, 1);
+        Location here = placeOf(sender);
+        Location at;
+        if (args.length >= 7) {
+            // At coordinates, ~ relative to wherever the command was typed.
+            org.bukkit.World world = args.length >= 8 ? org.bukkit.Bukkit.getWorld(args[7])
+                    : here != null ? here.getWorld() : org.bukkit.Bukkit.getWorlds().get(0);
+            if (world == null) {
+                Reply.to(sender, "No world called " + args[7] + ".");
+                return true;
+            }
+            Location base = here != null ? here : world.getSpawnLocation();
+            at = new Location(world, coordinate(args[4], base.getX()), coordinate(args[5], base.getY()),
+                    coordinate(args[6], base.getZ()));
+        } else if (sender instanceof Player player) {
+            // In front of them, level with their eyes, far enough off that a big
+            // one does not swallow them: the spot Studio's Show in game uses.
+            Location eye = player.getEyeLocation();
+            Vector ahead = eye.getDirection().setY(0);
+            if (ahead.lengthSquared() < 1e-6) {
+                ahead = new Vector(0, 0, 1);
+            }
+            at = eye.clone().add(ahead.normalize().multiply(Math.max(3, size * 0.75 + 2)));
+        } else if (here != null) {
+            at = here.clone().add(0, size / 2 + 1, 0);
+        } else {
+            Reply.to(sender, "From the console: /rp object spawn <id> <size> <x> <y> <z> [world]");
+            return true;
         }
-        Location at = eye.clone().add(ahead.normalize().multiply(Math.max(3, size * 0.75 + 2)));
         Optional<Driven> spawned = runtime.spawn(at, info.get(), size);
-        Reply.to(player, spawned.isPresent()
+        Reply.to(sender, spawned.isPresent()
                 ? "Put down " + info.get().id() + "."
                 + (info.get().states().isEmpty() ? "" : " States: " + String.join(", ", info.get().stateNames()) + ".")
                 : "Could not put one down here.");
         return true;
+    }
+
+    /** Where a command was typed, or null for the console. */
+    private static Location placeOf(CommandSender sender) {
+        if (sender instanceof org.bukkit.entity.Entity entity) {
+            return entity.getLocation();
+        }
+        if (sender instanceof org.bukkit.command.BlockCommandSender block) {
+            return block.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        }
+        return null;
     }
 
     private boolean move(CommandSender sender, Driven object, String[] args) {
