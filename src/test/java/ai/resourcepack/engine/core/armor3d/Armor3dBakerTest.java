@@ -444,4 +444,75 @@ class Armor3dBakerTest {
         Files.createDirectories(file.getParent());
         Files.writeString(file, text, StandardCharsets.UTF_8);
     }
+
+    /**
+     * A mesh element: a quad (listed across rather than round) on the head
+     * and a triangle on the right arm, the arm's mesh turned by its group.
+     */
+    static String meshes() {
+        return "{"
+                + "\"meta\": {\"format_version\": \"5.0\", \"model_format\": \"free\"},"
+                + "\"resolution\": {\"width\": 32, \"height\": 32},"
+                + "\"elements\": ["
+                + "{\"type\": \"mesh\", \"uuid\": \"m-head\", \"origin\": [0, 30, 0], \"rotation\": [0, 0, 0],"
+                + " \"vertices\": {\"a\": [-2, 2, 5], \"b\": [2, 2, 5], \"c\": [-2, -2, 5], \"d\": [2, -2, 5]},"
+                + " \"faces\": {\"f\": {\"vertices\": [\"a\", \"b\", \"c\", \"d\"], \"texture\": 0,"
+                + " \"uv\": {\"a\": [0, 0], \"b\": [8, 0], \"c\": [0, 8], \"d\": [8, 8]}}}},"
+                + "{\"type\": \"mesh\", \"uuid\": \"m-arm\", \"origin\": [0, 0, 0],"
+                + " \"vertices\": {\"a\": [-5, 12, 3], \"b\": [-7, 12, 3], \"c\": [-6, 10, 3]},"
+                + " \"faces\": {\"f\": {\"vertices\": [\"a\", \"b\", \"c\"], \"texture\": 0,"
+                + " \"uv\": {\"a\": [0, 0], \"b\": [4, 0], \"c\": [2, 4]}}}}"
+                + "],"
+                + "\"groups\": ["
+                + "{\"name\": \"head\", \"origin\": [0, 24, 0], \"rotation\": [0, 0, 0], \"uuid\": \"g-head\"},"
+                + "{\"name\": \"right_arm\", \"origin\": [-5, 22, 0], \"rotation\": [0, 90, 0], \"uuid\": \"g-rarm\"}"
+                + "],"
+                + "\"outliner\": ["
+                + "{\"uuid\": \"g-head\", \"children\": [\"m-head\"]},"
+                + "{\"uuid\": \"g-rarm\", \"children\": [\"m-arm\"]}"
+                + "],"
+                + "\"textures\": [{\"name\": \"m.png\", \"id\": \"0\", \"uuid\": \"t-0\","
+                + " \"source\": \"data:image/png;base64," + PNG + "\"}]"
+                + "}";
+    }
+
+    @Test
+    void meshFacesAreReadInOrderRoundTheFaceAndTurnedByTheirGroups() {
+        Armor3dBlockbench.Source source = Armor3dBlockbench.read(meshes().getBytes(StandardCharsets.UTF_8),
+                "x.yml", "m", new ArrayList<>()).orElseThrow();
+        assertEquals(2, source.quads().size());
+        Armor3dBlockbench.Quad head = source.quads().get(0);
+        assertEquals("head", head.bone());
+        // a b c d was listed across the face; round it is a b d c.
+        assertArrayEquals(new double[]{-2, 32, 5}, head.corners()[0], 1e-9);
+        assertArrayEquals(new double[]{2, 32, 5}, head.corners()[1], 1e-9);
+        assertArrayEquals(new double[]{2, 28, 5}, head.corners()[2], 1e-9);
+        assertArrayEquals(new double[]{8, 8}, head.uvs()[2], 1e-9);
+        Armor3dBlockbench.Quad arm = source.quads().get(1);
+        assertEquals(Armor3dSet.Piece.CHESTPLATE, arm.piece());
+        // A triangle repeats its last corner; the group turned it 90 about Y round (-5, 22, 0).
+        assertArrayEquals(arm.corners()[2], arm.corners()[3], 1e-9);
+        assertArrayEquals(new double[]{-2, 12, 0}, arm.corners()[0], 1e-9);
+    }
+
+    @Test
+    void meshesAreShaderDrawnAndTheHelmetToo() {
+        Armor3dBlockbench.Source source = Armor3dBlockbench.read(meshes().getBytes(StandardCharsets.UTF_8),
+                "x.yml", "m", new ArrayList<>()).orElseThrow();
+        Armor3dBaker.Baked plain = Armor3dBaker.bake("christmas", "m", null, source, false);
+        assertNull(plain.shaderProblem());
+        assertNull(plain.set().piece(Armor3dSet.Piece.HELMET).orElseThrow().asset());
+
+        Armor3dBaker.Baked baked = Armor3dBaker.bake("christmas", "m", null, source, false, true);
+        assertNull(baked.shaderProblem());
+        assertEquals("christmas:armor3d/m_helmet", baked.set().piece(Armor3dSet.Piece.HELMET).orElseThrow().asset());
+        assertEquals("christmas:armor3d/m_chestplate",
+                baked.set().piece(Armor3dSet.Piece.CHESTPLATE).orElseThrow().asset());
+        assertEquals(2, Armor3dBaker.encodeShaderSet("christmas", "m", source, true).nfaces());
+        // The helmet item is the icon only: nothing on the head.
+        JsonObject helmet = JsonParser.parseString(new String(baked.files().get(
+                "assets/christmas/models/item/armor3d/m/helmet.json"), StandardCharsets.UTF_8)).getAsJsonObject();
+        assertEquals(0, helmet.getAsJsonObject("display").getAsJsonObject("head").getAsJsonArray("scale")
+                .get(0).getAsDouble());
+    }
 }

@@ -149,6 +149,21 @@ public final class Armor3dBaker {
      */
     public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source,
                              boolean displays) {
+        return bake(namespace, key, name, source, displays, false);
+    }
+
+    /**
+     * Bakes one set.
+     *
+     * @param displays     see {@link #bake(String, String, String, Armor3dBlockbench.Source, boolean)}
+     * @param shaderHelmet whether the helmet is drawn by the client's shaders
+     *                     like the body, rather than by the game as a head
+     *                     item. It can then be anything the body can be (any
+     *                     turn, mesh faces), and clients outside the shader
+     *                     ranges see no helmet at all
+     */
+    public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source,
+                             boolean displays, boolean shaderHelmet) {
         String setId = namespace + ":" + key;
         Map<String, byte[]> files = new TreeMap<>();
 
@@ -176,7 +191,11 @@ public final class Armor3dBaker {
                     own.add(cube);
                 }
             }
-            if (own.isEmpty()) {
+            boolean meshed = false;
+            for (Armor3dBlockbench.Quad quad : source.quads()) {
+                meshed |= quad.piece() == piece && BONES.containsKey(quad.bone());
+            }
+            if (own.isEmpty() && !meshed) {
                 continue;
             }
 
@@ -189,8 +208,11 @@ public final class Armor3dBaker {
                     elements.add(element(cube, anchor, Turn.APPROXIMATE));
                 }
                 double k = fitBounds(elements);
-                double head = HELMET_HEAD_SCALE / k;
-                JsonObject display = itemDisplay(elements);
+                // A shader-drawn helmet is the equipment layer; the item is
+                // its icon only, scaled to nothing on the head in case a
+                // client draws the head item beside the layer.
+                double head = shaderHelmet ? 0 : HELMET_HEAD_SCALE / k;
+                JsonObject display = elements.isEmpty() ? new JsonObject() : itemDisplay(elements);
                 JsonObject headTransform = new JsonObject();
                 headTransform.add("rotation", array(0, 180, 0));
                 headTransform.add("translation", array(0, 0, 0));
@@ -208,7 +230,7 @@ public final class Armor3dBaker {
                 icon.add(element(cube, new double[]{0, 12, 0}, Turn.APPROXIMATE));
             }
             fitBounds(icon);
-            models.put(piece.wire(), model(textures, icon, itemDisplay(icon)));
+            models.put(piece.wire(), model(textures, icon, icon.isEmpty() ? null : itemDisplay(icon)));
 
             // The displays: per bone, one model of everything the format can
             // hold as it is, and one per group of cubes turned in a way it
@@ -273,13 +295,13 @@ public final class Armor3dBaker {
         String shaderProblem = null;
         List<int[]> shaderProtocols = List.of();
         try {
-            Armor3dShaderEncoder.Encoded encoded = encodeShaderSet(namespace, key, source);
+            Armor3dShaderEncoder.Encoded encoded = encodeShaderSet(namespace, key, source, shaderHelmet);
             files.putAll(encoded.baseFiles());
             overlayFiles = encoded.overlayFiles();
             shaderProtocols = Armor3dShaders.protocols();
             for (Map.Entry<Armor3dSet.Piece, String> asset : encoded.equipment().entrySet()) {
                 Armor3dSet.Worn worn = pieces.get(asset.getKey());
-                if (worn != null && asset.getKey() != Armor3dSet.Piece.HELMET) {
+                if (worn != null && (shaderHelmet || asset.getKey() != Armor3dSet.Piece.HELMET)) {
                     pieces.put(asset.getKey(), new Armor3dSet.Worn(worn.piece(), worn.item(), worn.parts(),
                             asset.getValue()));
                 }
@@ -319,6 +341,15 @@ public final class Armor3dBaker {
      */
     static Armor3dShaderEncoder.Encoded encodeShaderSet(String namespace, String key,
                                                         Armor3dBlockbench.Source source) {
+        return encodeShaderSet(namespace, key, source, false);
+    }
+
+    /**
+     * @param shaderHelmet whether the helmet is encoded too, rather than left
+     *                     to the game as a head item
+     */
+    static Armor3dShaderEncoder.Encoded encodeShaderSet(String namespace, String key,
+                                                        Armor3dBlockbench.Source source, boolean shaderHelmet) {
         // The atlas: each image under the last, at least 23 wide (the
         // encoder's header needs the room; the padding is never sampled).
         List<BufferedImage> images = new ArrayList<>();
@@ -377,7 +408,7 @@ public final class Armor3dBaker {
         List<Armor3dShaderEncoder.Part> parts = new ArrayList<>();
         for (int i = 0; i < cubes.size(); i++) {
             Armor3dBlockbench.Cube cube = cubes.get(i);
-            if (cube.piece() == Armor3dSet.Piece.HELMET) {
+            if (cube.piece() == Armor3dSet.Piece.HELMET && !shaderHelmet) {
                 continue;
             }
             Map<String, Armor3dShaderEncoder.FaceArt> faces = new LinkedHashMap<>();
@@ -397,10 +428,28 @@ public final class Armor3dBaker {
             parts.add(new Armor3dShaderEncoder.Part(cube.bone(), separated.get(i).from(), separated.get(i).to(),
                     cube.rotation(), cube.origin(), faces));
         }
-        if (parts.isEmpty()) {
+        // Mesh faces, as they are: the author keeps them out of one another's
+        // planes, since the separation pass only knows boxes.
+        List<Armor3dShaderEncoder.Quad> quads = new ArrayList<>();
+        for (Armor3dBlockbench.Quad quad : source.quads()) {
+            if (!BONES.containsKey(quad.bone()) || (quad.piece() == Armor3dSet.Piece.HELMET && !shaderHelmet)
+                    || quad.texture() < 0 || quad.texture() >= images.size()) {
+                continue;
+            }
+            BufferedImage image = images.get(quad.texture());
+            double sx = image.getWidth() / quad.uvWidth();
+            double sy = image.getHeight() / quad.uvHeight();
+            double oy = top[quad.texture()];
+            double[][] uvs = new double[4][];
+            for (int i = 0; i < 4; i++) {
+                uvs[i] = new double[]{quad.uvs()[i][0] * sx, oy + quad.uvs()[i][1] * sy};
+            }
+            quads.add(new Armor3dShaderEncoder.Quad(quad.bone(), quad.corners(), uvs));
+        }
+        if (parts.isEmpty() && quads.isEmpty()) {
             throw new IllegalArgumentException("it has nothing below the neck, which is all the shaders draw");
         }
-        return Armor3dShaderEncoder.encode(namespace, "armor3d/" + key, parts, width, height, rgba);
+        return Armor3dShaderEncoder.encode(namespace, "armor3d/" + key, parts, quads, width, height, rgba);
     }
 
     /** The string a model is dispatched by: {@code armor3d:<set>/<name>}. */

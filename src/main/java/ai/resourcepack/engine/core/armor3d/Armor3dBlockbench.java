@@ -51,8 +51,29 @@ public final class Armor3dBlockbench {
     private Armor3dBlockbench() {
     }
 
-    /** What a project holds: the cubes on the body, and the images they are painted from. */
-    public record Source(List<Cube> cubes, List<byte[]> textures) {
+    /**
+     * What a project holds: the cubes on the body, the images they are painted
+     * from, and the faces of any mesh elements.
+     */
+    public record Source(List<Cube> cubes, List<byte[]> textures, List<Quad> quads) {
+
+        public Source(List<Cube> cubes, List<byte[]> textures) {
+            this(cubes, textures, List.of());
+        }
+    }
+
+    /**
+     * One face of a Blockbench MESH element, in the wearer's frame: four
+     * corners (a triangle repeats its last), each with its own UV. Only the
+     * client's shaders can draw one, because the shader moves a carrier face's
+     * four corners anywhere at all; a block model or a display cannot, so a
+     * set's meshes are left out of its helmet item, its icons and its displays.
+     *
+     * @param corners four points, in order round the face
+     * @param uvs     the UV at each corner, in the texture's own UV space
+     */
+    public record Quad(String bone, Armor3dSet.Piece piece, double[][] corners, double[][] uvs, int texture,
+                       double uvWidth, double uvHeight) {
     }
 
     /**
@@ -143,19 +164,31 @@ public final class Armor3dBlockbench {
         walk(array(project, "outliner"), groupData, null, List.of(), placementOf, unknown);
 
         List<Cube> cubes = new ArrayList<>();
+        List<Quad> quads = new ArrayList<>();
         int loose = 0;
+        int skippedFaces = 0;
         for (JsonElement raw : array(project, "elements")) {
             if (!raw.isJsonObject()) {
                 continue;
             }
             JsonObject element = raw.getAsJsonObject();
             String type = string(element, "type");
-            if (type != null && !type.equals("cube")) {
+            boolean mesh = "mesh".equals(type);
+            if (type != null && !type.equals("cube") && !mesh) {
                 continue;
             }
             JsonElement export = element.get("export");
             if (export != null && export.isJsonPrimitive() && export.getAsJsonPrimitive().isBoolean()
                     && !export.getAsBoolean()) {
+                continue;
+            }
+            if (mesh) {
+                Placement placement = placementOf.get(string(element, "uuid"));
+                if (placement == null || placement.bone == null) {
+                    loose++;
+                    continue;
+                }
+                skippedFaces += readMesh(element, placement, rawTextures, resolutionWidth, resolutionHeight, quads);
                 continue;
             }
             double[] from = vec3(element, "from");
@@ -224,7 +257,159 @@ public final class Armor3dBlockbench {
                     + " not inside any bone group, so nothing wears " + (loose == 1 ? "it" : "them")
                     + ". Put each in head, body, right_arm and so on."));
         }
-        return Optional.of(new Source(List.copyOf(cubes), List.copyOf(textures)));
+        if (skippedFaces > 0) {
+            diagnostics.add(Diagnostic.warning(origin, where, skippedFaces + (skippedFaces == 1 ? " mesh face has"
+                    : " mesh faces have") + " more than four corners, so " + (skippedFaces == 1 ? "it was" : "they were")
+                    + " left out. Split them into triangles or quads in Blockbench."));
+        }
+        return Optional.of(new Source(List.copyOf(cubes), List.copyOf(textures), List.copyOf(quads)));
+    }
+
+    // ---- meshes ------------------------------------------------------------
+
+    /**
+     * Reads one mesh element's faces into {@code out}, in the wearer's frame.
+     *
+     * <p>Blockbench keeps a mesh's vertices relative to its {@code origin},
+     * turned by its {@code rotation} (Z, then Y, then X) about it, and each
+     * face names its vertices and a UV per vertex. A quad's vertices are not
+     * always stored in order round the face (Blockbench sorts them when it
+     * draws), so they are put in order here; a triangle repeats its last
+     * corner. Group turns apply as they do to a cube.
+     *
+     * @return how many faces were left out for having more than four corners
+     */
+    private static int readMesh(JsonObject element, Placement placement, JsonArray rawTextures,
+                                double resolutionWidth, double resolutionHeight, List<Quad> out) {
+        double[] o = vec3(element, "origin");
+        if (o == null) {
+            o = new double[3];
+        }
+        double[] rotation = vec3(element, "rotation");
+        double[][] own = rotation == null ? identity() : zyx(rotation);
+        Map<String, double[]> points = new HashMap<>();
+        JsonObject vertices = object(element, "vertices");
+        if (vertices != null) {
+            for (Map.Entry<String, JsonElement> entry : vertices.entrySet()) {
+                if (!entry.getValue().isJsonArray() || entry.getValue().getAsJsonArray().size() < 3) {
+                    continue;
+                }
+                JsonArray v = entry.getValue().getAsJsonArray();
+                double[] local = apply(own, new double[]{number(v.get(0), 0), number(v.get(1), 0), number(v.get(2), 0)});
+                double[] p = {local[0] + o[0], local[1] + o[1], local[2] + o[2]};
+                // Innermost group first, as a cube's turns are applied.
+                for (int i = placement.turns.size() - 1; i >= 0; i--) {
+                    Turn turn = placement.turns.get(i);
+                    double[] moved = apply(turn.matrix, new double[]{p[0] - turn.pivot[0], p[1] - turn.pivot[1],
+                            p[2] - turn.pivot[2]});
+                    p = new double[]{moved[0] + turn.pivot[0], moved[1] + turn.pivot[1], moved[2] + turn.pivot[2]};
+                }
+                points.put(entry.getKey(), p);
+            }
+        }
+        Armor3dSet.Piece piece = Armor3dBaker.BONES.get(placement.bone).piece();
+        int skipped = 0;
+        JsonObject faces = object(element, "faces");
+        if (faces == null) {
+            return 0;
+        }
+        for (Map.Entry<String, JsonElement> entry : faces.entrySet()) {
+            if (!entry.getValue().isJsonObject()) {
+                continue;
+            }
+            JsonObject face = entry.getValue().getAsJsonObject();
+            JsonElement textureRef = face.get("texture");
+            if (textureRef == null || textureRef.isJsonNull()
+                    || (textureRef.isJsonPrimitive() && textureRef.getAsJsonPrimitive().isBoolean())) {
+                continue;
+            }
+            JsonArray keys = array(face, "vertices");
+            if (keys.size() > 4) {
+                skipped++;
+                continue;
+            }
+            if (keys.size() < 3) {
+                continue;
+            }
+            JsonObject uvOf = object(face, "uv");
+            List<double[]> corners = new ArrayList<>();
+            List<double[]> uvs = new ArrayList<>();
+            for (JsonElement key : keys) {
+                double[] p = points.get(key.getAsString());
+                if (p == null) {
+                    corners.clear();
+                    break;
+                }
+                JsonArray uv = array(uvOf, key.getAsString());
+                corners.add(p);
+                uvs.add(uv.size() >= 2 ? new double[]{number(uv.get(0), 0), number(uv.get(1), 0)} : new double[2]);
+            }
+            if (corners.size() < 3) {
+                continue;
+            }
+            if (corners.size() == 3) {
+                corners.add(corners.get(2));
+                uvs.add(uvs.get(2));
+            } else {
+                int[] order = quadOrder(corners);
+                List<double[]> c = new ArrayList<>();
+                List<double[]> u = new ArrayList<>();
+                for (int i : order) {
+                    c.add(corners.get(i));
+                    u.add(uvs.get(i));
+                }
+                corners = c;
+                uvs = u;
+            }
+            int slot = slotOf(textureRef, rawTextures);
+            JsonObject texture = rawTextures.get(slot).isJsonObject() ? rawTextures.get(slot).getAsJsonObject() : null;
+            double uvWidth = number(texture == null ? null : texture.get("uv_width"), resolutionWidth);
+            double uvHeight = number(texture == null ? null : texture.get("uv_height"), resolutionHeight);
+            out.add(new Quad(placement.bone, piece, corners.toArray(new double[0][]), uvs.toArray(new double[0][]),
+                    slot, uvWidth, uvHeight));
+        }
+        return skipped;
+    }
+
+    /**
+     * The order that goes round a quad rather than across it: the first of
+     * 0123, 0132 and 0213 whose every corner turns the same way.
+     */
+    static int[] quadOrder(List<double[]> c) {
+        int[][] orders = {{0, 1, 2, 3}, {0, 1, 3, 2}, {0, 2, 1, 3}};
+        for (int[] order : orders) {
+            double[][] turns = new double[4][];
+            for (int i = 0; i < 4; i++) {
+                double[] a = c.get(order[(i + 3) % 4]);
+                double[] b = c.get(order[i]);
+                double[] d = c.get(order[(i + 1) % 4]);
+                turns[i] = cross(new double[]{b[0] - a[0], b[1] - a[1], b[2] - a[2]},
+                        new double[]{d[0] - b[0], d[1] - b[1], d[2] - b[2]});
+            }
+            // A bow tie's corners turn opposite ways and can sum to nothing,
+            // so each is held against the biggest turn, not the total.
+            double[] ref = turns[0];
+            for (double[] t : turns) {
+                if (t[0] * t[0] + t[1] * t[1] + t[2] * t[2] > ref[0] * ref[0] + ref[1] * ref[1] + ref[2] * ref[2]) {
+                    ref = t;
+                }
+            }
+            boolean round = true;
+            for (double[] t : turns) {
+                if (t[0] * ref[0] + t[1] * ref[1] + t[2] * ref[2] < -1e-9) {
+                    round = false;
+                    break;
+                }
+            }
+            if (round) {
+                return order;
+            }
+        }
+        return orders[0];
+    }
+
+    private static double[] cross(double[] a, double[] b) {
+        return new double[]{a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
     }
 
     // ---- the outliner ------------------------------------------------------

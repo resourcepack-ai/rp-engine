@@ -69,6 +69,18 @@ final class Armor3dShaderEncoder {
     }
 
     /**
+     * One free face: a mesh face, which no cube could have made. The shader
+     * moves a carrier face's four corners to wherever the set says, so any
+     * four points will do (a triangle repeats one); this is the engine's
+     * addition, not Studio's, and Studio's sets never have one.
+     *
+     * @param corners four points round the face, in pixels in the wearer's frame
+     * @param uvs     the UV at each corner, in atlas pixels
+     */
+    record Quad(String bone, double[][] corners, double[][] uvs) {
+    }
+
+    /**
      * @param baseFiles    the layer textures, by zip path; harmless in the base pack
      *                     (nothing names them outside an overlay)
      * @param overlayFiles the equipment assets, by path relative to the overlay
@@ -136,6 +148,15 @@ final class Armor3dShaderEncoder {
      * @throws IllegalArgumentException when the set cannot be encoded, with why
      */
     static Encoded encode(String namespace, String prefix, List<Part> parts, int atlasW, int atlasH, byte[] rgba) {
+        return encode(namespace, prefix, parts, List.of(), atlasW, atlasH, rgba);
+    }
+
+    /**
+     * Encodes a set that also has free faces, which follow every cube's faces
+     * in the order given. With none it is byte for byte the cubes-only form.
+     */
+    static Encoded encode(String namespace, String prefix, List<Part> parts, List<Quad> quads, int atlasW,
+                          int atlasH, byte[] rgba) {
         if (!prefix.matches("[a-z0-9_./-]+")) {
             throw new IllegalArgumentException("Bad armour asset prefix: " + prefix);
         }
@@ -202,6 +223,23 @@ final class Armor3dShaderEncoder {
                 faceCorners.add(corners);
                 faceUvs.add(uvs);
             }
+        }
+        // Free faces: the corners as given, through the same half turn.
+        for (Quad q : quads) {
+            Integer part = PART.get(q.bone());
+            if (part == null || q.corners().length != 4 || q.uvs().length != 4) {
+                continue;
+            }
+            double[][] corners = new double[4][];
+            double[][] uvs = new double[4][];
+            for (int i = 0; i < 4; i++) {
+                double[] pt = q.corners()[i];
+                corners[i] = new double[]{fixed6(-pt[0] / 16), fixed6(pt[1] / 16), fixed6(-pt[2] / 16)};
+                uvs[i] = new double[]{fixed6(q.uvs()[i][0] / atlasW), fixed6(1 - q.uvs()[i][1] / atlasH)};
+            }
+            faceParts.add(part);
+            faceCorners.add(corners);
+            faceUvs.add(uvs);
         }
         int nfaces = faceParts.size();
         if (nfaces == 0) {
