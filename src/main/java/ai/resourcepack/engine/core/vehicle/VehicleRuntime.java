@@ -1443,10 +1443,14 @@ public final class VehicleRuntime implements Listener {
                         // sneak, and must never be refused.
                         return;
                     }
-                    if (((Player) who).isDead() || !((Player) who).isOnline()) {
-                        // Nor is dying or leaving: a hold is about the sneak
-                        // key, and a dead or departing rider kept on the seat
-                        // is a body riding a sled with nobody in it.
+                    if (!((Player) who).isSneaking() || ((Player) who).isDead()) {
+                        // Nor is anything but the sneak key, which is all a
+                        // hold is for. The game's sneak dismount always has
+                        // shift down (Player.rideTick); a teleport, a death,
+                        // a switch to spectator and a disconnect all dismount
+                        // through the same cancellable event, and refusing
+                        // those left the rider on the seat - a teleport that
+                        // silently did not happen, a spectator still riding.
                         return;
                     }
                     UUID chassis = riders.get(who.getUniqueId());
