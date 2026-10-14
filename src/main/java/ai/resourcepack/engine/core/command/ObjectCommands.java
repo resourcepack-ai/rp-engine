@@ -279,6 +279,10 @@ public final class ObjectCommands implements Area {
 
     /** Where a command was typed, or null for the console. */
     private static Location placeOf(CommandSender sender) {
+        // `execute as <entity> run ...` arrives wrapped, with the entity as the callee.
+        if (sender instanceof org.bukkit.command.ProxiedCommandSender proxied) {
+            return placeOf(proxied.getCallee());
+        }
         if (sender instanceof org.bukkit.entity.Entity entity) {
             return entity.getLocation();
         }
