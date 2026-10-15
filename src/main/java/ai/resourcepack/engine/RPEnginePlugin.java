@@ -540,6 +540,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 overlayRuntime);
         // The keys a backpack's and a player's dialog storage are kept under.
         dialogs.attach(this);
+        // The icons a Studio dialog's picture can name by id (DialogIcons).
+        dialogs.icons(icons);
         // An item's `dialog:` action opens one, and its slots can show the item.
         actionRunner.dialogs(dialogs);
         // The rig carrier, so anything whose model animates wears the rig

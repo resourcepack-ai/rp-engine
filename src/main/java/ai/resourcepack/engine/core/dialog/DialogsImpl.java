@@ -164,6 +164,26 @@ public final class DialogsImpl implements Dialogs {
         this.pushedView = view;
     }
 
+    /** This server's icons, which a Studio dialog's picture can name: see {@link DialogIcons}. */
+    private volatile ai.resourcepack.engine.api.Icons icons;
+
+    /** Says where this server's icons are, for the icons a Studio dialog's picture names. */
+    public void icons(ai.resourcepack.engine.api.Icons icons) {
+        this.icons = icons;
+    }
+
+    /**
+     * An icon by the id a dialog's marker names: {@code namespace:id}, or a bare
+     * id looked up in every namespace, first by id — as chat reads {@code :wave:}.
+     * Its advance is the one the engine measured as it built the font.
+     */
+    static Optional<DialogIcons.Icon> icon(ai.resourcepack.engine.api.Icons icons, String id) {
+        Optional<ai.resourcepack.engine.api.IconInfo> info = id.indexOf(':') >= 0
+                ? icons.info(id)
+                : icons.ids().stream().filter(c -> c.path().equals(id)).findFirst().flatMap(icons::info);
+        return info.map(i -> new DialogIcons.Icon(i.character(), ai.resourcepack.engine.core.font.TextWidth.of(i.character())));
+    }
+
     /**
      * What a dialog is for this player: the server's own as it is, and a pushed
      * one as their own push has it — empty if their push has none.
@@ -303,6 +323,13 @@ public final class DialogsImpl implements Dialogs {
         // the dialog over: DialogItems.
         slots.shown(viewer, id, followed);
         json = DialogItems.fill(json, slots.reader(viewer), slots.held(viewer, id).orElse(null), info.itemIcons());
+        // This server's own icons where a Studio dialog's picture names one,
+        // each brought to the room it was given: DialogIcons. After the
+        // placeholders, so an icon's id can hold one.
+        ai.resourcepack.engine.api.Icons known = icons;
+        if (known != null && DialogIcons.any(json)) {
+            json = DialogIcons.fill(json, name -> icon(known, name));
+        }
         // Its links to pages the client already holds as they are turn there
         // without a round trip: see instantPages.
         // Followed from what this player can see: a link in a piece hidden from
