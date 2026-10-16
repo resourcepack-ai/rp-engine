@@ -363,7 +363,7 @@ public final class ModelsImpl implements Models {
 
             ModelBreakEvent ask = new ModelBreakEvent(
                 ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT)).orElse(null),
-                hitbox.getLocation(), null, true);
+                hitbox.getLocation(), null, dropItem);
             Bukkit.getPluginManager().callEvent(ask);
             if (ask.isCancelled()) return false;
 
