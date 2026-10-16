@@ -120,6 +120,15 @@ public final class InterfaceCommands implements Area {
      * it works, because the answer is on their screen; a line when it does not,
      * because a click that does nothing is otherwise a mystery.
      *
+     * <p><b>It opens the dialog again at once, in the tick the click arrived
+     * in</b>, as {@code /rp page} does and for its reasons. It used to wait a
+     * tick, and that broke every bound control in a Seamless dialog: the engine
+     * closes one on the next tick when the click opened nothing
+     * ({@link ai.resourcepack.engine.core.dialog.DialogsImpl#answerClick}), that
+     * close was queued first, and it forgets what the player was shown — so
+     * the reopen behind it found nothing, and a click on a slider's arrow shut
+     * the dialog instead of moving the slider.
+     *
      * <p>Naming another player is for staff and tests, and needs
      * {@code rpengine.var.others}.
      */
@@ -167,11 +176,7 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "That setting could not be saved: " + target.getName() + " has as many as a player can keep.");
             return true;
         }
-        // On the next tick: the click that ran this may still be closing the
-        // dialog on the client, and a dialog opened in the same breath would
-        // be the one it closes.
-        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(InterfaceCommands.class);
-        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> impl.reopen(target));
+        impl.reopen(target);
         if (sender != target) {
             Reply.to(sender, "Set " + name + " to " + value + " for " + target.getName() + ".");
         }
