@@ -3117,8 +3117,8 @@ nuke:
       - wait: 10                                   # ticks; or 0.5s
       - move: {by: [0, -22, 0], over: 2.5s, ease: in}
       - sound: {name: entity.generic.explode, volume: 16, pitch: 0.5}
-      - size: {to: 40, over: 2}
-      - move: {by: [0, 17, 0], over: 2}
+      - size: {to: 40, over: 2s}
+      - move: {by: [0, 17, 0], over: 2s}
       - state: detonate
       - wait: 45s
       - remove

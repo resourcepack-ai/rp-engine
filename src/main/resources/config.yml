@@ -67,8 +67,8 @@ edit:
   # Where the editors are. Only worth changing to point at a staging studio.
   url: "https://studio.resourcepack.ai"
 
-# Serving a published pack to everybody who joins. /rp publish <code> binds
-# this server to one; the code comes from the panel.
+# Serving a published pack to everybody who joins. /rp distribute <code> binds
+# this server to one; the code comes from the pack's Distribution page in Studio.
 distribution:
   # Where to ask what has been published. Only worth changing to point at a
   # staging studio.
@@ -227,6 +227,13 @@ emotes:
   # Turn it off if you would rather choose the moment yourself - a big pack, a
   # busy lobby - and /rp reload still bakes whatever has arrived.
   bake-on-join: true
+
+  # Bake a rig of every player's own skin into the pack, so emotes from the
+  # content folder play on their own body. Needs Minecraft 1.21.4 or newer.
+  # Turn it off to keep players' skins out of the pack; emotes pushed from
+  # Studio carry their own rigs and are not affected.
+  rigs: true
+
   # Whether /emote is registered as a command of its own. Turn this off and
   # everything is still there under /rp emote — this is for a server that
   # already has an /emote from somewhere else, or that wants one command
