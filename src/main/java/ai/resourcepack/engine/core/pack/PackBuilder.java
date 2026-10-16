@@ -327,7 +327,9 @@ public final class PackBuilder {
         // A pack whose overlays reach past format 64 must say, at the top,
         // which formats it supports (1.21.9+ refuses the whole pack
         // otherwise): from the oldest to the newest it or any overlay names.
-        // Older clients read the same range as supported_formats.
+        // Older clients read the same range as supported_formats, and only
+        // they may be told it: on a range wholly past 64 the key is
+        // deprecated and 1.21.9+ refuses the pack for having it.
         int min = packFormat;
         int max = packFormat;
         for (com.google.gson.JsonElement e : overlays) {
@@ -336,9 +338,12 @@ public final class PackBuilder {
             min = Math.min(min, range[0]);
             max = Math.max(max, range[1]);
         }
+        overlays = declaredOverlays(overlays);
         pack = "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
-                + "    \"supported_formats\": {\"min_inclusive\": " + min + ", \"max_inclusive\": " + max + "},\n"
+                + (min <= LAST_OLD_PACK_FORMAT
+                        ? "    \"supported_formats\": {\"min_inclusive\": " + min + ", \"max_inclusive\": " + max + "},\n"
+                        : "")
                 + "    \"min_format\": " + min + ",\n"
                 + "    \"max_format\": " + max + ",\n"
                 + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
@@ -386,6 +391,48 @@ public final class PackBuilder {
             o.addProperty("directory", entry.getKey());
             overlays.add(o);
         }
+    }
+
+    /**
+     * Every overlay entry declared the way 1.21.9+ accepts, whoever wrote it.
+     * The list is validated as a unit and one wrong entry refuses the whole
+     * pack: an entry past format 64 needs {@code min_format}/{@code max_format};
+     * if any entry reaches 64 or below, every entry also carries {@code formats}
+     * matching them; if none does, {@code formats} is a deprecated key and must
+     * be absent. A content pack declaring {@code formats} for an overlay only
+     * 26.x reads was enough to keep its whole pack off every client.
+     */
+    private static com.google.gson.JsonArray declaredOverlays(com.google.gson.JsonArray overlays) {
+        boolean anyOld = false;
+        for (com.google.gson.JsonElement e : overlays) {
+            int[] range = overlayRange(e);
+            anyOld |= range != null && range[0] <= LAST_OLD_PACK_FORMAT;
+        }
+        com.google.gson.JsonArray out = new com.google.gson.JsonArray();
+        for (com.google.gson.JsonElement e : overlays) {
+            int[] range = overlayRange(e);
+            if (range == null) {
+                // Nothing to read a range from: the game skips such an entry with a warning.
+                out.add(e);
+                continue;
+            }
+            com.google.gson.JsonObject o = e.getAsJsonObject().deepCopy();
+            o.remove("formats");
+            o.remove("min_format");
+            o.remove("max_format");
+            com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
+            if (anyOld) {
+                com.google.gson.JsonObject formats = new com.google.gson.JsonObject();
+                formats.addProperty("min_inclusive", range[0]);
+                formats.addProperty("max_inclusive", range[1]);
+                entry.add("formats", formats);
+            }
+            entry.addProperty("min_format", range[0]);
+            entry.addProperty("max_format", range[1]);
+            for (Map.Entry<String, com.google.gson.JsonElement> rest : o.entrySet()) entry.add(rest.getKey(), rest.getValue());
+            out.add(entry);
+        }
+        return out;
     }
 
     /** The last resource pack format whose clients read an overlay's range from {@code formats}. */
