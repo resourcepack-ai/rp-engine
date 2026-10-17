@@ -6,6 +6,7 @@ import ai.resourcepack.engine.core.pack.PackContributor;
 
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.core.pack.DeterministicZip;
+import ai.resourcepack.engine.core.pack.PackBuilder;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -100,9 +101,10 @@ public final class RigAssets implements PackContributor {
         for (Map.Entry<String, byte[]> entry : files.entrySet()) {
             zip.add(entry.getKey(), entry.getValue());
         }
-        String escaped = description.replace("\\", "\\\\").replace("\"", "\\\"");
-        zip.add("pack.mcmeta", ("{\n  \"pack\": {\n    \"pack_format\": " + packFormat
-                + ",\n    \"description\": \"" + escaped + "\"\n  }\n}\n").getBytes(StandardCharsets.UTF_8));
+        // The bundle's rule (PackBuilder), so a newer client reads it without a
+        // parse warning.
+        zip.add("pack.mcmeta", PackBuilder.packMeta(packFormat, description, new com.google.gson.JsonArray())
+                .getBytes(StandardCharsets.UTF_8));
         Path parent = file.toAbsolutePath().getParent();
         if (parent != null) {
             Files.createDirectories(parent);

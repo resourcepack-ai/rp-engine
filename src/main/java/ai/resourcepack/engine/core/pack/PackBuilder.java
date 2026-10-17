@@ -331,6 +331,12 @@ public final class PackBuilder {
     public static String packMeta(int packFormat, String description, com.google.gson.JsonArray overlays) {
         String pack = "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
+                // Past format 64 a client wants the range at the top even with
+                // no overlays; without it 1.21.9+ logs a parse error and falls
+                // back to reading the pack the old way.
+                + (packFormat > LAST_OLD_PACK_FORMAT
+                        ? "    \"min_format\": " + packFormat + ",\n    \"max_format\": " + packFormat + ",\n"
+                        : "")
                 + "    \"description\": \"" + escape(description) + "\"\n"
                 + "  }";
         if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
