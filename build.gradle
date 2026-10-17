@@ -108,6 +108,12 @@ dependencies {
     // Trait. The classes come from the server's own Citizens at runtime.
     compileOnly('net.citizensnpcs:citizens-main:2.0.35-SNAPSHOT') { transitive = false }
 
+    // Netty, for serving packs on the game port (SamePortServer). compileOnly:
+    // at runtime the classes are the server's own, the same ones its network
+    // listener is made of, which is the whole point.
+    compileOnly 'io.netty:netty-transport:4.2.7.Final'
+    compileOnly 'io.netty:netty-handler:4.2.7.Final'
+
     compileOnly 'org.geysermc.geyser:api:2.11.0-SNAPSHOT'
     compileOnly 'org.geysermc.geyser:core:2.11.0-SNAPSHOT'
 

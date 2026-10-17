@@ -95,6 +95,22 @@ public final class ContentCommands implements Area {
         return List.of();
     }
 
+    /** The link the sender would be sent for {@code pack}, or what stands in its place. */
+    private String link(CommandSender sender, BuiltPack pack) {
+        java.util.UUID who = sender instanceof org.bukkit.entity.Player player ? player.getUniqueId() : null;
+        java.util.Optional<String> url = host.url(pack.bundle(), who);
+        if (url.isPresent()) {
+            return url.get();
+        }
+        if (host.pending(pack.bundle())) {
+            return "uploading to the pack host";
+        }
+        if (who == null && host.mode() == PackHost.Mode.SAME_PORT && host.running()) {
+            return "on the game port, at the address each player joined by";
+        }
+        return "not served";
+    }
+
     private boolean bundles(CommandSender sender) {
         List<BuiltPack> packs = built.get();
         if (packs.isEmpty()) {
@@ -108,7 +124,7 @@ public final class ContentCommands implements Area {
             Reply.row(sender, pack.bundle(), Reply.plural(pack.entries(), "file")
                     + " · " + Reply.size(pack.size())
                     + " · " + pack.sha1().substring(0, 8));
-            Reply.note(sender, host.url(pack.bundle()).orElse("not served"));
+            Reply.note(sender, link(sender, pack));
         }
         return true;
     }

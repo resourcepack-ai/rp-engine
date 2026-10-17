@@ -35,6 +35,8 @@ public final class PackDelivery {
     private final java.util.Map<java.util.UUID, String> hosted = new java.util.concurrent.ConcurrentHashMap<>();
     /** Said once a run: a wrong address fails every join, and one line says it as well as a thousand. */
     private boolean warnedAboutFailure;
+    /** Player -> the stack they are waiting on an upload for. */
+    private final java.util.Map<java.util.UUID, List<BuiltPack>> waiting = new java.util.concurrent.ConcurrentHashMap<>();
 
     public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
                         PackSending sending, Logger logger) {
@@ -56,12 +58,12 @@ public final class PackDelivery {
         if (player == null) {
             return false;
         }
+        // Whatever was waiting for an upload on this player's behalf is
+        // superseded by this call, which is the newer wish.
+        waiting.remove(player.getUniqueId());
         BundleSessions.Delta delta = sessions.plan(player.getUniqueId(), desired);
         if (delta.isEmpty()) {
             return false;
-        }
-        for (BundleSessions.Held held : delta.remove()) {
-            sending.remove(player, held.uuid());
         }
         // On a server with one pack slot, only the last one sent survives, so
         // sending the whole stack would leave the player holding the top of it
@@ -81,6 +83,22 @@ public final class PackDelivery {
             }
             adding = List.of(top);
         }
+        // A pack still on its way to the pack host has no link yet. Nothing is
+        // sent until it has one, rather than the rest of the stack now and that
+        // one later: a stack is sent bottom first, and a second send is a
+        // second loading screen. Nothing is recorded either, so the retry
+        // plans from scratch.
+        for (BuiltPack pack : adding) {
+            if (pack.url().isEmpty() && host.pending(pack.bundle())) {
+                java.util.UUID id = player.getUniqueId();
+                waiting.put(id, desired);
+                host.whenSettled(pack.bundle(), () -> retry(player, id));
+                return false;
+            }
+        }
+        for (BundleSessions.Held held : delta.remove()) {
+            sending.remove(player, held.uuid());
+        }
         for (BuiltPack pack : adding) {
             // A pushed pack is already served, at an address Studio signed and
             // the client can reach. Ours are served by us. Asking the host for
@@ -88,7 +106,7 @@ public final class PackDelivery {
             // download" on every server whose host.public-address is still the
             // default — which is every server nobody has configured.
             Optional<String> url = pack.url().isEmpty()
-                    ? host.url(pack.bundle())
+                    ? host.url(pack.bundle(), player.getUniqueId())
                     : Optional.of(pack.url());
             if (url.isEmpty()) {
                 // Built but not being served, which happens when hosting is
@@ -126,11 +144,31 @@ public final class PackDelivery {
             return;
         }
         warnedAboutFailure = true;
+        String advice;
+        if (host.onPackHost(url)) {
+            advice = "That is ResourcePack AI's pack host, so this is most likely the player's own connection. "
+                    + "If every player sees it, set host.mode to same-port or own-port in config.yml.";
+        } else if (host.mode() == PackHost.Mode.OWN_PORT) {
+            advice = "That address comes from host.public-address in config.yml and has to be one the PLAYER'S "
+                    + "computer can reach: this server's public IP or domain, with the port in host.port open to the "
+                    + "internet (on a hosting panel, that usually means allocating the port to this server). "
+                    + "Or set host.mode to upload, which needs neither.";
+        } else {
+            advice = "That is this server's game port, which a player behind a proxy (Velocity, BungeeCord) cannot "
+                    + "download from. Set host.mode to upload in config.yml.";
+        }
         logger.warning(player.getName() + "'s game could not download " + url + " (" + status + "). "
-                + "That address comes from host.public-address in config.yml and has to be one the PLAYER'S "
-                + "computer can reach: this server's public IP or domain, with the port in host.port open to the "
-                + "internet (on a hosting panel, that usually means allocating the port to this server). "
-                + "Said once per restart.");
+                + advice + " Said once per restart.");
+    }
+
+    /** Sends what {@code id} was waiting on, if they are still here and still want it. */
+    private void retry(Player player, java.util.UUID id) {
+        List<BuiltPack> desired = waiting.remove(id);
+        Player current = player.getServer().getPlayer(id);
+        // The same Player object, or this is a session that has since ended.
+        if (desired != null && current == player && player.isOnline()) {
+            apply(player, desired);
+        }
     }
 
     /** Whether a client here can hold more than one pack, which a pack stacked on top of another needs. */

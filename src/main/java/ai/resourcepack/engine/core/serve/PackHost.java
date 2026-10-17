@@ -15,10 +15,17 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
+import java.util.logging.Logger;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -29,7 +36,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Serves built packs over HTTP so a client can download one.
+ * Gets built packs to players: decides the link each player is sent, and
+ * serves the pack behind it when this server is the one serving it.
+ *
+ * <p>There are four ways, {@link Mode}, chosen by {@code host.mode}. The
+ * default uploads each pack to ResourcePack AI's pack host, because the two
+ * that serve from this machine each need something a new server often lacks
+ * (an open second port, or no proxy in front), and the only symptom of either
+ * going wrong is "failed to download" on the player's screen. A pack whose
+ * upload fails is served from the game port instead, if it can be.
+ *
+ * <p>What follows is about the own-port server, the one with the most to say.
  *
  * <p>Built in rather than left to the server owner, because a plugin that
  * builds a pack and then tells somebody to go and find hosting for it has not
@@ -94,15 +111,96 @@ public final class PackHost {
     private static final int MAX_DRAINED_BODY = 64 * 1024;
     private static final int CHUNK = 64 * 1024;
 
+    /** How players download what this server builds. {@code host.mode} in config.yml. */
+    public enum Mode {
+        /** Uploaded to ResourcePack AI's pack host, which players download from. */
+        UPLOAD("upload"),
+        /** Served by this server on its Minecraft port. */
+        SAME_PORT("same-port"),
+        /** Served by this server on a port of its own, at an address the config gives. */
+        OWN_PORT("own-port"),
+        /** Not served: the owner hosts the zips somewhere themselves. */
+        NONE("none");
+
+        private final String key;
+
+        Mode(String key) {
+            this.key = key;
+        }
+
+        /** As written in config.yml. */
+        public String key() {
+            return key;
+        }
+
+        /** The mode {@code value} names, or empty when it names none. */
+        public static Optional<Mode> parse(String value) {
+            if (value == null) {
+                return Optional.empty();
+            }
+            String wanted = value.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+            for (Mode mode : values()) {
+                if (mode.key.equals(wanted)) {
+                    return Optional.of(mode);
+                }
+            }
+            return Optional.empty();
+        }
+    }
+
+    /** One pack's way onto the pack host. */
+    private static final class Upload {
+        final BuiltPack pack;
+        volatile String url;
+        volatile boolean done;
+        volatile boolean failed;
+        private final List<Runnable> waiting = new ArrayList<>();
+
+        Upload(BuiltPack pack) {
+            this.pack = pack;
+        }
+
+        boolean pending() {
+            return !done && !failed;
+        }
+
+        /** Books {@code then} for when this settles; false when it has already. */
+        synchronized boolean await(Runnable then) {
+            if (!pending()) {
+                return false;
+            }
+            waiting.add(then);
+            return true;
+        }
+
+        synchronized List<Runnable> settle() {
+            List<Runnable> all = new ArrayList<>(waiting);
+            waiting.clear();
+            return all;
+        }
+    }
+
     private final Map<String, BuiltPack> byPath = new ConcurrentHashMap<>();
     private final Map<InetAddress, AtomicInteger> perAddress = new ConcurrentHashMap<>();
     private final Set<Connection> open = ConcurrentHashMap.newKeySet();
     private final String publicAddress;
     private final Limits limits;
+    private final Mode mode;
+    private final PackUploader uploader;
+    private final Executor main;
+    private final Logger logger;
+    private final Map<String, Upload> uploads = new ConcurrentHashMap<>();
+    /** Messages said once a run, so a broken upload does not say so on every rebuild. */
+    private final Set<String> said = ConcurrentHashMap.newKeySet();
 
     private ServerSocket listener;
     private ThreadPoolExecutor workers;
     private ScheduledExecutorService watchdog;
+    private ExecutorService uploadThread;
+    private SamePortServer samePort;
+    private volatile Function<UUID, String> playerAddress = id -> null;
+    /** False behind a proxy, where a link to the game port reaches the proxy and not this server. */
+    private volatile boolean gamePortReachable = true;
 
     /**
      * @param publicAddress how a CLIENT reaches this host, scheme and all
@@ -116,8 +214,62 @@ public final class PackHost {
     }
 
     PackHost(String publicAddress, Limits limits) {
+        this(Mode.OWN_PORT, publicAddress, limits, null, Runnable::run, null);
+    }
+
+    PackHost(Mode mode, String publicAddress, Limits limits, PackUploader uploader, Executor main, Logger logger) {
+        this.mode = mode;
         this.publicAddress = trimSlash(publicAddress == null ? "" : publicAddress);
         this.limits = limits;
+        this.uploader = uploader;
+        this.main = main;
+        this.logger = logger;
+        if (mode == Mode.UPLOAD) {
+            uploadThread = Executors.newSingleThreadExecutor(runnable -> daemon(runnable, "RPEngine pack upload"));
+        }
+    }
+
+    /**
+     * A host in any mode.
+     *
+     * @param publicAddress the own-port address; unused by the others
+     * @param uploader      where packs go in {@link Mode#UPLOAD}; unused by the others
+     * @param main          where a finished upload's follow-up runs (the server thread)
+     */
+    public static PackHost create(Mode mode, String publicAddress, PackUploader uploader, Executor main,
+                                  Logger logger) {
+        return new PackHost(mode, publicAddress, Limits.DEFAULT, uploader, main, logger);
+    }
+
+    public Mode mode() {
+        return mode;
+    }
+
+    /**
+     * How a player reached this server, {@code host:port} as they typed it,
+     * for links to the game port: such a link has to use the address the
+     * player already reached it by, which is the one address known to work.
+     */
+    public void playerAddresses(Function<UUID, String> addresses) {
+        this.playerAddress = addresses == null ? id -> null : addresses;
+    }
+
+    /** Says whether players can reach this server's game port directly; not behind a proxy. */
+    public void gamePortReachable(boolean reachable) {
+        this.gamePortReachable = reachable;
+    }
+
+    /**
+     * Starts serving on the game port, for {@link Mode#SAME_PORT} or as the
+     * fallback for an upload that failed.
+     *
+     * @return whether it is now serving there
+     */
+    public synchronized boolean startSamePort() {
+        if (samePort == null) {
+            samePort = new SamePortServer(byPath::get, logger == null ? Logger.getAnonymousLogger() : logger);
+        }
+        return samePort.start();
     }
 
     /**
@@ -155,6 +307,13 @@ public final class PackHost {
 
     /** Stops listening and drops every registered pack. */
     public synchronized void stop() {
+        if (samePort != null) {
+            samePort.stop();
+        }
+        if (uploadThread != null) {
+            uploadThread.shutdownNow();
+        }
+        uploads.clear();
         if (listener != null) {
             closeQuietly(listener);
             listener = null;
@@ -175,9 +334,22 @@ public final class PackHost {
         byPath.clear();
     }
 
-    /** Whether it is currently listening. */
+    /**
+     * Whether this server's packs are being got to players at all: listening
+     * on its own port or the game's, or uploading. False only when hosting is
+     * off, or the one way it was told to use could not start.
+     */
     public synchronized boolean running() {
-        return listener != null;
+        switch (mode) {
+            case UPLOAD:
+                return uploadThread != null && !uploadThread.isShutdown();
+            case SAME_PORT:
+                return samePort != null && samePort.running();
+            case OWN_PORT:
+                return listener != null;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -195,22 +367,189 @@ public final class PackHost {
         byPath.entrySet().removeIf(entry -> entry.getValue().bundle().equals(pack.bundle()));
         String path = pathFor(pack);
         byPath.put(path, pack);
+        // A pack pushed from Studio is served by Studio already, at the link it
+        // carries, so there is nothing to upload.
+        if (mode == Mode.UPLOAD && pack.url().isEmpty()) {
+            upload(pack);
+        }
         return publicAddress + path;
     }
 
     /** Stops serving {@code bundle}, for a pack that belonged to a player who has left. */
     public void unregister(String bundle) {
         byPath.entrySet().removeIf(entry -> entry.getValue().bundle().equals(bundle));
+        uploads.remove(bundle);
     }
 
-    /** The URL for a bundle, if one is registered. */
+    /** The link for a bundle, where it can be given without knowing who it is for. */
     public Optional<String> url(String bundle) {
+        return url(bundle, null);
+    }
+
+    /**
+     * The link to send {@code player} for {@code bundle}, or empty when there
+     * is none to send them: nothing registered, hosting off, an upload still
+     * running ({@link #pending}), or one that failed with nowhere to fall back.
+     */
+    public Optional<String> url(String bundle, UUID player) {
+        String path = null;
         for (Map.Entry<String, BuiltPack> entry : byPath.entrySet()) {
             if (entry.getValue().bundle().equals(bundle)) {
-                return Optional.of(publicAddress + entry.getKey());
+                path = entry.getKey();
+                break;
             }
         }
-        return Optional.empty();
+        if (path == null) {
+            return Optional.empty();
+        }
+        switch (mode) {
+            case OWN_PORT:
+                return Optional.of(publicAddress + path);
+            case SAME_PORT:
+                return gamePortLink(path, player);
+            case UPLOAD: {
+                Upload upload = uploads.get(bundle);
+                if (upload == null) {
+                    return Optional.empty();
+                }
+                if (upload.done) {
+                    return Optional.of(upload.url);
+                }
+                if (upload.failed && samePort != null && samePort.running()) {
+                    return gamePortLink(path, player);
+                }
+                return Optional.empty();
+            }
+            default:
+                return Optional.empty();
+        }
+    }
+
+    private Optional<String> gamePortLink(String path, UUID player) {
+        String address = player == null ? null : playerAddress.apply(player);
+        if (address == null || address.isEmpty()) {
+            if (player != null) {
+                sayOnce("Could not tell which address a player used to reach this server, so they cannot be sent a "
+                        + "link to its game port. Set host.mode to upload or own-port in config.yml.");
+            }
+            return Optional.empty();
+        }
+        return Optional.of("http://" + address + path);
+    }
+
+    /** Whether {@code bundle} is on its way to the pack host and has no link yet. */
+    public boolean pending(String bundle) {
+        Upload upload = mode == Mode.UPLOAD ? uploads.get(bundle) : null;
+        return upload != null && upload.pending();
+    }
+
+    /**
+     * Runs {@code then} on the server thread once {@code bundle}'s upload has
+     * settled one way or the other, or right now when none is running.
+     */
+    public void whenSettled(String bundle, Runnable then) {
+        Upload upload = mode == Mode.UPLOAD ? uploads.get(bundle) : null;
+        if (upload == null || !upload.await(then)) {
+            then.run();
+        }
+    }
+
+    /** Whether {@code url} is a pack host link rather than one to this server. */
+    public boolean onPackHost(String url) {
+        return uploader != null && url != null && url.startsWith(uploader.base() + "/");
+    }
+
+    private void upload(BuiltPack pack) {
+        Upload previous = uploads.get(pack.bundle());
+        if (previous != null && previous.pack.sha1().equals(pack.sha1()) && !previous.failed) {
+            // The same bytes, already up or on the way.
+            return;
+        }
+        Upload upload = new Upload(pack);
+        uploads.put(pack.bundle(), upload);
+        try {
+            uploadThread.execute(() -> {
+                try {
+                    upload.url = uploader.ensure(pack);
+                    upload.done = true;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    upload.failed = true;
+                } catch (IOException | RuntimeException e) {
+                    upload.failed = true;
+                    main.execute(() -> fallBack(pack, e));
+                } finally {
+                    List<Runnable> waiting = upload.settle();
+                    if (!waiting.isEmpty()) {
+                        main.execute(() -> waiting.forEach(Runnable::run));
+                    }
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            // Stopping.
+            upload.failed = true;
+        }
+    }
+
+    /** An upload failed: serve that pack from the game port instead, and say so once. */
+    private void fallBack(BuiltPack pack, Exception why) {
+        if (uploadThread == null || uploadThread.isShutdown()) {
+            return;
+        }
+        String reason = why.getMessage() == null ? why.toString() : why.getMessage();
+        if (!gamePortReachable) {
+            sayOnce("Could not upload " + pack.bundle() + " to the pack host (" + reason + "), and this server is "
+                    + "behind a proxy, so it cannot be served on the game port instead. Players will not be sent it "
+                    + "until an upload works; to serve it yourself, set host.mode to own-port in config.yml.");
+        } else if (startSamePort()) {
+            sayOnce("Could not upload " + pack.bundle() + " to the pack host (" + reason + "), so this server is "
+                    + "serving it on its game port instead. Players cannot download it from there if this server "
+                    + "is behind a proxy (Velocity, BungeeCord): then set host.mode to own-port in config.yml.");
+        } else {
+            sayOnce("Could not upload " + pack.bundle() + " to the pack host (" + reason + "), and could not serve "
+                    + "it on the game port either, so players will not be sent it. Set host.mode to own-port in "
+                    + "config.yml, with a port and an address players can reach.");
+        }
+    }
+
+    private void sayOnce(String message) {
+        if (logger != null && said.add(message)) {
+            logger.warning(message);
+        }
+    }
+
+    /**
+     * Keeps every uploaded pack on the pack host, which forgets one nobody has
+     * touched for a month, and tries again any upload that failed. Call it a
+     * few times a day; the work happens off the server thread.
+     */
+    public void refresh() {
+        if (mode != Mode.UPLOAD || uploadThread == null || uploadThread.isShutdown()) {
+            return;
+        }
+        for (Upload upload : uploads.values()) {
+            if (upload.failed) {
+                // Players joining from now on get it from the pack host again.
+                upload(upload.pack);
+                continue;
+            }
+            if (!upload.done) {
+                continue;
+            }
+            try {
+                uploadThread.execute(() -> {
+                    try {
+                        uploader.ensure(upload.pack);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (IOException | RuntimeException e) {
+                        // Still there for weeks yet; tomorrow's try is soon enough.
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                return;
+            }
+        }
     }
 
     /** How many packs are being served. */

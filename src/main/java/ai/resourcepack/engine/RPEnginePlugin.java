@@ -100,7 +100,9 @@ import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
 import ai.resourcepack.engine.core.serve.PackSending;
 import ai.resourcepack.engine.core.serve.ServerStack;
+import ai.resourcepack.engine.core.serve.LoginAddresses;
 import ai.resourcepack.engine.core.serve.PackHost;
+import ai.resourcepack.engine.core.serve.PackUploader;
 import ai.resourcepack.engine.core.skin.SkinApplier;
 import ai.resourcepack.engine.core.sound.SoundAssets;
 import ai.resourcepack.engine.core.sound.SoundDefinitions;
@@ -1676,29 +1678,117 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return items;
     }
 
+    /** What host.public-address says when nobody has changed it. */
+    private static final String DEFAULT_PUBLIC_ADDRESS = "http://127.0.0.1:8181";
+    /** How often uploaded packs are touched to keep them on the pack host: every six hours. */
+    private static final long PACK_REFRESH_TICKS = 20L * 60 * 60 * 6;
+
     private void startHost() {
         defaultBundle = getConfig().getString("default-bundle", "");
-        String address = getConfig().getString("host.public-address", "http://127.0.0.1:8181");
-        packHost = new PackHost(address);
+        String address = getConfig().getString("host.public-address", DEFAULT_PUBLIC_ADDRESS);
+        PackHost.Mode mode = hostMode();
+        PackUploader uploader = new PackUploader(
+                getConfig().getString("host.upload-url", "https://packs.resourcepack.ai"),
+                "RPEngine/" + getDescription().getVersion());
+        packHost = PackHost.create(mode, address, uploader, runnable -> {
+            // A finished upload's follow-up, onto the server thread; nothing to
+            // follow up once the plugin is going away.
+            if (isEnabled()) {
+                getServer().getScheduler().runTask(this, runnable);
+            }
+        }, getLogger());
+        LoginAddresses addresses = new LoginAddresses(getServer()::getPlayer, getServer().getPort());
+        if (LoginAddresses.needsLoginEvent()) {
+            getServer().getPluginManager().registerEvents(addresses, this);
+        }
+        packHost.playerAddresses(addresses);
+        boolean proxied = behindProxy();
+        packHost.gamePortReachable(!proxied);
         delivery = new PackDelivery(sessions, packHost,
                 getConfig().getString("prompt.message", ""),
                 getConfig().getBoolean("prompt.force", false),
                 PackSending.forServer(compatibility), getLogger());
 
-        if (!getConfig().getBoolean("host.enabled", true)) {
-            getLogger().info("Pack hosting is off. Packs are built but not served.");
-            return;
+        switch (mode) {
+            case NONE:
+                getLogger().info("Pack hosting is off (host.mode: none). Packs are built in plugins/"
+                        + getDataFolder().getName() + "/output but not served.");
+                return;
+            case UPLOAD:
+                getLogger().info("Packs are uploaded to " + uploader.base() + " and players download them from "
+                        + "there (host.mode: upload).");
+                getServer().getScheduler().runTaskTimer(this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
+                return;
+            case SAME_PORT:
+                if (proxied) {
+                    getLogger().warning("host.mode is same-port, but this server is behind a proxy (Velocity or "
+                            + "BungeeCord), which only passes Minecraft through: players will not be able to "
+                            + "download packs. Set host.mode to upload or own-port in config.yml.");
+                }
+                if (packHost.startSamePort()) {
+                    getLogger().info("Serving packs on the game port (host.mode: same-port).");
+                } else {
+                    getLogger().warning("Packs are built but not served. Set host.mode to upload or own-port in config.yml.");
+                }
+                return;
+            default:
+                break;
         }
         try {
             int port = packHost.start(getConfig().getInt("host.port", 8181));
-            getLogger().info("Serving packs on port " + port + " as " + address);
+            getLogger().info("Serving packs on port " + port + " as " + address + " (host.mode: own-port)");
             for (String problem : PackHost.addressProblems(address, port)) {
                 getLogger().warning(problem);
             }
         } catch (IOException e) {
             getLogger().warning("Could not listen on port " + getConfig().getInt("host.port", 8181)
-                    + ": " + e.getMessage() + ". Packs are built but not served.");
+                    + ": " + e.getMessage() + ". Packs are built but not served. Set host.mode to upload in "
+                    + "config.yml to need no port at all.");
         }
+    }
+
+    /**
+     * {@code host.mode}, or for a config written before it existed, what that
+     * config meant: hosting off stays off, and an address somebody typed in is
+     * somebody who set up their own port and keeps it. Only a config still
+     * holding the default address, which never worked for anybody but the
+     * server's own machine, moves to uploading.
+     */
+    private PackHost.Mode hostMode() {
+        if (getConfig().contains("host.mode", true)) {
+            String said = getConfig().getString("host.mode");
+            return PackHost.Mode.parse(said).orElseGet(() -> {
+                getLogger().warning("host.mode \"" + said + "\" is not upload, same-port, own-port or none, "
+                        + "so packs are uploaded.");
+                return PackHost.Mode.UPLOAD;
+            });
+        }
+        if (!getConfig().getBoolean("host.enabled", true)) {
+            return PackHost.Mode.NONE;
+        }
+        String address = getConfig().getString("host.public-address", DEFAULT_PUBLIC_ADDRESS);
+        if (getConfig().contains("host.public-address", true) && !DEFAULT_PUBLIC_ADDRESS.equals(address)) {
+            return PackHost.Mode.OWN_PORT;
+        }
+        return PackHost.Mode.UPLOAD;
+    }
+
+    /**
+     * Whether players reach this server through Velocity or BungeeCord, read
+     * from the two files that turn forwarding on. A proxy passes Minecraft
+     * through and nothing else, so a link to the game port reaches the proxy.
+     */
+    private boolean behindProxy() {
+        try {
+            if (getServer().spigot().getConfig().getBoolean("settings.bungeecord", false)) {
+                return true;
+            }
+        } catch (RuntimeException ignored) {
+            // No spigot.yml to ask.
+        }
+        java.io.File paper = new java.io.File(getServer().getWorldContainer(), "config/paper-global.yml");
+        return paper.isFile() && org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(paper)
+                .getBoolean("proxies.velocity.enabled", false);
     }
 
     /**

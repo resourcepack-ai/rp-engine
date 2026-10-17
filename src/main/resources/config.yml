@@ -1,20 +1,43 @@
 # RP Engine
 
-# Where built packs are served from.
+# How players download the packs this server builds.
 host:
-  # Port to listen on. 0 picks a free one, which is fine for testing and no
-  # use in production because the address below then has to match it.
+  # One of:
+  #
+  #   upload     The default. Each pack is uploaded to ResourcePack AI's pack
+  #              host (packs.resourcepack.ai), free, and players download it
+  #              from there. Nothing to open or set up, and it works behind any
+  #              proxy and on any host. A pack is only uploaded again when it
+  #              changes. Your packs are stored on our servers for as long as
+  #              this server uses them (a pack nothing has used for 30 days is
+  #              deleted), and only the Minecraft client can download them.
+  #              If an upload fails, the pack is served on the game port
+  #              instead (same-port below) and the console says so.
+  #
+  #   same-port  This server serves the packs itself, on its Minecraft port.
+  #              Nothing leaves this machine and there is nothing to open.
+  #              Does NOT work behind a proxy (Velocity, BungeeCord), which
+  #              only passes Minecraft through.
+  #
+  #   own-port   This server serves the packs itself, on a second port (the
+  #              two settings below). Works behind a proxy too, but you have
+  #              to open that port (on a hosting panel: allocate it to this
+  #              server) and tell the plugin the address players reach it at.
+  #
+  #   none       Not served. The packs are still built, into the output
+  #              folder, for you to host somewhere yourself.
+  mode: upload
+
+  # own-port only. The port to listen on. 0 picks a free one, which is fine
+  # for testing and no use in production because the address below then has
+  # to match it.
   port: 8181
 
-  # How a CLIENT reaches this server. The plugin cannot work this out for
-  # itself — it may be behind a proxy, a NAT, or a hostname only the outside
-  # world knows — so it is told. Players outside your network need a public
-  # address here, not 127.0.0.1.
+  # own-port only. How a CLIENT reaches that port. The plugin cannot work
+  # this out for itself (it may be behind a proxy, a NAT, or a hostname only
+  # the outside world knows), so it is told. Players outside your network
+  # need a public address here, not 127.0.0.1.
   public-address: "http://127.0.0.1:8181"
-
-  # Set false if you host the built zips yourself (a CDN, a web server) and
-  # only want the plugin to build them.
-  enabled: true
 
 pack:
   # The pack_format written into pack.mcmeta, which has to match your game
