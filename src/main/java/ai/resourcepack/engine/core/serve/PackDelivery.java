@@ -222,32 +222,31 @@ public final class PackDelivery {
     }
 
     /**
-     * Puts {@code pack} back on top of {@code player}'s stack, when it is the
-     * top of what we sent them and something else has since been stacked over
-     * it: another plugin's pack sent after ours. Taking it off and sending it
-     * again is the only way to move a pack in a client's list; it is cached, so
-     * it costs a reload and no download.
+     * Sends {@code desired} again, every pack of it, taken off first so each
+     * lands on top of whatever the client holds now.
      *
-     * @return whether it was sent again
+     * <p>For after another plugin's pack reached the player. Two things can
+     * have happened and the server cannot tell which. The other plugin may
+     * have used {@code setResourcePack}, which in 1.20.3+ CLEARS every server
+     * pack the player holds before adding its own (BetterHud does this): ours
+     * are gone from the client while {@link BundleSessions} still believes in
+     * them, and an ordinary {@link #apply} would send nothing. Or it may have
+     * stacked its pack on top of ours, where it now wins every file both
+     * replace. Taking ours off and sending them again is right in both cases:
+     * a pack the client already has is cached, so it costs a reload, not a
+     * download.
+     *
+     * @return whether anything was sent
      */
-    public boolean raise(Player player, BuiltPack pack) {
-        if (player == null || pack == null || !sending.stacks()) {
+    public boolean restack(Player player, List<BuiltPack> desired) {
+        if (player == null || desired == null || desired.isEmpty() || !sending.stacks()) {
             return false;
         }
-        List<BundleSessions.Held> held = sessions.held(player.getUniqueId());
-        if (held.isEmpty() || !held.get(held.size() - 1).equals(BundleSessions.Held.of(pack))) {
-            return false;
+        sessions.forget(player.getUniqueId());
+        for (BuiltPack pack : desired) {
+            sending.remove(player, pack.uuid());
         }
-        Optional<String> url = pack.url().isEmpty()
-                ? host.url(pack.bundle(), player.getUniqueId())
-                : Optional.of(pack.url());
-        if (url.isEmpty()) {
-            return false;
-        }
-        sending.remove(player, pack.uuid());
-        sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
-        loads.sent(player.getUniqueId(), pack.uuid());
-        return true;
+        return apply(player, desired);
     }
 
     /** Drops everything {@code player} is holding from us. */
