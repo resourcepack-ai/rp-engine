@@ -313,7 +313,7 @@ marked out afterwards.
 underneath, and the server matches its recipes on materials, so without this a
 tomato carried on paper is paper: three and some leather make a book, and it
 smelts, stonecuts and repairs as the material. The game's own recipes (the
-`minecraft` namespace) refuse it at the crafting grid, the furnaces and
+`minecraft` namespace) refuse it at the crafting grid and the crafter, the furnaces and
 campfire, the stonecutter, the smithing table and as an anvil's repair
 material. A recipe whose result is the same custom item still works, so a
 custom leather tunic can be dyed and a custom diamond sword made netherite.

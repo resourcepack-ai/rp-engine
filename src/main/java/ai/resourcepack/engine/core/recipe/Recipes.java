@@ -83,11 +83,15 @@ public final class Recipes {
     }
 
     /**
-     * The listener that keeps custom items out of vanilla's recipes. See
+     * The listeners that keep custom items out of vanilla's recipes: the guard,
+     * and on a server with a crafter, the crafter's arm of it. See
      * {@link VanillaRecipeGuard}. Registered once by the plugin.
      */
-    public Listener vanillaGuard() {
-        return guard;
+    public List<Listener> vanillaGuards() {
+        if (compatibility.has(Feature.CRAFTER)) {
+            return List.of(guard, new CrafterGuard(guard));
+        }
+        return List.of(guard);
     }
 
     /** {@code items.vanilla-recipes}: true lets every custom item into vanilla's recipes. */

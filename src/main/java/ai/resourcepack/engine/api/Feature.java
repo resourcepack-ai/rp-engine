@@ -253,6 +253,17 @@ public enum Feature {
             "Custom music discs in placed jukeboxes",
             "Handled: there are no custom discs before this version, and every vanilla disc "
                     + "plays in a placed jukebox as usual.",
+            false),
+
+    /**
+     * The crafter, the block that crafts on a redstone pulse, and the event it
+     * fires. Not visible: there is no crafter before 1.21, so there is nothing
+     * on an older server for a custom item to be crafted in.
+     */
+    CRAFTER(
+            McVersion.of(1, 21, 0),
+            "Keeping custom items out of the crafter's vanilla recipes",
+            "Handled: there is no crafter before this version.",
             false);
 
     private final McVersion since;

@@ -678,7 +678,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A custom tomato on paper is paper to vanilla's recipes; see
         // VanillaRecipeGuard.
         recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
-        getServer().getPluginManager().registerEvents(recipes.vanillaGuard(), this);
+        for (Listener guard : recipes.vanillaGuards()) {
+            getServer().getPluginManager().registerEvents(guard, this);
+        }
         getServer().getPluginManager().registerEvents(vehicles, this);
         // The control arm is a listener of its own on the click fallback and
         // has nothing to handle on the Paper one. Registered either way, so

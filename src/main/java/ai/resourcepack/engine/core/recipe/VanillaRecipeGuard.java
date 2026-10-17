@@ -57,6 +57,14 @@ final class VanillaRecipeGuard implements Listener {
         this.allowAll = allowAll;
     }
 
+    boolean allowsAll() {
+        return allowAll;
+    }
+
+    Optional<ContentId> idOf(ItemStack stack) {
+        return stack == null ? Optional.empty() : items.idOf(stack);
+    }
+
     // ---- crafting table and the inventory grid -------------------------------------------
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -190,11 +198,11 @@ final class VanillaRecipeGuard implements Listener {
      * Whether this input would be standing in for its material: a refused
      * custom item that is not the item the recipe makes.
      */
-    private boolean substitutes(ItemStack input, Optional<ContentId> made) {
+    boolean substitutes(ItemStack input, Optional<ContentId> made) {
         return refused(input) && !items.idOf(input).equals(made);
     }
 
-    private static boolean isVanilla(Recipe recipe) {
+    static boolean isVanilla(Recipe recipe) {
         return recipe instanceof Keyed
                 && NamespacedKey.MINECRAFT.equals(((Keyed) recipe).getKey().getNamespace());
     }
