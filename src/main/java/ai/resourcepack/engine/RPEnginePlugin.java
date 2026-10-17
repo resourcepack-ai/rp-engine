@@ -346,6 +346,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * where they ride inside it. See {@link #rigsApart}.
      */
     private BuiltPack rigPack;
+
+    /** Says when another plugin's pack replaces a core shader one of ours does. See {@link #checkShaderClashes}. */
+    private final ai.resourcepack.engine.core.pack.ShaderClashWatch shaderClashes =
+            new ai.resourcepack.engine.core.pack.ShaderClashWatch(this);
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -2071,6 +2075,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
 
+        // The other plugins' packs are read again on every build, since a
+        // reload is often how somebody tries a fix. At startup it waits a
+        // while, for the plugins that build their pack after enabling.
+        shaderClashes.scanOthers(started ? 1L : ai.resourcepack.engine.core.pack.ShaderClashWatch.FIRST_SCAN_DELAY_TICKS,
+                this::checkShaderClashes);
+
         // Last, and that is the whole contract: a listener runs once every
         // question the API can answer is answerable. A plugin holding anything
         // resolved rather than an id needs this on a reload as much as it
@@ -2096,6 +2106,27 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // rule the single `studio` bundle already imposed.
         studioPacks.put(player.getUniqueId(), pack);
         delivery.apply(player, desiredFor(player));
+        // A push is where a Studio shader object arrives, which is the usual
+        // side of a clash with a HUD plugin, so it is checked as it lands.
+        checkShaderClashes();
+    }
+
+    /**
+     * Every pack of ours a player can be holding, checked against what the
+     * last scan found in the other plugins' folders.
+     */
+    private void checkShaderClashes() {
+        List<Map.Entry<String, BuiltPack>> ours = new ArrayList<>();
+        for (BuiltPack pack : built) {
+            ours.add(Map.entry("RP Engine's bundle '" + pack.bundle() + "'", pack));
+        }
+        if (rigPack != null) {
+            ours.add(Map.entry("RP Engine's emote rigs pack", rigPack));
+        }
+        for (BuiltPack pack : studioPacks.values()) {
+            ours.add(Map.entry("a pack pushed from Studio", pack));
+        }
+        shaderClashes.check(ours);
     }
 
     /** Takes a pushed pack back off somebody, leaving the server's own content. */
@@ -2383,6 +2414,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getScheduler().runTask(this, () -> {
             if (event.getPlayer().isOnline()) {
                 overlayRuntime.onJoin(event.getPlayer());
+                shaderClashes.onJoin(event.getPlayer());
             }
         });
     }

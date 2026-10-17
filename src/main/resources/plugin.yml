@@ -91,11 +91,15 @@ permissions:
       rpengine.bind.others: true
       rpengine.unbind.others: true
       rpengine.update: true
+      rpengine.shaders: true
   rpengine.reload:
     description: Reload content and config.
     default: op
   rpengine.update:
     description: Be told on joining when a newer RP Engine is on SpigotMC.
+    default: op
+  rpengine.shaders:
+    description: Be told when another plugin's pack replaces a core shader that RP Engine's packs also replace.
     default: op
   rpengine.info:
     description: See what this server holds.
