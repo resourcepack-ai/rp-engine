@@ -1775,6 +1775,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getConfig().getString("prompt.message", ""),
                 getConfig().getBoolean("prompt.force", false),
                 PackSending.forServer(compatibility), getLogger());
+        // So our other plugins (Dialog Engine) know a pack of ours when it
+        // reaches a player and do not send theirs again over it.
+        ai.resourcepack.common.shader.SiblingPacks.register(this, id -> {
+            for (Player p : getServer().getOnlinePlayers()) {
+                if (delivery.sentHere(p, id)) {
+                    return true;
+                }
+            }
+            return false;
+        });
 
         switch (mode) {
             case NONE:
@@ -2557,7 +2567,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * plugins doing the same cannot take turns forever.
      */
     private void keepOursOnTop(Player player, UUID pack, String status) {
-        if (pack == null || !status.equals("ACCEPTED") || delivery.sentHere(player, pack)) {
+        if (pack == null || !status.equals("ACCEPTED") || delivery.sentHere(player, pack)
+                || ai.resourcepack.common.shader.SiblingPacks.fromSibling(this, pack)) {
+            // Another plugin of ours stacks its pack beside ours and never
+            // takes ours off, so there is nothing to put back.
             return;
         }
         if (!raisedOver.computeIfAbsent(player.getUniqueId(), k -> ConcurrentHashMap.newKeySet()).add(pack)) {
