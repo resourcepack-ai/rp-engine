@@ -34,6 +34,7 @@ public final class ItemInfo {
     private final Map<String, Double> hitboxes;
     private final ContentId liquid;
     private final String armorTexture;
+    private final boolean vanillaRecipes;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
@@ -41,7 +42,7 @@ public final class ItemInfo {
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
                      Map<String, AnimationSettings> animations, ItemStats stats,
                      boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes,
-                     ContentId liquid, String armorTexture) {
+                     ContentId liquid, String armorTexture, boolean vanillaRecipes) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -62,6 +63,7 @@ public final class ItemInfo {
         this.hitboxes = hitboxes;
         this.liquid = liquid;
         this.armorTexture = armorTexture;
+        this.vanillaRecipes = vanillaRecipes;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -88,7 +90,8 @@ public final class ItemInfo {
                 false,
                 Map.of(),
                 null,
-                "");
+                "",
+                false);
     }
 
     /**
@@ -103,7 +106,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
     }
 
     /**
@@ -119,21 +122,21 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture);
+                hitboxes, liquid, armorTexture, vanillaRecipes);
     }
 
     /** The same item, with what a hit on each of its bones is worth. */
@@ -141,7 +144,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
                 hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes),
-                liquid, armorTexture);
+                liquid, armorTexture, vanillaRecipes);
     }
 
     /**
@@ -153,7 +156,7 @@ public final class ItemInfo {
     public ItemInfo withLiquid(ContentId liquid) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture);
+                hitboxes, liquid, armorTexture, vanillaRecipes);
     }
 
     /**
@@ -167,7 +170,7 @@ public final class ItemInfo {
     public ItemInfo withArmorTexture(String armorTexture) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture == null ? "" : armorTexture);
+                hitboxes, liquid, armorTexture == null ? "" : armorTexture, vanillaRecipes);
     }
 
     /**
@@ -334,6 +337,30 @@ public final class ItemInfo {
     /** Whether it has an enchantment glint. */
     public boolean glow() {
         return glow;
+    }
+
+    /**
+     * The same item, allowed into vanilla's own recipes as the material it is
+     * made of.
+     *
+     * <p>Off for every item unless its definition says otherwise: a custom
+     * tomato carried on paper is still paper to the server, and without this
+     * three of them and some leather make a book. The engine's own recipes
+     * name items exactly and are not affected either way.
+     */
+    public ItemInfo withVanillaRecipes(boolean vanillaRecipes) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes, liquid, armorTexture, vanillaRecipes);
+    }
+
+    /**
+     * Whether vanilla recipes may use it as its material: {@code vanilla-recipes: true}
+     * in its definition. Server-wide, {@code items.vanilla-recipes} in the
+     * config lets every item in.
+     */
+    public boolean vanillaRecipes() {
+        return vanillaRecipes;
     }
 
     /** Whether it is unbreakable. */

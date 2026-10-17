@@ -98,6 +98,17 @@ telemetry:
 # Nudges you in the console on startup and in chat on join when an update is out.
 update-check: true
 
+items:
+  # Whether custom items count as their material in VANILLA recipes. A custom
+  # item is a vanilla item underneath, so with this on a tomato made from paper
+  # is paper: three of them and some leather make a book, and it cooks, cuts and
+  # repairs like the material it is made of.
+  #
+  # Off by default. Your own recipes in content/recipes/ are not affected
+  # either way, and neither are other plugins' recipes. To let in just one item,
+  # put `vanilla-recipes: true` in its definition instead.
+  vanilla-recipes: false
+
 models:
   # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
   # says where that piece's seat is; this corrects how the game DRAWS somebody

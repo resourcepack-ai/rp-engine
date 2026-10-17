@@ -309,6 +309,24 @@ There is a third, for one specific job: `liquid: mypack:acid` makes the item a
 bucket of that [liquid](#liquids), which is how a pond gets built rather than
 marked out afterwards.
 
+**A custom item is kept out of vanilla's recipes.** It is a vanilla material
+underneath, and the server matches its recipes on materials, so without this a
+tomato carried on paper is paper: three and some leather make a book, and it
+smelts, stonecuts and repairs as the material. The game's own recipes (the
+`minecraft` namespace) refuse it at the crafting grid, the furnaces and
+campfire, the stonecutter, the smithing table and as an anvil's repair
+material. A recipe whose result is the same custom item still works, so a
+custom leather tunic can be dyed and a custom diamond sword made netherite.
+Your own recipes and other plugins' are untouched. `vanilla-recipes: true` on
+an item lets it in as its material; `items.vanilla-recipes: true` in
+`config.yml` lets every item in.
+
+```yaml
+plain_stick:
+  material: STICK
+  vanilla-recipes: true
+```
+
 **There is no `gun`, `vehicle` or `music_disc` here**, and that is the same
 line as the actions list: those are whole games rather than item properties,
 and an engine that shipped a half-opinionated gun would be one every server

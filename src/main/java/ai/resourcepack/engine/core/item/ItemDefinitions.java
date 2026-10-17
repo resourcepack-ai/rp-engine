@@ -121,7 +121,8 @@ public final class ItemDefinitions {
                         body.bool("keep-on-death").orElse(Boolean.FALSE))
                 .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics))
                 .withLiquid(liquid(body, origin, where, diagnostics))
-                .withArmorTexture(armorTexture(body, origin, where, diagnostics)));
+                .withArmorTexture(armorTexture(body, origin, where, diagnostics))
+                .withVanillaRecipes(body.bool("vanilla-recipes").orElse(Boolean.FALSE)));
     }
 
     /**

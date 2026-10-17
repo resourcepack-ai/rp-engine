@@ -675,6 +675,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Smithing results and anvil recipes are decided in events; see
         // RecipeStations. Registered once, holding whatever the last load gave.
         getServer().getPluginManager().registerEvents(recipes.stations(), this);
+        // A custom tomato on paper is paper to vanilla's recipes; see
+        // VanillaRecipeGuard.
+        recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
+        getServer().getPluginManager().registerEvents(recipes.vanillaGuard(), this);
         getServer().getPluginManager().registerEvents(vehicles, this);
         // The control arm is a listener of its own on the click fallback and
         // has nothing to handle on the Paper one. Registered either way, so
@@ -946,6 +950,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineOptions.chatStyle(getConfig());
         EngineOptions.emotes(getConfig(), compatibility, this);
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
+        recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
         defaultBundle = getConfig().getString("default-bundle", "");
         rebuild(to);
     }

@@ -60,6 +60,7 @@ public final class Recipes {
     private final Items items;
     private final Compatibility compatibility;
     private final RecipeStations stations;
+    private final VanillaRecipeGuard guard;
     private final List<NamespacedKey> registered = new ArrayList<>();
     private final List<NamespacedKey> brewing = new ArrayList<>();
     private Optional<PaperBrewing> brewer;
@@ -70,6 +71,7 @@ public final class Recipes {
         this.items = items;
         this.compatibility = compatibility;
         this.stations = new RecipeStations(items, compatibility);
+        this.guard = new VanillaRecipeGuard(items);
     }
 
     /**
@@ -78,6 +80,19 @@ public final class Recipes {
      */
     public Listener stations() {
         return stations;
+    }
+
+    /**
+     * The listener that keeps custom items out of vanilla's recipes. See
+     * {@link VanillaRecipeGuard}. Registered once by the plugin.
+     */
+    public Listener vanillaGuard() {
+        return guard;
+    }
+
+    /** {@code items.vanilla-recipes}: true lets every custom item into vanilla's recipes. */
+    public void allowVanillaRecipes(boolean allow) {
+        guard.allowAll(allow);
     }
 
     /**
