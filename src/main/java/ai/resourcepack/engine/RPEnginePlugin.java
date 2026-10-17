@@ -354,6 +354,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 public boolean mergeEnabled() {
                     return getConfig().getBoolean("shaders.merge", true);
                 }
+
+                @Override
+                public boolean notifyPlayers() {
+                    return getConfig().getBoolean("shaders.notify-players", true);
+                }
             });
 
     /** The bundles as the last build wrote them, before any shader was merged into them. */

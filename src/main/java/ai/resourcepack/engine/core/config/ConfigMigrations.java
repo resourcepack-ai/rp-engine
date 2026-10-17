@@ -51,7 +51,8 @@ public final class ConfigMigrations {
 
     static final List<Migration> MIGRATIONS = List.of(
             new Migration(1, "added host.mode, which chooses how players download packs", ConfigMigrations::hostMode),
-            new Migration(2, "added shaders.merge, which combines RP Engine's text shader with another plugin's",
+            new Migration(2, "added shaders.merge, which combines RP Engine's text shader with another plugin's,"
+                    + " and shaders.notify-players",
                     ConfigMigrations::shaderMerge)
     );
 
@@ -238,11 +239,14 @@ public final class ConfigMigrations {
                 "# (BetterHud and Studio's HUD shader objects both replace the text shader), and",
                 "# a player's game keeps only one of the two: the one higher in their list.",
                 "# With merge on, RP Engine combines its text shader with the other plugin's so",
-                "# both draw, and sends the result as a small pack on top of the others. The",
-                "# console says what was combined, and anything that could not be, and why.",
+                "# both draw, inside its own pack. The console says what was combined, and",
+                "# anything that could not be, and why.",
                 "# https://resourcepack.ai/docs/rp-engine/config#other-plugins-shaders",
                 "shaders:",
                 "  merge: true",
+                "  # Also say it in chat to players with rpengine.shaders (ops), when it",
+                "  # happens and when they join. False keeps it to the console.",
+                "  notify-players: true",
                 "");
         return (text.endsWith("\n") || text.isEmpty() ? text : text + "\n") + section;
     }

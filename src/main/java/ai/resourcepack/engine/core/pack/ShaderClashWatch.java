@@ -65,6 +65,9 @@ public final class ShaderClashWatch {
     public interface Host {
         /** Whether {@code shaders.merge} is on. */
         boolean mergeEnabled();
+
+        /** Whether {@code shaders.notify-players} is on: chat as well as the console. */
+        boolean notifyPlayers();
     }
 
     private final Plugin plugin;
@@ -332,6 +335,9 @@ public final class ShaderClashWatch {
         } else {
             plugin.getLogger().info(line);
         }
+        if (!host.notifyPlayers()) {
+            return;
+        }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (player.hasPermission(PERMISSION)) {
                 EngineCommand.say(player, line);
@@ -349,7 +355,7 @@ public final class ShaderClashWatch {
 
     /** Tells somebody who has just joined about every standing line, if they are staff. */
     public void onJoin(Player player) {
-        if (!player.hasPermission(PERMISSION)) {
+        if (!host.notifyPlayers() || !player.hasPermission(PERMISSION)) {
             return;
         }
         for (String line : union()) {
