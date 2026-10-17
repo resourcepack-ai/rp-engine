@@ -2508,7 +2508,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // rather than two. offerOwnRig releases them; the timer is for a fetch
         // that is slow or fails.
         holdingPacks.add(joined.getUniqueId());
-        if (shaderClashes.orderMatters() && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
+        // Only when a bundle actually carries a merged shader: everywhere else
+        // (nearly every server) a join sends at once, as it always did.
+        if (!built.equals(builtUnmerged) && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
             awaitingOthers.add(joined.getUniqueId());
             getServer().getScheduler().runTaskLater(this, () -> releaseForOthers(joined), OTHERS_WAIT_TICKS);
         }

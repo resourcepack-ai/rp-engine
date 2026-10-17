@@ -189,15 +189,6 @@ public final class ShaderClashWatch {
         return changed;
     }
 
-    /**
-     * Whether which pack lands on top matters here: a shader of ours shares a
-     * name with another plugin's, merged or not. Ours have to go above theirs
-     * then, which is why a join waits a moment for their pack before sending.
-     */
-    public boolean orderMatters() {
-        return !union().isEmpty();
-    }
-
     // ---- merging ------------------------------------------------------------
 
     /**
