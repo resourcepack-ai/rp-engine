@@ -504,6 +504,53 @@ class AnimationStateTest {
     }
 
     @Test
+    void aLoopModeSetInYamlMakesTheAnimationPlayOnItsOwn() {
+        // A Blockbench "once" animation arrives on a right-click; setting
+        // mode: loop over it must also make it start by itself.
+        JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
+                + "\"groups\":[{\"name\":\"arm\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"
+                + "\"animations\":[{\"name\":\"spin\",\"length\":1,\"loop\":false,\"mode\":\"once\","
+                + "\"triggers\":[{\"type\":\"right_click\"}],\"animators\":{\"g:0\":{\"rotation\":["
+                + "{\"time\":0,\"value\":[0,0,0]},{\"time\":1,\"value\":[0,90,0]}]}}}]}").getAsJsonObject();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:fan", model).orElseThrow();
+
+        ModelRigs.apply(rig, Map.of("spin", AnimationSettings.of(AnimationSettings.Mode.LOOP, 0, 0, 0, 0)));
+
+        JsonObject spin = rig.animations().get(0).getAsJsonObject();
+        assertEquals("loop", spin.getAsJsonArray("triggers").get(0).getAsJsonObject().get("type").getAsString());
+        assertEquals(1, spin.getAsJsonArray("triggers").size());
+    }
+
+    @Test
+    void aHoldModeOverALoopWaitsForAClick() {
+        JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
+                + "\"groups\":[{\"name\":\"lid\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"
+                + "\"animations\":[{\"name\":\"open\",\"length\":1,\"loop\":true,"
+                + "\"triggers\":[{\"type\":\"loop\"}],\"animators\":{\"g:0\":{\"rotation\":["
+                + "{\"time\":0,\"value\":[0,0,0]},{\"time\":1,\"value\":[90,0,0]}]}}}]}").getAsJsonObject();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:chest", model).orElseThrow();
+
+        ModelRigs.apply(rig, Map.of("open", AnimationSettings.of(AnimationSettings.Mode.HOLD, 0, 0, 0, 0)));
+
+        assertEquals("right_click", rig.animations().get(0).getAsJsonObject()
+                .getAsJsonArray("triggers").get(0).getAsJsonObject().get("type").getAsString());
+    }
+
+    @Test
+    void triggersAnAuthorChoseAreKeptAndALoopIsAdded() {
+        JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
+                + "\"groups\":[{\"name\":\"arm\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"
+                + "\"animations\":[{\"name\":\"wave\",\"length\":1,\"loop\":false,"
+                + "\"triggers\":[{\"type\":\"right_click\"},{\"type\":\"place\"}],\"animators\":{\"g:0\":{\"rotation\":["
+                + "{\"time\":0,\"value\":[0,0,0]},{\"time\":1,\"value\":[0,90,0]}]}}}]}").getAsJsonObject();
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", model).orElseThrow();
+
+        ModelRigs.apply(rig, Map.of("wave", AnimationSettings.of(AnimationSettings.Mode.LOOP, 0, 0, 0, 0)));
+
+        assertEquals(3, rig.animations().get(0).getAsJsonObject().getAsJsonArray("triggers").size());
+    }
+
+    @Test
     void layerZeroIsNotWrittenBecauseItIsTheDefault() {
         JsonObject model = JsonParser.parseString("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],\"faces\":{}}],"
                 + "\"groups\":[{\"name\":\"arm\",\"origin\":[8,6,8],\"parent\":-1,\"children\":[0]}],"

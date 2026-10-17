@@ -430,6 +430,7 @@ public final class ModelRigs {
                     // The boolean is what a plugin older than modes reads, so
                     // it has to keep agreeing with the mode beside it.
                     animation.addProperty("loop", one.mode() == AnimationSettings.Mode.LOOP);
+                    retrigger(animation, one.mode() == AnimationSettings.Mode.LOOP);
                 }
                 if (one.speed() > 0) {
                     animation.addProperty("speed", one.speed());
@@ -457,6 +458,48 @@ public final class ModelRigs {
             }
         }
         return unmatched;
+    }
+
+    /**
+     * Makes when an animation starts follow the mode an author set over it.
+     *
+     * <p>A {@code .bbmodel}'s loop setting decides both how an animation ends
+     * and when it starts (Loop plays on its own, Once and Hold on a
+     * right-click), so a {@code mode:} that changed only the ending left
+     * {@code mode: loop} on a once-animation waiting for a click it would
+     * never get. A lone {@code loop} or {@code right_click} trigger is exactly
+     * what that setting writes, so it is swapped for the other; triggers an
+     * author chose themselves (several of them, or any other kind) are kept,
+     * and a loop mode only adds the {@code loop} trigger they lack.
+     */
+    private static void retrigger(JsonObject animation, boolean loops) {
+        JsonArray triggers = animation.get("triggers") instanceof JsonArray array ? array : new JsonArray();
+        String wanted = loops ? "loop" : "right_click";
+        if (triggers.size() == 1 && triggers.get(0).isJsonObject()) {
+            JsonElement type = triggers.get(0).getAsJsonObject().get("type");
+            String written = type != null && type.isJsonPrimitive() ? type.getAsString() : null;
+            if ("loop".equals(written) || "right_click".equals(written)) {
+                JsonObject trigger = new JsonObject();
+                trigger.addProperty("type", wanted);
+                JsonArray replaced = new JsonArray();
+                replaced.add(trigger);
+                animation.add("triggers", replaced);
+                return;
+            }
+        }
+        if (!loops) {
+            return;
+        }
+        for (JsonElement raw : triggers) {
+            JsonElement type = raw.isJsonObject() ? raw.getAsJsonObject().get("type") : null;
+            if (type != null && type.isJsonPrimitive() && "loop".equals(type.getAsString())) {
+                return;
+            }
+        }
+        JsonObject trigger = new JsonObject();
+        trigger.addProperty("type", "loop");
+        triggers.add(trigger);
+        animation.add("triggers", triggers);
     }
 
     /**
