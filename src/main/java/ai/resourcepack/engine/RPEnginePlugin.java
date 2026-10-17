@@ -2565,7 +2565,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (awaitingOthers.contains(player.getUniqueId())) {
             // The case the join waited for: theirs first, then ours, on top.
-            getServer().getScheduler().runTask(this, () -> releaseForOthers(player));
+            // Now, not a tick later: a client that has their pack cached loads
+            // it at once, and ours have to reach it before it does to share
+            // the one reload.
+            releaseForOthers(player);
             return;
         }
         // A tick later, so their pack is in the client's list before ours go above it.
