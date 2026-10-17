@@ -54,4 +54,19 @@ public final class ServerStack {
         }
         return List.copyOf(stack);
     }
+
+    /**
+     * {@code stack} with the merged-shader pack on top of it, above even a
+     * push: it holds the one copy of the text shader both ours and another
+     * plugin's need, and a core shader is read from the top pack that has it.
+     * Nothing to add is the stack unchanged.
+     */
+    public static List<BuiltPack> withShaders(List<BuiltPack> stack, BuiltPack shaders) {
+        if (shaders == null || stack.isEmpty()) {
+            return stack;
+        }
+        List<BuiltPack> out = new ArrayList<>(stack);
+        out.add(shaders);
+        return List.copyOf(out);
+    }
 }

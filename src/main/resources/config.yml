@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 1
+config-version: 2
 
 # How players download the packs this server builds.
 host:
@@ -396,3 +396,13 @@ blocks:
   # whose Paper config lives somewhere else. Saying true when it is not frozen
   # makes neighbouring plants turn into each other.
   tripwire-frozen: auto
+
+# Another plugin's pack can replace the same core shader as one of RP Engine's
+# (BetterHud and Studio's HUD shader objects both replace the text shader), and
+# a player's game keeps only one of the two: the one higher in their list.
+# With merge on, RP Engine combines its text shader with the other plugin's so
+# both draw, and sends the result as a small pack on top of the others. The
+# console says what was combined, and anything that could not be, and why.
+# https://resourcepack.ai/docs/rp-engine/config#other-plugins-shaders
+shaders:
+  merge: true

@@ -349,7 +349,39 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     /** Says when another plugin's pack replaces a core shader one of ours does. See {@link #checkShaderClashes}. */
     private final ai.resourcepack.engine.core.pack.ShaderClashWatch shaderClashes =
-            new ai.resourcepack.engine.core.pack.ShaderClashWatch(this);
+            new ai.resourcepack.engine.core.pack.ShaderClashWatch(this, new ai.resourcepack.engine.core.pack.ShaderClashWatch.Host() {
+                @Override
+                public boolean mergeEnabled() {
+                    return getConfig().getBoolean("shaders.merge", true);
+                }
+
+                @Override
+                public int packFormat() {
+                    return compatibility.packFormat();
+                }
+
+                @Override
+                public java.nio.file.Path output() {
+                    return getDataFolder().toPath().resolve("output");
+                }
+
+                @Override
+                public void serve(BuiltPack pack) {
+                    if (packHost != null) {
+                        packHost.register(pack);
+                    }
+                }
+
+                @Override
+                public void unserve(String bundle) {
+                    if (packHost != null) {
+                        packHost.unregister(bundle);
+                    }
+                }
+            });
+
+    /** Per player, the other plugins' packs a merged-shader pack has already been put back above. */
+    private final Map<UUID, Set<UUID>> raisedOver = new ConcurrentHashMap<>();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -2127,6 +2159,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             ours.add(Map.entry("a pack pushed from Studio", pack));
         }
         shaderClashes.check(ours);
+        // A merged-shader pack may have appeared, changed or gone with that.
+        // Nothing is sent to a player whose stack is already right.
+        if (delivery != null) {
+            for (Player player : getServer().getOnlinePlayers()) {
+                if (!holdingPacks.contains(player.getUniqueId())) {
+                    delivery.apply(player, desiredFor(player));
+                }
+            }
+        }
     }
 
     /** Takes a pushed pack back off somebody, leaving the server's own content. */
@@ -2338,7 +2379,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // may be in a different world - so a pack under test is tried against
         // the server it will actually run on.
         BuiltPack pushedPack = player == null ? null : studioPacks.get(player.getUniqueId());
-        return ServerStack.of(main, rigPack, ownRig, pushedPack);
+        List<BuiltPack> stack = ServerStack.of(main, rigPack, ownRig, pushedPack);
+        // Our text shader merged with another plugin's, on top, where packs
+        // stack. See ShaderClashWatch; null when there is nothing to merge.
+        boolean stacks = delivery != null && delivery.stacks();
+        return ServerStack.withShaders(stack, stacks ? shaderClashes.mergedFor(stack) : null);
     }
 
     /**
@@ -2420,6 +2465,36 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     }
 
     /**
+     * Puts the merged-shader pack back on top when another plugin's pack is
+     * stacked over it.
+     *
+     * <p>A pack another plugin sends after ours goes on top of the client's
+     * list, and a core shader is read from the top pack that has one: theirs
+     * would win again and ours stop drawing, which is what the merge was for.
+     * So the first time a pack we did not send is accepted, ours goes back
+     * above it. Once per pack per player, so two plugins doing the same
+     * cannot take turns forever.
+     */
+    private void keepShadersOnTop(Player player, UUID pack, String status) {
+        if (pack == null || !status.equals("ACCEPTED") || delivery.sentHere(player, pack)) {
+            return;
+        }
+        List<BuiltPack> stack = desiredFor(player);
+        BuiltPack top = stack.isEmpty() ? null : stack.get(stack.size() - 1);
+        if (!ai.resourcepack.engine.core.pack.ShaderClashWatch.isMergedPack(top)
+                || !raisedOver.computeIfAbsent(player.getUniqueId(), k -> ConcurrentHashMap.newKeySet()).add(pack)) {
+            return;
+        }
+        // A tick later, so their pack is in the client's list before ours is moved above it.
+        getServer().getScheduler().runTask(this, () -> {
+            if (player.isOnline() && delivery.raise(player, top)) {
+                getLogger().info("Put the merged text shader back above a pack another plugin sent "
+                        + player.getName() + " after it.");
+            }
+        });
+    }
+
+    /**
      * What a client said about a pack, so a rebake can tell a player whose
      * download is still running from one who already has a working pack. See
      * {@link PackDelivery#resendUnfinished}.
@@ -2433,6 +2508,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         UUID pack = delivery.statusId(event);
         // By name, for the reason DistributionManager.onPackStatus gives: an
         // enum switch naming a constant this server lacks fails the class.
+        keepShadersOnTop(event.getPlayer(), pack, event.getStatus().name());
         switch (event.getStatus().name()) {
             case "SUCCESSFULLY_LOADED":
                 delivery.loads().confirmed(player, pack);
@@ -2462,6 +2538,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         joinedAt.remove(event.getPlayer().getUniqueId());
+        raisedOver.remove(event.getPlayer().getUniqueId());
         announcePresence(event.getPlayer(), false);
         overlays.clear(event.getPlayer());
         if (liquidCommands != null) {

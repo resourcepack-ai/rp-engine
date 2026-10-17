@@ -319,9 +319,19 @@ public final class PackBuilder {
      * part that is somebody else's JSON, and those go through Gson.
      */
     private String mcmeta(Bundle bundle, com.google.gson.JsonArray overlays) {
+        return packMeta(packFormat, description + " - " + bundle.name(), overlays);
+    }
+
+    /**
+     * A {@code pack.mcmeta} for a pack of {@code packFormat} with these
+     * overlay entries, written the way every version from the oldest the
+     * engine supports to the newest accepts. Also used by the packs the engine
+     * makes beside its bundles (the merged shaders), so they follow one rule.
+     */
+    public static String packMeta(int packFormat, String description, com.google.gson.JsonArray overlays) {
         String pack = "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
-                + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
+                + "    \"description\": \"" + escape(description) + "\"\n"
                 + "  }";
         if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
         // A pack whose overlays reach past format 64 must say, at the top,
@@ -346,7 +356,7 @@ public final class PackBuilder {
                         : "")
                 + "    \"min_format\": " + min + ",\n"
                 + "    \"max_format\": " + max + ",\n"
-                + "    \"description\": \"" + escape(description + " - " + bundle.name()) + "\"\n"
+                + "    \"description\": \"" + escape(description) + "\"\n"
                 + "  }";
         com.google.gson.JsonObject entries = new com.google.gson.JsonObject();
         entries.add("entries", overlays);

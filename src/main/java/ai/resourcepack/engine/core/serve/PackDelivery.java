@@ -208,6 +208,48 @@ public final class PackDelivery {
         return apply(player, desired);
     }
 
+    /** Whether {@code pack} is one of the packs this server sent {@code player}. */
+    public boolean sentHere(Player player, java.util.UUID pack) {
+        if (player == null || pack == null) {
+            return false;
+        }
+        for (BundleSessions.Held held : sessions.held(player.getUniqueId())) {
+            if (held.uuid().equals(pack)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Puts {@code pack} back on top of {@code player}'s stack, when it is the
+     * top of what we sent them and something else has since been stacked over
+     * it: another plugin's pack sent after ours. Taking it off and sending it
+     * again is the only way to move a pack in a client's list; it is cached, so
+     * it costs a reload and no download.
+     *
+     * @return whether it was sent again
+     */
+    public boolean raise(Player player, BuiltPack pack) {
+        if (player == null || pack == null || !sending.stacks()) {
+            return false;
+        }
+        List<BundleSessions.Held> held = sessions.held(player.getUniqueId());
+        if (held.isEmpty() || !held.get(held.size() - 1).equals(BundleSessions.Held.of(pack))) {
+            return false;
+        }
+        Optional<String> url = pack.url().isEmpty()
+                ? host.url(pack.bundle(), player.getUniqueId())
+                : Optional.of(pack.url());
+        if (url.isEmpty()) {
+            return false;
+        }
+        sending.remove(player, pack.uuid());
+        sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
+        loads.sent(player.getUniqueId(), pack.uuid());
+        return true;
+    }
+
     /** Drops everything {@code player} is holding from us. */
     public void clear(Player player) {
         if (player != null) {

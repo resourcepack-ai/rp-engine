@@ -81,7 +81,7 @@ class ConfigMigrationsTest {
         String text = "host:\n  mode: same-port\n  port: 8181\n";
         YamlConfiguration after = yaml(ConfigMigrations.migrate(text).text());
         assertEquals("same-port", after.getString("host.mode"));
-        assertEquals(1, after.getInt("config-version"));
+        assertEquals(ConfigMigrations.latest(), after.getInt("config-version"));
     }
 
     @Test
@@ -90,6 +90,14 @@ class ConfigMigrationsTest {
         String migrated = ConfigMigrations.migrate(text).text();
         assertTrue(migrated.contains("\n    mode: own-port\n"), migrated);
         assertEquals(1, yaml(migrated).getInt("other"));
+    }
+
+    @Test
+    void anOlderFileGetsTheShaderMergeSwitchOn() throws Exception {
+        YamlConfiguration after = yaml(ConfigMigrations.migrate(resource("/config-migrations/0.2.12.yml")).text());
+        assertTrue(after.getBoolean("shaders.merge"));
+        YamlConfiguration off = yaml(ConfigMigrations.migrate("config-version: 1\nshaders:\n  merge: false\n").text());
+        assertFalse(off.getBoolean("shaders.merge"), "an owner's own choice stays");
     }
 
     @Test
@@ -120,12 +128,12 @@ class ConfigMigrationsTest {
         Path file = dir.resolve("config.yml");
         Files.writeString(file, resource("/config-migrations/0.2.12.yml"));
         List<String> said = new ArrayList<>();
-        assertEquals(1, ConfigMigrations.run(file, said::add));
+        assertEquals(ConfigMigrations.MIGRATIONS.size(), ConfigMigrations.run(file, said::add));
         assertTrue(Files.exists(dir.resolve("config.yml.v0.bak")));
         assertEquals(resource("/config-migrations/0.2.12.yml"), Files.readString(dir.resolve("config.yml.v0.bak")));
         String once = Files.readString(file);
         assertEquals(0, ConfigMigrations.run(file, said::add));
         assertEquals(once, Files.readString(file));
-        assertEquals(2, said.size());
+        assertEquals(ConfigMigrations.MIGRATIONS.size() + 1, said.size());
     }
 }

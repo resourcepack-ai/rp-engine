@@ -1,0 +1,30 @@
+{
+  "pack": {
+    "pack_format": 75,
+    "description": "Studio text shader fixture"
+  },
+  "overlays": {
+    "entries": [
+      {
+        "min_format": 69,
+        "max_format": 75,
+        "directory": "rpai_head_v69"
+      },
+      {
+        "min_format": 84,
+        "max_format": 84,
+        "directory": "rpai_head_v84"
+      },
+      {
+        "min_format": 88,
+        "max_format": 88,
+        "directory": "rpai_head_v88"
+      },
+      {
+        "min_format": 97,
+        "max_format": 97,
+        "directory": "rpai_head_v97"
+      }
+    ]
+  }
+}

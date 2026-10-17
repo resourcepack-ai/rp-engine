@@ -1,0 +1,82 @@
+{
+  "pack": {
+    "pack_format": 46,
+    "description": "Studio text shader fixture"
+  },
+  "overlays": {
+    "entries": [
+      {
+        "formats": {
+          "min_inclusive": 13,
+          "max_inclusive": 22
+        },
+        "min_format": 13,
+        "max_format": 22,
+        "directory": "rpe_shader_v13"
+      },
+      {
+        "formats": {
+          "min_inclusive": 32,
+          "max_inclusive": 32
+        },
+        "min_format": 32,
+        "max_format": 32,
+        "directory": "rpe_shader_v32"
+      },
+      {
+        "formats": {
+          "min_inclusive": 34,
+          "max_inclusive": 34
+        },
+        "min_format": 34,
+        "max_format": 34,
+        "directory": "rpe_shader_v34"
+      },
+      {
+        "formats": {
+          "min_inclusive": 55,
+          "max_inclusive": 55
+        },
+        "min_format": 55,
+        "max_format": 55,
+        "directory": "rpe_shader_v55"
+      },
+      {
+        "formats": {
+          "min_inclusive": 63,
+          "max_inclusive": 64
+        },
+        "min_format": 63,
+        "max_format": 64,
+        "directory": "rpe_shader_v63"
+      },
+      {
+        "formats": {
+          "min_inclusive": 69,
+          "max_inclusive": 75
+        },
+        "min_format": 69,
+        "max_format": 75,
+        "directory": "rpe_shader_v69"
+      },
+      {
+        "formats": {
+          "min_inclusive": 84,
+          "max_inclusive": 84
+        },
+        "min_format": 84,
+        "max_format": 84,
+        "directory": "rpe_shader_v84"
+      },
+      {
+        "formats": {
+          "min_inclusive": 88,
+          "max_inclusive": 88
+        },
+        "min_format": 88,
+        "max_format": 88,
+        "directory": "rpe_shader_v88"
+      }
+    ]
+  }
+}

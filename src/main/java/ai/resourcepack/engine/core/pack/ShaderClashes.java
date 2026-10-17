@@ -88,8 +88,12 @@ public final class ShaderClashes {
         return out;
     }
 
-    /** What one plugin's folder was found to replace, and where the first pack doing so is. */
-    public record Found(Set<String> shaders, String where) {
+    /**
+     * What one plugin's folder was found to replace, where the first pack
+     * doing so is (for a person), and every such pack (for a merge): a zip,
+     * or the folder a loose pack's {@code pack.mcmeta} is in.
+     */
+    public record Found(Set<String> shaders, String where, List<Path> packs) {
     }
 
     /**
@@ -104,8 +108,9 @@ public final class ShaderClashes {
         Set<String> shaders = new TreeSet<>();
         String[] where = {null};
         int[] budget = {ENTRY_BUDGET};
+        Set<Path> packs = new java.util.LinkedHashSet<>();
         if (folder == null || !Files.isDirectory(folder)) {
-            return new Found(Set.of(), null);
+            return new Found(Set.of(), null, List.of());
         }
         try {
             Files.walkFileTree(folder, EnumSet.noneOf(java.nio.file.FileVisitOption.class), MAX_DEPTH,
@@ -127,10 +132,15 @@ public final class ShaderClashes {
                                 if (where[0] == null) {
                                     where[0] = label(relativeTo, file, path);
                                 }
+                                Path root = packRoot(file);
+                                if (root != null) {
+                                    packs.add(root);
+                                }
                             } else if (path.endsWith(".zip") && attrs.size() <= MAX_ZIP_BYTES) {
                                 Set<String> inside = inZip(file);
                                 if (!inside.isEmpty()) {
                                     shaders.addAll(inside);
+                                    packs.add(file);
                                     if (where[0] == null) {
                                         where[0] = relative(relativeTo, file);
                                     }
@@ -147,7 +157,33 @@ public final class ShaderClashes {
         } catch (IOException | RuntimeException ignored) {
             // What was found before the failure is still true.
         }
-        return new Found(Collections.unmodifiableSet(shaders), where[0]);
+        return new Found(Collections.unmodifiableSet(shaders), where[0], List.copyOf(packs));
+    }
+
+    /**
+     * The pack a loose core shader belongs to: the folder holding
+     * {@code pack.mcmeta} above its {@code assets/}, which is one up from it in
+     * the base and two up in an overlay. Null when there is none, because a
+     * folder that is not a pack is not one any client is sent.
+     */
+    static Path packRoot(Path shader) {
+        Path assets = shader;
+        for (int i = 0; i < 4 && assets != null; i++) {
+            assets = assets.getParent();
+        }
+        // shader -> core -> shaders -> minecraft -> assets
+        if (assets == null || !assets.getFileName().toString().equals("assets")) {
+            return null;
+        }
+        Path base = assets.getParent();
+        if (base != null && Files.isRegularFile(base.resolve("pack.mcmeta"))) {
+            return base;
+        }
+        Path overlayOf = base == null ? null : base.getParent();
+        if (overlayOf != null && Files.isRegularFile(overlayOf.resolve("pack.mcmeta"))) {
+            return overlayOf;
+        }
+        return null;
     }
 
     /** The pack folder a loose shader file sits in: the path up to its {@code assets/}. */
@@ -158,7 +194,7 @@ public final class ShaderClashes {
         return cut > 0 ? full.substring(0, cut - 1) : full;
     }
 
-    private static String relative(Path relativeTo, Path file) {
+    static String relative(Path relativeTo, Path file) {
         try {
             return relativeTo == null ? file.toString() : relativeTo.relativize(file).toString().replace('\\', '/');
         } catch (IllegalArgumentException e) {
@@ -174,7 +210,7 @@ public final class ShaderClashes {
             return "Shader clash: " + shader + " is replaced by " + String.join(" and ", ours)
                     + " and also by " + String.join(" and ", theirs)
                     + ". A player's game keeps only one copy, from whichever pack is higher in their list,"
-                    + " so what the other copy draws stops working. RP Engine does not merge shaders yet.";
+                    + " so what the other copy draws stops working.";
         }
     }
 

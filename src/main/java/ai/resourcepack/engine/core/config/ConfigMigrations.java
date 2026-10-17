@@ -50,7 +50,9 @@ public final class ConfigMigrations {
     }
 
     static final List<Migration> MIGRATIONS = List.of(
-            new Migration(1, "added host.mode, which chooses how players download packs", ConfigMigrations::hostMode)
+            new Migration(1, "added host.mode, which chooses how players download packs", ConfigMigrations::hostMode),
+            new Migration(2, "added shaders.merge, which combines RP Engine's text shader with another plugin's",
+                    ConfigMigrations::shaderMerge)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -219,6 +221,30 @@ public final class ConfigMigrations {
         section = section.replace(OLD_ENABLED_COMMENT.replace("  ", indent) + indent + "enabled: true\n", "");
         section = section.replaceFirst("(?m)^" + Pattern.quote(indent) + "enabled:[ \\t]*(true|false)[ \\t]*(\\n|$)", "");
         return head + "\n" + indent(block, indent) + "\n" + section + rest.substring(end);
+    }
+
+    /**
+     * 2: {@code shaders.merge}, on, at the end of the file. Nothing a server had
+     * before means anything for it, so a file that already has the section is
+     * left alone and one that does not gets it as the default config has it.
+     */
+    static String shaderMerge(String text, YamlConfiguration parsed) {
+        if (parsed.contains("shaders")) {
+            return text;
+        }
+        String section = String.join("\n",
+                "",
+                "# Another plugin's pack can replace the same core shader as one of RP Engine's",
+                "# (BetterHud and Studio's HUD shader objects both replace the text shader), and",
+                "# a player's game keeps only one of the two: the one higher in their list.",
+                "# With merge on, RP Engine combines its text shader with the other plugin's so",
+                "# both draw, and sends the result as a small pack on top of the others. The",
+                "# console says what was combined, and anything that could not be, and why.",
+                "# https://resourcepack.ai/docs/rp-engine/config#other-plugins-shaders",
+                "shaders:",
+                "  merge: true",
+                "");
+        return (text.endsWith("\n") || text.isEmpty() ? text : text + "\n") + section;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */
