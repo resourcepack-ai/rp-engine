@@ -1,0 +1,360 @@
+# RP Engine
+
+# Where built packs are served from.
+host:
+  # Port to listen on. 0 picks a free one, which is fine for testing and no
+  # use in production because the address below then has to match it.
+  port: 8181
+
+  # How a CLIENT reaches this server. The plugin cannot work this out for
+  # itself — it may be behind a proxy, a NAT, or a hostname only the outside
+  # world knows — so it is told. Players outside your network need a public
+  # address here, not 127.0.0.1.
+  public-address: "http://127.0.0.1:8181"
+
+  # Set false if you host the built zips yourself (a CDN, a web server) and
+  # only want the plugin to build them.
+  enabled: true
+
+pack:
+  # The pack_format written into pack.mcmeta, which has to match your game
+  # version or the client shows a "made for a different version" warning.
+  #
+  # Leave this unset. The plugin reads your server's version and uses the
+  # right number for it, and it knows every version from 1.19.4 up to the one
+  # it was built against.
+  #
+  # Set it only if you are on a Minecraft newer than this build of RP Engine,
+  # which the startup log will tell you about. Then update the plugin and
+  # remove it again.
+  # format: 46
+
+  # Shown in the client's resource pack list, with the bundle name appended.
+  description: "RP Engine"
+
+# Live-testing a pack from ResourcePack AI Studio.
+sync:
+  # Run /rp sync <code> with a code from the panel, then push. The pushed pack
+  # is stacked on top of whatever this server's own content gave you, so a pack
+  # under test is tried against the server it will actually run on.
+  #
+  # /rp sync add <player> shares your pushes with somebody else. They accept,
+  # and it lasts exactly as long as your sync does.
+  url: "wss://sync.resourcepack.ai/connect"
+
+  # A TRUSTED server's token. With one, this server tells Studio who is
+  # online, so a push can be addressed to a player directly and nobody types
+  # a code. Almost nobody wants this: it is for a server the Studio account
+  # owner also runs. Empty means pair the ordinary way.
+  server-token: ""
+
+# Editing this server's own content in a browser.
+#
+# /rp edit <id> hands you a link to the real editors at
+# resourcepack.ai, opened on the file in your content folder. You edit it,
+# press Send to server, and the file on this machine changes. No account, no
+# sign-in: the link works once and lasts three hours.
+#
+# What crosses is only the thing being edited - one model, one texture, one
+# vehicle's settings - and nothing on this server changes until you press that
+# button. The plugin asks whether you have, every few seconds, for as long as
+# a link is open.
+edit:
+  # Turn this off and /rp edit says so instead of doing anything. Worth it for
+  # a server that would rather nothing here talked to the outside world.
+  enabled: true
+
+  # Where the editors are. Only worth changing to point at a staging studio.
+  url: "https://studio.resourcepack.ai"
+
+# Serving a published pack to everybody who joins. /rp distribute <code> binds
+# this server to one; the code comes from the pack's Distribution page in Studio.
+distribution:
+  # Where to ask what has been published. Only worth changing to point at a
+  # staging studio.
+  api-url: "https://studio.resourcepack.ai"
+
+# Anonymous usage counting, and the only telemetry RP Engine has. It is ON
+# unless you turn it off here.
+#
+# Every 30 seconds, from a background thread, it POSTs one small JSON message
+# to https://studio.resourcepack.ai/api/rp-engine/heartbeat holding three
+# things, and nothing else:
+#   - id: a random id it made up the first time it started, kept in the
+#     server-id file in this folder. It is not derived from anything about
+#     this server; delete the file and a new one is made.
+#   - players: how many players are online, as a single number.
+#   - addons: the names of enabled plugins that depend (or soft-depend) on
+#     RP Engine.
+# No server address, server name, version, MOTD, player names or UUIDs, worlds
+# or content. Like any web request it comes from your server's IP address,
+# which is how the internet works rather than part of the message. The answer
+# is never read, and a beat that fails is dropped silently.
+#
+# enabled: false sends nothing at all, from the next restart.
+telemetry:
+  enabled: true
+
+# Nudges you in the console on startup and in chat on join when an update is out.
+update-check: true
+
+models:
+  # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
+  # says where that piece's seat is; this corrects how the game DRAWS somebody
+  # sitting, which is the same amount wrong for every chair.
+  #
+  # Sit on something, decide it is a hand's width out, put the number here and
+  # run /rp reload. Positive is higher. You should not need it.
+  seat-offset: 0.0
+
+vehicles:
+  # The same nudge, for the seats in a vehicle. They need their own because a
+  # vehicle seat is a different kind of mount from a chair's, so the height is
+  # arithmetic over a vanilla number no plugin can read - which means it is
+  # derived rather than measured and can be a little out on a version nobody
+  # has checked yet.
+  #
+  # Sit in a vehicle, compare it with the editor, put the difference here and
+  # run /rp reload. Positive is higher.
+  seat-offset: 0.0
+
+  # The same, along the vehicle instead of up it. Positive is toward the
+  # front.
+  #
+  # Where a rider ends up is the chassis, plus the seat, plus the game's own
+  # rule for placing a passenger - and only the first two are ours. That last
+  # one cannot be read by a plugin, has changed between versions before, and
+  # is measured rather than derived everywhere it appears in this plugin. So
+  # if a seat is consistently a bit off along the vehicle, this closes it in
+  # one reload rather than waiting for a release.
+  seat-forward: 0.0
+
+  # Reports, once a second per occupied seat, where the rider actually ended
+  # up against where the plugin put them - across the vehicle, along it, and
+  # up. Off.
+  #
+  # For the case the two nudges above cannot answer: one seat being out while
+  # another is fine. `across` should be zero on every seat, always; a rider
+  # who is visibly out of their seat with `across` reading zero is a rendering
+  # problem on the client rather than a placement one, and the two want
+  # opposite fixes.
+  debug-seats: false
+
+  # Whether a moving vehicle shoves PLAYERS out of its way.
+  #
+  # Off, so a vehicle passes through people. Shoving is right for a cow
+  # standing in the road and wrong for the people you are driving with: cars
+  # nudging each other's drivers about in a car park, and a passenger being
+  # flung as they get out, are both worse than driving through somebody. Mobs
+  # are shoved either way.
+  #
+  # Nothing here changes what a vehicle does about BLOCKS - it always stops at
+  # a wall.
+  push-players: false
+
+  # Whether vehicles collide with EACH OTHER.
+  #
+  # On. Two vehicles that meet exchange momentum the way two solid things do:
+  # what each comes away with is worked out from how fast they were closing,
+  # which way round they met, how far off centre the hit was and what the pack
+  # says each of them weighs. So a lorry shunts a moped aside and barely
+  # notices, a clip on the corner spins you and a square rear-ending does not,
+  # and at a crawl the whole thing becomes pushing rather than bumping.
+  #
+  # Turn it off for a server that would rather vehicles passed through each
+  # other - a race track where a pile-up is worse than a clean overtake, or a
+  # lobby where cars are parked shoulder to shoulder. Nothing here changes what
+  # a vehicle does about BLOCKS, placed models, players or mobs.
+  collide: true
+
+  # Whether a driver sees their speed above the hotbar while moving, in
+  # kilometres an hour (a block is a metre). It goes yellow while the tyres
+  # are sliding. It stays off the action bar for a few seconds after anything
+  # else is written there, so it never paints over which seat you got.
+  speedometer: true
+
+  # Whether somebody getting into a vehicle is told the controls, once, above
+  # their hotbar. On by default: which keys drive depends on what this server
+  # can read from a client, a server that cannot read them steers by LOOK
+  # instead, and nothing else anywhere says so.
+  #
+  # It says the controls and nothing else - not what you just got into, which
+  # you know, having just clicked it. A passenger is told which seat they took
+  # instead, because on a small vehicle the markers overlap.
+  mount-hint: true
+
+  # Whether somebody in a vehicle seat rides in their emote rig even when the
+  # pack never said what they should be doing.
+  #
+  # On, because the point of a seat is that somebody is sitting IN something,
+  # and the game draws an ordinary passenger standing up to their waist in the
+  # hull at whatever angle it likes. So the rig goes on and the seat's pose
+  # picks the stance - sitting or standing - which is the same thing that
+  # already decides what the seat's position means.
+  #
+  # Turn it off for a server that would rather see ordinary players: it costs a
+  # rig's worth of entities per occupant, and a full bus is a real number of
+  # them. A seat that NAMES an emote is unaffected either way - that is the
+  # pack asking for something rather than the engine filling a gap.
+  #
+  # It needs the pack to carry a baked rig for that player. Without one the
+  # console says so once and everybody rides as themselves.
+  seat-rig: true
+
+emotes:
+  # Rebuild the packs shortly after somebody turns up whose emote rig is not
+  # in them.
+  #
+  # A player's rig IS pack content - a model per bone wearing their skin - so
+  # a player this server has never seen has no rig to wear, and rides, sits
+  # and dances as the shared default until a build catches up. That is the
+  # "why is my friend Steve" every server asks the first time, and it happens
+  # on the first join, which is the worst possible moment for it.
+  #
+  # The rebuild starts at once, because somebody who walked in on their own
+  # should not stand about as a default skin waiting out a window that exists
+  # for crowds. Anybody who arrives during it, or in the five seconds after,
+  # is covered by a single follow-up rather than costing a rebuild each - so a
+  # server filling up at the start of an evening pays two, not twenty.
+  #
+  # The new build is NOT pushed onto players who already have a working pack:
+  # a new pack reloads a client, and somebody walking in should not reload
+  # everybody else. It goes to whoever joins next, and to anybody already here
+  # the next time they are sent a pack anyway - a push, /rp push, rejoining.
+  # Until then they see the newcomer as the default rig. A player whose
+  # download had not finished is sent the new build at once.
+  #
+  # Turn it off if you would rather choose the moment yourself - a big pack, a
+  # busy lobby - and /rp reload still bakes whatever has arrived.
+  bake-on-join: true
+
+  # Whether /emote is registered as a command of its own. Turn this off and
+  # everything is still there under /rp emote — this is for a server that
+  # already has an /emote from somewhere else, or that wants one command
+  # rather than two.
+  #
+  # /emotereply is always registered whatever this says. Nobody types it: it
+  # is what an invitation's [accept] and [deny] buttons run.
+  player-commands: true
+
+  # The node somebody needs to pull other players into an emote. They are
+  # still asked before anything happens to them. Leave empty for no check.
+  cast-permission: "rpengine.emote.cast"
+
+  # How the item in a rig's hand is turned, in degrees, applied X then Y then
+  # Z. CALIBRATION — you should not need these.
+  #
+  # They exist because this one turn cannot be settled by a test: nothing in
+  # the build can see a rig, so it has been got wrong from four confident
+  # readings of the same arithmetic. The values below are the answer as far as
+  # anybody knows. If a held item still looks wrong, these let you find the
+  # right one by looking, with /rpengine reload between tries, and the two
+  # symptoms tell you which number to move:
+  #
+  #   the item points the wrong WAY (a sword at the rig's back)  -> pitch
+  #   the item looks mirrored or upside down, but points right   -> yaw
+  #
+  # Please report a value that works rather than keeping it here.
+  held-item-pitch: 90.0
+  held-item-yaw: 0.0
+  held-item-roll: 0.0
+
+  # Whether this server bakes emote rigs of its own into its packs.
+  #
+  # An emote is played on a rig: a copy of a player's skin, cut into bones.
+  # Studio bakes them for the players a push is addressed to; with this on,
+  # the engine also bakes one for every player who has ever joined (their
+  # skin is kept under skins/ the first time they do) plus a shared default
+  # mannequin, so hand-authored emotes in emotes/ and vehicle seats work with
+  # no Studio in the picture. A player joining for the first time wears the
+  # default until the next /rp reload or restart bakes theirs.
+  #
+  # Needs Minecraft 1.21.4 or newer; below that nothing is baked and pushed
+  # rigs work as before.
+  rigs: true
+
+  # Whether an emoting player's nametag is drawn through whatever is in front
+  # of it. Off, and deliberately unlike vanilla.
+  #
+  # A see-through nametag is drawn with no depth test and no depth write, so
+  # anything the client draws after it paints straight over it — and a model
+  # standing near an emoting player wins that race often enough that the name
+  # simply disappears. Off, the name is depth-tested and shows whenever it is
+  # really in front, which matters more here than vanilla's other half: a real
+  # nameplate is visible through terrain, and this one is not.
+  #
+  # Turn it on if you would rather have names through walls and can live with
+  # them vanishing behind models.
+  nametag-see-through: false
+
+# Which bundle a player is given on join. Leave empty to send nothing and
+# drive it yourself.
+default-bundle: "main"
+
+# What the client is told when it is asked to accept a pack.
+prompt:
+  # Shown in the accept dialog. Empty uses the client's own wording.
+  message: ""
+
+  # true disconnects a player who declines. Off by default: kicking somebody
+  # for declining is a decision a server makes, not one a plugin makes for it.
+  force: false
+
+# Dialogs (Minecraft 1.21.6+).
+dialogs:
+  # A click on a dialog's picture makes no sound in the game: only its own
+  # buttons click. So the engine plays this when one reaches the server. A
+  # Studio dialog can ask for its own sound, per dialog or per piece, and that
+  # wins. Blank for none. Any sound event: the game's, or one your pack adds.
+  click-sound: "ui.button.click"
+  # 0 to 1.
+  click-volume: 0.25
+  # 0.5 to 2; 2 is an octave up.
+  click-pitch: 1.0
+
+# How this plugin looks when it speaks.
+#
+# The palette is yours: a plugin that shouts in its own brand colours on
+# somebody else's server is a plugin whose messages get muted. Colours are
+# hex, #rrggbb, with or without the hash. Anything that is not a hex triple
+# falls back to its default rather than printing the digits at you.
+chat:
+  # Typing :wave: in chat draws the icon called "wave", for anybody with
+  # rpengine.chat.icons. Off by default: a plugin that starts rewriting what
+  # people type the moment it is installed is one somebody has to find the
+  # setting for in a hurry.
+  icons: false
+  # The word inside the brackets, in front of everything this plugin says.
+  prefix: "RPEngine"
+
+  colour:
+    # The prefix itself. #3670f8 is ResourcePack AI's blue.
+    prefix: "#3670f8"
+
+    # The brackets around it.
+    brackets: "#555555"
+
+    # Ordinary text. The rest of every line.
+    body: "#aaaaaa"
+
+    # A name, a count, a code — whatever a sentence is actually about. Also
+    # the headings in /rp's help.
+    accent: "#3670f8"
+
+    # Something went wrong.
+    error: "#ff5555"
+
+    # Something worked, where that is worth saying out loud.
+    success: "#55ff55"
+
+# Custom blocks.
+blocks:
+  # Plants (blocks with base: tripwire) are cut tripwire, and a tripwire's
+  # connections follow the string beside it unless Paper freezes them with
+  # block-updates.disable-tripwire-updates in config/paper-global.yml. Frozen,
+  # tripwire holds 32 plants; not, it holds 2.
+  #
+  # auto reads Paper's setting. true or false says it outright, for a server
+  # whose Paper config lives somewhere else. Saying true when it is not frozen
+  # makes neighbouring plants turn into each other.
+  tripwire-frozen: auto

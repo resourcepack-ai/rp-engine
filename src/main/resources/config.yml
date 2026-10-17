@@ -1,5 +1,9 @@
 # RP Engine
 
+# Which of RP Engine's config updates this file has had. The plugin
+# sets it; leave it alone.
+config-version: 1
+
 # How players download the packs this server builds.
 host:
   # One of:

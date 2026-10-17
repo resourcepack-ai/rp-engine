@@ -456,6 +456,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        // Before anything reads it: a file from an older release gets the
+        // settings added since, written in, so its owner can see them.
+        try {
+            if (ai.resourcepack.engine.core.config.ConfigMigrations.run(
+                    getDataFolder().toPath().resolve("config.yml"), getLogger()::info) > 0) {
+                reloadConfig();
+            }
+        } catch (IOException | IllegalArgumentException e) {
+            getLogger().warning("Could not update config.yml (" + e.getMessage() + "). It is read as it is.");
+        }
         // First, because what the rest of startup is allowed to do depends on
         // the answer, and because a server below the floor should be told so
         // before the engine has built anything it cannot use.
