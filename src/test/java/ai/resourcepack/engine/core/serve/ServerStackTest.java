@@ -35,15 +35,6 @@ class ServerStackTest {
     }
 
     @Test
-    void theMergedShadersGoOnTopOfEverythingEvenAPush() {
-        List<BuiltPack> stack = ServerStack.withShaders(ServerStack.of(pack("main", "a"), null, null, pack("studio", "s")),
-                pack("rpengine-shaders-1234", "x"));
-        assertEquals(List.of("main", "studio", "rpengine-shaders-1234"), bundles(stack));
-        assertEquals(List.of(), ServerStack.withShaders(List.of(), pack("rpengine-shaders-1234", "x")),
-                "and never alone: there is nothing of ours for them to sit on");
-    }
-
-    @Test
     void rigsInsideTheBundleAreNotAPack() {
         assertEquals(List.of("main"), bundles(ServerStack.of(pack("main", "a"), null, null, null)));
     }

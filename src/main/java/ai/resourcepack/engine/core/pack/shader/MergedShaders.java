@@ -245,33 +245,147 @@ public final class MergedShaders {
         return out;
     }
 
-    /** The pack's files: each merged group's shaders in an overlay of its own, and the metadata naming them. */
-    public static Map<String, byte[]> files(Plan plan, int packFormat, String description) {
-        Map<String, byte[]> out = new LinkedHashMap<>();
+    /**
+     * {@code ours} again, with the merged shaders added to it: every file it
+     * had, each merged group's shaders in an overlay of its own listed LAST
+     * (an overlay later in the list wins, so they win over the pack's own
+     * text shader), and its {@code pack.mcmeta} saying so. Everything else in
+     * the metadata is kept as it was.
+     *
+     * <p>Into the pack rather than beside it, so a player is sent what they
+     * were always sent, once, and not a third pack after it.
+     *
+     * @return the new pack, or null when nothing merged and {@code ours} stands
+     */
+    public static BuiltPack into(BuiltPack ours, Plan plan, String bundle, Path out) throws IOException {
+        if (plan.isEmpty()) {
+            return null;
+        }
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(ours.file().toFile())) {
+            var all = zip.entries();
+            while (all.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = all.nextElement();
+                if (!entry.isDirectory()) {
+                    try (var in = zip.getInputStream(entry)) {
+                        entries.put(entry.getName(), in.readAllBytes());
+                    }
+                }
+            }
+        }
+        com.google.gson.JsonObject meta;
+        try {
+            byte[] raw = entries.get("pack.mcmeta");
+            meta = raw == null ? new com.google.gson.JsonObject()
+                    : com.google.gson.JsonParser.parseString(new String(raw, StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (RuntimeException e) {
+            meta = new com.google.gson.JsonObject();
+        }
+        com.google.gson.JsonObject pack = meta.has("pack") && meta.get("pack").isJsonObject()
+                ? meta.getAsJsonObject("pack") : new com.google.gson.JsonObject();
+        int packFormat = pack.has("pack_format") ? pack.get("pack_format").getAsInt() : 46;
+        String description = pack.has("description") && pack.get("description").isJsonPrimitive()
+                ? pack.get("description").getAsString() : "";
         com.google.gson.JsonArray overlays = new com.google.gson.JsonArray();
+        if (meta.has("overlays") && meta.get("overlays").isJsonObject()
+                && meta.getAsJsonObject("overlays").get("entries") instanceof com.google.gson.JsonArray existing) {
+            overlays.addAll(existing);
+        }
         for (Outcome o : plan.merged()) {
-            String directory = "rpe_merged_v" + o.minFormat();
+            String directory = DIRECTORY + o.minFormat();
             com.google.gson.JsonObject entry = new com.google.gson.JsonObject();
             entry.addProperty("min_format", o.minFormat());
             entry.addProperty("max_format", o.maxFormat());
             entry.addProperty("directory", directory);
             overlays.add(entry);
             for (Map.Entry<String, String> f : o.files().entrySet()) {
-                out.put(directory + "/" + f.getKey(), f.getValue().getBytes(StandardCharsets.UTF_8));
+                entries.put(directory + "/" + f.getKey(), f.getValue().getBytes(StandardCharsets.UTF_8));
             }
         }
-        out.put("pack.mcmeta", PackBuilder.packMeta(packFormat, description, overlays).getBytes(StandardCharsets.UTF_8));
-        return out;
+        // The pack and overlays sections as the builder writes them, so the
+        // format rules every version accepts hold; every other section of the
+        // pack's own metadata (a language, a filter, Studio's own) is kept.
+        com.google.gson.JsonObject rebuilt = com.google.gson.JsonParser.parseString(
+                PackBuilder.packMeta(packFormat, description, overlays)).getAsJsonObject();
+        com.google.gson.JsonObject newPack = rebuilt.getAsJsonObject("pack");
+        if (pack.has("min_format") || pack.has("supported_formats")) {
+            // The pack already says which formats it supports (a Studio pack
+            // spanning many versions does). That range is the pack's to set;
+            // it is only widened, never narrowed, to cover the new overlays.
+            int[] own = declaredRange(pack, packFormat);
+            int min = Math.min(own[0], newPack.get("min_format").getAsInt());
+            int max = Math.max(own[1], newPack.get("max_format").getAsInt());
+            newPack = pack.deepCopy();
+            if (min < own[0] || max > own[1]) {
+                newPack.remove("supported_formats");
+                newPack.remove("min_format");
+                newPack.remove("max_format");
+                newPack.remove("description");
+                if (min <= PackBuilder.LAST_OLD_PACK_FORMAT) {
+                    com.google.gson.JsonObject range = new com.google.gson.JsonObject();
+                    range.addProperty("min_inclusive", min);
+                    range.addProperty("max_inclusive", max);
+                    newPack.add("supported_formats", range);
+                }
+                newPack.addProperty("min_format", min);
+                newPack.addProperty("max_format", max);
+                newPack.add("description", pack.has("description") ? pack.get("description")
+                        : new com.google.gson.JsonPrimitive(""));
+            }
+        } else if (pack.has("description") && !pack.get("description").isJsonPrimitive()) {
+            newPack.add("description", pack.get("description"));
+        }
+        meta.add("pack", newPack);
+        meta.add("overlays", rebuilt.get("overlays"));
+        entries.put("pack.mcmeta", new com.google.gson.GsonBuilder().setPrettyPrinting().disableHtmlEscaping()
+                .create().toJson(meta).getBytes(StandardCharsets.UTF_8));
+
+        DeterministicZip zip = new DeterministicZip();
+        for (Map.Entry<String, byte[]> e : entries.entrySet()) {
+            zip.add(e.getKey(), e.getValue());
+        }
+        Files.createDirectories(out.getParent());
+        String sha1 = zip.writeTo(out);
+        return BuiltPack.of(bundle, out, sha1, Files.size(out), zip.size());
     }
 
-    /** Writes the pack to {@code file} and returns it, ready for the host. */
-    public static BuiltPack write(Plan plan, String bundle, Path file, int packFormat, String description) throws IOException {
-        DeterministicZip zip = new DeterministicZip();
-        for (Map.Entry<String, byte[]> f : files(plan, packFormat, description).entrySet()) {
-            zip.add(f.getKey(), f.getValue());
+    /**
+     * The formats a pack section says it supports: {@code min_format} and
+     * {@code max_format} (a number, or [major, minor] from 1.21.9), else
+     * {@code supported_formats} (a number, [min, max], or an object), else its
+     * {@code pack_format} alone.
+     */
+    static int[] declaredRange(com.google.gson.JsonObject pack, int packFormat) {
+        int min = packFormat;
+        int max = packFormat;
+        try {
+            if (pack.has("min_format") && pack.has("max_format")) {
+                return new int[] {major(pack.get("min_format")), major(pack.get("max_format"))};
+            }
+            com.google.gson.JsonElement s = pack.get("supported_formats");
+            if (s == null) {
+                return new int[] {min, max};
+            }
+            if (s.isJsonPrimitive()) {
+                min = max = s.getAsInt();
+            } else if (s.isJsonArray() && s.getAsJsonArray().size() == 2) {
+                min = s.getAsJsonArray().get(0).getAsInt();
+                max = s.getAsJsonArray().get(1).getAsInt();
+            } else if (s.isJsonObject()) {
+                min = s.getAsJsonObject().get("min_inclusive").getAsInt();
+                max = s.getAsJsonObject().get("max_inclusive").getAsInt();
+            }
+        } catch (RuntimeException e) {
+            // Malformed: the pack's own format is the one thing it surely meant.
         }
-        Files.createDirectories(file.getParent());
-        String sha1 = zip.writeTo(file);
-        return BuiltPack.of(bundle, file, sha1, Files.size(file), zip.size());
+        return new int[] {Math.min(min, packFormat), Math.max(max, packFormat)};
     }
+
+    private static int major(com.google.gson.JsonElement format) {
+        return format.isJsonArray() ? format.getAsJsonArray().get(0).getAsInt() : format.getAsInt();
+    }
+
+    /** Where a merged group's shaders go in a pack: an overlay directory per group. */
+    static final String DIRECTORY = "rpe_merged_v";
+
 }

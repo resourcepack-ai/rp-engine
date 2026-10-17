@@ -14,6 +14,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * Looks after the core shaders RP Engine's packs and other plugins' packs both
@@ -29,73 +31,61 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>A core shader is one file per name and a client keeps only the top pack's
  * copy, so a HUD plugin that draws through the text shader (BetterHud) and a
  * Studio shader object cannot both work unless one file does both. For the
- * text shader that file can be made ({@link MergedShaders}); this finds the
- * other plugin's pack, makes it for each set of our packs a player can hold,
- * and serves it as a pack of its own on top of everything else. For every
- * other shader, and for a version where the text shader cannot be merged, it
- * says plainly that only one of the two will draw.
+ * text shader that file can be made ({@link MergedShaders}), and it is made
+ * INTO the pack of ours that carries the text shader (the server's bundle as
+ * it is built, a Studio push as it arrives), so a player is sent exactly the
+ * packs they always were, once, with nothing following them. For every other
+ * shader, and for a version where the text shader cannot be merged, it says
+ * plainly that only one of the two will draw.
  *
  * <p>Two kinds of message, both to the console and to players holding
  * {@code rpengine.shaders} (op by default), live and on joining:
  * <ul>
- *   <li><b>merged</b>: which plugin's shader, on which versions. Merging works,
- *       but it is the place a future break would show up, so it is said.</li>
+ *   <li><b>merged</b>: which plugin's shader, into which pack, on which
+ *       versions. Merging works, but it is the place a future break would
+ *       show up, so it is said.</li>
  *   <li><b>not merged</b>: which file, which plugins, what stops working.</li>
  * </ul>
- * Each is said when it first appears and again only if it went away and came
- * back.
+ * Each is said once, and again only if it went away and came back.
  */
 public final class ShaderClashWatch {
 
     /** The permission whose holders are told in chat. */
     public static final String PERMISSION = "rpengine.shaders";
 
-    /** The bundle-name prefix of every merged-shader pack. */
-    public static final String BUNDLE_PREFIX = "rpengine-shaders-";
-
     /**
-     * How long after startup the other plugins' folders are first read.
-     * Most build their pack on enable or on the first tick, some a little
-     * later off the main thread; late is fine and early would miss them.
+     * How long after startup the other plugins' folders are read a second
+     * time. The first read is before the bundle is built, and finds whatever
+     * pack each plugin left on disk last time; a plugin that builds its pack
+     * as it enables (after this one) can have changed it since.
      */
-    public static final long FIRST_SCAN_DELAY_TICKS = 20L * 20;
+    public static final long SECOND_SCAN_DELAY_TICKS = 20L * 20;
 
     /** What the plugin around this provides. */
     public interface Host {
         /** Whether {@code shaders.merge} is on. */
         boolean mergeEnabled();
-
-        /** The pack format to write into a merged pack's pack.mcmeta. */
-        int packFormat();
-
-        /** Where merged packs are written. */
-        Path output();
-
-        /** Makes a written pack downloadable. */
-        void serve(BuiltPack pack);
-
-        /** Stops serving a pack nobody holds any more. */
-        void unserve(String bundle);
     }
 
     private final Plugin plugin;
     private final Host host;
 
-    /** Other plugins, by "name (where)", and the shaders their packs on disk replace. Written off the main thread. */
+    /** Other plugins, by "name (where)", and the shaders their packs on disk replace. */
     private volatile Map<String, Set<String>> theirs = Map.of();
     /** The other plugins' packs that replace the text shader, read, by the same label. */
     private volatile Map<String, PackSource> theirText = Map.of();
+    /** What {@link #theirText} held, as one string, so a read that found the same can say so. */
+    private volatile String fingerprint = "";
 
     /** What a pack of ours replaces, by its SHA-1, so a pack is read once however often it is checked. */
     private final Map<String, Set<String>> oursBySha = new ConcurrentHashMap<>();
-    private final Map<String, Optional<PackSource>> sourceBySha = new ConcurrentHashMap<>();
-    /** A merged pack (or that there is none) per set of our packs, keyed on their hashes and theirs. */
+    /** A merged pack per pack of ours and what it was merged with; absent is "merging changed nothing". */
     private final Map<String, Optional<BuiltPack>> merged = new ConcurrentHashMap<>();
 
-    /** The clash lines standing after the last check, in the order said. */
+    /** The clash lines standing after the last check. */
     private Set<String> clashLines = new LinkedHashSet<>();
-    /** The merge lines standing, for the merges currently cached. */
-    private final Set<String> mergeLines = new LinkedHashSet<>();
+    /** The merge lines standing, by the pack of ours they are about. */
+    private final Map<String, List<String>> mergeLines = new LinkedHashMap<>();
     /** Every line already said, so a standing one is said once; forgotten when it stops standing. */
     private final Set<String> said = new HashSet<>();
 
@@ -107,150 +97,189 @@ public final class ShaderClashWatch {
     // ---- reading the other plugins' packs ---------------------------------
 
     /**
-     * Reads every other enabled plugin's folder for packs, off the main
-     * thread, then calls {@code then} back on it. The plugin list is taken
-     * when the delay is up, on the main thread: at startup the plugins after
-     * this one are not enabled yet, and Bukkit's list is not safe to read from
-     * anywhere else.
+     * Reads every other enabled plugin's folder for packs, here and now.
+     * Before a build, so the bundle can carry the merge from the start. Main
+     * thread; bounded by {@link ShaderClashes#scan}'s depth and entry budget.
+     *
+     * @return whether what it found differs from the last read
      */
-    public void scanOthers(long delayTicks, Runnable then) {
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> scanNow(then), Math.max(1L, delayTicks));
+    public boolean scanNow() {
+        Map<String, Path> folders = otherFolders(false);
+        return found(read(folders));
     }
 
-    private void scanNow(Runnable then) {
-        if (!plugin.isEnabled()) {
-            return;
-        }
-        Path pluginsFolder = plugin.getDataFolder().toPath().getParent();
+    /**
+     * Reads them again later, off the main thread, and calls {@code then} back
+     * on it with whether anything changed. The plugin list is taken when the
+     * delay is up: a plugin enabled after this one only then has its own.
+     */
+    public void scanLater(long delayTicks, Consumer<Boolean> then) {
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!plugin.isEnabled()) {
+                return;
+            }
+            Map<String, Path> folders = otherFolders(true);
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                Scan scan = read(folders);
+                if (plugin.isEnabled()) {
+                    plugin.getServer().getScheduler().runTask(plugin, () -> then.accept(found(scan)));
+                }
+            });
+        }, Math.max(1L, delayTicks));
+    }
+
+    /** Every other plugin's data folder; only the enabled ones when asked. */
+    private Map<String, Path> otherFolders(boolean enabledOnly) {
         Map<String, Path> folders = new TreeMap<>();
         for (Plugin other : plugin.getServer().getPluginManager().getPlugins()) {
-            if (other != plugin && other.isEnabled()) {
+            if (other != plugin && (!enabledOnly || other.isEnabled())) {
                 folders.put(other.getName(), other.getDataFolder().toPath());
             }
         }
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            Map<String, Set<String>> found = new TreeMap<>();
-            Map<String, PackSource> text = new TreeMap<>();
-            for (Map.Entry<String, Path> e : folders.entrySet()) {
-                ShaderClashes.Found result = ShaderClashes.scan(e.getValue(), pluginsFolder);
-                if (result.shaders().isEmpty()) {
-                    continue;
-                }
-                String label = e.getKey() + " (" + result.where() + ")";
-                found.put(label, result.shaders());
-                if (result.shaders().contains("rendertype_text")) {
-                    for (Path pack : result.packs()) {
-                        Optional<PackSource> read = PackSource.read(e.getKey(), pack);
-                        if (read.isPresent() && read.get().hasTextShader()) {
-                            // One pack per plugin: the first that has it. A
-                            // plugin holding two builds of its pack (a folder
-                            // and its zip) means the same shader twice.
-                            text.putIfAbsent(e.getKey() + " (" + ShaderClashes.relative(pluginsFolder, pack) + ")", read.get());
-                        }
+        return folders;
+    }
+
+    private record Scan(Map<String, Set<String>> shaders, Map<String, PackSource> text) {
+    }
+
+    private Scan read(Map<String, Path> folders) {
+        Path pluginsFolder = plugin.getDataFolder().toPath().getParent();
+        Map<String, Set<String>> found = new TreeMap<>();
+        Map<String, PackSource> text = new TreeMap<>();
+        for (Map.Entry<String, Path> e : folders.entrySet()) {
+            ShaderClashes.Found result = ShaderClashes.scan(e.getValue(), pluginsFolder);
+            if (result.shaders().isEmpty()) {
+                continue;
+            }
+            found.put(e.getKey() + " (" + result.where() + ")", result.shaders());
+            if (result.shaders().contains("rendertype_text")) {
+                for (Path pack : result.packs()) {
+                    Optional<PackSource> source = PackSource.read(e.getKey(), pack);
+                    if (source.isPresent() && source.get().hasTextShader()) {
+                        // One pack per plugin: the first that has it. A plugin
+                        // holding two builds of its pack (a folder and its zip)
+                        // means the same shader twice.
+                        text.putIfAbsent(e.getKey() + " (" + ShaderClashes.relative(pluginsFolder, pack) + ")", source.get());
+                        break;
                     }
                 }
             }
-            theirs = Map.copyOf(found);
-            theirText = Map.copyOf(text);
-            if (plugin.isEnabled()) {
-                plugin.getServer().getScheduler().runTask(plugin, () -> {
-                    forgetMerges();
-                    then.run();
-                });
-            }
-        });
+        }
+        return new Scan(found, text);
     }
 
-    /** Drops every merged pack, after the other plugins' packs were read again. */
-    private void forgetMerges() {
-        for (Optional<BuiltPack> pack : merged.values()) {
-            pack.ifPresent(p -> host.unserve(p.bundle()));
+    /** Takes a scan's answer. Main thread. */
+    private boolean found(Scan scan) {
+        theirs = Map.copyOf(scan.shaders());
+        theirText = Map.copyOf(scan.text());
+        StringBuilder print = new StringBuilder();
+        for (Map.Entry<String, PackSource> e : scan.text().entrySet()) {
+            print.append(e.getKey()).append('{');
+            for (Map.Entry<String, String> f : e.getValue().files().entrySet()) {
+                print.append(f.getKey()).append('=').append(f.getValue().hashCode()).append(';');
+            }
+            print.append('}');
         }
-        merged.clear();
-        mergeLines.clear();
-        said.retainAll(clashLines);
+        String now = hash(print.toString());
+        boolean changed = !now.equals(fingerprint);
+        fingerprint = now;
+        if (changed) {
+            merged.clear();
+        }
+        return changed;
+    }
+
+    /**
+     * Whether which pack lands on top matters here: a shader of ours shares a
+     * name with another plugin's, merged or not. Ours have to go above theirs
+     * then, which is why a join waits a moment for their pack before sending.
+     */
+    public boolean orderMatters() {
+        return !union().isEmpty();
     }
 
     // ---- merging ------------------------------------------------------------
 
     /**
-     * The merged-shader pack to stack on top of {@code ours} (one player's
-     * packs from this server, bottom first), or null when there is nothing to
-     * merge. Main thread. Cached per set of packs, so calling it on every send
-     * costs a map lookup.
+     * {@code ours} with the other plugin's text shader merged into it, or
+     * {@code ours} itself when there is nothing to merge (merging off, no
+     * other plugin replaces the text shader, more than one does, ours has no
+     * text shader, or no version could be merged). Main thread. Cached per pack
+     * and per what it was merged with.
+     *
+     * @param label  which of our packs, for the messages ("RP Engine's bundle 'main'")
+     * @param bundle the name the merged pack is served under
+     * @param out    where the merged pack is written
      */
-    public BuiltPack mergedFor(List<BuiltPack> ours) {
-        if (!host.mergeEnabled() || theirText.size() != 1) {
-            return null;
-        }
-        List<BuiltPack> shading = new ArrayList<>();
-        for (BuiltPack pack : ours) {
-            if (pack != null && shadersOf(pack).contains("rendertype_text")) {
-                shading.add(pack);
-            }
-        }
-        if (shading.isEmpty()) {
-            return null;
+    public BuiltPack merged(BuiltPack ours, String label, String bundle, Path out) {
+        if (ours == null || !host.mergeEnabled() || theirText.size() != 1
+                || !shadersOf(ours).contains("rendertype_text")) {
+            return ours;
         }
         Map.Entry<String, PackSource> other = theirText.entrySet().iterator().next();
-        StringBuilder key = new StringBuilder(other.getKey());
-        for (BuiltPack pack : shading) {
-            key.append('|').append(pack.sha1());
+        String key = ours.sha1() + "|" + fingerprint + "|" + out;
+        Optional<BuiltPack> done = merged.get(key);
+        if (done == null || done.isPresent() && !java.nio.file.Files.isRegularFile(done.get().file())) {
+            if (merged.size() > 256) {
+                merged.clear();
+            }
+            done = merge(ours, label, bundle, out, other.getKey(), other.getValue());
+            merged.put(key, done);
         }
-        return merged.computeIfAbsent(key.toString(), k -> merge(shading, other.getKey(), other.getValue(), k)).orElse(null);
+        return done.orElse(ours);
     }
 
-    private Optional<BuiltPack> merge(List<BuiltPack> shading, String label, PackSource theirs, String key) {
-        List<PackSource> ours = new ArrayList<>();
-        for (BuiltPack pack : shading) {
-            Optional<PackSource> source = sourceBySha.computeIfAbsent(pack.sha1(),
-                    sha -> PackSource.read(pack.bundle(), pack.file()));
-            source.ifPresent(ours::add);
+    private Optional<BuiltPack> merge(BuiltPack ours, String label, String bundle, Path out,
+                                      String theirLabel, PackSource theirs) {
+        Optional<PackSource> source = PackSource.read(ours.bundle(), ours.file());
+        if (source.isEmpty()) {
+            return Optional.empty();
         }
-        MergedShaders.Plan plan = MergedShaders.plan(ours, theirs);
-        String who = owner(label);
+        MergedShaders.Plan plan = MergedShaders.plan(List.of(source.get()), theirs);
+        String who = owner(theirLabel);
+        List<String> lines = new ArrayList<>();
         for (MergedShaders.Outcome refused : plan.refused()) {
-            sayMerge("Could not merge RP Engine's text shader with " + who + "'s" + where(label) + " for "
+            lines.add("Could not merge " + label + "'s text shader with " + who + "'s" + where(theirLabel) + " for "
                     + span(refused.versions()) + ": " + refused.refused()
-                    + " On those versions a player sees only whichever of the two packs is higher in their list.", true);
+                    + " On those versions a player sees only whichever of the two packs is higher in their list.");
         }
-        if (plan.isEmpty()) {
-            return Optional.empty();
-        }
-        String bundle = BUNDLE_PREFIX + hash(key);
-        try {
-            BuiltPack pack = MergedShaders.write(plan, bundle, host.output().resolve("shaders").resolve(bundle + ".zip"),
-                    host.packFormat(), "RP Engine - text shader merged with " + who);
-            host.serve(pack);
-            // Neighbouring merged groups read as one span: they differ only in
-            // which file each version gets, which is nobody's business here.
-            List<String> versions = new ArrayList<>();
-            String run = null;
-            for (MergedShaders.Outcome o : plan.outcomes()) {
-                if (o.merged()) {
-                    run = run == null ? o.versions() : run + ", " + o.versions();
-                } else if (run != null) {
-                    versions.add(span(run));
-                    run = null;
-                }
+        Optional<BuiltPack> result = Optional.empty();
+        if (!plan.isEmpty()) {
+            try {
+                result = Optional.ofNullable(MergedShaders.into(ours, plan, bundle, out));
+                lines.add("Merged " + who + "'s text shader" + where(theirLabel) + " into " + label
+                        + ", so both draw, for " + String.join(", ", spans(plan)) + ".");
+            } catch (IOException e) {
+                lines.add("Could not write " + label + " with " + who + "'s text shader merged in, so only one of"
+                        + " the two will draw: " + e.getMessage());
             }
-            if (run != null) {
-                versions.add(span(run));
-            }
-            sayMerge("Merged RP Engine's text shader with " + who + "'s" + where(label) + ", so both draw, for "
-                    + String.join(", ", versions) + ". It goes to players as a pack of its own on top of the others ("
-                    + bundle + ").", false);
-            return Optional.of(pack);
-        } catch (IOException e) {
-            sayMerge("Could not write the merged text shader pack, so only one of RP Engine's and " + who
-                    + "'s shaders will draw: " + e.getMessage(), true);
-            return Optional.empty();
         }
+        // A line that stands again (a rebuild that merged the same way) is not
+        // said again; one that went away is forgotten, so it would be.
+        mergeLines.put(label, lines);
+        said.retainAll(union());
+        for (String line : lines) {
+            announce(line, line.startsWith("Could not"));
+        }
+        return result;
     }
 
-    /** Whether a pack is one of the merged-shader packs this makes. */
-    public static boolean isMergedPack(BuiltPack pack) {
-        return pack != null && pack.bundle().startsWith(BUNDLE_PREFIX);
+    /** The versions a plan merged, neighbouring groups read as one span. */
+    private static List<String> spans(MergedShaders.Plan plan) {
+        List<String> out = new ArrayList<>();
+        String run = null;
+        for (MergedShaders.Outcome o : plan.outcomes()) {
+            if (o.merged()) {
+                run = run == null ? o.versions() : run + ", " + o.versions();
+            } else if (run != null) {
+                out.add(span(run));
+                run = null;
+            }
+        }
+        if (run != null) {
+            out.add(span(run));
+        }
+        return out;
     }
 
     // ---- saying so ----------------------------------------------------------
@@ -266,7 +295,7 @@ public final class ShaderClashWatch {
         Map<String, Set<String>> ourSide = new TreeMap<>();
         for (Map.Entry<String, BuiltPack> e : ours) {
             BuiltPack pack = e.getValue();
-            if (pack == null || isMergedPack(pack)) {
+            if (pack == null) {
                 continue;
             }
             Set<String> shaders = shadersOf(pack);
@@ -292,22 +321,14 @@ public final class ShaderClashWatch {
                     : " More than one other plugin replaces it, and RP Engine can merge its own with one of them, not several.";
             now.add(clash.describe() + why);
         }
+        if (!merging) {
+            mergeLines.clear();
+        }
         clashLines = now;
         said.retainAll(union());
         for (String line : now) {
             announce(line, true);
         }
-        // Each of our packs alone, so a merge (and its message) happens with nobody online.
-        for (Map.Entry<String, BuiltPack> e : ours) {
-            if (e.getValue() != null && !isMergedPack(e.getValue())) {
-                mergedFor(List.of(e.getValue()));
-            }
-        }
-    }
-
-    private void sayMerge(String line, boolean warning) {
-        mergeLines.add(line);
-        announce(line, warning);
     }
 
     /** Logs and tells staff a line, the first time it stands. */
@@ -329,7 +350,9 @@ public final class ShaderClashWatch {
 
     private Set<String> union() {
         Set<String> all = new LinkedHashSet<>(clashLines);
-        all.addAll(mergeLines);
+        for (List<String> lines : mergeLines.values()) {
+            all.addAll(lines);
+        }
         return all;
     }
 
@@ -374,7 +397,7 @@ public final class ShaderClashWatch {
         try {
             byte[] d = MessageDigest.getInstance("SHA-1").digest(key.getBytes(StandardCharsets.UTF_8));
             StringBuilder out = new StringBuilder();
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 6; i++) {
                 out.append(String.format("%02x", d[i]));
             }
             return out.toString();

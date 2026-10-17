@@ -354,34 +354,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 public boolean mergeEnabled() {
                     return getConfig().getBoolean("shaders.merge", true);
                 }
-
-                @Override
-                public int packFormat() {
-                    return compatibility.packFormat();
-                }
-
-                @Override
-                public java.nio.file.Path output() {
-                    return getDataFolder().toPath().resolve("output");
-                }
-
-                @Override
-                public void serve(BuiltPack pack) {
-                    if (packHost != null) {
-                        packHost.register(pack);
-                    }
-                }
-
-                @Override
-                public void unserve(String bundle) {
-                    if (packHost != null) {
-                        packHost.unregister(bundle);
-                    }
-                }
             });
+
+    /** The bundles as the last build wrote them, before any shader was merged into them. */
+    private List<BuiltPack> builtUnmerged = List.of();
+    /** The merged copies of Studio pushes already handed to the pack host, by bundle name. */
+    private final Set<String> servedMerges = ConcurrentHashMap.newKeySet();
 
     /** Per player, the other plugins' packs RP Engine's have already been sent again above. */
     private final Map<UUID, Set<UUID>> raisedOver = new ConcurrentHashMap<>();
+    /**
+     * Players whose join send waits for another plugin's pack to reach them
+     * first, so ours land above it. See {@link #OTHERS_WAIT_TICKS}.
+     */
+    private final Set<UUID> awaitingOthers = ConcurrentHashMap.newKeySet();
+    /** Players held only by {@link #awaitingOthers}: everything else they waited for has arrived. */
+    private final Set<UUID> heldOnlyForOthers = ConcurrentHashMap.newKeySet();
     private final SyncGroup group = new SyncGroup();
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
@@ -1480,13 +1468,41 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // join-wait timer and the skin fetch both outlive a quit, and a
         // rejoin inside those two seconds had its hold released into the old
         // connection, leaving the new one with no pack at all.
-        if (player == null || stale(player) || !holdingPacks.remove(player.getUniqueId())) {
+        if (player == null || stale(player) || !holdingPacks.contains(player.getUniqueId())) {
             return false;
         }
+        if (awaitingOthers.contains(player.getUniqueId())) {
+            // Still waiting for another plugin's pack; releaseForOthers sends.
+            heldOnlyForOthers.add(player.getUniqueId());
+            return true;
+        }
+        holdingPacks.remove(player.getUniqueId());
         if (player.isOnline()) {
             delivery.apply(player, desiredFor(player));
         }
         return true;
+    }
+
+    /**
+     * The longest a join waits for another plugin's pack before sending ours
+     * anyway: three seconds. Where a shader of ours shares a name with another
+     * plugin's, ours have to be above theirs, and a plugin that sends with
+     * {@code setResourcePack} (BetterHud) takes every pack off the player
+     * first. Sending ours after theirs is one loading screen; sending ours
+     * first is ours wiped and sent again. A plugin slower than this gets the
+     * second, from {@link #keepOursOnTop}.
+     */
+    private static final long OTHERS_WAIT_TICKS = 60L;
+
+    /** Ends a join's wait for the other plugins' packs, sending ours if nothing else holds them. */
+    private void releaseForOthers(Player player) {
+        if (player == null || stale(player) || !awaitingOthers.remove(player.getUniqueId())) {
+            return;
+        }
+        if (heldOnlyForOthers.remove(player.getUniqueId()) && holdingPacks.remove(player.getUniqueId())
+                && player.isOnline()) {
+            delivery.apply(player, desiredFor(player));
+        }
     }
 
     /**
@@ -2084,7 +2100,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // knows nothing about the pack somebody is already wearing.
         registerPushedContent();
 
-        built = builtReport.packs();
+        // The other plugins' packs are read on every build, since a reload is
+        // often how somebody tries a fix, and BEFORE the bundles are served:
+        // a text shader of theirs is merged into the bundle itself, so a player
+        // is sent the one pack they always were.
+        shaderClashes.scanNow();
+        builtUnmerged = builtReport.packs();
+        built = withMergedShaders(builtUnmerged);
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
@@ -2107,11 +2129,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // The other plugins' packs are read again on every build, since a
-        // reload is often how somebody tries a fix. At startup it waits a
-        // while, for the plugins that build their pack after enabling.
-        shaderClashes.scanOthers(started ? 1L : ai.resourcepack.engine.core.pack.ShaderClashWatch.FIRST_SCAN_DELAY_TICKS,
-                this::checkShaderClashes);
+        checkShaderClashes();
+        // At startup, again a while later: a plugin that builds its pack as it
+        // enables (after this one) may have changed what the first read found.
+        if (!started) {
+            shaderClashes.scanLater(ai.resourcepack.engine.core.pack.ShaderClashWatch.SECOND_SCAN_DELAY_TICKS,
+                    changed -> {
+                        if (changed) {
+                            remergeShaders();
+                        }
+                        checkShaderClashes();
+                    });
+        }
 
         // Last, and that is the whole contract: a listener runs once every
         // question the API can answer is answerable. A plugin holding anything
@@ -2159,8 +2188,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             ours.add(Map.entry("a pack pushed from Studio", pack));
         }
         shaderClashes.check(ours);
-        // A merged-shader pack may have appeared, changed or gone with that.
-        // Nothing is sent to a player whose stack is already right.
+    }
+
+    /**
+     * The bundles merged again with what the other plugins' packs hold now,
+     * after a later read found them changed, and sent to whoever is online.
+     */
+    private void remergeShaders() {
+        built = withMergedShaders(builtUnmerged);
+        for (BuiltPack pack : built) {
+            packHost.register(pack);
+        }
         if (delivery != null) {
             for (Player player : getServer().getOnlinePlayers()) {
                 if (!holdingPacks.contains(player.getUniqueId())) {
@@ -2378,12 +2416,42 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // THEIR bundle rather than the claimer's, since somebody sharing a sync
         // may be in a different world - so a pack under test is tried against
         // the server it will actually run on.
-        BuiltPack pushedPack = player == null ? null : studioPacks.get(player.getUniqueId());
-        List<BuiltPack> stack = ServerStack.of(main, rigPack, ownRig, pushedPack);
-        // Our text shader merged with another plugin's, on top, where packs
-        // stack. See ShaderClashWatch; null when there is nothing to merge.
-        boolean stacks = delivery != null && delivery.stacks();
-        return ServerStack.withShaders(stack, stacks ? shaderClashes.mergedFor(stack) : null);
+        BuiltPack pushedPack = player == null ? null : mergedPush(studioPacks.get(player.getUniqueId()));
+        return ServerStack.of(main, rigPack, ownRig, pushedPack);
+    }
+
+    /**
+     * A Studio push with another plugin's text shader merged into it, served
+     * from here, or the push itself when there is nothing to merge. Studio's
+     * signed copy cannot carry the merge, so the merged one is a copy this
+     * server hosts, sent in its place: still one pack.
+     */
+    private BuiltPack mergedPush(BuiltPack pushed) {
+        if (pushed == null || packHost == null || !packHost.running()) {
+            return pushed;
+        }
+        String bundle = "studio-merged-" + pushed.sha1().substring(0, Math.min(12, pushed.sha1().length()));
+        BuiltPack merged = shaderClashes.merged(pushed, "a pack pushed from Studio", bundle,
+                mergedFolder().resolve(bundle + ".zip"));
+        if (merged != pushed && servedMerges.add(merged.bundle() + "|" + merged.sha1())) {
+            packHost.register(merged);
+        }
+        return merged;
+    }
+
+    /** Where our packs with another plugin's text shader merged in are written. */
+    private java.nio.file.Path mergedFolder() {
+        return getDataFolder().toPath().resolve("output").resolve("merged");
+    }
+
+    /** {@code packs} with another plugin's text shader merged into each that has one of its own. */
+    private List<BuiltPack> withMergedShaders(List<BuiltPack> packs) {
+        List<BuiltPack> out = new ArrayList<>(packs.size());
+        for (BuiltPack pack : packs) {
+            out.add(shaderClashes.merged(pack, "RP Engine's bundle '" + pack.bundle() + "'", pack.bundle(),
+                    mergedFolder().resolve(pack.bundle() + ".zip")));
+        }
+        return out;
     }
 
     /**
@@ -2440,6 +2508,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // rather than two. offerOwnRig releases them; the timer is for a fetch
         // that is slow or fails.
         holdingPacks.add(joined.getUniqueId());
+        if (shaderClashes.orderMatters() && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
+            awaitingOthers.add(joined.getUniqueId());
+            getServer().getScheduler().runTaskLater(this, () -> releaseForOthers(joined), OTHERS_WAIT_TICKS);
+        }
         SkinCache.Noticed skin = skinCache == null ? SkinCache.Noticed.SETTLED : skinCache.noticed(joined);
         announcePresence(joined, true);
         if (skin == SkinCache.Noticed.FETCHING && currentRigs != null && currentRigs.count() > 0
@@ -2482,6 +2554,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         if (!raisedOver.computeIfAbsent(player.getUniqueId(), k -> ConcurrentHashMap.newKeySet()).add(pack)) {
+            return;
+        }
+        if (awaitingOthers.contains(player.getUniqueId())) {
+            // The case the join waited for: theirs first, then ours, on top.
+            getServer().getScheduler().runTask(this, () -> releaseForOthers(player));
             return;
         }
         // A tick later, so their pack is in the client's list before ours go above it.
@@ -2556,6 +2633,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         delivery.loads().forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
         holdingPacks.remove(event.getPlayer().getUniqueId());
+        awaitingOthers.remove(event.getPlayer().getUniqueId());
+        heldOnlyForOthers.remove(event.getPlayer().getUniqueId());
         dropOwnRig(event.getPlayer().getUniqueId());
         // A push nobody holds any more leaves the catalogue, unless it is the
         // last one (kept on disk) or the one this server publishes.

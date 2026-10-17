@@ -446,7 +446,7 @@ public final class PackBuilder {
     }
 
     /** The last resource pack format whose clients read an overlay's range from {@code formats}. */
-    private static final int LAST_OLD_PACK_FORMAT = 64;
+    public static final int LAST_OLD_PACK_FORMAT = 64;
 
     /** An overlay entry's formats, from min_format/max_format or formats, or null. */
     private static int[] overlayRange(com.google.gson.JsonElement e) {

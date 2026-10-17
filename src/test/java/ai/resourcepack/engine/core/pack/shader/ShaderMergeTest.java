@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.pack.shader;
 
+import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.core.pack.PackFormats;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -244,24 +245,120 @@ class ShaderMergeTest {
     }
 
     @Test
-    void writesAPackOfOverlaysOnly() throws Exception {
-        MergedShaders.Plan plan = MergedShaders.plan(List.of(pack("ours", "objects")), pack("theirs", "betterhud-2.0.0"));
-        Map<String, byte[]> files = MergedShaders.files(plan, 75, "test");
-        assertTrue(files.keySet().stream().allMatch(p -> p.equals("pack.mcmeta") || p.startsWith("rpe_merged_v")), files.keySet().toString());
-        JsonObject meta = JsonParser.parseString(new String(files.get("pack.mcmeta"), StandardCharsets.UTF_8)).getAsJsonObject();
-        assertEquals(plan.merged().size(), meta.getAsJsonObject("overlays").getAsJsonArray("entries").size());
-        // And the client would read each merged file from it on that group's formats.
-        PackSource written = PackSource.of("written", decode(files));
+    void mergesIntoOurOwnPackRatherThanBesideIt(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Path folder = resources().resolve("ours/objects");
+        BuiltPack ours = zip(folder, dir.resolve("main.zip"), "main");
+        MergedShaders.Plan plan = MergedShaders.plan(List.of(PackSource.read("main", ours.file()).orElseThrow()),
+                pack("theirs", "betterhud-2.0.0"));
+
+        BuiltPack merged = MergedShaders.into(ours, plan, "main", dir.resolve("merged/main.zip"));
+
+        assertEquals("main", merged.bundle(), "the same pack, under the same name");
+        assertEquals(ours.uuid(), merged.uuid(), "so a client replaces it rather than stacking another");
+        Map<String, String> before = entries(ours.file());
+        Map<String, String> after = entries(merged.file());
+        for (Map.Entry<String, String> e : before.entrySet()) {
+            if (!e.getKey().equals("pack.mcmeta")) {
+                assertEquals(e.getValue(), after.get(e.getKey()), "kept: " + e.getKey());
+            }
+        }
+        assertTrue(after.keySet().stream().filter(k -> !before.containsKey(k))
+                .allMatch(k -> k.startsWith("rpe_merged_v")), "only the merged overlays are new");
+
+        JsonObject meta = JsonParser.parseString(after.get("pack.mcmeta")).getAsJsonObject();
+        JsonArray entries = meta.getAsJsonObject("overlays").getAsJsonArray("entries");
+        assertEquals(8 + plan.merged().size(), entries.size(), "the pack's own overlays and one per merged group");
+        for (int i = 0; i < 8; i++) {
+            assertTrue(entries.get(i).getAsJsonObject().get("directory").getAsString().startsWith("rpe_shader_v"),
+                    "the pack's own come first, so the merged ones (later) win");
+        }
+        assertEquals("Studio text shader fixture", meta.getAsJsonObject("pack").get("description").getAsString());
+
+        // And on every merged group's formats, the client reads the merged file
+        // out of it, not the pack's own.
+        PackSource written = PackSource.read("written", merged.file()).orElseThrow();
         for (MergedShaders.Outcome o : plan.merged()) {
             for (Map.Entry<String, String> f : o.files().entrySet()) {
                 assertEquals(f.getValue(), written.resolve(f.getKey(), o.minFormat()).orElse(null), o.minFormat() + " " + f.getKey());
+                assertEquals(f.getValue(), written.resolve(f.getKey(), o.maxFormat()).orElse(null), o.maxFormat() + " " + f.getKey());
             }
         }
     }
 
-    private static Map<String, String> decode(Map<String, byte[]> files) {
+    @Test
+    void aPackThatSaysWhichFormatsItSupportsKeepsSaying(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        // Studio's own packs span many versions and say so; the merge must not
+        // narrow that to the formats it touched.
+        JsonObject pack = new JsonObject();
+        pack.addProperty("pack_format", 46);
+        JsonObject range = new JsonObject();
+        range.addProperty("min_inclusive", 13);
+        range.addProperty("max_inclusive", 99);
+        pack.add("supported_formats", range);
+        pack.addProperty("min_format", 13);
+        pack.addProperty("max_format", 99);
+        assertEquals(List.of(13, 99), java.util.Arrays.stream(MergedShaders.declaredRange(pack, 46)).boxed().toList());
+
+        JsonObject wider = new JsonObject();
+        wider.addProperty("pack_format", 46);
+        wider.add("supported_formats", JsonParser.parseString("[34, 46]"));
+        assertEquals(List.of(34, 46), java.util.Arrays.stream(MergedShaders.declaredRange(wider, 46)).boxed().toList());
+
+        JsonObject named = new JsonObject();
+        named.addProperty("pack_format", 75);
+        named.add("min_format", JsonParser.parseString("[65, 0]"));
+        named.add("max_format", JsonParser.parseString("[88, 0]"));
+        assertEquals(List.of(65, 88), java.util.Arrays.stream(MergedShaders.declaredRange(named, 75)).boxed().toList());
+
+        // Through a whole merge: a pack declaring 13 to 99 still does.
+        Path folder = dir.resolve("wide");
+        copy(resources().resolve("ours/objects"), folder);
+        JsonObject meta = JsonParser.parseString(Files.readString(folder.resolve("pack.mcmeta"))).getAsJsonObject();
+        meta.add("pack", pack);
+        Files.writeString(folder.resolve("pack.mcmeta"), meta.toString());
+        BuiltPack ours = zip(folder, dir.resolve("wide.zip"), "studio");
+        MergedShaders.Plan plan = MergedShaders.plan(List.of(PackSource.read("studio", ours.file()).orElseThrow()),
+                pack("theirs", "betterhud-2.2.0"));
+        BuiltPack merged = MergedShaders.into(ours, plan, "studio-merged", dir.resolve("out.zip"));
+        JsonObject out = JsonParser.parseString(entries(merged.file()).get("pack.mcmeta")).getAsJsonObject().getAsJsonObject("pack");
+        assertEquals(13, out.get("min_format").getAsInt());
+        assertEquals(99, out.get("max_format").getAsInt());
+        assertEquals(13, out.getAsJsonObject("supported_formats").get("min_inclusive").getAsInt());
+    }
+
+    private static BuiltPack zip(Path folder, Path file, String bundle) throws IOException {
+        ai.resourcepack.engine.core.pack.DeterministicZip zip = new ai.resourcepack.engine.core.pack.DeterministicZip();
+        try (var walk = Files.walk(folder)) {
+            for (Path p : walk.filter(Files::isRegularFile).sorted().toList()) {
+                zip.add(folder.relativize(p).toString().replace('\\', '/'), Files.readAllBytes(p));
+            }
+        }
+        Files.createDirectories(file.getParent());
+        String sha1 = zip.writeTo(file);
+        return BuiltPack.of(bundle, file, sha1, Files.size(file), zip.size());
+    }
+
+    private static void copy(Path from, Path to) throws IOException {
+        try (var walk = Files.walk(from)) {
+            for (Path p : walk.filter(Files::isRegularFile).toList()) {
+                Path target = to.resolve(from.relativize(p).toString());
+                Files.createDirectories(target.getParent());
+                Files.copy(p, target);
+            }
+        }
+    }
+
+    private static Map<String, String> entries(Path zip) throws IOException {
         Map<String, String> out = new java.util.TreeMap<>();
-        files.forEach((k, v) -> out.put(k, new String(v, StandardCharsets.UTF_8)));
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(zip.toFile())) {
+            var all = z.entries();
+            while (all.hasMoreElements()) {
+                var e = all.nextElement();
+                try (var in = z.getInputStream(e)) {
+                    out.put(e.getName(), new String(in.readAllBytes(), StandardCharsets.UTF_8));
+                }
+            }
+        }
         return out;
     }
 }
