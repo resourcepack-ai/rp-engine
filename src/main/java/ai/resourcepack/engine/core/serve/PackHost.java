@@ -222,6 +222,49 @@ public final class PackHost {
         return "/packs/" + pack.bundle() + "/" + pack.sha1() + ".zip";
     }
 
+    /**
+     * What is wrong with {@code address} as the way a player reaches a host
+     * listening on {@code port}, in words for a server owner, or nothing.
+     *
+     * <p>Said at startup because the failure it causes is said nowhere else:
+     * the client shows "failed to download" and the server hears only a status
+     * code. The default address is loopback, which works for somebody playing
+     * on the machine the server runs on and for nobody else, so a server that
+     * was tested locally and then opened up fails for every player at once.
+     * A port that differs is only a warning, because a proxy or a port forward
+     * in front of the host makes that correct.
+     */
+    public static java.util.List<String> addressProblems(String address, int port) {
+        java.util.List<String> problems = new java.util.ArrayList<>();
+        URI uri;
+        try {
+            uri = new URI(address == null ? "" : address.trim());
+        } catch (URISyntaxException e) {
+            problems.add("host.public-address \"" + address + "\" is not a URL. It should look like http://play.example.com:"
+                    + port + ".");
+            return problems;
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (uri.getHost() == null || !(scheme.equals("http") || scheme.equals("https"))) {
+            problems.add("host.public-address \"" + address + "\" is not an http:// URL with a host in it. It should look like "
+                    + "http://play.example.com:" + port + ".");
+            return problems;
+        }
+        String host = uri.getHost();
+        if (host.equalsIgnoreCase("localhost") || host.startsWith("127.") || host.equals("[::1]") || host.equals("::1")
+                || host.equals("0.0.0.0")) {
+            problems.add("host.public-address is " + address + ", which to a player means THEIR OWN computer, so only "
+                    + "somebody playing on this machine can download packs. Set it to this server's public IP or "
+                    + "domain, e.g. http://play.example.com:" + port + ".");
+        }
+        int said = uri.getPort() >= 0 ? uri.getPort() : scheme.equals("https") ? 443 : 80;
+        if (port > 0 && said != port) {
+            problems.add("host.public-address points at port " + said + " but the pack host listens on " + port
+                    + " (host.port). Unless a proxy or port forward maps one to the other, players cannot download packs.");
+        }
+        return problems;
+    }
+
     // ---- connections -------------------------------------------------------
 
     /** One accepted socket, and the time by which it must next have done something. */

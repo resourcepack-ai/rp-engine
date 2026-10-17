@@ -31,6 +31,10 @@ public final class PackDelivery {
 
     /** Said once rather than on every join, which is where this would land. */
     private boolean warnedAboutStacking;
+    /** Pack id -> the address our own host gave it, so a failure can say where the client was sent. */
+    private final java.util.Map<java.util.UUID, String> hosted = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Said once a run: a wrong address fails every join, and one line says it as well as a thousand. */
+    private boolean warnedAboutFailure;
 
     public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
                         PackSending sending, Logger logger) {
@@ -92,6 +96,9 @@ public final class PackDelivery {
                 // an error, and not something to spam a console over.
                 continue;
             }
+            if (pack.url().isEmpty()) {
+                hosted.put(pack.uuid(), url.get());
+            }
             sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
             loads.sent(player.getUniqueId(), pack.uuid());
             player.getServer().getPluginManager().callEvent(
@@ -101,6 +108,29 @@ public final class PackDelivery {
         // BundleSessions for why the two are separate.
         sessions.applied(player.getUniqueId(), desired);
         return true;
+    }
+
+    /**
+     * A client could not download a pack. Logged when the pack is one this
+     * server hosts, since then the address is ours to get right; a pushed or
+     * published pack is served by Studio and says so elsewhere.
+     *
+     * @param pack the pack, or null where packs do not stack (then it is
+     *             whichever of ours went out)
+     */
+    public void failed(Player player, java.util.UUID pack, String status) {
+        String url = pack == null
+                ? hosted.values().stream().findFirst().orElse(null)
+                : hosted.get(pack);
+        if (url == null || warnedAboutFailure) {
+            return;
+        }
+        warnedAboutFailure = true;
+        logger.warning(player.getName() + "'s game could not download " + url + " (" + status + "). "
+                + "That address comes from host.public-address in config.yml and has to be one the PLAYER'S "
+                + "computer can reach: this server's public IP or domain, with the port in host.port open to the "
+                + "internet (on a hosting panel, that usually means allocating the port to this server). "
+                + "Said once per restart.");
     }
 
     /** Whether a client here can hold more than one pack, which a pack stacked on top of another needs. */

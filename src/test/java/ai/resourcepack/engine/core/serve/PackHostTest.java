@@ -259,4 +259,16 @@ class PackHostTest {
             Thread.sleep(100);
         }
     }
+
+    @Test
+    void addressThePlayerCannotReachIsCalledOut() {
+        assertTrue(PackHost.addressProblems("http://play.example.com:8181", 8181).isEmpty());
+        assertTrue(PackHost.addressProblems("https://packs.example.com", 443).isEmpty());
+        // The default, on a server players join from elsewhere.
+        assertEquals(1, PackHost.addressProblems("http://127.0.0.1:8181", 8181).size());
+        // The port moved and the address did not: both wrong at once.
+        assertEquals(2, PackHost.addressProblems("http://127.0.0.1:8181", 25570).size());
+        assertEquals(1, PackHost.addressProblems("http://play.example.com:8181", 25570).size());
+        assertEquals(1, PackHost.addressProblems("play.example.com:8181", 8181).size());
+    }
 }

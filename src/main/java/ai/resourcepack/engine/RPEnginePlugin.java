@@ -1690,6 +1690,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         try {
             int port = packHost.start(getConfig().getInt("host.port", 8181));
             getLogger().info("Serving packs on port " + port + " as " + address);
+            for (String problem : PackHost.addressProblems(address, port)) {
+                getLogger().warning(problem);
+            }
         } catch (IOException e) {
             getLogger().warning("Could not listen on port " + getConfig().getInt("host.port", 8181)
                     + ": " + e.getMessage() + ". Packs are built but not served.");
@@ -2302,6 +2305,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 break;
             case "DECLINED":
                 delivery.loads().declined(player, pack);
+                break;
+            case "FAILED_DOWNLOAD":
+            case "INVALID_URL":
+                // Settles nothing either, but the client is the only one who
+                // saw it fail, and without this the console stays silent.
+                delivery.failed(event.getPlayer(), pack, event.getStatus().name());
                 break;
             default:
                 // Progress, or a failure - neither settles anything.
