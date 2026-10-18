@@ -3020,6 +3020,34 @@ and the game says `Can't find element ... in registry 'minecraft:dialog'` until
 the next start. Nothing reloads on your behalf either, and it would not help if
 it did.
 
+### The Quick Actions key
+
+Minecraft 1.21.6 added a Quick Actions key, G unless a player rebinds it.
+`quick-action:` puts a dialog on it; with several on it, G shows a list.
+
+```yaml
+hub:
+  title: "Hub for {player}"
+  quick-action: true             # G opens the dialog itself
+warps:
+  title: Warps
+  quick-action:
+    mode: launcher               # G opens a button that opens it fresh
+    label: Warps                 # the name in the key's list (default: name)
+```
+
+The key is the client's: pressing it opens a copy of the dialog the player was
+sent as they joined, and the server is never told. **`direct`** (the default,
+and `true`) draws each player's copy for them as they join, so `{player}`, a
+live head and PlaceholderAPI values show what was true then, until they join
+again; the player is not in a world yet, so a placeholder about where they are
+is empty and a `perm:` condition is false. Its clicks work as usual. Paper
+only. **`launcher`** puts a one-button screen on the key whose button runs
+`/rp quick <id>`, which opens the dialog drawn fresh. A dialog with a
+`permission:` or the player's own items in it, and every dialog on Spigot, uses
+the launcher. The key is a datapack (`world/datapacks/rpengine_quick`), so a
+change takes a restart; the console says when one is owed.
+
 ### Anything this format does not have
 
 Minecraft's dialog format is bigger than the keys above — inputs, item bodies,

@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -49,6 +49,7 @@ permissions:
       rpengine.var: true
       rpengine.page: true
       rpengine.slot: true
+      rpengine.quick: true
       rpengine.hud: true
       rpengine.shaders: true
       rpengine.shader: true
@@ -165,6 +166,13 @@ permissions:
   rpengine.var.others:
     description: Change somebody else's dialog settings.
     default: op
+  rpengine.quick:
+    # Everybody, for rpengine.var's reason: the button on a quick action's
+    # launcher (the Quick Actions key, G) runs /rp quick as the player who
+    # pressed it. It only opens a dialog that is on the key, and that
+    # dialog's own permission still applies.
+    description: Open a dialog on the Quick Actions key - what a quick action's launcher runs.
+    default: true
   rpengine.page:
     # Everybody, for rpengine.var's reason: a click on a paged dialog's
     # sidebar runs /rp page as the player who clicked it. It only opens a

@@ -8,7 +8,7 @@ plugins {
 group = 'ai.resourcepack'
 // Bump this before deploying a release: the deploy refuses to overwrite a
 // published RPEngine-<version>.jar, and the versioned key is immutable.
-version = '0.2.16'
+version = '0.2.17'
 
 java {
     toolchain {
@@ -131,7 +131,7 @@ dependencies {
     // The small library every ResourcePack AI plugin shades in (the update
     // check, for one). Relocated below like the rest, so two of our plugins
     // on one server each run their own copy.
-    implementation 'ai.resourcepack:common:0.3.1'
+    implementation 'ai.resourcepack:common:0.4.0'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'

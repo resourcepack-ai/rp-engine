@@ -94,7 +94,14 @@ public final class Placeholders {
         if (viewer == null) {
             return Optional.empty();
         }
-        String built = builtIn(viewer, name.toLowerCase(Locale.ROOT));
+        String built;
+        try {
+            built = builtIn(viewer, name.toLowerCase(Locale.ROOT));
+        } catch (RuntimeException e) {
+            // A player still joining, drawn a quick action before they are in a
+            // world (StandIn): what needs one is nothing yet.
+            built = "";
+        }
         if (built != null) {
             return Optional.of(built);
         }
@@ -225,7 +232,9 @@ public final class Placeholders {
         }
         try {
             String wrapped = "%" + name + "%";
-            Object value = method.invoke(null, viewer, wrapped);
+            // A joining player's stand-in is asked about as the offline player
+            // it stands for, which expansions know how to answer.
+            Object value = method.invoke(null, ai.resourcepack.common.quick.StandIn.forPlaceholders(viewer), wrapped);
             String text = value == null ? "" : value.toString();
             return text.equals(wrapped) ? Optional.empty() : Optional.of(text);
         } catch (ReflectiveOperationException | RuntimeException e) {

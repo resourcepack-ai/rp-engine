@@ -48,6 +48,7 @@ public final class DialogInfo {
     private final ClickSound clickSound;
     private final List<CommandSound> clickSounds;
     private final boolean closesAfterClick;
+    private final QuickAction quickAction;
 
     /** A command a dialog may be opened with: what a player types after the slash. */
     private static final Pattern COMMAND = Pattern.compile("[a-z0-9_-]{1,32}");
@@ -66,12 +67,13 @@ public final class DialogInfo {
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission) {
-        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false);
+        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false, null);
     }
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission,
-                       ClickSound clickSound, List<CommandSound> clickSounds, boolean closesAfterClick) {
+                       ClickSound clickSound, List<CommandSound> clickSounds, boolean closesAfterClick,
+                       QuickAction quickAction) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -108,6 +110,7 @@ public final class DialogInfo {
         }
         this.clickSounds = List.copyOf(sounds);
         this.closesAfterClick = closesAfterClick;
+        this.quickAction = quickAction;
     }
 
     /**
@@ -118,7 +121,7 @@ public final class DialogInfo {
      */
     public DialogInfo withCommand(String command, String permission) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick);
+                closesAfterClick, quickAction);
     }
 
     /**
@@ -129,7 +132,7 @@ public final class DialogInfo {
      */
     public DialogInfo withClickSounds(ClickSound clickSound, List<CommandSound> clickSounds) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick);
+                closesAfterClick, quickAction);
     }
 
     /**
@@ -139,7 +142,16 @@ public final class DialogInfo {
      */
     public DialogInfo withClosesAfterClick(boolean closes) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closes);
+                closes, quickAction);
+    }
+
+    /**
+     * The same dialog, on the game's Quick Actions key (G, Minecraft 1.21.6
+     * and newer), or off it for null. See {@link #quickAction()}.
+     */
+    public DialogInfo withQuickAction(QuickAction quick) {
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
+                closesAfterClick, quick);
     }
 
     /**
@@ -297,6 +309,36 @@ public final class DialogInfo {
      * pack's ({@code custom.laser}), with its volume and pitch. An empty
      * {@code sound} is silence.
      */
+    /**
+     * Whether the Quick Actions key (G) opens this dialog, and how. The key is
+     * the client's: it opens a dialog out of the registry the player was sent
+     * as they joined, and the server never hears of the press, so a dialog on
+     * it is written into a datapack and reaches the key after the next
+     * restart.
+     *
+     * <p>Empty when it is not on the key.
+     */
+    public Optional<QuickAction> quickAction() {
+        return Optional.ofNullable(quickAction);
+    }
+
+    /**
+     * How a dialog is on the Quick Actions key.
+     *
+     * @param launcher false (the default): the key opens the dialog itself,
+     *                 as it was for the player when they joined, so a
+     *                 placeholder shows what it said then until they join
+     *                 again. Paper only; anywhere else, and for a dialog with a
+     *                 permission or the player's own items in it, this is the
+     *                 launcher. True: the key opens a small screen with one
+     *                 button that has the server open the dialog, drawn fresh,
+     *                 like any other.
+     * @param label    what the key's list and the launcher call it, or null
+     *                 for the dialog's name
+     */
+    public record QuickAction(boolean launcher, String label) {
+    }
+
     public record ClickSound(String sound, float volume, float pitch) {
 
         /**

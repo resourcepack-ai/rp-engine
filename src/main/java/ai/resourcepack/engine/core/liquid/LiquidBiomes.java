@@ -2,7 +2,7 @@ package ai.resourcepack.engine.core.liquid;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LiquidInfo;
-import ai.resourcepack.engine.core.pack.DataPackFolder;
+import ai.resourcepack.common.datapack.DataPackFolder;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -264,7 +264,7 @@ public final class LiquidBiomes {
     private static final int LIQUID_PACK_FORMAT = 61;
 
     private static String mcmeta() {
-        return ai.resourcepack.engine.core.pack.DataPackMeta.mcmeta(
+        return ai.resourcepack.common.datapack.DataPackMeta.mcmeta(
                 "RP Engine liquid colours. Generated — edits are overwritten.", LIQUID_PACK_FORMAT);
     }
 

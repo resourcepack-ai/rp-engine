@@ -205,7 +205,8 @@ public final class DialogDefinitions {
 
     private static DialogInfo opened(DialogInfo authored, DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
-        DialogInfo dialog = sounded(authored, body, origin, where, diagnostics);
+        DialogInfo dialog = sounded(authored, body, origin, where, diagnostics)
+                .withQuickAction(quickAction(body, origin, where, diagnostics));
         Optional<String> command = body.string("command");
         if (command.isEmpty()) {
             return dialog;
@@ -217,6 +218,50 @@ public final class DialogDefinitions {
             return dialog;
         }
         return dialog.withCommand(command.get(), body.string("permission").orElse(null));
+    }
+
+    /**
+     * Whether the Quick Actions key (G) opens it:
+     *
+     * <pre>
+     * quick-action: true               # the key opens it, as it was when they joined
+     * quick-action: launcher           # the key opens a button that opens it fresh
+     * quick-action:
+     *   mode: launcher
+     *   label: "Server menu"           # what the key's list calls it
+     * </pre>
+     */
+    static DialogInfo.QuickAction quickAction(DefinitionNode body, String origin, String where, List<Diagnostic> diagnostics) {
+        String mode;
+        String label = null;
+        Optional<DefinitionNode> section = body.node("quick-action");
+        if (section.isPresent()) {
+            mode = section.get().string("mode").orElse("direct");
+            label = section.get().string("label").orElse(null);
+        } else {
+            Optional<Boolean> on = body.bool("quick-action");
+            if (on.isPresent()) {
+                return on.get() ? new DialogInfo.QuickAction(false, null) : null;
+            }
+            mode = body.string("quick-action").orElse(null);
+            if (mode == null) {
+                return null;
+            }
+        }
+        switch (mode.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "direct":
+            case "true":
+                return new DialogInfo.QuickAction(false, label);
+            case "launcher":
+                return new DialogInfo.QuickAction(true, label);
+            case "false":
+            case "":
+                return null;
+            default:
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "quick-action: " + mode + " is not direct or launcher, so it is direct."));
+                return new DialogInfo.QuickAction(false, label);
+        }
     }
 
     /**

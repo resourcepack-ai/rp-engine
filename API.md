@@ -737,7 +737,8 @@ engine.dialogs().info(id).flatMap(DialogInfo::command);   // "shop" when players
 A dialog may name a command players open it with themselves (`command:` in
 its file, or set in Studio); the engine registers it on the server and takes it
 back out when the dialog goes. `DialogInfo.command()` and `permission()` say
-what it is.
+what it is. `DialogInfo.quickAction()` says whether it is on the Quick Actions
+key (G) and whether that opens the dialog or a launcher.
 
 ### Values on it
 

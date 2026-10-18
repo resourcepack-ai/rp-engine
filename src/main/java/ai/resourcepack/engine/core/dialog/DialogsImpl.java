@@ -208,6 +208,10 @@ public final class DialogsImpl implements Dialogs {
         this.dialogs = loaded == null ? Map.of() : Map.copyOf(loaded);
         if (supported) {
             datapack.write(this.dialogs.values());
+            QuickDialogs key = quick;
+            if (key != null) {
+                key.update(this.dialogs.values());
+            }
         }
         // And the commands dialogs are opened with: /shop for one that says so.
         DialogCommands opened = commands;
@@ -233,6 +237,10 @@ public final class DialogsImpl implements Dialogs {
         DialogCommands opened = commands;
         if (opened != null) {
             opened.clear();
+        }
+        QuickDialogs key = quick;
+        if (key != null) {
+            key.close();
         }
     }
 
@@ -949,6 +957,49 @@ public final class DialogsImpl implements Dialogs {
         this.slots = new DialogSlots(plugin);
         // Dialogs that name a command are opened with it — only where they can open.
         this.commands = supported ? new DialogCommands(plugin, this) : null;
+        if (supported) {
+            QuickDialogs key = new QuickDialogs(this, plugin);
+            Bukkit.getPluginManager().registerEvents(key, plugin);
+            this.quick = key;
+            if (!dialogs.isEmpty()) {
+                key.update(dialogs.values());
+            }
+        }
+    }
+
+    /** The Quick Actions key's dialogs ({@link QuickDialogs}): null where dialogs cannot open. */
+    private volatile QuickDialogs quick;
+
+    /** {@code /rp quick <id>}: opens a dialog on the Quick Actions key, as its launcher asks. */
+    public boolean openQuick(Player viewer, ContentId id) {
+        QuickDialogs key = quick;
+        return key != null && viewer != null && id != null && key.open(viewer, id);
+    }
+
+    /** A command a player sent, which may be a click on their own copy of a quick action: see {@link QuickDialogs#adopt}. */
+    public void adoptQuick(Player viewer, String command) {
+        QuickDialogs key = quick;
+        if (key != null) {
+            key.adopt(viewer, command);
+        }
+    }
+
+    /**
+     * A dialog as drawn for a player still joining, for their copy of a quick
+     * action ({@link QuickDialogs}): the placeholders, conditions, bars and
+     * icons {@link #open} fills, with nothing from the world they are not in
+     * yet. Null for one with the player's own items in it.
+     */
+    String drawJoining(Player standIn, DialogInfo info) {
+        if (DialogItems.perPlayer(info.json())) {
+            return null;
+        }
+        String json = DialogBars.fill(filled(standIn, info.json(), Map.of()));
+        ai.resourcepack.engine.api.Icons known = icons;
+        if (known != null && DialogIcons.any(json)) {
+            json = DialogIcons.fill(json, name -> icon(known, name));
+        }
+        return json;
     }
 
     @Override

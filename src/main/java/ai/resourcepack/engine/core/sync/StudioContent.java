@@ -203,6 +203,18 @@ public final class StudioContent {
          * Studio's "Seamless", sent with {@code after_action: none}. Absent: false.
          */
         Boolean closeAfterClick;
+        /**
+         * On the Quick Actions key (G) — see
+         * {@link ai.resourcepack.engine.api.DialogInfo#quickAction()}. Absent:
+         * not on it.
+         */
+        DialogQuickAction quickAction;
+    }
+
+    /** How a dialog is on the Quick Actions key: {@code launcher} true for the launcher, and the name its list shows. */
+    static final class DialogQuickAction {
+        Boolean launcher;
+        String label;
     }
 
     /**
@@ -906,7 +918,12 @@ public final class StudioContent {
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
                             .withCommand(dialog.command, dialog.permission)
                             .withClickSounds(clickSound, clickSounds)
-                            .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))));
+                            .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))
+                            .withQuickAction(dialog.quickAction == null ? null
+                                    : new ai.resourcepack.engine.api.DialogInfo.QuickAction(
+                                            Boolean.TRUE.equals(dialog.quickAction.launcher),
+                                            dialog.quickAction.label == null || dialog.quickAction.label.isBlank()
+                                                    || dialog.quickAction.label.length() > 200 ? null : dialog.quickAction.label))));
         }
 
         Map<String, Armor3dSet> readArmor = new LinkedHashMap<>();

@@ -2,8 +2,8 @@ package ai.resourcepack.engine.core.dialog;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
-import ai.resourcepack.engine.core.pack.DataPackFolder;
-import ai.resourcepack.engine.core.pack.DataPackMeta;
+import ai.resourcepack.common.datapack.DataPackFolder;
+import ai.resourcepack.common.datapack.DataPackMeta;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 

@@ -46,6 +46,9 @@ public final class DialogClicks implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onCommand(PlayerCommandPreprocessEvent event) {
+        // First: a click on the player's own copy of a quick action, which the
+        // key opened without telling us, makes that the dialog they were shown.
+        dialogs.adoptQuick(event.getPlayer(), event.getMessage());
         dialogs.noteCommand(event.getPlayer(), event.getMessage());
         // The game's own click, which a click on a dialog's picture does not
         // make by itself: its buttons click, a run of its body's text does not.

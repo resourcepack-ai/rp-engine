@@ -68,7 +68,8 @@ public final class InterfaceCommands implements Area {
                 Help.of("dialog", "<id> [k=v] [player]", "open (1.21.6+)"),
                 Help.of("var", "<name> <value>", "set a dialog setting"),
                 Help.of("page", "<id|close>", "turn or close a dialog"),
-                Help.of("slot", "<slot>", "move an item in a dialog"));
+                Help.of("slot", "<slot>", "move an item in a dialog"),
+                Help.of("quick", "<id>", "open a quick action (G)"));
     }
 
     @Override
@@ -96,6 +97,8 @@ public final class InterfaceCommands implements Area {
                 return page(sender, args);
             case "slot":
                 return slot(sender, args);
+            case "quick":
+                return quick(sender, args);
             case "shaders":
                 return shaders(sender);
             case "shader":
@@ -254,6 +257,27 @@ public final class InterfaceCommands implements Area {
      * gives it this, which closes whatever dialog the player has open — their
      * own, and nothing anybody could mind them closing.
      */
+    /**
+     * {@code /rp quick <id>} — what the button on a quick action's launcher
+     * runs, as the player who pressed G. Every player may run it, because the
+     * press is theirs; it opens only a dialog that is on the Quick Actions key,
+     * and that dialog's own permission still applies.
+     */
+    private boolean quick(CommandSender sender, String[] args) {
+        if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl) || !(sender instanceof Player player)) {
+            Reply.to(sender, "Only a player opens a quick action: it is what the Quick Actions key (G) runs.");
+            return true;
+        }
+        java.util.Optional<ContentId> id = args.length < 2 ? java.util.Optional.empty()
+                : ContentId.parse(args[1].toLowerCase(Locale.ROOT));
+        java.util.Optional<String> permission = id.flatMap(dialogs::info).flatMap(ai.resourcepack.engine.api.DialogInfo::permission);
+        if (id.isEmpty() || (permission.isPresent() && !player.hasPermission(permission.get())) || !impl.openQuick(player, id.get())) {
+            impl.close(player);
+            Reply.to(player, "That is not something the Quick Actions key opens for you.");
+        }
+        return true;
+    }
+
     private boolean page(CommandSender sender, String[] args) {
         if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl)) {
             Reply.to(sender, "Dialog pages are not available on this server.");
