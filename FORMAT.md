@@ -2686,6 +2686,69 @@ font of their own, `is_emoji`, a GIF's `offset`, and placeholders on a
 multi-bitmap glyph (it became several icons, and a placeholder cannot type all
 of them).
 
+### Rank tags
+
+A rank tag is the badge in front of a player's name — a rounded red OWNER, a
+gold VIP — for a chat prefix. It is an icon whose picture the build **draws**
+from a `tag:` block instead of reading a PNG:
+
+```yaml
+# fonts/ranks.yml
+owner:
+  priority: 100            # who wins when a player holds several; see below
+  tag:
+    text: OWNER            # & codes colour part of it: "VIP&6+"
+    background: "#e53935"  # quote it: a bare # starts a YAML comment
+```
+
+Everything else about it is an icon's: one codepoint, `:mypack:owner:`,
+`%rpengine_icon_mypack:owner%`, `aliases`, `permission`. Its size is the
+drawing's, so `file`, `gif`, `grid`, `animation` and `height` are ignored with a
+warning; `ascent` still wins over the centred one it takes by default.
+
+| `tag.` field | Default | What it does |
+|---|---|---|
+| `text` | required | The words, at most 24 characters. `&0`-`&f` and `&#rrggbb` colour what follows, `&l` is bold, `&r` goes back to `text-color` |
+| `font` | `classic` | `classic` (5-pixel capitals) or `tiny` (with lowercase) |
+| `text-color` | `"#ffffff"` | The letters |
+| `text-fade` | none | A second colour the letters fade into, left to right |
+| `bold` | `false` | The game's own bold: every letter again one pixel right |
+| `shadow` | `true` | A one-pixel shadow under the letters, inside the tag |
+| `shadow-color` | the background, darker | |
+| `spacing` | `0` | Extra pixels between letters, up to 3 |
+| `background` | `"#e53935"` | The tag |
+| `shading` | `glossy` | `glossy`, `gradient` (top to bottom) or `flat` |
+| `background-fade` | the background, darker | Where a `gradient` ends |
+| `outline` | `1` | 0, 1 or 2 pixels |
+| `outline-color` | the background, darker | |
+| `roundness` | `2` | 0 (square) to 6, or `pill` |
+| `padding-x` · `padding-y` | `3` · `1` | Background around the words |
+| `width` | fits the words | A fixed width, to line a set of tags up |
+| `scale` | `1` | 1 to 4: every pixel drawn that many times over |
+| `offset` | `0` | Pixels above (negative: below) centred on a chat line |
+
+A colour is `"#rrggbb"`, `"#rgb"` or one of the game's sixteen names (`red`,
+`dark_red`, `gold`...). A mistake costs the field rather than the tag: it is a
+warning and the default. Only a tag with no `text`, or one too big for a glyph
+(256 pixels either way), is refused.
+
+**The defaults are the classic tag**, and the classic tag is **9 pixels tall,
+exactly one line of chat** — an outline, a pixel of padding and five-pixel
+capitals each side — so it never overlaps the lines around it.
+
+**The drawing is ResourcePack AI Studio's, pixel for pixel**, so a tag designed
+there comes out the same written here. Studio has more faces than these two;
+a tag set in one of those comes from Studio already drawn.
+
+**Wearing one.** Codepoints move when content is added (see above), so a
+prefix that stores a tag's character breaks on some later reload. Every tag has
+a permission instead, `rpengine.tag.<namespace>.<id>` (a `/` in the ID is a
+`.`), which nobody holds by default — ops included. Give it to a group in your
+permissions plugin, and print `%rpengine_tag%` where the prefix goes: it is the
+character of the tag the player wears, the one with the highest `priority`
+among those they hold (an ID breaks a tie), and empty for none.
+`%rpengine_tag_id%` is which one.
+
 ## Screens and HUDs
 
 A custom GUI and a HUD overlay are the same trick as an icon, scaled up: the
