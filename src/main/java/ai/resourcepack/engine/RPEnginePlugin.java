@@ -703,6 +703,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // re-sent. Started here rather than lazily on the first show: a loop
         // over an empty map costs nothing, and a lazy start is one more thing
         // that can fail to happen.
+        overlayRuntime.period(getConfig().getLong("overlays.refresh-ticks",
+                ai.resourcepack.engine.core.font.OverlayRuntime.DEFAULT_PERIOD_TICKS));
         overlayRuntime.start(this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);

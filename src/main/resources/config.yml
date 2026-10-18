@@ -338,6 +338,15 @@ prompt:
   # for declining is a decision a server makes, not one a plugin makes for it.
   force: false
 
+# HUD overlays.
+overlays:
+  # How often a HUD a player is wearing is re-sent, in ticks (20 a second),
+  # 1 to 50. A value a plugin sets is drawn on the next tick whatever this
+  # says; this is for the action bar's fade and for placeholders the server
+  # works out itself ({health}, PlaceholderAPI). Lower is smoother for those
+  # and one packet per wearer per redraw.
+  refresh-ticks: 30
+
 # Dialogs (Minecraft 1.21.6+).
 dialogs:
   # A click on a dialog's picture makes no sound in the game: only its own

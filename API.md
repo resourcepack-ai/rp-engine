@@ -679,8 +679,9 @@ brace: a gap reads as "no value yet" where `{speed}` reads as a broken pack.
 
 **Per player, not per overlay.** A number called `speed` means the same thing to
 everything on that player's screen, which is what stops two overlays disagreeing
-about it. Values are drawn on the next redraw rather than immediately, so
-setting several in a row costs one draw rather than one each.
+about it. A changed value is drawn on the next tick rather than immediately, so
+setting several in a row costs one draw rather than one each, and setting one to
+what it already was costs nothing.
 
 A **progress bar** reads the same names. Its `max` is either another placeholder
 or a plain number the author typed, so a stamina bar out of 100 needs one call:
@@ -691,8 +692,8 @@ engine.overlays().set(player, "stamina", String.valueOf(current));
 
 **`set` and `value` are safe from any thread**, and are the one part of this
 that is: they write into a concurrent map and draw nothing, precisely so a
-caller updating six values in a row costs one redraw rather than six. The loop
-picks them up within about a second and a half. `show`, `hide` and `hideAll`
+caller updating six values in a row costs one redraw rather than six. The next
+tick picks them up. `show`, `hide` and `hideAll`
 draw, so those are main thread only.
 
 **Dialogs print the same values.** `dialogs().set` writes this same map, so a

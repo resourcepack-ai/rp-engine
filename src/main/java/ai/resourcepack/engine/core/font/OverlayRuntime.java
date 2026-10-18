@@ -53,13 +53,22 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class OverlayRuntime {
 
     /**
-     * How often the action bar is refreshed, in ticks.
+     * How often the action bar is refreshed, in ticks, unless the config says.
      *
      * <p>Comfortably inside the client's own fade (about 60 ticks) so the
      * picture never dims between draws, and not so often that a server with a
      * hundred wearers spends its tick budget on packets nobody asked for.
+     *
+     * <p><b>This is not how quickly a new value shows.</b> It was, and a plugin
+     * driving a bar from {@link #set} saw it move twice every three seconds:
+     * see {@link #dirty}. What is left for this period is the re-send against
+     * the fade and the placeholders the server answers on its own (health,
+     * PlaceholderAPI), which nothing tells us have changed.
      */
-    private static final long PERIOD_TICKS = 30L;
+    public static final long DEFAULT_PERIOD_TICKS = 30L;
+
+    /** The longest redraw period the config may ask for: past it, the action bar fades between draws. */
+    public static final long MAX_PERIOD_TICKS = 50L;
 
     /**
      * How often a state trigger is re-asked, in ticks.
@@ -89,24 +98,46 @@ public final class OverlayRuntime {
      * overlay a plugin had shown deliberately.
      */
     private final Map<UUID, Set<ContentId>> triggered = new ConcurrentHashMap<>();
+    /**
+     * Who has had a value change since their last draw.
+     *
+     * <p>{@link #set} only marks; a one-tick loop draws, once per marked
+     * player. That keeps both halves of what {@code set} promised: a caller
+     * updating six values in a row still costs one packet, and the packet goes
+     * on the next tick rather than whenever the redraw comes round. A value
+     * set to what it already was marks nothing, so a plugin that publishes
+     * every tick sends only when the number moves.
+     */
+    private final Set<UUID> dirty = ConcurrentHashMap.newKeySet();
+    private long periodTicks = DEFAULT_PERIOD_TICKS;
     private BukkitTask task;
     private BukkitTask triggerTask;
+    private BukkitTask flushTask;
 
     public OverlayRuntime(Overlays overlays) {
         this.overlays = overlays;
     }
 
-    /** Starts the redraw loop and the trigger loop. Idempotent. */
+    /**
+     * Sets the redraw period, clamped to 1 to {@link #MAX_PERIOD_TICKS}. Takes
+     * effect at the next {@link #start}.
+     */
+    public void period(long ticks) {
+        periodTicks = Math.max(1L, Math.min(MAX_PERIOD_TICKS, ticks));
+    }
+
+    /** Starts the redraw loop, the trigger loop and the value flush. Idempotent. */
     public void start(Plugin plugin) {
         if (task != null) {
             return;
         }
-        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS);
+        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, periodTicks, periodTicks);
         triggerTask = plugin.getServer().getScheduler()
                 .runTaskTimer(plugin, this::triggerTick, TRIGGER_TICKS, TRIGGER_TICKS);
+        flushTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::flushDirty, 1L, 1L);
     }
 
-    /** Stops both loops and forgets everything. For disable and for reload. */
+    /** Stops the loops and forgets everything. For disable and for reload. */
     public void stop() {
         if (task != null) {
             task.cancel();
@@ -116,9 +147,14 @@ public final class OverlayRuntime {
             triggerTask.cancel();
             triggerTask = null;
         }
+        if (flushTask != null) {
+            flushTask.cancel();
+            flushTask = null;
+        }
         worn.clear();
         values.clear();
         triggered.clear();
+        dirty.clear();
         Placeholders.reset();
     }
 
@@ -136,6 +172,21 @@ public final class OverlayRuntime {
         }
     }
 
+    /** Draws everybody whose values changed since their last draw. Every tick; free when nobody did. */
+    private void flushDirty() {
+        if (dirty.isEmpty()) {
+            return;
+        }
+        for (java.util.Iterator<UUID> it = dirty.iterator(); it.hasNext(); ) {
+            UUID id = it.next();
+            it.remove();
+            Player viewer = org.bukkit.Bukkit.getPlayer(id);
+            if (viewer != null) {
+                draw(viewer);
+            }
+        }
+    }
+
     private void tick() {
         // Over the ONLINE players rather than over who is wearing something:
         // a state trigger has to be able to turn an overlay ON for somebody
@@ -149,6 +200,8 @@ public final class OverlayRuntime {
         worn.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
         values.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
         triggered.keySet().removeIf(id -> org.bukkit.Bukkit.getPlayer(id) == null);
+        // Everybody was just drawn, so nobody is waiting on a change.
+        dirty.clear();
     }
 
     /**
@@ -375,13 +428,13 @@ public final class OverlayRuntime {
             return;
         }
         Map<String, String> map = values.computeIfAbsent(viewer.getUniqueId(), key -> new ConcurrentHashMap<>());
-        if (value == null) {
-            map.remove(name);
-        } else {
-            map.put(name, value);
+        String was = value == null ? map.remove(name) : map.put(name, value);
+        // Not drawn here: this may be off the main thread, and a caller
+        // updating six values in a row must not send six packets. Marked, and
+        // drawn on the next tick.
+        if (!java.util.Objects.equals(was, value)) {
+            dirty.add(viewer.getUniqueId());
         }
-        // Not drawn here. The loop is along in at most a second and a half, and
-        // a caller updating six values in a row must not send six packets.
     }
 
     public Optional<String> value(Player viewer, String name) {
