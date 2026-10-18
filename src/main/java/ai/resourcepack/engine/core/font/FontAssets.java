@@ -66,11 +66,11 @@ public final class FontAssets implements PackContributor {
             RankTags.Spec tag = icons.tags().get(icon.id());
             if (tag != null) {
                 // A rank tag has no file to read: its picture is drawn here,
-                // from the same spec the server sized its glyph by. A file a
-                // pack ships at the same path is replaced, because the
-                // provider's height is the drawing's and any other picture
-                // would be drawn stretched to it.
-                into.add(texture, RankTags.png(RankTags.render(tag)));
+                // from the same spec the server sized its glyph by, every frame
+                // of it stacked when it is animated. A file a pack ships at the
+                // same path is replaced, because the provider's height is the
+                // drawing's and any other picture would be drawn stretched to it.
+                into.add(texture, RankTags.png(RankTags.strip(tag)));
             } else if (isGif(icon)) {
                 String source = gifSource(location);
                 if (!into.has(texture) && !writeStrip(icon, source, texture, into)) {
@@ -137,7 +137,10 @@ public final class FontAssets implements PackContributor {
         int width = ((b[16] & 0xff) << 24) | ((b[17] & 0xff) << 16) | ((b[18] & 0xff) << 8) | (b[19] & 0xff);
         int height = ((b[20] & 0xff) << 24) | ((b[21] & 0xff) << 16) | ((b[22] & 0xff) << 8) | (b[23] & 0xff);
         int columns = Math.max(1, icon.columns());
-        int rows = Math.max(1, icon.rows()) * Math.max(1, icon.frames());
+        // The sheet's own rows: an animated strip is one row a frame already,
+        // and counting its frames again measured every animated icon as many
+        // times too wide as it has frames.
+        int rows = Math.max(1, icon.rows());
         int cellWidth = width / columns;
         int cellHeight = height / rows;
         if (cellWidth <= 0 || cellHeight <= 0) {

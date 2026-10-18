@@ -10,17 +10,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Rank tags: an icon whose picture is drawn from words and a background
+ * Rank tags: an icon whose picture is drawn from words and a few choices
  * instead of read from a PNG — the rounded red OWNER a server puts in front of
  * a player's name, as a LuckPerms prefix or suffix.
  *
@@ -29,22 +30,41 @@ import java.util.Optional;
  *   tag:
  *     text: OWNER
  *     background: "#e53935"
+ *     face: gloss
+ *     icon: crown
+ *     animation: glint
  * </pre>
  *
- * <p>Everything after that is an icon like any other: one codepoint, one
- * bitmap provider, {@code %rpengine_icon_mypack:owner%}, {@code :owner:} in
- * chat. This class only decides the pixels, and the build writes them into the
- * bundle where the provider points (see {@link FontAssets}).
+ * <p>Everything after that is an icon like any other: one codepoint (one per
+ * frame when it is animated), one bitmap provider,
+ * {@code %rpengine_icon_mypack:owner%}, {@code :owner:} in chat. This class only
+ * decides the pixels, and the build writes them into the bundle where the
+ * provider points (see {@link FontAssets}).
  *
- * <p><strong>The drawing is ResourcePack AI Studio's, pixel for pixel</strong>,
- * so a tag designed there and the same tag written here come out identical.
- * Every rule below is that renderer's, in its order, and the test beside this
- * class draws the fixtures Studio wrote and compares every pixel. Change one
- * end and the test fails until the other agrees. The faces are the two Studio
- * also ships in this form, read from {@code rank-tags/faces.txt}; Studio's
- * other faces (its small capitals, the game's own font, uploaded fonts) are not
- * ours to put in a plugin, and a tag set in one of those arrives from Studio
- * already drawn.
+ * <p>It is a kit of parts rather than one layout: a shape, a face, a frame
+ * (border, rim, a lip under it), the words' effect, an icon in a cell, beside
+ * the words or on a tile of its own, and an animation. <strong>The drawing is
+ * ResourcePack AI Studio's rank tag kit, pixel for pixel</strong>, so a tag
+ * designed there and the same tag written here come out identical. Every rule
+ * below is the kit's, in its order and with its rounding, and the test beside
+ * this class draws the fixtures Studio wrote, every frame of every animation,
+ * and compares every pixel. Change one end and the test fails until the other
+ * agrees.
+ *
+ * <p>The words are set in the kit's block capitals ({@code rank-tags/font.txt},
+ * Tiny5's capitals under the SIL Open Font License), and the icons are Studio's
+ * own set ({@code rank-tags/icons.txt}). Studio can also set a tag in the
+ * game's own font or a pack's uploaded one, and make its face of a block
+ * texture; those are Mojang's or the pack owner's and not ours to put in a
+ * plugin, so a tag using one arrives from Studio already drawn, and a
+ * hand-written one is told and drawn without it.
+ *
+ * <p><strong>An animation is frames, played by the server</strong>, as every
+ * animated icon here is ({@code IconInfo}): sixteen frames at ten a second,
+ * Studio's loop. Text sent once, a chat line, shows the first frame; the tab
+ * list, a scoreboard or anything else that redraws shows it play. (A tag drawn
+ * in Studio plays everywhere, through the pack's text shader, which a content
+ * folder does not carry.)
  */
 public final class RankTags {
 
@@ -53,33 +73,49 @@ public final class RankTags {
 
     /** What a tag reads at most, in characters. */
     public static final int MAX_TEXT = 24;
-    public static final int MAX_PAD_X = 12;
-    public static final int MAX_PAD_Y = 6;
-    public static final int MAX_SPACING = 3;
-    public static final int MAX_BORDER = 2;
+    public static final int MAX_PAD = 12;
     public static final int MAX_SCALE = 4;
     public static final int MAX_OFFSET = 12;
-    /** Any roundness this big or bigger is a pill. */
-    public static final int RADIUS_PILL = 6;
     /** A font glyph can be no bigger than this either way. */
     public static final int MAX_EDGE = 256;
+    /** An animated tag's loop: Studio's. */
+    public static final int FRAMES = 16;
+    public static final int FPS = 10;
+
+    public static final List<String> SHAPES = List.of("rect", "round", "pill", "chamfer", "arrow", "ribbon", "slant");
+    public static final List<String> FACES = List.of("flat", "gloss", "panel", "stripes", "dither", "sparkle");
+    public static final List<String> EFFECTS = List.of("none", "shadow", "drop", "outline", "outline+shadow");
+    public static final List<String> ANIMATIONS = List.of("none", "glint", "rainbow", "twinkle", "pulse");
+    public static final List<String> ICON_STYLES = List.of("cell", "inline", "tile");
 
     /**
-     * A tag, every field resolved. Colours are {@code 0xRRGGBB}; a null
-     * optional colour is the tag's own, worked out from the background.
+     * A tag, every choice resolved. Colours are {@code 0xRRGGBB}; a null
+     * optional colour is the kit's own, worked out from the background, and
+     * {@code noBorder} is a border taken away rather than left to it.
      */
-    public record Spec(String text, String font, int textColor, Integer textColor2, boolean bold, boolean shadow,
-                       Integer shadowColor, int spacing, int fill, Integer fill2, String style, int border,
-                       Integer borderColor, int radius, int padX, int padY, Integer width, int scale, int offset) {
+    public record Spec(String text, String shape, String face, int fill, Integer fill2, Integer fill3,
+                       Integer border, boolean noBorder, Integer rim, boolean lip, int ink, Integer ink2,
+                       Integer accent, String effect, Integer effectColor, String icon, String iconStyle,
+                       Integer iconFill, Integer pad, String animation, int scale, int offset) {
 
-        /** The classic tag: rounded, glossy, outlined, white words with a shadow. */
+        /** Studio's new tag: a rounded red OWNER, white words with a shadow. */
         public static Spec defaults(String text) {
-            return new Spec(text, "classic", 0xffffff, null, false, true, null, 0, 0xe53935, null, "glossy", 1,
-                    null, 2, 3, 1, null, 1, 0);
+            return new Spec(text, "round", "flat", 0xd9413b, null, null, 0x7c1717, false, null, false, 0xffffff,
+                    null, null, "shadow", 0xa82a26, null, null, null, null, "none", 1, 0);
+        }
+
+        /** Whether it plays: a pulse lights the border, so with none it is a still tag. */
+        public boolean animated() {
+            return !animation.equals("none") && !(animation.equals("pulse") && noBorder);
+        }
+
+        /** How many frames it has: one for a still tag. */
+        public int frames() {
+            return animated() ? FRAMES : 1;
         }
     }
 
-    /** A drawn tag: ARGB, row by row, at its scale — what the PNG holds. */
+    /** A drawn tag: ARGB, row by row, at its scale — one frame of what the PNG holds. */
     public record Drawn(int width, int height, int ascent, int[] argb) {
 
         public boolean fits() {
@@ -93,55 +129,79 @@ public final class RankTags {
 
     // ------------------------------------------------------------- colours
 
-    /** The game's sixteen chat colours, by their code and by their name. */
-    private static final Map<String, Integer> LEGACY = new HashMap<>();
+    /** The game's sixteen chat colours, by their code and by their name, for a hand-written colour. */
     private static final Map<String, Integer> NAMED = new HashMap<>();
 
     static {
         String[][] colours = {
-            {"0", "black", "000000"}, {"1", "dark_blue", "0000aa"}, {"2", "dark_green", "00aa00"},
-            {"3", "dark_aqua", "00aaaa"}, {"4", "dark_red", "aa0000"}, {"5", "dark_purple", "aa00aa"},
-            {"6", "gold", "ffaa00"}, {"7", "gray", "aaaaaa"}, {"8", "dark_gray", "555555"},
-            {"9", "blue", "5555ff"}, {"a", "green", "55ff55"}, {"b", "aqua", "55ffff"},
-            {"c", "red", "ff5555"}, {"d", "light_purple", "ff55ff"}, {"e", "yellow", "ffff55"},
-            {"f", "white", "ffffff"},
+            {"black", "000000"}, {"dark_blue", "0000aa"}, {"dark_green", "00aa00"}, {"dark_aqua", "00aaaa"},
+            {"dark_red", "aa0000"}, {"dark_purple", "aa00aa"}, {"gold", "ffaa00"}, {"gray", "aaaaaa"},
+            {"dark_gray", "555555"}, {"blue", "5555ff"}, {"green", "55ff55"}, {"aqua", "55ffff"},
+            {"red", "ff5555"}, {"light_purple", "ff55ff"}, {"yellow", "ffff55"}, {"white", "ffffff"},
         };
         for (String[] c : colours) {
-            int rgb = Integer.parseInt(c[2], 16);
-            LEGACY.put(c[0], rgb);
-            NAMED.put(c[1], rgb);
+            NAMED.put(c[0], Integer.parseInt(c[1], 16));
         }
     }
 
+    private static final int WHITE = 0xffffff;
+    private static final int T = -1;
+
+    /** The kit's rounding of a channel: half up, then clamped. */
+    private static int fmt(double v) {
+        return (int) Math.max(0, Math.min(255, Math.round(v)));
+    }
+
+    /** k under 1 darkens toward black, over 1 lightens toward white. */
+    static int shade(int c, double k) {
+        int out = 0;
+        for (int shift = 16; shift >= 0; shift -= 8) {
+            double v = (c >> shift) & 0xff;
+            out = (out << 8) | fmt(k <= 1 ? v * k : v + (255 - v) * (k - 1));
+        }
+        return out;
+    }
+
     static int mix(int a, int b, double t) {
-        int r = channel((a >> 16) & 0xff, (b >> 16) & 0xff, t);
-        int g = channel((a >> 8) & 0xff, (b >> 8) & 0xff, t);
-        int bl = channel(a & 0xff, b & 0xff, t);
-        return (r << 16) | (g << 8) | bl;
+        int out = 0;
+        for (int shift = 16; shift >= 0; shift -= 8) {
+            double v = (a >> shift) & 0xff;
+            double w = (b >> shift) & 0xff;
+            out = (out << 8) | fmt(v + (w - v) * t);
+        }
+        return out;
     }
 
-    private static int channel(int a, int b, double t) {
-        return (int) Math.max(0, Math.min(255, Math.round(a + (b - a) * t)));
+    private static double[] hsl(int c) {
+        double r = ((c >> 16) & 0xff) / 255.0;
+        double g = ((c >> 8) & 0xff) / 255.0;
+        double b = (c & 0xff) / 255.0;
+        double max = Math.max(r, Math.max(g, b));
+        double min = Math.min(r, Math.min(g, b));
+        double l = (max + min) / 2;
+        if (max == min) {
+            return new double[] {0, 0, l};
+        }
+        double d = max - min;
+        double s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        double h = max == r ? (g - b) / d + (g < b ? 6 : 0) : max == g ? (b - r) / d + 2 : (r - g) / d + 4;
+        return new double[] {h / 6, s, l};
     }
 
-    static int lighten(int c, double t) {
-        return mix(c, 0xffffff, t);
+    private static int fromHsl(double h, double s, double l) {
+        int out = 0;
+        for (int n : new int[] {0, 8, 4}) {
+            double k = (n + h * 12) % 12;
+            double a = s * Math.min(l, 1 - l);
+            double f = l - a * Math.max(-1, Math.min(Math.min(k - 3, 9 - k), 1));
+            out = (out << 8) | (int) Math.round(f * 255);
+        }
+        return out;
     }
 
-    static int darken(int c, double t) {
-        return mix(c, 0x000000, t);
-    }
-
-    static int borderColor(Spec spec) {
-        return spec.borderColor() != null ? spec.borderColor() : darken(spec.fill(), 0.4);
-    }
-
-    static int fill2(Spec spec) {
-        return spec.fill2() != null ? spec.fill2() : darken(spec.fill(), 0.3);
-    }
-
-    static int shadowColor(Spec spec) {
-        return spec.shadowColor() != null ? spec.shadowColor() : darken(spec.fill(), 0.55);
+    private static int hueShift(int c, double by) {
+        double[] h = hsl(c);
+        return fromHsl((h[0] + by + 1) % 1, h[1], h[2]);
     }
 
     /** {@code #rrggbb}, {@code rrggbb}, {@code #rgb} or one of the game's colour names. */
@@ -163,363 +223,676 @@ public final class RankTags {
         return v.matches("[0-9a-f]{6}") ? Optional.of(Integer.parseInt(v, 16)) : Optional.empty();
     }
 
+    /** The kit's random numbers, for the sparkles and the twinkle: the same sequence as Studio's. */
+    private static final class Random {
+        private long s;
+
+        Random(long seed) {
+            s = seed & 0xffffffffL;
+            if (s == 0) {
+                s = 1;
+            }
+        }
+
+        double next() {
+            s = (s * 1664525L + 1013904223L) & 0xffffffffL;
+            return s / 4294967296.0;
+        }
+    }
+
     // ------------------------------------------------------------- the words
 
-    /** A run of the words in one colour and weight; a null colour is the tag's own. */
-    record Run(String text, Integer color, boolean bold) {
+    /** Studio's rule for what a tag may say: printable ASCII, single spaces, at most {@link #MAX_TEXT}. */
+    static String normalizeText(String raw) {
+        String kept = raw == null ? "" : raw.replaceAll("[^\\x20-\\x7e]", "").replaceAll("\\s+", " ").trim();
+        return kept.length() > MAX_TEXT ? kept.substring(0, MAX_TEXT) : kept;
     }
 
-    /**
-     * The words as runs, {@code &} codes taken out: {@code &c} and the other
-     * fifteen, {@code &#ff8800}, {@code &l} bold, {@code &r} back to the tag's
-     * own colour. A code the game does not have is not a code, so the
-     * {@code &} stays as a character.
-     */
-    static List<Run> runs(String text, boolean baseBold) {
-        List<Run> runs = new ArrayList<>();
-        int[] chars = text.codePoints().toArray();
-        StringBuilder buf = new StringBuilder();
-        Integer color = null;
-        boolean bold = baseBold;
-        for (int i = 0; i < chars.length; i++) {
-            int ch = chars[i];
-            if (ch == '&' && i + 1 < chars.length) {
-                String code = new String(Character.toChars(chars[i + 1])).toLowerCase(Locale.ROOT);
-                if (code.equals("#")) {
-                    StringBuilder hex = new StringBuilder();
-                    for (int j = i + 2; j < Math.min(chars.length, i + 8); j++) {
-                        hex.appendCodePoint(chars[j]);
-                    }
-                    if (hex.toString().matches("[0-9a-fA-F]{6}")) {
-                        flush(runs, buf, color, bold);
-                        color = Integer.parseInt(hex.toString(), 16);
-                        i += 7;
-                        continue;
-                    }
-                } else if (LEGACY.containsKey(code)) {
-                    flush(runs, buf, color, bold);
-                    color = LEGACY.get(code);
-                    // A colour code ends bold in the game too.
-                    bold = baseBold;
-                    i += 1;
-                    continue;
-                } else if (code.equals("l")) {
-                    flush(runs, buf, color, bold);
-                    bold = true;
-                    i += 1;
-                    continue;
-                } else if (code.equals("r")) {
-                    flush(runs, buf, color, bold);
-                    color = null;
-                    bold = baseBold;
-                    i += 1;
-                    continue;
-                } else if ("kmno".contains(code)) {
-                    flush(runs, buf, color, bold);
-                    i += 1;
-                    continue;
-                }
-            }
-            buf.appendCodePoint(ch);
-        }
-        flush(runs, buf, color, bold);
-        return runs;
+    /** One capital: as wide as its rows, five rows tall. */
+    record Glyph(int width, boolean[][] rows) {
     }
 
-    private static void flush(List<Run> runs, StringBuilder buf, Integer color, boolean bold) {
-        if (buf.length() > 0) {
-            runs.add(new Run(buf.toString(), color, bold));
-            buf.setLength(0);
-        }
-    }
+    private static final int FONT_HEIGHT = 5;
+    private static volatile Map<Integer, Glyph> font;
 
-    /** The words as they will read, codes taken out. */
-    static String plain(String text) {
-        StringBuilder out = new StringBuilder();
-        for (Run run : runs(text, false)) {
-            out.append(run.text());
-        }
-        return out.toString();
-    }
-
-    // ------------------------------------------------------------- faces
-
-    /** One glyph of a face: as wide as its rows, eight rows tall, from the top of the line. */
-    record Glyph(int width, int height, int advance, boolean[] ink) {
-    }
-
-    private static final int TRACKING = 1;
-    private static final int CAP_TOP = 2;
-    private static final int BASELINE = 7;
-    private static volatile Map<String, Map<Integer, String>> faces;
-
-    /** The faces' tables, read once from the jar. */
-    static Map<String, Map<Integer, String>> faces() {
-        Map<String, Map<Integer, String>> loaded = faces;
+    /** The block capitals, read once from the jar. */
+    static Map<Integer, Glyph> font() {
+        Map<Integer, Glyph> loaded = font;
         if (loaded != null) {
             return loaded;
         }
-        Map<String, Map<Integer, String>> read = new HashMap<>();
-        try (InputStream in = RankTags.class.getResourceAsStream("/rank-tags/faces.txt")) {
+        Map<Integer, Glyph> read = new HashMap<>();
+        for (String line : lines("/rank-tags/font.txt")) {
+            String[] parts = line.split(" ");
+            if (parts.length != 2) {
+                continue;
+            }
+            int cp = Integer.parseInt(parts[0], 16);
+            if (!parts[1].contains("/") && !parts[1].contains("#") && !parts[1].contains(".")) {
+                // A space: its width alone.
+                read.put(cp, new Glyph(Integer.parseInt(parts[1]), new boolean[FONT_HEIGHT][Integer.parseInt(parts[1])]));
+                continue;
+            }
+            String[] rows = parts[1].split("/", -1);
+            boolean[][] ink = new boolean[rows.length][rows[0].length()];
+            for (int y = 0; y < rows.length; y++) {
+                for (int x = 0; x < rows[y].length() && x < ink[y].length; x++) {
+                    ink[y][x] = rows[y].charAt(x) == '#';
+                }
+            }
+            read.put(cp, new Glyph(rows[0].length(), ink));
+        }
+        font = Map.copyOf(read);
+        return font;
+    }
+
+    /** A character's capital, lower case as upper; null when the font has none, and the character is left out. */
+    static Glyph glyph(int codepoint) {
+        String upper = new String(Character.toChars(codepoint)).toUpperCase(Locale.ROOT);
+        if (upper.codePointCount(0, upper.length()) != 1) {
+            return null;
+        }
+        return font().get(upper.codePointAt(0));
+    }
+
+    /** Whether the font sets a character; anything else is dropped from a tag. */
+    public static boolean covers(int codepoint) {
+        return glyph(codepoint) != null;
+    }
+
+    /** The ink of the words, and which character each inked pixel belongs to (for the accent). */
+    private record Mask(int w, int h, int cap, boolean[][] on, int[][] charAt) {
+    }
+
+    private static Mask textMask(String text) {
+        record Placed(Glyph glyph, int advance, int index) {
+        }
+        List<Placed> glyphs = new ArrayList<>();
+        int[] chars = text.codePoints().toArray();
+        for (int i = 0; i < chars.length; i++) {
+            Glyph g = glyph(chars[i]);
+            if (g != null) {
+                glyphs.add(new Placed(g, g.width() + 1, i));
+            }
+        }
+        int sum = 0;
+        for (Placed p : glyphs) {
+            sum += p.advance();
+        }
+        int w = Math.max(0, sum - 1);
+        boolean[][] on = new boolean[FONT_HEIGHT][w];
+        int[][] charAt = new int[FONT_HEIGHT][w];
+        for (int[] row : charAt) {
+            java.util.Arrays.fill(row, -1);
+        }
+        int x = 0;
+        for (Placed p : glyphs) {
+            boolean[][] rows = p.glyph().rows();
+            for (int y = 0; y < rows.length && y < FONT_HEIGHT; y++) {
+                for (int gx = 0; gx < rows[y].length; gx++) {
+                    if (rows[y][gx]) {
+                        on[y][x + gx] = true;
+                        charAt[y][x + gx] = p.index();
+                    }
+                }
+            }
+            x += p.advance();
+        }
+        return new Mask(w, FONT_HEIGHT, FONT_HEIGHT, on, charAt);
+    }
+
+    // ------------------------------------------------------------- icons
+
+    private static volatile Map<String, int[][]> icons;
+
+    /** The icons a tag can carry, nine pixels square, read once from the jar. Transparent is -1. */
+    static Map<String, int[][]> icons() {
+        Map<String, int[][]> loaded = icons;
+        if (loaded != null) {
+            return loaded;
+        }
+        String digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        Map<String, int[][]> read = new HashMap<>();
+        for (String line : lines("/rank-tags/icons.txt")) {
+            String[] parts = line.split(" ");
+            if (parts.length != 3) {
+                continue;
+            }
+            String[] palette = parts[1].split(",");
+            String[] rows = parts[2].split("/", -1);
+            int[][] grid = new int[rows.length][];
+            for (int y = 0; y < rows.length; y++) {
+                grid[y] = new int[rows[y].length()];
+                for (int x = 0; x < rows[y].length(); x++) {
+                    char c = rows[y].charAt(x);
+                    grid[y][x] = c == '.' ? T : Integer.parseInt(palette[digits.indexOf(c)], 16);
+                }
+            }
+            read.put(parts[0], grid);
+        }
+        icons = Map.copyOf(read);
+        return icons;
+    }
+
+    /** The icons a hand-written tag may name. */
+    public static boolean isIcon(String id) {
+        return icons().containsKey(id);
+    }
+
+    private static List<String> lines(String resource) {
+        try (InputStream in = RankTags.class.getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IllegalStateException("rank-tags/faces.txt is missing from the jar");
+                throw new IllegalStateException(resource.substring(1) + " is missing from the jar");
             }
+            List<String> out = new ArrayList<>();
             for (String line : new String(in.readAllBytes(), StandardCharsets.UTF_8).split("\n")) {
-                if (line.isBlank() || line.startsWith("#")) {
-                    continue;
+                String trimmed = line.strip();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                    out.add(trimmed);
                 }
-                String[] parts = line.trim().split(" ");
-                if (parts.length != 3) {
-                    continue;
-                }
-                read.computeIfAbsent(parts[0], f -> new HashMap<>()).put(Integer.parseInt(parts[1], 16), parts[2]);
             }
+            return out;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        faces = Map.copyOf(read);
-        return faces;
     }
 
-    /** The faces a hand-written tag may name. */
-    public static boolean isFace(String font) {
-        return faces().containsKey(font);
+    // ------------------------------------------------------------- shapes
+
+    /** How many columns each end of a shape takes beyond a plain rectangle. */
+    private static int[] shapeEnds(String shape, int h) {
+        return switch (shape) {
+            case "chamfer", "ribbon" -> new int[] {2, 2};
+            case "arrow" -> new int[] {0, (int) Math.ceil((h - 1) / 2.0)};
+            case "slant" -> new int[] {(h - 1) / 2, (h - 1) / 2};
+            default -> new int[] {0, 0};
+        };
     }
 
-    static Glyph glyph(String font, int codepoint) {
-        Map<Integer, String> table = faces().getOrDefault(font, faces().get("classic"));
-        String packed = table.get(codepoint);
-        if (packed == null) {
-            packed = table.getOrDefault((int) '?', "?");
+    private static boolean inside(String shape, int x, int y, int w, int h) {
+        if (x < 0 || y < 0 || x >= w || y >= h) {
+            return false;
         }
-        String[] rows = packed.split("/", -1);
-        int w = rows[0].length();
-        // A space is stored as its width and nothing else.
-        int h = rows.length == 1 ? 0 : rows.length;
-        boolean[] ink = new boolean[w * h];
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w && x < rows[y].length(); x++) {
-                ink[y * w + x] = rows[y].charAt(x) == '#';
+        int top = y;
+        int bottom = h - 1 - y;
+        int left = x;
+        int right = w - 1 - x;
+        double mid = (h - 1) / 2.0;
+        switch (shape) {
+            case "round":
+                return !((top == 0 || bottom == 0) && (left == 0 || right == 0));
+            case "pill": {
+                int v = Math.min(top, bottom);
+                int hz = Math.min(left, right);
+                return !(v + hz < 2 || (v == 0 && hz < 2) || (hz == 0 && v < 2));
             }
+            case "chamfer": {
+                int c = Math.max(0, 2 - Math.min(top, bottom));
+                return left >= c && right >= c;
+            }
+            case "arrow": {
+                // Square left end with its corners off; the right end comes to a point.
+                if (left == 0 && (top == 0 || bottom == 0)) {
+                    return false;
+                }
+                return right >= Math.ceil(Math.abs(y - mid));
+            }
+            case "ribbon": {
+                long notch = Math.max(0, 2 - Math.round(Math.abs(y - mid)));
+                return left >= notch && right >= notch;
+            }
+            case "slant": {
+                int s = (h - 1 - y) / 2;
+                int max = (h - 1) / 2;
+                return x >= s && x <= w - 1 - (max - s);
+            }
+            default:
+                return true;
         }
-        return new Glyph(h == 0 ? 0 : w, h, w + TRACKING, ink);
     }
 
     // ------------------------------------------------------------- drawing
 
-    private static final int[][] CORNER_CUTS = {{}, {1}, {2, 1}, {3, 1, 1}, {4, 2, 1, 1}, {5, 3, 2, 1, 1}};
-
-    /** How far each row from the top (and, mirrored, the bottom) is cut in at each end. */
-    static int[] cornerCuts(int radius, int width, int height) {
-        int most = Math.min(width, height) / 2;
-        int r = Math.max(0, Math.min(radius >= RADIUS_PILL ? most : radius, most));
-        if (r >= 3 && (r == most || r >= CORNER_CUTS.length)) {
-            return circleCuts(r);
-        }
-        return CORNER_CUTS[r].clone();
-    }
-
-    private static int[] circleCuts(int r) {
-        int[] cuts = new int[r];
-        double limit = (r - 0.3) * (r - 0.3);
-        for (int y = 0; y < r; y++) {
-            int c = 0;
-            while (c < r && (r - c - 0.5) * (r - c - 0.5) + (r - y - 0.5) * (r - y - 0.5) > limit) {
-                c++;
-            }
-            cuts[y] = c;
-        }
-        return cuts;
-    }
+    private static final int NONE = 0;
+    private static final int FACE = 1;
+    private static final int BORDER = 2;
+    private static final int RIM = 3;
+    private static final int LIP = 4;
+    private static final int CELL = 5;
+    private static final int ICON = 6;
+    private static final int OUTLINE = 7;
+    private static final int SHADOW = 8;
+    private static final int TEXT = 9;
 
     /** The provider ascent that centres a glyph this tall on a chat line, then moves it {@code offset} up. */
     static int ascent(int height, int offset) {
         return Math.max(-height, Math.min(height, (int) Math.round(height / 2.0 + 3.5) + offset));
     }
 
-    private record Ink(int x, int y, Integer color) {
+    /** The first frame of a tag. */
+    public static Drawn render(Spec spec) {
+        return render(spec, 0);
     }
 
-    /** Draws a tag. Pure: the same spec is the same pixels, here and in Studio. */
-    public static Drawn render(Spec spec) {
-        // 1. The words, laid out from the pen at the top of the line.
-        List<Ink> ink = new ArrayList<>();
-        int pen = 0;
-        for (Run run : runs(spec.text(), spec.bold())) {
-            String text = Normalizer.normalize(run.text(), Normalizer.Form.NFC);
-            for (int cp : text.codePoints().toArray()) {
-                Glyph g = glyph(spec.font(), cp);
-                int passes = run.bold() ? 2 : 1;
-                for (int offset = 0; offset < passes; offset++) {
-                    for (int gy = 0; gy < g.height(); gy++) {
-                        for (int gx = 0; gx < g.width(); gx++) {
-                            if (g.ink()[gy * g.width() + gx]) {
-                                ink.add(new Ink(pen + gx + offset, gy, run.color()));
+    /**
+     * One frame of a tag, at its scale. Pure: the same spec and frame are the
+     * same pixels, here and in Studio.
+     */
+    public static Drawn render(Spec spec, int frame) {
+        int[][] grid = kit(spec, frame);
+        int h = grid.length;
+        int w = h == 0 ? 0 : grid[0].length;
+        int k = spec.scale();
+        int[] argb = new int[w * k * h * k];
+        for (int y = 0; y < h * k; y++) {
+            for (int x = 0; x < w * k; x++) {
+                int c = grid[y / k][x / k];
+                argb[y * w * k + x] = c == T ? 0 : 0xff000000 | c;
+            }
+        }
+        return new Drawn(w * k, h * k, ascent(h * k, spec.offset() * k), argb);
+    }
+
+    /** Every frame, stacked top to bottom: the sheet an animated tag's font cuts into one glyph per frame. */
+    public static Drawn strip(Spec spec) {
+        int frames = spec.frames();
+        Drawn first = render(spec, 0);
+        int[] argb = new int[first.width() * first.height() * frames];
+        System.arraycopy(first.argb(), 0, argb, 0, first.argb().length);
+        for (int frame = 1; frame < frames; frame++) {
+            int[] next = render(spec, frame).argb();
+            System.arraycopy(next, 0, argb, frame * next.length, next.length);
+        }
+        return new Drawn(first.width(), first.height() * frames, first.ascent(), argb);
+    }
+
+    /** The kit itself, at one pixel to a pixel: colours, {@code -1} where nothing is. */
+    private static int[][] kit(Spec spec, int frame) {
+        String shape = spec.shape();
+        String face = spec.face();
+        String effect = spec.effect();
+        int frames = spec.animation().equals("none") ? 1 : FRAMES;
+        double t = frame / (double) frames;
+        Mask mask = textMask(spec.text());
+        boolean outline = effect.equals("outline") || effect.equals("outline+shadow");
+        Integer border = spec.noBorder() ? null : spec.border() != null ? spec.border() : shade(spec.fill(), 0.6);
+        int b = (border != null ? 1 : 0) + (spec.rim() != null ? 1 : 0);
+        int lip = spec.lip() ? 1 : 0;
+
+        // Vertical: gap, cap height, gap, the same either side of the letters.
+        int gap = 1 + (outline ? 1 : 0);
+        int height = b + gap + mask.cap() + gap + b + lip;
+        int textY = b + gap;
+
+        // Icon sizing: a 9px icon where the inner face has room, else its 7px art.
+        int[][] icon = spec.icon() != null ? icons().get(spec.icon()) : null;
+        int innerH = height - 2 * b - lip;
+        String iconStyle = spec.iconStyle() != null ? spec.iconStyle() : "cell";
+        if (icon != null && !iconStyle.equals("tile") && innerH < 9) {
+            int[][] cut = new int[7][];
+            for (int y = 0; y < 7; y++) {
+                cut[y] = java.util.Arrays.copyOfRange(icon[y + 1], 1, 8);
+            }
+            icon = cut;
+        }
+        int iconSide = icon != null ? icon.length : 0;
+        int tileW = icon != null && iconStyle.equals("tile") ? height + 1 : 0;
+
+        int[] ends = shapeEnds(shape, height - lip);
+        int pad = spec.pad() != null ? spec.pad() : 2;
+        int x0 = tileW + b + ends[0] + pad + (outline ? 1 : 0);
+        int cellW = 0;
+        if (icon != null && iconStyle.equals("cell")) {
+            cellW = Math.max(iconSide, innerH) + 1;
+            x0 = tileW + b + ends[0] + cellW + pad + (outline ? 1 : 0);
+        } else if (icon != null && iconStyle.equals("inline")) {
+            x0 += iconSide + 2;
+        }
+        int right = (outline ? 1 : 0) + (effect.equals("drop") ? 1 : 0) + pad + ends[1] + b;
+        int width = x0 + mask.w() + right;
+        int tagW = width - tileW;
+
+        Canvas c = new Canvas(width, height);
+        final int tile = tileW;
+        final int lipRows = lip;
+        java.util.function.BiPredicate<Integer, Integer> tagIn = (x, y) -> inside(shape, x - tile, y, tagW, height - lipRows);
+        // With a lip the silhouette is the shape plus the same shape a row lower.
+        java.util.function.BiPredicate<Integer, Integer> solid = (x, y) -> tagIn.test(x, y) || (lipRows > 0 && tagIn.test(x, y - 1));
+
+        // Face colour per row, in bands.
+        List<Integer> stops = new ArrayList<>();
+        stops.add(spec.fill());
+        if (spec.fill2() != null) {
+            stops.add(spec.fill2());
+        }
+        if (spec.fill3() != null) {
+            stops.add(spec.fill3());
+        }
+        int faceTop = b;
+        int faceBottom = height - 1 - b - lip;
+        java.util.function.IntUnaryOperator rowColor = y -> {
+            if (stops.size() == 1) {
+                return stops.get(0);
+            }
+            double u = Math.min(1, Math.max(0, (y - faceTop) / (double) Math.max(1, faceBottom - faceTop)));
+            double seg = u * (stops.size() - 1);
+            int i = (int) Math.min(stops.size() - 2, Math.floor(seg));
+            return mix(stops.get(i), stops.get(i + 1), Math.round((seg - i) * 2) / 2.0);
+        };
+        String fillHex = String.format("#%06x", spec.fill());
+        Random r = new Random((long) spec.text().length() * 7919 + fillHex.charAt(2));
+        Set<Long> sparkles = new LinkedHashSet<>();
+        for (int i = 0; i < Math.ceil(tagW / 6.0); i++) {
+            int sx = tileW + (int) Math.floor(r.next() * tagW);
+            int sy = (int) Math.floor(r.next() * height);
+            sparkles.add(key(sx, sy));
+        }
+
+        boolean panel = face.equals("panel");
+        for (int y = 0; y < height; y++) {
+            for (int x = tileW; x < width; x++) {
+                if (!solid.test(x, y)) {
+                    continue;
+                }
+                int col = rowColor.applyAsInt(y);
+                if (panel) {
+                    col = mix(shade(col, 0.32), 0x101018, 0.25);
+                }
+                if (face.equals("gloss") && y < faceTop + Math.ceil((faceBottom - faceTop + 1) / 2.0)) {
+                    col = shade(col, 1.14);
+                }
+                if (face.equals("gloss") && y == faceTop) {
+                    col = shade(rowColor.applyAsInt(y), 1.4);
+                }
+                if (face.equals("stripes") && (x + y) % 6 < 2) {
+                    col = shade(col, 1.12);
+                }
+                if (face.equals("dither") && y < (faceTop + faceBottom) / 2.0 && (x + y) % 2 == 0) {
+                    col = shade(col, 1.1);
+                }
+                c.put(x, y, col, FACE);
+            }
+        }
+        if (face.equals("sparkle")) {
+            for (long k : sparkles) {
+                int sx = (int) (k >> 32);
+                int sy = (int) k;
+                if (c.role(sx, sy) == FACE) {
+                    c.put(sx, sy, shade(c.color(sx, sy), 1.55), FACE);
+                }
+            }
+        }
+
+        // Edges: border where the silhouette meets outside, rim one in, lip below.
+        Set<Long> borderAt = new HashSet<>();
+        for (int y = 0; y < height; y++) {
+            for (int x = tileW; x < width; x++) {
+                if (!solid.test(x, y)) {
+                    continue;
+                }
+                boolean edge = !solid.test(x - 1, y) || !solid.test(x + 1, y) || !solid.test(x, y - 1) || !solid.test(x, y + 1);
+                if (border != null && edge) {
+                    c.put(x, y, border, BORDER);
+                    borderAt.add(key(x, y));
+                }
+            }
+        }
+        int[][] four = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        if (spec.rim() != null) {
+            for (int y = 0; y < height; y++) {
+                for (int x = tileW; x < width; x++) {
+                    if (c.role(x, y) != FACE) {
+                        continue;
+                    }
+                    boolean near = false;
+                    for (int[] d : four) {
+                        if (borderAt.contains(key(x + d[0], y + d[1])) || !solid.test(x + d[0], y + d[1])) {
+                            near = true;
+                        }
+                    }
+                    if (near) {
+                        c.put(x, y, spec.rim(), RIM);
+                    }
+                }
+            }
+        }
+        if (lip > 0) {
+            for (int x = tileW; x < width; x++) {
+                for (int y = height - 1; y >= 0; y--) {
+                    if (c.role(x, y) == BORDER && solid.test(x, y) && !solid.test(x, y + 1)) {
+                        // The row above the bottom border becomes the lip: the face's darkest tone.
+                        if (c.role(x, y - 1) == FACE || c.role(x, y - 1) == RIM) {
+                            c.put(x, y - 1, shade(rowColor.applyAsInt(faceBottom), 0.66), LIP);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // The tile: a separate square of the tag's height, same frame.
+        if (icon != null && iconStyle.equals("tile")) {
+            int s = height;
+            int fillT = spec.iconFill() != null ? spec.iconFill() : shade(spec.fill(), 0.8);
+            String tileShape = shape.equals("pill") ? "pill" : shape.equals("rect") ? "rect" : "round";
+            for (int y = 0; y < s; y++) {
+                for (int x = 0; x < s; x++) {
+                    if (!inside(tileShape, x, y, s, s)) {
+                        continue;
+                    }
+                    boolean e = !inside("round", x - 1, y, s, s) || !inside("round", x + 1, y, s, s)
+                            || !inside("round", x, y - 1, s, s) || !inside("round", x, y + 1, s, s);
+                    boolean edged = border != null && e;
+                    c.put(x, y, edged ? border : fillT, edged ? BORDER : CELL);
+                }
+            }
+            int off = Math.floorDiv(s - iconSide, 2);
+            stamp(c, icon, off, off);
+        }
+        if (icon != null && iconStyle.equals("cell")) {
+            int cx0 = tileW + b + ends[0];
+            int fillC = spec.iconFill() != null ? spec.iconFill() : shade(rowColor.applyAsInt(faceTop), 0.78);
+            for (int y = b; y <= faceBottom; y++) {
+                for (int x = cx0; x < cx0 + cellW - 1; x++) {
+                    if (c.role(x, y) == FACE || c.role(x, y) == RIM) {
+                        c.put(x, y, fillC, CELL);
+                    }
+                }
+            }
+            for (int y = 0; y < height; y++) {
+                if (solid.test(cx0 + cellW - 1, y) && border != null) {
+                    c.put(cx0 + cellW - 1, y, border, BORDER);
+                }
+            }
+            int ox = cx0 + Math.floorDiv(cellW - 1 - iconSide, 2);
+            int oy = b + Math.floorDiv(faceBottom - b + 1 - iconSide, 2);
+            stamp(c, icon, ox, oy);
+        }
+        if (icon != null && iconStyle.equals("inline")) {
+            int ox = x0 - iconSide - 2 - (outline ? 1 : 0);
+            int oy = b + Math.floorDiv(faceBottom - b + 1 - iconSide, 2);
+            stamp(c, icon, ox, oy);
+        }
+
+        // Words: outline, shadow, ink.
+        final int ox = x0;
+        int fx = spec.effectColor() != null ? spec.effectColor() : shade(rowColor.applyAsInt(Math.floorDiv(faceTop + faceBottom, 2)), 0.55);
+        java.util.function.BiPredicate<Integer, Integer> onFace = (x, y) -> {
+            int role = c.role(x, y);
+            return role == FACE || role == RIM || role == LIP;
+        };
+        if (outline) {
+            for (int y = -1; y <= mask.h(); y++) {
+                for (int x = -1; x <= mask.w(); x++) {
+                    if (inked(mask, x, y)) {
+                        continue;
+                    }
+                    boolean near = false;
+                    for (int dy = -1; dy <= 1 && !near; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            if (inked(mask, x + dx, y + dy)) {
+                                near = true;
                             }
                         }
                     }
+                    if (near && onFace.test(ox + x, textY + y)) {
+                        c.put(ox + x, textY + y, fx, OUTLINE);
+                    }
                 }
-                pen += g.advance() + (run.bold() ? 1 : 0) + spec.spacing();
             }
         }
-
-        int left = 0;
-        int right = -1;
-        int top = CAP_TOP;
-        int bottom = BASELINE - 1;
-        if (!ink.isEmpty()) {
-            left = Integer.MAX_VALUE;
-            right = Integer.MIN_VALUE;
-            for (Ink p : ink) {
-                left = Math.min(left, p.x());
-                right = Math.max(right, p.x());
-                top = Math.min(top, p.y());
-                bottom = Math.max(bottom, p.y());
+        if (effect.equals("shadow") || effect.equals("drop") || effect.equals("outline+shadow")) {
+            List<int[]> casts = new ArrayList<>();
+            if (effect.equals("outline+shadow")) {
+                for (int y = 0; y < height; y++) {
+                    for (int x = 0; x < width; x++) {
+                        if (c.role(x, y) == OUTLINE) {
+                            casts.add(new int[] {x, y});
+                        }
+                    }
+                }
+            } else {
+                for (int y = 0; y < mask.h(); y++) {
+                    for (int x = 0; x < mask.w(); x++) {
+                        if (mask.on()[y][x]) {
+                            casts.add(new int[] {ox + x, textY + y});
+                        }
+                    }
+                }
             }
-        }
-        int wordsW = right - left + 1;
-        int wordsH = bottom - top + 1;
-
-        // 2. The background.
-        int b = spec.border();
-        int natural = 2 * b + 2 * spec.padX() + Math.max(0, wordsW);
-        int width = Math.max(1, Math.max(natural, spec.width() == null ? 0 : spec.width()));
-        int height = Math.max(1, 2 * b + 2 * spec.padY() + wordsH);
-
-        // 3. The shape.
-        int[] cuts = cornerCuts(spec.radius(), width, height);
-        boolean[] inside = new boolean[width * height];
-        for (int y = 0; y < height; y++) {
-            int fromEdge = Math.min(y, height - 1 - y);
-            int cut = fromEdge < cuts.length ? cuts[fromEdge] : 0;
-            for (int x = cut; x < width - cut; x++) {
-                inside[y * width + x] = true;
+            Set<Long> cast = new HashSet<>();
+            for (int[] p : casts) {
+                cast.add(key(p[0], p[1]));
             }
-        }
-
-        // 4. The outline: distance from the outside in four-neighbour steps.
-        int[] depth = new int[width * height];
-        java.util.Arrays.fill(depth, -1);
-        ArrayDeque<Integer> frontier = new ArrayDeque<>();
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                if (!in(inside, width, height, x, y)) {
+            int dx = effect.equals("drop") ? 1 : 0;
+            int sc = effect.equals("outline+shadow")
+                    ? shade(fx, 0.6)
+                    : spec.effectColor() != null
+                    ? spec.effectColor()
+                    : effect.equals("drop") ? shade(rowColor.applyAsInt(textY + 2), 0.5) : shade(rowColor.applyAsInt(textY + 2), 0.8);
+            for (int[] p : casts) {
+                if (cast.contains(key(p[0] + dx, p[1] + 1)) || !onFace.test(p[0] + dx, p[1] + 1)) {
                     continue;
                 }
-                if (!in(inside, width, height, x - 1, y) || !in(inside, width, height, x + 1, y)
-                        || !in(inside, width, height, x, y - 1) || !in(inside, width, height, x, y + 1)) {
-                    depth[y * width + x] = 1;
-                    frontier.add(y * width + x);
-                }
+                c.put(p[0] + dx, p[1] + 1, sc, SHADOW);
             }
         }
-        for (int d = 2; d <= b && !frontier.isEmpty(); d++) {
-            ArrayDeque<Integer> next = new ArrayDeque<>();
-            for (int i : frontier) {
-                int x = i % width;
-                int y = i / width;
-                int[][] around = {{x - 1, y}, {x + 1, y}, {x, y - 1}, {x, y + 1}};
-                for (int[] n : around) {
-                    if (!in(inside, width, height, n[0], n[1])) {
-                        continue;
-                    }
-                    int j = n[1] * width + n[0];
-                    if (depth[j] != -1) {
-                        continue;
-                    }
-                    depth[j] = d;
-                    next.add(j);
-                }
-            }
-            frontier = next;
-        }
-
-        // 5. The inside, shaded by row.
-        int innerH = Math.max(1, height - 2 * b);
-        int bottomColor = fill2(spec);
-        int outline = borderColor(spec);
-        int[] rgb = new int[width * height];
-        boolean[] opaque = new boolean[width * height];
-        for (int y = 0; y < height; y++) {
-            int row = rowColor(spec, y - b, innerH, bottomColor);
-            for (int x = 0; x < width; x++) {
-                int i = y * width + x;
-                if (!inside[i]) {
+        int plus = spec.text().indexOf('+');
+        for (int y = 0; y < mask.h(); y++) {
+            for (int x = 0; x < mask.w(); x++) {
+                if (!mask.on()[y][x]) {
                     continue;
                 }
-                opaque[i] = true;
-                rgb[i] = border(depth, i, b) ? outline : row;
+                int col = spec.ink();
+                if (spec.ink2() != null) {
+                    col = mix(spec.ink(), spec.ink2(),
+                            Math.round((Math.min(y, mask.cap() - 1) / (double) Math.max(1, mask.cap() - 1)) * 2) / 2.0);
+                }
+                if (spec.accent() != null && plus >= 0 && mask.charAt()[y][x] >= plus) {
+                    col = spec.accent();
+                }
+                if (spec.animation().equals("rainbow")) {
+                    col = hueShift(col == WHITE ? 0xff5555 : col, t + (ox + x) / 40.0);
+                }
+                c.put(ox + x, textY + y, col, TEXT);
             }
         }
 
-        // 6. The words, and their shadow under them.
-        int ox = b + spec.padX() + (int) Math.floor((width - natural) / 2.0) - left;
-        int oy = b + spec.padY() - top;
-        if (spec.shadow()) {
-            int shadow = shadowColor(spec);
-            for (Ink p : ink) {
-                int x = p.x() + ox + 1;
-                int y = p.y() + oy + 1;
-                if (in(inside, width, height, x, y) && !border(depth, y * width + x, b)) {
-                    rgb[y * width + x] = shadow;
+        // Animation: changes a frame's pixels, never its layout.
+        if (spec.animation().equals("glint")) {
+            int span = width + height + 8;
+            long pos = (long) Math.floor(t * span) - 4;
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    long d = x + (height - 1 - y) - pos;
+                    int role = c.role(x, y);
+                    boolean lit = role == FACE || role == TEXT || role == RIM || role == CELL || role == LIP;
+                    if ((d == 0 || d == 1 || d == 3) && lit) {
+                        c.put(x, y, mix(c.color(x, y), WHITE, d == 3 ? 0.3 : 0.55), role);
+                    }
                 }
             }
         }
-        for (Ink p : ink) {
-            int x = p.x() + ox;
-            int y = p.y() + oy;
-            if (x >= 0 && y >= 0 && x < width && y < height) {
-                int i = y * width + x;
-                rgb[i] = colorAt(spec, p, left, wordsW);
-                opaque[i] = true;
+        if (spec.animation().equals("twinkle")) {
+            Random rr = new Random(frame * 31L + 7);
+            for (int i = 0; i < Math.ceil(width / 10.0); i++) {
+                int x = (int) Math.floor(rr.next() * width);
+                int y = (int) Math.floor(rr.next() * height);
+                if (c.role(x, y) != FACE) {
+                    continue;
+                }
+                c.put(x, y, WHITE, FACE);
+                for (int[] d : four) {
+                    if (c.role(x + d[0], y + d[1]) == FACE) {
+                        c.put(x + d[0], y + d[1], mix(c.color(x + d[0], y + d[1]), WHITE, 0.45), FACE);
+                    }
+                }
             }
         }
-
-        int k = spec.scale();
-        int[] argb = new int[width * k * height * k];
-        for (int y = 0; y < height * k; y++) {
-            for (int x = 0; x < width * k; x++) {
-                int i = (y / k) * width + (x / k);
-                argb[y * width * k + x] = opaque[i] ? 0xff000000 | rgb[i] : 0;
+        if (spec.animation().equals("pulse") && border != null) {
+            double k = 1 + 0.45 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2));
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    int role = c.role(x, y);
+                    if (role == BORDER || role == RIM) {
+                        c.put(x, y, shade(c.color(x, y), k), role);
+                    }
+                }
             }
         }
-        return new Drawn(width * k, height * k, ascent(height * k, spec.offset() * k), argb);
+        return c.grid;
     }
 
-    private static boolean in(boolean[] inside, int width, int height, int x, int y) {
-        return x >= 0 && y >= 0 && x < width && y < height && inside[y * width + x];
+    private static long key(int x, int y) {
+        return ((long) x << 32) | (y & 0xffffffffL);
     }
 
-    private static boolean border(int[] depth, int i, int b) {
-        return b > 0 && depth[i] != -1 && depth[i] <= b;
+    private static boolean inked(Mask mask, int x, int y) {
+        return y >= 0 && y < mask.h() && x >= 0 && x < mask.w() && mask.on()[y][x];
     }
 
-    private static int rowColor(Spec spec, int k, int innerH, int bottomColor) {
-        if (spec.style().equals("gradient")) {
-            return innerH <= 1 ? spec.fill() : mix(spec.fill(), bottomColor, k / (double) (innerH - 1));
-        }
-        if (spec.style().equals("glossy")) {
-            if (innerH >= 3 && k == innerH - 1) {
-                return darken(spec.fill(), 0.15);
-            }
-            if (k <= 0) {
-                return lighten(spec.fill(), 0.35);
-            }
-            if (k < Math.ceil(innerH / 2.0)) {
-                return lighten(spec.fill(), 0.15);
+    private static void stamp(Canvas c, int[][] icon, int ox, int oy) {
+        for (int y = 0; y < icon.length; y++) {
+            for (int x = 0; x < icon[y].length; x++) {
+                if (icon[y][x] != T) {
+                    c.put(ox + x, oy + y, icon[y][x], ICON);
+                }
             }
         }
-        return spec.fill();
     }
 
-    private static int colorAt(Spec spec, Ink p, int left, int wordsW) {
-        if (p.color() != null) {
-            return p.color();
+    /** A frame being drawn: a colour and what it is, per pixel. Writes outside it are dropped, as the kit's are. */
+    private static final class Canvas {
+        final int[][] grid;
+        final int[][] roles;
+        final int width;
+        final int height;
+
+        Canvas(int width, int height) {
+            this.width = width;
+            this.height = height;
+            grid = new int[height][width];
+            roles = new int[height][width];
+            for (int[] row : grid) {
+                java.util.Arrays.fill(row, T);
+            }
         }
-        if (spec.textColor2() == null || wordsW <= 1) {
-            return spec.textColor();
+
+        void put(int x, int y, int color, int role) {
+            if (x < 0 || y < 0 || x >= width || y >= height) {
+                return;
+            }
+            grid[y][x] = color;
+            roles[y][x] = role;
         }
-        return mix(spec.textColor(), spec.textColor2(), (p.x() - left) / (double) (wordsW - 1));
+
+        int role(int x, int y) {
+            return x < 0 || y < 0 || x >= width || y >= height ? NONE : roles[y][x];
+        }
+
+        int color(int x, int y) {
+            return grid[y][x];
+        }
     }
 
     /** A drawn tag as a PNG. */
@@ -543,60 +916,100 @@ public final class RankTags {
      * with no words is refused.
      */
     public static Optional<Spec> parse(DefinitionNode tag, String origin, String where, List<Diagnostic> diagnostics) {
-        String text = tag.string("text").orElse("");
-        String plain = plain(text);
-        if (plain.isBlank()) {
+        String text = normalizeText(tag.string("text").orElse(""));
+        if (text.codePoints().noneMatch(RankTags::covers) || text.isBlank()) {
             diagnostics.add(Diagnostic.error(origin, where, "tag: needs text: — the words on the tag, like OWNER."));
             return Optional.empty();
         }
-        if (plain.codePointCount(0, plain.length()) > MAX_TEXT) {
-            diagnostics.add(Diagnostic.error(origin, where,
-                    "tag.text reads " + plain.length() + " characters; a tag holds at most " + MAX_TEXT + "."));
-            return Optional.empty();
+        String raw = tag.string("text").orElse("").trim();
+        if (raw.length() > MAX_TEXT) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "tag.text is " + raw.length() + " characters; a tag holds at most " + MAX_TEXT + ", so it reads \"" + text + "\"."));
         }
+        if (text.codePoints().anyMatch(cp -> cp != ' ' && !covers(cp))) {
+            diagnostics.add(Diagnostic.warning(origin, where, "tag.text: the block capitals have no "
+                    + uncovered(text) + ", which " + (uncovered(text).length() == 1 ? "is" : "are") + " left out."));
+        }
+        tag.string("font").map(f -> f.trim().toLowerCase(Locale.ROOT)).filter(f -> !f.equals("block")).ifPresent(f ->
+                diagnostics.add(Diagnostic.warning(origin, where, "tag.font: " + f + " is a ResourcePack AI Studio font "
+                        + "(the game's own or an uploaded one), which this engine cannot draw. Using block.")));
         Spec d = Spec.defaults(text);
-        String font = tag.string("font").map(f -> f.trim().toLowerCase(Locale.ROOT)).orElse(d.font());
-        if (!isFace(font)) {
-            diagnostics.add(Diagnostic.warning(origin, where,
-                    "tag.font: " + font + " is not a face this engine has (classic or tiny). Using classic."));
-            font = "classic";
-        }
-        String style = tag.string("shading").map(s -> s.trim().toLowerCase(Locale.ROOT)).orElse(d.style());
-        if (!style.equals("glossy") && !style.equals("gradient") && !style.equals("flat")) {
-            diagnostics.add(Diagnostic.warning(origin, where,
-                    "tag.shading: " + style + " is not glossy, gradient or flat. Using glossy."));
-            style = "glossy";
-        }
-        int radius;
-        Optional<String> roundness = tag.string("roundness");
-        if (roundness.isPresent() && roundness.get().trim().equalsIgnoreCase("pill")) {
-            radius = RADIUS_PILL;
+        String shape = choice(tag, "shape", SHAPES, d.shape(), origin, where, diagnostics);
+        String face;
+        Optional<String> rawFace = tag.string("face").map(f -> f.trim().toLowerCase(Locale.ROOT));
+        if (rawFace.isPresent() && rawFace.get().equals("texture")) {
+            diagnostics.add(Diagnostic.warning(origin, where, "tag.face: texture is made of the game's block textures, "
+                    + "which this engine does not have. Using flat."));
+            face = "flat";
         } else {
-            radius = number(tag, "roundness", 0, RADIUS_PILL, d.radius(), origin, where, diagnostics);
+            face = choice(tag, "face", FACES, d.face(), origin, where, diagnostics);
         }
-        Integer width = tag.integer("width").isPresent()
-                ? number(tag, "width", 1, MAX_EDGE, 1, origin, where, diagnostics) : null;
-        boolean shadow = tag.bool("shadow").orElse(d.shadow());
+        Integer border = null;
+        boolean noBorder = false;
+        Optional<String> rawBorder = tag.string("border");
+        if (tag.bool("border").map(on -> !on).orElse(false)
+                || rawBorder.map(v -> v.trim().equalsIgnoreCase("none")).orElse(false)) {
+            noBorder = true;
+        } else {
+            border = colour(tag, "border", origin, where, diagnostics).orElse(null);
+        }
+        String icon = null;
+        String iconStyle = null;
+        Optional<String> rawIcon = tag.string("icon").map(String::trim);
+        if (rawIcon.isPresent() && !rawIcon.get().isEmpty()) {
+            if (isIcon(rawIcon.get())) {
+                icon = rawIcon.get();
+                iconStyle = choice(tag, "icon-style", ICON_STYLES, "cell", origin, where, diagnostics);
+            } else {
+                diagnostics.add(Diagnostic.warning(origin, where, "tag.icon: " + rawIcon.get()
+                        + " is not one of the tag icons (the UI icon set's names, like crown, star or shield). Leaving it off."));
+            }
+        }
+        Integer pad = tag.integer("padding").isPresent()
+                ? number(tag, "padding", 0, MAX_PAD, 2, origin, where, diagnostics) : null;
         return Optional.of(new Spec(
                 text,
-                font,
-                colour(tag, "text-color", origin, where, diagnostics).orElse(d.textColor()),
-                colour(tag, "text-fade", origin, where, diagnostics).orElse(null),
-                tag.bool("bold").orElse(d.bold()),
-                shadow,
-                colour(tag, "shadow-color", origin, where, diagnostics).orElse(null),
-                number(tag, "spacing", 0, MAX_SPACING, d.spacing(), origin, where, diagnostics),
+                shape,
+                face,
                 colour(tag, "background", origin, where, diagnostics).orElse(d.fill()),
-                colour(tag, "background-fade", origin, where, diagnostics).orElse(null),
-                style,
-                number(tag, "outline", 0, MAX_BORDER, d.border(), origin, where, diagnostics),
-                colour(tag, "outline-color", origin, where, diagnostics).orElse(null),
-                radius,
-                number(tag, "padding-x", 0, MAX_PAD_X, d.padX(), origin, where, diagnostics),
-                number(tag, "padding-y", 0, MAX_PAD_Y, d.padY(), origin, where, diagnostics),
-                width,
+                colour(tag, "background-2", origin, where, diagnostics).orElse(null),
+                colour(tag, "background-3", origin, where, diagnostics).orElse(null),
+                border,
+                noBorder,
+                colour(tag, "rim", origin, where, diagnostics).orElse(null),
+                tag.bool("lip").orElse(false),
+                colour(tag, "text-color", origin, where, diagnostics).orElse(d.ink()),
+                colour(tag, "text-fade", origin, where, diagnostics).orElse(null),
+                colour(tag, "accent", origin, where, diagnostics).orElse(null),
+                choice(tag, "effect", EFFECTS, d.effect(), origin, where, diagnostics),
+                colour(tag, "effect-color", origin, where, diagnostics).orElse(null),
+                icon,
+                iconStyle,
+                colour(tag, "icon-fill", origin, where, diagnostics).orElse(null),
+                pad,
+                choice(tag, "animation", ANIMATIONS, d.animation(), origin, where, diagnostics),
                 number(tag, "scale", 1, MAX_SCALE, d.scale(), origin, where, diagnostics),
                 number(tag, "offset", -MAX_OFFSET, MAX_OFFSET, d.offset(), origin, where, diagnostics)));
+    }
+
+    private static String uncovered(String text) {
+        StringBuilder out = new StringBuilder();
+        text.codePoints().filter(cp -> cp != ' ' && !covers(cp)).distinct().forEach(out::appendCodePoint);
+        return out.toString();
+    }
+
+    private static String choice(DefinitionNode tag, String key, List<String> options, String fallback, String origin,
+                                 String where, List<Diagnostic> diagnostics) {
+        Optional<String> raw = tag.string(key).map(v -> v.trim().toLowerCase(Locale.ROOT));
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+        if (options.contains(raw.get())) {
+            return raw.get();
+        }
+        diagnostics.add(Diagnostic.warning(origin, where, "tag." + key + ": " + raw.get() + " is not one of "
+                + String.join(", ", options) + ". Using " + fallback + "."));
+        return fallback;
     }
 
     private static Optional<Integer> colour(DefinitionNode tag, String key, String origin, String where,

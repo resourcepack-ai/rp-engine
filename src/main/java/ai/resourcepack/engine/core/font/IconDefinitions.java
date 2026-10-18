@@ -119,7 +119,8 @@ public final class IconDefinitions {
         for (String ignored : List.of("file", "gif", "grid", "animation", "height")) {
             if (body.has(ignored)) {
                 diagnostics.add(Diagnostic.warning(origin, where, ignored + ": is ignored on a rank tag, which is "
-                        + "drawn from its tag: and is as big as that drawing. Use tag.scale to make it bigger."));
+                        + "drawn from its tag: and is as big as that drawing. Use tag.scale to make it bigger"
+                        + (ignored.equals("animation") ? ", and tag.animation to make it move." : ".")));
             }
         }
         Optional<RankTags.Spec> spec = RankTags.parse(tag, origin, where, diagnostics);
@@ -143,6 +144,12 @@ public final class IconDefinitions {
         // Which tag a player wears when they hold several (RankTagWearers).
         priorities.put(definition.id(), body.integer("priority").orElse(0));
         IconInfo icon = IconInfo.of(definition.id(), tagFile(definition.id()), drawn.height(), ascent, codepoint);
+        if (spec.get().animated()) {
+            // Its frames stacked top to bottom (RankTags#strip), cut by the font
+            // one glyph per frame, as any animated icon's strip is.
+            int frames = spec.get().frames();
+            icon = icon.withCell(frames, 1, 1).withAnimation(frames, RankTags.FPS, true);
+        }
         return Optional.of(icon.withChat(aliases(body, origin, where, diagnostics),
                 body.string("permission").map(String::trim).orElse(null)));
     }
@@ -273,10 +280,13 @@ public final class IconDefinitions {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
-        // A rank tag is one still picture the build draws; parseTag says what
-        // it ignores.
-        if (body.node("tag").isPresent()) {
-            return Motion.STILL;
+        // A rank tag is a picture the build draws, and an animated one is its
+        // frames, as many codepoints as it has (RankTags.Spec#frames). Read here
+        // for the count alone; parseTag reads it again and says what is wrong.
+        Optional<DefinitionNode> tag = body.node("tag");
+        if (tag.isPresent()) {
+            int frames = RankTags.parse(tag.get(), origin, where, new ArrayList<>()).map(RankTags.Spec::frames).orElse(1);
+            return frames > 1 ? new Motion(frames, frames, RankTags.FPS, true, null, false) : Motion.STILL;
         }
         Optional<DefinitionNode> animation = body.node("animation");
         boolean loops = animation.flatMap(a -> a.bool("loop")).orElse(true);

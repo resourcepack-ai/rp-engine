@@ -2697,33 +2697,42 @@ from a `tag:` block instead of reading a PNG:
 owner:
   priority: 100            # who wins when a player holds several; see below
   tag:
-    text: OWNER            # & codes colour part of it: "VIP&6+"
+    text: OWNER
     background: "#e53935"  # quote it: a bare # starts a YAML comment
+    face: gloss
+    icon: crown
+    animation: glint
 ```
 
-Everything else about it is an icon's: one codepoint, `:mypack:owner:`,
-`%rpengine_icon_mypack:owner%`, `aliases`, `permission`. Its size is the
-drawing's, so `file`, `gif`, `grid`, `animation` and `height` are ignored with a
-warning; `ascent` still wins over the centred one it takes by default.
+Everything else about it is an icon's: one codepoint (one per frame when it is
+animated), `:mypack:owner:`, `%rpengine_icon_mypack:owner%`, `aliases`,
+`permission`. Its size is the drawing's, so `file`, `gif`, `grid`, `animation`
+and `height` beside `tag:` are ignored with a warning; `ascent` still wins over
+the centred one it takes by default.
+
+A tag is a kit of parts rather than one layout: a shape, a face, a frame round
+it, an effect on the words, an icon, and an animation, each a choice.
 
 | `tag.` field | Default | What it does |
 |---|---|---|
-| `text` | required | The words, at most 24 characters. `&0`-`&f` and `&#rrggbb` colour what follows, `&l` is bold, `&r` goes back to `text-color` |
-| `font` | `classic` | `classic` (5-pixel capitals) or `tiny` (with lowercase) |
+| `text` | required | The words, at most 24 characters, set in five-pixel block capitals (lower case is set as capitals). A character the font has not got is left out, with a warning |
+| `shape` | `round` | `rect`, `round`, `pill`, `chamfer` (cut corners), `arrow` (pointed right end), `ribbon` (notched ends) or `slant` |
+| `face` | `flat` | `flat`, `gloss` (a lit top half), `panel` (dark inside a bright frame: give it a `rim`), `stripes`, `dither` or `sparkle` |
+| `background` | `"#d9413b"` | The tag |
+| `background-2` · `background-3` | none | Stops of a top-to-bottom gradient after the background |
+| `border` | the background, darker | The outline; `none` for no outline |
+| `rim` | none | A second ring just inside the border |
+| `lip` | `false` | A darker bottom edge, so the tag stands up off the line |
 | `text-color` | `"#ffffff"` | The letters |
-| `text-fade` | none | A second colour the letters fade into, left to right |
-| `bold` | `false` | The game's own bold: every letter again one pixel right |
-| `shadow` | `true` | A one-pixel shadow under the letters, inside the tag |
-| `shadow-color` | the background, darker | |
-| `spacing` | `0` | Extra pixels between letters, up to 3 |
-| `background` | `"#e53935"` | The tag |
-| `shading` | `glossy` | `glossy`, `gradient` (top to bottom) or `flat` |
-| `background-fade` | the background, darker | Where a `gradient` ends |
-| `outline` | `1` | 0, 1 or 2 pixels |
-| `outline-color` | the background, darker | |
-| `roundness` | `2` | 0 (square) to 6, or `pill` |
-| `padding-x` · `padding-y` | `3` · `1` | Background around the words |
-| `width` | fits the words | A fixed width, to line a set of tags up |
+| `text-fade` | none | A colour the letters fade into, top to bottom |
+| `accent` | none | Everything from the first `+` on, in this colour: VIP+ |
+| `effect` | `shadow` | On the letters: `shadow` (under them), `drop` (under and right), `outline`, `outline+shadow` or `none` |
+| `effect-color` | the background, darker | The outline's or the shadow's colour |
+| `icon` | none | An icon of the tag set, by name: `crown`, `star`, `shield`, `hammer`, `chat`, `dot-red` and over a hundred more |
+| `icon-style` | `cell` | `cell` (its own square inside the tag), `inline` (beside the words) or `tile` (a square of its own before the tag) |
+| `icon-fill` | the background, darker | The cell's or the tile's colour |
+| `padding` | `2` | Columns of face either side of the words, up to 12 |
+| `animation` | `none` | `glint` (a shine sweeps across), `rainbow` (the letters cycle colours), `twinkle` (stars on the face) or `pulse` (the border breathes) |
 | `scale` | `1` | 1 to 4: every pixel drawn that many times over |
 | `offset` | `0` | Pixels above (negative: below) centred on a chat line |
 
@@ -2732,13 +2741,21 @@ A colour is `"#rrggbb"`, `"#rgb"` or one of the game's sixteen names (`red`,
 warning and the default. Only a tag with no `text`, or one too big for a glyph
 (256 pixels either way), is refused.
 
-**The defaults are the classic tag**, and the classic tag is **9 pixels tall,
-exactly one line of chat** — an outline, a pixel of padding and five-pixel
-capitals each side — so it never overlaps the lines around it.
+**The default tag is 9 pixels tall, exactly one line of chat** — an outline, a
+row of face and five-pixel capitals each side — so it never overlaps the lines
+around it. An outline effect or a lip makes it taller.
 
-**The drawing is ResourcePack AI Studio's, pixel for pixel**, so a tag designed
-there comes out the same written here. Studio has more faces than these two;
-a tag set in one of those comes from Studio already drawn.
+**An animated tag is sixteen frames at ten a second, played by the server**, as
+every animated icon is (see above): the tab list, a scoreboard or anything else
+that redraws shows it play, and a chat line, sent once, shows its first frame.
+A pulse with no border has nothing to light and is a still tag.
+
+**The drawing is ResourcePack AI Studio's rank tag kit, pixel for pixel**, so a
+tag designed there comes out the same written here. Studio can also set a tag
+in the game's own font or an uploaded one, and make its face of a block
+texture; a tag like that reaches a server from Studio already drawn (and plays
+its animation everywhere, chat included), and written here it is told, and
+drawn in the block capitals or a flat face instead.
 
 **Wearing one.** Codepoints move when content is added (see above), so a
 prefix that stores a tag's character breaks on some later reload. Every tag has
