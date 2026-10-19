@@ -179,4 +179,40 @@ class PackUploadTest {
         assertEquals(null, LoginAddresses.normalize("", 25565));
         assertEquals(null, LoginAddresses.normalize(null, 25565));
     }
+
+    @Test
+    void uploadModeCanAlsoServeThePackLocally() throws Exception {
+        host = new PackHost(
+                PackHost.Mode.UPLOAD,
+                "http://127.0.0.1",
+                PackHost.Limits.DEFAULT,
+                new PackUploader(base, "RPEngine/test", 10),
+                Runnable::run,
+                null
+        );
+
+        int port = host.start(0);
+        BuiltPack pack = pack("default", "a".repeat(40));
+
+        host.register(pack);
+        settle(host, "default");
+
+        assertTrue(host.onPackHost(host.url("default").orElseThrow()));
+        assertEquals(
+                Optional.of("http://127.0.0.1" + PackHost.pathFor(pack)),
+                host.localUrl(pack)
+        );
+
+        var response = java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder(
+                        java.net.URI.create(
+                                "http://127.0.0.1:" + port + PackHost.pathFor(pack)
+                        )
+                ).build(),
+                java.net.http.HttpResponse.BodyHandlers.ofByteArray()
+        );
+
+        assertEquals(200, response.statusCode());
+        assertArrayEquals(Files.readAllBytes(pack.file()), response.body());
+    }
 }

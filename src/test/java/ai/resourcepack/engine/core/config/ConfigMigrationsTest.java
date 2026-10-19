@@ -150,4 +150,23 @@ class ConfigMigrationsTest {
         assertEquals(once, Files.readString(file));
         assertEquals(ConfigMigrations.MIGRATIONS.size() + 1, said.size());
     }
+
+    @Test
+    void addsLocalFallbackDisabledByDefault() throws Exception {
+        String old = "config-version: 3\nhost:\n  mode: upload\n";
+
+        String migrated = ConfigMigrations.migrate(old).text();
+        YamlConfiguration after = yaml(migrated);
+
+        assertEquals(4, after.getInt("config-version"));
+        assertFalse(after.getBoolean("host.fallback-on-download-failure"));
+
+        String enabled = "config-version: 3\nhost:\n"
+                + "  fallback-on-download-failure: true\n";
+
+        YamlConfiguration preserved =
+                yaml(ConfigMigrations.migrate(enabled).text());
+
+        assertTrue(preserved.getBoolean("host.fallback-on-download-failure"));
+    }
 }
