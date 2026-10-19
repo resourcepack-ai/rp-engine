@@ -114,6 +114,11 @@ public final class VfxPlayer {
         return t >= recipe.duration;
     }
 
+    /** Makes the next {@link #step} draw tick {@code t}, keeping everything in the air: how a loop goes back. */
+    public void jumpTo(int t) {
+        this.t = Math.max(0, Math.min(recipe.duration, t));
+    }
+
     // ---- tracks
 
     private static double ease(String e, double x) {

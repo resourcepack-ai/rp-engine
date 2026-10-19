@@ -655,7 +655,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vfxRuntime = new ai.resourcepack.engine.core.vfx.VfxRuntime(this, vfxCatalogue,
                 compatibility.has(ai.resourcepack.engine.api.Feature.VFX),
                 (player, id) -> pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()))
-                        .map(content -> content.vfx().containsKey(id)).orElse(false));
+                        .map(content -> content.vfx().containsKey(id)).orElse(false),
+                // A loop's condition reads what an overlay's does: what a plugin
+                // set for the player, the engine's own, then PlaceholderAPI.
+                (player, name) -> ai.resourcepack.engine.core.font.Placeholders.lookup(player, name,
+                        player == null ? Map.of() : overlayRuntime.values(player)));
         vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
                 ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
         // After the vehicles exist, or the first call has nothing to configure.

@@ -127,6 +127,8 @@ public final class VfxRecipe {
     }
 
     int duration;
+    /** The ticks that repeat on a loop, [start, end), or null for the whole effect. */
+    int[] loop;
     final Map<String, Palette> palettes = new LinkedHashMap<>();
     final List<Layer> layers = new ArrayList<>();
     List<Sound> sounds;
@@ -144,6 +146,11 @@ public final class VfxRecipe {
 
     public List<String> problems() {
         return List.copyOf(problems);
+    }
+
+    /** The stretch that repeats on a loop, [start, end) in ticks, or null when the whole effect does. */
+    public int[] loopSection() {
+        return loop == null ? null : loop.clone();
     }
 
     /** Whether anything in it can be drawn. A recipe with nothing left is refused rather than played as nothing. */
@@ -206,6 +213,15 @@ public final class VfxRecipe {
             out.problems.add("nothing in it can be drawn");
         }
         out.sounds = sounds(r.get("sounds"), lim);
+        if (defined(r, "loop")) {
+            double[] p = pair(r.get("loop"), 0, duration, new double[] {0, duration});
+            int start = (int) VfxMath.round(p[0]), end = (int) VfxMath.round(p[1]);
+            if (end - start >= 2) {
+                out.loop = new int[] {start, end};
+            } else {
+                out.problems.add("a loop needs a start and an end at least two ticks apart; it was left out");
+            }
+        }
         return out;
     }
 
@@ -625,6 +641,12 @@ public final class VfxRecipe {
         JsonObject o = new JsonObject();
         o.addProperty("v", 1);
         o.addProperty("duration", duration);
+        if (loop != null) {
+            JsonArray l = new JsonArray();
+            l.add(loop[0]);
+            l.add(loop[1]);
+            o.add("loop", l);
+        }
         if (!palettes.isEmpty()) {
             JsonObject p = new JsonObject();
             palettes.forEach((k, pal) -> {

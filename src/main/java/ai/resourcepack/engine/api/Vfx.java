@@ -48,6 +48,25 @@ public interface Vfx {
     /** Plays an effect cast by a player: at their feet, facing the way they face. */
     Optional<VfxPlay> play(ContentId id, Player caster);
 
+    /**
+     * Plays an effect at a place, as {@code options} say: on a loop, for a
+     * time or until a condition, faster, bigger, turned, offset, following an
+     * entity, for its caster alone. See {@link VfxOptions}.
+     *
+     * @param caster whose placeholders and permissions a condition reads, and
+     *               who {@link VfxOptions.Viewers#CASTER} means; may be null
+     */
+    Optional<VfxPlay> play(ContentId id, Location at, Player caster, VfxOptions options);
+
+    /** Plays an effect cast by a player, as {@code options} say. */
+    Optional<VfxPlay> play(ContentId id, Player caster, VfxOptions options);
+
+    /** Ends every effect cast with this {@link VfxOptions#tag}, as each one's {@link VfxOptions#end} says. Returns how many. */
+    int stop(String tag);
+
+    /** Ends every effect cast on this player. Returns how many. */
+    int stop(Player caster);
+
     /** Every effect playing now. */
     List<VfxPlay> playing();
 

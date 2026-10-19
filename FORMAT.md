@@ -3503,8 +3503,10 @@ spark:
 
 A `.json` file in `vfx/` that is a recipe on its own (it has `layers`) is one
 effect named after the file, which is what downloading a VFX's recipe from
-Studio gives you. Play one with `/rp cast <name> [player]`, end them all with
-`/rp cast stop`.
+Studio gives you. Play one with `/rp cast <name> [player] [options]` (loops, conditions, speed,
+scale, follow and the rest are on the VFX docs page), end them all with
+`/rp cast stop`. A recipe's optional `loop: [start, end]` is the stretch of
+ticks a loop repeats.
 
 **A recipe is cleaned by Studio's rules**, a port of Studio's cleaner, and what
 it changed is reported at load. The player and the sprite painter are ports of

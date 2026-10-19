@@ -996,7 +996,15 @@ vfx.find("frost_nova").ifPresent(info -> vfx.play(info.id(), player)); // at the
 vfx.play(id, location);   // facing the location's yaw
 vfx.playing();            // every VfxPlay: id(), location(), running(), stop()
 vfx.stopAll();
+vfx.play(id, player, VfxOptions.builder().loop().until("{arena_state} == \"ended\"").follow(player).tag("aura").build());
+vfx.stop("aura");          // by tag; vfx.stop(player) by caster
 ```
+
+`VfxOptions` holds every `/rp cast` option (loop, loopFor, loopTimes, until,
+whileTrue, stopWhen, checkEvery, end, speed, scale, turn, offset, follow, delay,
+vary, seed, sounds, volume, viewers, tag). A loop goes round the recipe's loop
+section when it has one, the whole effect when not; `VfxPlay.finish()` plays
+the fade, `stop()` ends now.
 
 `play` answers empty for an unknown id and below 1.21.4 (`Feature.VFX`). A
 Studio VFX's displays are shown only to the players holding that push, and its
