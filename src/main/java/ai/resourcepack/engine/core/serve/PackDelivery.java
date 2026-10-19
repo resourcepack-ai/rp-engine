@@ -119,6 +119,9 @@ public final class PackDelivery {
                 // an error, and not something to spam a console over.
                 continue;
             }
+            if (!sending.stacks()) {
+                sentPacks.remove(player.getUniqueId());
+            }
             if (pack.url().isEmpty()) {
                 hosted.put(pack.uuid(), url.get());
                 sentPacks.computeIfAbsent(player.getUniqueId(),
@@ -178,14 +181,17 @@ public final class PackDelivery {
 
     /** Retries a failed hosted pack using the local HTTP server. */
     public boolean retryFromLocal(Player player, UUID packId) {
-        if (packId == null) {
-            return false;
-        }
-
         UUID playerId = player.getUniqueId();
         Map<UUID, SentPack> packs = sentPacks.get(playerId);
         if (packs == null) {
             return false;
+        }
+
+        if (packId == null) {
+            if (sending.stacks() || packs.size() != 1) {
+                return false;
+            }
+            packId = packs.keySet().iterator().next();
         }
 
         SentPack sent = packs.get(packId);
