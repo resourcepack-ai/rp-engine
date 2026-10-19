@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 2
+config-version: 3
 
 # How players download the packs this server builds.
 host:
@@ -371,6 +371,11 @@ chat:
   # people type the moment it is installed is one somebody has to find the
   # setting for in a hurry.
   icons: false
+  # Typing <fx:fire>hello</fx> in chat draws "hello" in the Text Effect called
+  # "fire", for anybody with rpengine.chat.effects.all (every effect) or
+  # rpengine.chat.effects.<name> (that one). A tag somebody may not use stays as
+  # typed. https://resourcepack.ai/docs/rp-engine/text-effects
+  text-effects: true
   # The word inside the brackets, in front of everything this plugin says.
   prefix: "RPEngine"
 

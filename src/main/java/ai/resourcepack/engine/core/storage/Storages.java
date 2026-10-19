@@ -459,7 +459,8 @@ public final class Storages implements Listener {
     }
 
     private static String colour(String text) {
-        return ChatColor.translateAlternateColorCodes('&', text);
+        return ChatColor.translateAlternateColorCodes('&',
+                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(text));
     }
 
     /**

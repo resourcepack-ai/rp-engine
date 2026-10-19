@@ -26,6 +26,7 @@ plugins/RPEngine/content/
     emotes/      *.json      also *.yml - see Emotes below
     armor3d/     *.yml       3D armour sets - see 3D armour below
     objects/     *.yml       3D shader objects and their sequences - see below
+    text-effects/ *.yml      Text Effects, a preset or GLSL each - see below
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -3337,6 +3338,70 @@ one loading.
 **Errors are collected, not thrown.** A load returns a report of everything
 that went wrong across every pack, so a server owner fixes ten problems in one
 pass rather than restarting ten times.
+
+## Text Effects
+
+A Text Effect makes text move, burn or shine. It is a function in the pack's
+text shader keyed to ONE exact colour, so any text drawn in that colour wears
+it, whoever sent it. The engine builds the shader into each bundle whose
+namespaces have effects, for every Minecraft version it has a shader for (the
+server's own version in the base, the rest in overlays), and writes nothing at
+all for a bundle without any.
+
+```yaml
+# text-effects/effects.yml
+fire:
+  preset: blaze                 # one of the 32 ready-made ones: /rp effects presets
+rainbow:
+  name: Rainbow                 # what /rp effects calls it; the key if absent
+  preset: spectrum
+wobble:
+  pad: [0, 3, 0, 3]             # room to draw outside the letter: left, top, right, bottom (0-12)
+  glsl: |
+    vec4 effect(Fx f) {
+        float y = sin(f.t * 4.0 - f.o.x * 0.4) * 1.5;
+        return inkShadow(vec3(1.0, 0.9, 0.3), G(f.p - vec2(0.0, y)), G(f.p - vec2(1.0, 1.0 + y)));
+    }
+shimmer:
+  file: mypack/text-effects/shimmer.glsl   # the same, from a file; the path is from the content folder
+```
+
+Write one into text with `<fx:fire>Flame Sword</fx>`: in an item's `name:` and
+`lore:`, an action's messages, a mob's name, a storage title, `/rp say`, and in
+chat for players with `rpengine.chat.effects.all` or
+`rpengine.chat.effects.<name>`. A bare name is a content folder's effect
+before a Studio one; `<fx:mypack:fire>` and `<fx:studio:fire>` choose. Without
+`</fx>` an effect runs to the end of the text, and a second tag ends the
+first. A tag that names no effect is left as written.
+
+**The colour is the effect**, which is what makes it work from any plugin
+(`/rp effects` lists each one's), and also its two catches: a colour code
+inside an effect (`&c`) is that colour and no effect, and a player whose pack
+lacks the effect sees near-white text.
+
+**Each effect keeps its colour for good**, in
+`plugins/RPEngine/text-effect-ids.properties`, because an item named in it
+carries the colour for as long as the item exists. Colours are handed out from
+the top of the space down (Studio's go from the bottom up, and are avoided).
+A pack can tell 32 apart.
+
+**Code is held to the rules and nothing more.** The function gets `Fx f`
+(`f.p` the pixel in the letter, 0-8; `f.q` its pixel centre; `f.o` the
+letter's place; `f.g` the pixel's place on screen; `f.t` seconds; `f.w` the
+letter's ink width) and may call `G(p)`, `N4`, `N8`, `inkDist`, `h1`-`h3`,
+`vnoise`, `fbm`, `hsv`, `over` and `inkShadow`. No uniforms, textures,
+`#define`, `while` or `discard`, every `for` bounded at 48 or less, 8000
+characters at most: code that breaks a rule is left out with the reason. There
+is no compiler on a server, and a text shader that does not compile makes the
+game refuse the whole pack, so try code in Studio first, which compiles it.
+
+**One text shader per screen.** A player's game draws one pack's text shader.
+A Studio pack with its own shader objects or Text Effects, stacked over the
+server's bundle for one player, wins for that player, and the other way round.
+Another plugin's text shader is merged as usual (`shaders.merge`).
+
+Only text drawn flat on the screen wears an effect. Signs, name tags and text
+displays in the world are plain text in that colour.
 
 ## Reserved
 

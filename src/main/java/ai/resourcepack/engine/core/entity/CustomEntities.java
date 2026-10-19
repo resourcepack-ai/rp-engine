@@ -121,7 +121,8 @@ public final class CustomEntities implements Listener {
             mob.addScoreboardTag(tag);
         }
         info.name().ifPresent(name -> {
-            mob.setCustomName(ChatColor.translateAlternateColorCodes('&', name));
+            mob.setCustomName(ChatColor.translateAlternateColorCodes('&',
+                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(name)));
             mob.setCustomNameVisible(true);
         });
         mob.setSilent(info.silent());

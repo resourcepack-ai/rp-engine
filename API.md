@@ -18,6 +18,7 @@ engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
+engine.textEffects(); // Text Effects, and writing a piece of text in one
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
 engine.dialogs();   // dialogs: open one, feed it values, read player settings
 engine.registry();  // everything this server holds, by id
@@ -956,6 +957,32 @@ from the epoch and a one-shot from server start. The PlaceholderAPI form is
 `IconInfo.aliases()` and `permission()` are what the pack said about typing the
 icon in chat. The engine's own chat handling honours both; `format` does not,
 because a config file is not somebody typing.
+
+## Text Effects in your own text
+
+A Text Effect is a colour: text drawn in exactly that colour wears the effect,
+whatever sent it. So `engine.textEffects()` hands you the colour, and two ways
+to write text in it.
+
+```java
+TextEffects effects = engine.textEffects();
+
+// <fx:name>...</fx> tags in your own config, as RP Engine's files take them.
+player.sendMessage(effects.format(config.getString("welcome")));
+
+effects.find("fire").ifPresent(fire -> {
+    meta.setDisplayName(effects.apply(fire.id(), "Flame Sword"));
+    // Adventure on Paper: the colour is all it takes.
+    player.sendMessage(Component.text("Hot!", TextColor.color(fire.rgb())));
+});
+```
+
+`ids()` lists both sources sorted, `info(id)` and `find(name)` (a bare name is
+a content folder's before a Studio one) give a `TextEffectInfo`: `id()`,
+`name()`, `color()` as `#rrggbb`, `rgb()`, `source()` (`CONTENT` or `STUDIO`)
+and `preset()`. `apply` and `format` write legacy codes that reset after
+themselves; a tag naming nothing is left as written. A colour code inside the
+text ends the effect, bold and italic do not. Any thread.
 
 ## Events
 

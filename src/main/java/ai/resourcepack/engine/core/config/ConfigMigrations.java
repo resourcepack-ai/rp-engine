@@ -53,7 +53,9 @@ public final class ConfigMigrations {
             new Migration(1, "added host.mode, which chooses how players download packs", ConfigMigrations::hostMode),
             new Migration(2, "added shaders.merge, which combines RP Engine's text shader with another plugin's,"
                     + " and shaders.notify-players",
-                    ConfigMigrations::shaderMerge)
+                    ConfigMigrations::shaderMerge),
+            new Migration(3, "added chat.text-effects, which lets players with a permission use <fx:name> in chat",
+                    ConfigMigrations::chatTextEffects)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -249,6 +251,31 @@ public final class ConfigMigrations {
                 "  notify-players: true",
                 "");
         return (text.endsWith("\n") || text.isEmpty() ? text : text + "\n") + section;
+    }
+
+    /**
+     * 3: {@code chat.text-effects}, on, first under {@code chat:}. A file with
+     * no chat section gets one holding only this; every other chat setting is
+     * then at its default, as it already was.
+     */
+    static String chatTextEffects(String text, YamlConfiguration parsed) {
+        if (parsed.contains("chat.text-effects")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# Typing <fx:fire>hello</fx> in chat draws \"hello\" in the Text Effect called",
+                "# \"fire\", for anybody with rpengine.chat.effects.all (every effect) or",
+                "# rpengine.chat.effects.<name> (that one). A tag somebody may not use stays as",
+                "# typed. https://resourcepack.ai/docs/rp-engine/text-effects",
+                "text-effects: true");
+        Matcher chat = Pattern.compile("(?m)^chat:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!chat.find()) {
+            String section = "\nchat:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, chat.end());
+        String rest = text.startsWith("\n", chat.end()) ? text.substring(chat.end() + 1) : text.substring(chat.end());
+        return text.substring(0, chat.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

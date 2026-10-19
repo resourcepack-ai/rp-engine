@@ -1377,7 +1377,8 @@ public final class VehicleRuntime implements Listener {
     private static void overhead(Player player, String line) {
         player.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                 net.md_5.bungee.api.chat.TextComponent.fromLegacyText(
-                        ChatColor.translateAlternateColorCodes('&', line)));
+                        ChatColor.translateAlternateColorCodes('&',
+                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(line))));
     }
 
     /** What to call a seat in a message: its own name, or its role and number. */
@@ -5537,7 +5538,8 @@ public final class VehicleRuntime implements Listener {
     /** What to call a vehicle in a message. */
     public String nameOf(VehicleInfo info) {
         return info.name()
-                .map(name -> ChatColor.translateAlternateColorCodes('&', name))
+                .map(name -> ChatColor.translateAlternateColorCodes('&',
+                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(name)))
                 .orElseGet(() -> info.id().toString());
     }
 }

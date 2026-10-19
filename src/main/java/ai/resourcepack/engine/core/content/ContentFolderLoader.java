@@ -155,6 +155,8 @@ public final class ContentFolderLoader {
         map.put("armor3d", ContentKind.ARMOR3D);
         // 3D shader objects and their sequences; see ObjectDefinitions.
         map.put("objects", ContentKind.OBJECT);
+        // Text effects, a preset or GLSL each; see TextEffectDefinitions.
+        map.put("text-effects", ContentKind.TEXT_EFFECT);
         return Map.copyOf(map);
     }
 

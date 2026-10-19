@@ -85,6 +85,18 @@ public final class StudioContent {
         List<Dialog> dialogs;
         List<Armor3d> armor3d;
         List<ShaderObject> objects;
+        List<TextEffect> textEffects;
+    }
+
+    /**
+     * A text effect: its name and the colour that is it. The effect itself is
+     * code in the pack's text shader and needs nothing from here to draw; this
+     * is so a server can NAME it ({@code <fx:fire>}) rather than write hex.
+     */
+    static final class TextEffect {
+        String id;
+        String name;
+        String color;
     }
 
     /**
@@ -638,6 +650,7 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -677,6 +690,7 @@ public final class StudioContent {
         copy.dialogs = dialogs;
         copy.armor3d = armor3d;
         copy.objects = objects;
+        copy.textEffects = textEffects;
         copy.packId = packId;
         return copy;
     }
@@ -699,6 +713,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = new LinkedHashMap<>();
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -712,6 +727,7 @@ public final class StudioContent {
             dialogs.putAll(pack.dialogs);
             armor.putAll(pack.armor3d);
             objects.putAll(pack.objects);
+            effects.putAll(pack.textEffects);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -723,6 +739,7 @@ public final class StudioContent {
         all.dialogs = Map.copyOf(dialogs);
         all.armor3d = Map.copyOf(armor);
         all.objects = Map.copyOf(objects);
+        all.textEffects = Map.copyOf(effects);
         all.packId = last;
         return all;
     }
@@ -774,6 +791,11 @@ public final class StudioContent {
         return objects;
     }
 
+    /** The pushed text effects, keyed by {@code studio:<id>}. */
+    public Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects() {
+        return textEffects;
+    }
+
     /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
@@ -791,7 +813,8 @@ public final class StudioContent {
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty();
+                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
+                && textEffects.isEmpty();
     }
 
     /**
@@ -966,6 +989,18 @@ public final class StudioContent {
                     new ai.resourcepack.engine.api.ShaderObjectInfo(id, object.model, size, states, null)));
         }
 
+        Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> readEffects = new LinkedHashMap<>();
+        for (TextEffect effect : manifest.textEffects == null ? List.<TextEffect>of() : manifest.textEffects) {
+            // A colour is the whole effect, so one that is not exactly
+            // #rrggbb is nothing to name.
+            if (effect == null || effect.color == null || !effect.color.matches("#[0-9a-fA-F]{6}")) {
+                continue;
+            }
+            id(effect.id, log, "text effect").ifPresent(id -> readEffects.put(id,
+                    new ai.resourcepack.engine.api.TextEffectInfo(id, effect.name, effect.color,
+                            ai.resourcepack.engine.api.TextEffectInfo.Source.STUDIO, null)));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -975,10 +1010,11 @@ public final class StudioContent {
         dialogs = Map.copyOf(readDialogs);
         armor3d = Map.copyOf(readArmor);
         objects = Map.copyOf(readObjects);
+        textEffects = Map.copyOf(readEffects);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size());
+                        + armor3d.size() + objects.size() + textEffects.size());
     }
 
     /**
@@ -1281,6 +1317,9 @@ public final class StudioContent {
         for (ContentId id : dialogs.keySet()) {
             claimed.define(ContentKind.DIALOG, id.path());
         }
+        for (ContentId id : textEffects.keySet()) {
+            claimed.define(ContentKind.TEXT_EFFECT, id.path());
+        }
     }
 
     /** Drops the namespace, if it is held. */
@@ -1451,6 +1490,14 @@ public final class StudioContent {
                 object.states.add(state);
             }
             manifest.objects.add(object);
+        }
+        manifest.textEffects = new ArrayList<>();
+        for (ai.resourcepack.engine.api.TextEffectInfo info : textEffects.values()) {
+            TextEffect effect = new TextEffect();
+            effect.id = info.id().path();
+            effect.name = info.name();
+            effect.color = info.color();
+            manifest.textEffects.add(effect);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

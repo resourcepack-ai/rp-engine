@@ -220,6 +220,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ai.resourcepack.engine.core.object.ObjectRuntime objectRuntime;
 
     /**
+     * Text effects: the pushes' and the content folder's, by name, and which
+     * colour each of the folder's is. See core/textfx.
+     */
+    private final ai.resourcepack.engine.core.textfx.TextEffectCatalogue textEffects =
+            new ai.resourcepack.engine.core.textfx.TextEffectCatalogue(() -> pushedAll.textEffects());
+    private ai.resourcepack.engine.core.textfx.TextEffectIds textEffectIds;
+
+    /**
      * What a PUSHED model is shaped like, read out of the pack on disk.
      *
      * <p>Beside {@link #pushed} rather than inside it: that holds a manifest
@@ -510,6 +518,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // 1.21.4 and later comes back down must find the numbers it had.
         modelNumbers = new ModelNumbers(getDataFolder());
         modelNumbers.load(getLogger());
+        // Before the first build, which is what hands a colour to each of the
+        // content folder's effects and has to hand out the same ones as last time.
+        textEffectIds = new ai.resourcepack.engine.core.textfx.TextEffectIds(
+                getDataFolder().toPath().resolve("text-effect-ids.properties"),
+                ai.resourcepack.engine.core.textfx.TextEffectShaders.get().maxEffects());
+        textEffectIds.load(getLogger());
+        textEffects.install();
         items = new ItemsImpl(this, compatibility, modelNumbers);
         actionRunner = new ActionRunner(items, sounds);
         // Emotes come over from the previous engine whole: the store, the
@@ -761,6 +776,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // somebody has to find the setting for in a hurry.
         getServer().getPluginManager().registerEvents(
                 new ChatIcons(icons, getConfig().getBoolean("chat.icons", false)), this);
+        // On by default, unlike icons: nothing happens until somebody with
+        // a permission types <fx:...>, which nobody types by accident.
+        getServer().getPluginManager().registerEvents(
+                new ai.resourcepack.engine.core.textfx.ChatTextEffects(textEffects,
+                        getConfig().getBoolean("chat.text-effects", true)), this);
         // The client and the relay each need the other: the client dispatches
         // to the relay, the relay answers down the client. Nothing fires until
         // open() below, so the lambdas can read a field set on the next line.
@@ -952,7 +972,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
                                 ? null
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
-                                        + "custom_model_data, which older servers cannot carry."));
+                                        + "custom_model_data, which older servers cannot carry."),
+                new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1054,6 +1075,41 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (objectRuntime != null) {
             objectRuntime.start();
         }
+    }
+
+    /**
+     * A colour for each of the content folder's text effects, the one it had
+     * before where it had one, and the catalogue told. Avoids the colours
+     * Studio's live effects are drawn in, so the two sets never share one.
+     */
+    private Map<ContentId, Integer> assignTextEffects(
+            ai.resourcepack.engine.core.textfx.TextEffectDefinitions.Result parsed, CommandSender to) {
+        ai.resourcepack.engine.core.textfx.TextEffectShaders shaders =
+                ai.resourcepack.engine.core.textfx.TextEffectShaders.get();
+        Set<Integer> studio = new java.util.HashSet<>();
+        for (ai.resourcepack.engine.api.TextEffectInfo effect : pushedAll.textEffects().values()) {
+            for (int i = 0; i < shaders.maxEffects(); i++) {
+                if (shaders.color(i).equalsIgnoreCase(effect.color())) {
+                    studio.add(i);
+                }
+            }
+        }
+        Map<ContentId, Integer> indices = textEffectIds.assign(parsed.effects().keySet(), studio);
+        textEffectIds.save(getLogger());
+        Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> named = new LinkedHashMap<>();
+        for (ai.resourcepack.engine.core.textfx.TextEffectDefinitions.Authored effect : parsed.effects().values()) {
+            Integer index = indices.get(effect.id());
+            if (index == null) {
+                to.sendMessage("[RPEngine] text-effects: " + effect.id() + " was left out: a pack can tell "
+                        + shaders.maxEffects() + " effects apart and this server has more.");
+                continue;
+            }
+            named.put(effect.id(), new ai.resourcepack.engine.api.TextEffectInfo(effect.id(), effect.name(),
+                    shaders.color(index), ai.resourcepack.engine.api.TextEffectInfo.Source.CONTENT,
+                    effect.preset().orElse(null)));
+        }
+        textEffects.replaceAuthored(named);
+        return indices;
     }
 
     /**
@@ -1561,6 +1617,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return new ai.resourcepack.engine.core.vehicle.VehiclesImpl(vehicles);
     }
 
+    /** The text effects this server can name: colours that make text drawn in them move, burn or shine. */
+    public ai.resourcepack.engine.api.TextEffects textEffects() {
+        return textEffects;
+    }
+
     /** The 3D shader objects this server holds, and the ones standing in its worlds. */
     public ai.resourcepack.engine.api.ShaderObjects shaderObjects() {
         return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);
@@ -1575,6 +1636,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
         if (heartbeat != null) {
             heartbeat.stop();
         }
@@ -2065,6 +2127,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.object.ObjectDefinitions.parse(loaded);
         report(to, "objects", parsedObjects.diagnostics());
         objectCatalogue.replaceAuthored(parsedObjects);
+
+        // Text effects: a preset or GLSL each, given the colour they had last
+        // time (TextEffectIds), and built into the bundles below as the text
+        // shader that draws them.
+        ai.resourcepack.engine.core.textfx.TextEffectDefinitions.Result parsedEffects =
+                ai.resourcepack.engine.core.textfx.TextEffectDefinitions.parse(loaded, name -> readContentFile(content, name));
+        report(to, "text-effects", parsedEffects.diagnostics());
+        Map<ContentId, Integer> effectIndices = assignTextEffects(parsedEffects, to);
         if (armor3dItems != null) {
             armor3dItems.forgetArt();
         }
@@ -2087,6 +2157,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         BuildReport builtReport = builder
                 .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
+                .with(new ai.resourcepack.engine.core.textfx.TextEffectAssets(parsedEffects.effects(), effectIndices,
+                        compatibility.packFormat()))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
         // After the build, because the build is the last thing that can ask

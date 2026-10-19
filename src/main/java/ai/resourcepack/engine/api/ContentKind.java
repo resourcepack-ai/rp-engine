@@ -74,5 +74,11 @@ public enum ContentKind {
      * A 3D shader object (a picture a core shader draws in the world), or
      * sequences for one. See {@link ShaderObjects}.
      */
-    OBJECT
+    OBJECT,
+
+    /**
+     * A text effect: a colour that makes any text drawn in it move, burn or
+     * shine, by a function in the pack's text shader. See {@link TextEffects}.
+     */
+    TEXT_EFFECT
 }

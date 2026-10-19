@@ -101,6 +101,20 @@ class ConfigMigrationsTest {
     }
 
     @Test
+    void anOlderFileGetsTheChatTextEffectsSwitchUnderChat() throws Exception {
+        String migrated = ConfigMigrations.migrate(resource("/config-migrations/0.2.12.yml")).text();
+        YamlConfiguration after = yaml(migrated);
+        assertTrue(after.getBoolean("chat.text-effects"));
+        // Beside the owner's own chat settings, not a second chat: section.
+        assertEquals(1, migrated.split("(?m)^chat:", -1).length - 1, migrated);
+        assertEquals("RPEngine", after.getString("chat.prefix"));
+        YamlConfiguration none = yaml(ConfigMigrations.migrate("config-version: 2\nhost:\n  mode: none\n").text());
+        assertTrue(none.getBoolean("chat.text-effects"));
+        YamlConfiguration off = yaml(ConfigMigrations.migrate("config-version: 2\nchat:\n  text-effects: false\n").text());
+        assertFalse(off.getBoolean("chat.text-effects"), "an owner's own choice stays");
+    }
+
+    @Test
     void noHostSectionGetsOne() throws Exception {
         YamlConfiguration after = yaml(ConfigMigrations.migrate("chat:\n  icons: true\n").text());
         assertEquals("upload", after.getString("host.mode"));

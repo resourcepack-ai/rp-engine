@@ -58,7 +58,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("sounds", "list the custom sounds"),
                 Help.of("sound", "<id> [player]", "play one"),
                 Help.of("icons", "list icons and their characters"),
-                Help.of("say", "<text>", "text with :pack:icon: in it"),
+                Help.of("say", "<text>", ":pack:icon: and <fx:name>"),
                 Help.of("screens", "list the screens and HUDs"),
                 Help.of("screen", "<id> [player]", "open a screen"),
                 Help.of("hud", "<id|clear> [player]", "show or clear one"),
@@ -510,7 +510,9 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "/rpengine say <text with :namespace:id: in it>");
             return true;
         }
-        sender.sendMessage(icons.format(String.join(" ", Arrays.copyOfRange(args, 1, args.length))));
+        // And text effects, so <fx:fire> can be tried the same way.
+        sender.sendMessage(ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(
+                icons.format(String.join(" ", Arrays.copyOfRange(args, 1, args.length)))));
         return true;
     }
 

@@ -495,4 +495,26 @@ class StudioContentTest {
         assertEquals(1, cart.animations().size());
         assertEquals("parked", cart.animations().get(VehicleState.IDLE));
     }
+
+    @Test
+    void aTextEffectIsNamedByItsColourAndSurvivesARestart(@TempDir Path dir) {
+        StudioContent content = read(dir, "{\"packId\":\"p\",\"textEffects\":["
+                + "{\"id\":\"fire\",\"name\":\"Fire\",\"color\":\"#fc04f8\"},"
+                + "{\"id\":\"bad\",\"name\":\"Bad\",\"color\":\"red\"}]}");
+        ContentId fire = ContentId.parse("studio:fire").orElseThrow();
+        assertEquals(1, content.textEffects().size(), "a colour that is not #rrggbb names nothing");
+        assertEquals("#fc04f8", content.textEffects().get(fire).color());
+        assertEquals("Fire", content.textEffects().get(fire).name());
+        assertEquals(ai.resourcepack.engine.api.TextEffectInfo.Source.STUDIO, content.textEffects().get(fire).source());
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        assertEquals("#fc04f8", reloaded.textEffects().get(fire).color());
+        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).textEffects().size());
+
+        ContentRegistryImpl registry = new ContentRegistryImpl();
+        reloaded.register(registry, LOG);
+        assertTrue(registry.contains(fire, ContentKind.TEXT_EFFECT));
+    }
 }

@@ -443,7 +443,8 @@ public final class ActionRunner {
     }
 
     private static String colour(String text) {
-        return ChatColor.translateAlternateColorCodes('&', text);
+        return ChatColor.translateAlternateColorCodes('&',
+                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(text));
     }
 
     private static float number(String written, float fallback) {

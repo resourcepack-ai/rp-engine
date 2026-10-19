@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -42,6 +42,8 @@ permissions:
       rpengine.sound: true
       rpengine.icons: true
       rpengine.say: true
+      rpengine.effects: true
+      rpengine.effect: true
       rpengine.screens: true
       rpengine.screen: true
       rpengine.dialogs: true
@@ -137,6 +139,17 @@ permissions:
     default: op
   rpengine.say:
     description: Send yourself text with icons in it.
+    default: op
+  rpengine.effects:
+    description: List the Text Effects and the presets.
+    default: op
+  rpengine.effect:
+    description: Send yourself text in a Text Effect.
+    default: op
+  rpengine.chat.effects.all:
+    # One effect is rpengine.chat.effects.<name>, which cannot be listed here
+    # because the names are the server's own.
+    description: "Use every Text Effect in chat, as <fx:name>text</fx>."
     default: op
   rpengine.screens:
     description: List the screens and HUDs.
