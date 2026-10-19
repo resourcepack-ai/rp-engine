@@ -1001,7 +1001,9 @@ vfx.stopAll();
 `play` answers empty for an unknown id and below 1.21.4 (`Feature.VFX`). A
 Studio VFX's displays are shown only to the players holding that push, and its
 sounds are played to them alone; every sound an effect started is stopped when
-it ends. At most 32 play at once and a 33rd ends the oldest. Main thread only.
+it ends. At most `vfx.max-sprites` sprites (config.yml, 4,000 by default) are alive at
+once across every effect; past it the oldest effects end, never the newest.
+Main thread only.
 
 ## Events
 

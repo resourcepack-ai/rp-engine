@@ -3433,8 +3433,10 @@ it plays in Studio's preview. The engine paints every sprite a bundle's effects
 draw into that bundle, under `rpai_vfx:` (the same names a Studio pack uses), so
 there are no image files to ship.
 
-A sprite is an item display. An effect keeps at most 240 alive, and at most 32
-effects play at once. Nothing is persistent.
+A sprite is an item display. An effect keeps at most 240 alive, and
+`vfx.max-sprites` in config.yml (4,000 by default, 0 for no limit) caps how
+many are alive across the server: past it the oldest effects end. Nothing is
+persistent.
 
 ## Reserved
 

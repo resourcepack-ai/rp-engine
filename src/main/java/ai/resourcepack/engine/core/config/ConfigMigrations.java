@@ -55,7 +55,9 @@ public final class ConfigMigrations {
                     + " and shaders.notify-players",
                     ConfigMigrations::shaderMerge),
             new Migration(3, "added chat.text-effects, which lets players with a permission use <fx:name> in chat",
-                    ConfigMigrations::chatTextEffects)
+                    ConfigMigrations::chatTextEffects),
+            new Migration(4, "added vfx.max-sprites, how many VFX sprites may be alive at once",
+                    ConfigMigrations::vfxMaxSprites)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -276,6 +278,27 @@ public final class ConfigMigrations {
         String indent = childIndent(text, chat.end());
         String rest = text.startsWith("\n", chat.end()) ? text.substring(chat.end() + 1) : text.substring(chat.end());
         return text.substring(0, chat.end()) + "\n" + indent(block, indent) + "\n" + rest;
+    }
+
+    static String vfxMaxSprites(String text, YamlConfiguration parsed) {
+        if (parsed.contains("vfx.max-sprites")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# Every sprite of a VFX is a display entity, and this is how many may be",
+                "# alive at once across the whole server. When a new effect would go over it,",
+                "# the oldest effects playing end to make room, so a cast always plays. One",
+                "# effect draws at most 240. 0 for no limit.",
+                "# https://resourcepack.ai/docs/rp-engine/vfx",
+                "max-sprites: 4000");
+        Matcher vfx = Pattern.compile("(?m)^vfx:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!vfx.find()) {
+            String section = "\nvfx:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, vfx.end());
+        String rest = text.startsWith("\n", vfx.end()) ? text.substring(vfx.end() + 1) : text.substring(vfx.end());
+        return text.substring(0, vfx.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

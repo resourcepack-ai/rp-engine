@@ -54,8 +54,8 @@ public final class VfxRuntime implements Vfx {
 
     /** On every display, so a crash's leftovers can be found; they are not persistent anyway. */
     public static final String TAG = "rpengine_vfx";
-    /** Effects playing at once. Each is up to a few hundred entities, so the oldest gives way. */
-    static final int MAX_PLAYING = 32;
+    /** {@code vfx.max-sprites} when config.yml does not say. */
+    public static final int DEFAULT_MAX_SPRITES = 4000;
     /** How far a sound and a hidden display's viewers are looked for. */
     private static final double HEARING = 64;
     private static final Quaternionf NONE = new Quaternionf();
@@ -68,12 +68,23 @@ public final class VfxRuntime implements Vfx {
     private final List<Play> playing = new ArrayList<>();
     private final Map<String, ItemStack> items = new HashMap<>();
     private BukkitTask task;
+    /** Sprites alive at once across every effect; 0 is no limit. */
+    private volatile int maxSprites = DEFAULT_MAX_SPRITES;
 
     public VfxRuntime(Plugin plugin, VfxCatalogue catalogue, boolean supported, BiPredicate<Player, ContentId> holds) {
         this.plugin = plugin;
         this.catalogue = catalogue;
         this.supported = supported;
         this.holds = holds;
+    }
+
+    /** {@code vfx.max-sprites}: how many sprites may be alive at once, across every effect. 0 or less is no limit. */
+    public void maxSprites(int max) {
+        maxSprites = Math.max(0, max);
+    }
+
+    public int maxSprites() {
+        return maxSprites;
     }
 
     /** Whether this server can play VFX at all (1.21.4+). */
@@ -116,6 +127,20 @@ public final class VfxRuntime implements Vfx {
             } catch (RuntimeException e) {
                 plugin.getLogger().warning("VFX " + play.entry.info().id() + " stopped: " + e);
                 play.end();
+            }
+        }
+        // Over the budget, the oldest give way. The newest is never ended for
+        // it, so a cast always plays, even one bigger than the whole budget.
+        int max = maxSprites;
+        if (max > 0) {
+            int alive = 0;
+            for (Play play : playing) {
+                alive += play.live.size();
+            }
+            while (alive > max && playing.size() > 1) {
+                Play oldest = playing.get(0);
+                alive -= oldest.live.size();
+                oldest.end();
             }
         }
     }
@@ -173,9 +198,6 @@ public final class VfxRuntime implements Vfx {
     }
 
     private Play start(VfxEntry entry, Location at) {
-        while (playing.size() >= MAX_PLAYING) {
-            playing.get(0).end();
-        }
         Play play = new Play(entry, at);
         playing.add(play);
         return play;

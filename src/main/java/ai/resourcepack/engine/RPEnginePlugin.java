@@ -651,6 +651,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 compatibility.has(ai.resourcepack.engine.api.Feature.VFX),
                 (player, id) -> pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()))
                         .map(content -> content.vfx().containsKey(id)).orElse(false));
+        vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
+                ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         // Before anything reads a plant's state: how many plants tripwire
@@ -1030,6 +1032,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
         defaultBundle = getConfig().getString("default-bundle", "");
+        if (vfxRuntime != null) {
+            vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
+                    ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
+        }
         rebuild(to);
     }
 
