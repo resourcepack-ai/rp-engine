@@ -350,7 +350,7 @@ overlays:
 # VFX (Minecraft 1.21.4+). Every sprite of an effect is a display entity, and
 # this is how many may be alive at once across the whole server. When a new
 # effect would go over it, the oldest effects playing end to make room, so a
-# cast always plays. One effect draws at most 240. 0 for no limit.
+# cast always plays. A big effect is a couple of hundred. 0 for no limit.
 vfx:
   max-sprites: 4000
 

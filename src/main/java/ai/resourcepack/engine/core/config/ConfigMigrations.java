@@ -288,7 +288,7 @@ public final class ConfigMigrations {
                 "# Every sprite of a VFX is a display entity, and this is how many may be",
                 "# alive at once across the whole server. When a new effect would go over it,",
                 "# the oldest effects playing end to make room, so a cast always plays. One",
-                "# effect draws at most 240. 0 for no limit.",
+                "# big effect is a couple of hundred. 0 for no limit.",
                 "# https://resourcepack.ai/docs/rp-engine/vfx",
                 "max-sprites: 4000");
         Matcher vfx = Pattern.compile("(?m)^vfx:[ \t]*(#[^\n]*)?$").matcher(text);
