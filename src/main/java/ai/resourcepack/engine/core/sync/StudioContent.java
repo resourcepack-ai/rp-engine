@@ -546,6 +546,18 @@ public final class StudioContent {
          * rectangles and the engine assembles them.
          */
         Bar bar;
+        /** Drawn only while this condition holds. Absent is always. */
+        String when;
+        /** Colours it can be switched to by name; each color is a MARK. */
+        List<RunState> states;
+        /** The placeholder whose answer names one of {@link #states}. */
+        String state;
+    }
+
+    /** One entry of {@link Run#states}. */
+    static final class RunState {
+        String name;
+        String color;
     }
 
     /** How the engine builds one of a bar's runs. See {@link Run#bar}. */
@@ -553,6 +565,8 @@ public final class StudioContent {
         List<BarGlyph> glyphs;
         /** How many pixels long the bar is when full. */
         int total;
+        /** Its length from a value instead (a placeholder or a number). Absent keeps {@link #total}. */
+        String length;
         /** The placeholder that fills it. A bare name, no braces. */
         String value;
         /** What full means: a placeholder name, or a plain number. */
@@ -594,6 +608,8 @@ public final class StudioContent {
     static final class BarShade {
         double at;
         String color;
+        /** A placeholder whose answer, a percentage, moves {@link #at}. */
+        String atFrom;
     }
 
     /** One rule from {@link Overlay#triggers}. */
@@ -1599,6 +1615,18 @@ public final class StudioContent {
                 written.advance = run.advance();
                 written.players = run.players().isEmpty() ? null : new java.util.LinkedHashMap<>(run.players());
                 written.bar = written(run.bar());
+                // Null when unset, so a run using none of this writes the JSON it arrived as.
+                written.when = run.when().isEmpty() ? null : run.when();
+                written.state = run.state().isEmpty() ? null : run.state();
+                if (!run.states().isEmpty()) {
+                    written.states = new ArrayList<>();
+                    for (OverlayInfo.OverlayRun.State state : run.states()) {
+                        RunState one = new RunState();
+                        one.name = state.name();
+                        one.color = state.color();
+                        written.states.add(one);
+                    }
+                }
                 out.runs.add(written);
             }
             // Written back beside the runs, because without them the runs come
@@ -1660,9 +1688,18 @@ public final class StudioContent {
             if (run == null || ((run.text == null || run.text.isEmpty()) && run.bar == null)) {
                 continue;
             }
+            List<OverlayInfo.OverlayRun.State> states = new ArrayList<>();
+            for (RunState state : run.states == null ? List.<RunState>of() : run.states) {
+                // A state naming no mark would draw in whatever #f0xxxx looks
+                // like, the same reason a bar's colourless threshold is dropped.
+                if (state != null && state.name != null && !state.name.isEmpty()
+                        && state.color != null && !state.color.isEmpty()) {
+                    states.add(new OverlayInfo.OverlayRun.State(state.name, state.color));
+                }
+            }
             out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color,
                     run.advance, run.players == null ? Map.of() : Map.copyOf(run.players), bar(run.bar),
-                    run.align));
+                    run.align).live(run.when, states, run.state));
         }
         return List.copyOf(out);
     }
@@ -1684,11 +1721,11 @@ public final class StudioContent {
             // mark itself — a bar in whatever #f0xxxx happens to look like —
             // so it is dropped rather than passed through.
             if (shade != null && shade.color != null && !shade.color.isEmpty()) {
-                colors.add(new OverlayInfo.OverlayRun.Bar.Shade(shade.at, shade.color));
+                colors.add(new OverlayInfo.OverlayRun.Bar.Shade(shade.at, shade.color, shade.atFrom));
             }
         }
         return new OverlayInfo.OverlayRun.Bar(glyphs, raw.total, raw.value, raw.max, raw.fill,
-                raw.segments, raw.gap, colors);
+                raw.segments, raw.gap, colors).withLength(raw.length);
     }
 
     /** The same, on the way back out to disk. */
@@ -1705,6 +1742,7 @@ public final class StudioContent {
             out.glyphs.add(one);
         }
         out.total = from.total();
+        out.length = from.length().isEmpty() ? null : from.length();
         out.value = from.value();
         out.max = from.max();
         out.fill = from.fill();
@@ -1717,6 +1755,7 @@ public final class StudioContent {
             BarShade one = new BarShade();
             one.at = shade.at();
             one.color = shade.color();
+            one.atFrom = shade.atFrom().isEmpty() ? null : shade.atFrom();
             out.colors.add(one);
         }
         return out;

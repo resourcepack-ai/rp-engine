@@ -690,6 +690,16 @@ or a plain number the author typed, so a stamina bar out of 100 needs one call:
 engine.overlays().set(player, "stamina", String.valueOf(current));
 ```
 
+**The same values drive more than words** (0.2.19). Each piece of a Studio
+overlay can carry, in its "From code" settings: a **condition** (Dialog
+Engine's `if:` language, `{rank} == "vip" && perm:hud.extra`) and the engine
+sends nothing for it while that is false; **named colours** and the value that
+picks one (`set(player, "status", "poisoned")`); and, on a bar, a **length** and
+**thresholds** read from values. Nothing here reaches the shader as a number,
+because nothing can: each named colour is a mark the pack already declared a
+vertex branch for, and the engine only chooses which to send. `OverlayRun.live`
+and `Bar.withLength` are where they live on `OverlayInfo`.
+
 **`set` and `value` are safe from any thread**, and are the one part of this
 that is: they write into a concurrent map and draw nothing, precisely so a
 caller updating six values in a row costs one redraw rather than six. The next

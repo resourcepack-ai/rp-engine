@@ -362,8 +362,16 @@ public final class Overlays {
      */
     private static Drawn drawnRun(OverlayInfo info, OverlayInfo.OverlayRun run,
                                   java.util.Map<String, String> filled, Player viewer) {
+        // A run whose condition fails is sent as nothing. Every run after it
+        // is placed from its own x, so nothing else moves.
+        if (!holds(run.when(), filled, viewer)) {
+            return new Drawn("", 0, null);
+        }
+        String picked = stateMark(run, filled, viewer);
         if (run.bar() != null) {
-            return barRun(info, run.bar(), filled, viewer);
+            Drawn bar = barRun(info, run.bar(), filled, viewer);
+            // A named state wins over the thresholds; only the fill has states.
+            return picked == null ? bar : new Drawn(bar.text(), bar.advance(), picked);
         }
         String drawn = OverlayRuntime.fill(
                 run.textFor(viewer == null ? null : viewer.getUniqueId()), filled, viewer);
@@ -376,7 +384,41 @@ public final class Overlays {
         // A head's glyph is one the pack invented, and so is any picture the
         // author placed — no table of vanilla's widths can hold either, and
         // guessing puts every run after it in the wrong place.
-        return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn), null);
+        return new Drawn(drawn, run.advance() > 0 ? run.advance() : TextWidth.of(drawn), picked);
+    }
+
+    /**
+     * Whether a run's condition holds for this player: Dialog Engine's
+     * {@code if:} language over the overlay's values (what a plugin set, the
+     * engine's own, then PlaceholderAPI). Empty always holds. One that cannot be
+     * read does not, and is reported once.
+     */
+    static boolean holds(String when, java.util.Map<String, String> filled, Player viewer) {
+        if (when == null || when.isEmpty()) {
+            return true;
+        }
+        return ai.resourcepack.engine.core.dialog.DialogConditions.test(when,
+                name -> Placeholders.lookup(viewer, name, filled),
+                permission -> viewer != null && viewer.hasPermission(permission));
+    }
+
+    /**
+     * The MARK of the named colour this run is switched to, or null for its
+     * own: the value its {@code state} placeholder names, matched without
+     * regard to case. A value naming no state is the run's own colour, so an
+     * unset value is the colour the author drew.
+     */
+    static String stateMark(OverlayInfo.OverlayRun run, java.util.Map<String, String> filled, Player viewer) {
+        if (run.states().isEmpty() || run.state().isEmpty()) {
+            return null;
+        }
+        String value = Placeholders.lookup(viewer, run.state(), filled).orElse("").trim();
+        for (OverlayInfo.OverlayRun.State state : run.states()) {
+            if (state.name().equalsIgnoreCase(value)) {
+                return state.color();
+            }
+        }
+        return null;
     }
 
     /**
@@ -409,18 +451,26 @@ public final class Overlays {
      */
     private static Drawn barRun(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar,
                                 java.util.Map<String, String> filled, Player viewer) {
+        // Its length can come from a value too: the rectangles are assembled
+        // here every time, so a length is as free as a fill. Both runs read the
+        // same value, so the background and the fill always agree.
+        int total = (int) Math.round(Math.max(0d, Math.min(MAX_BAR_LENGTH,
+                number(bar.length(), filled, viewer, bar.total()))));
         double fraction = 1d;
         if (bar.fill()) {
             double value = number(bar.value(), filled, viewer, 0d);
-            double max = number(bar.max(), filled, viewer, bar.total());
+            double max = number(bar.max(), filled, viewer, total);
             fraction = max <= 0d ? 0d : Math.max(0d, Math.min(1d, value / max));
         }
-        String color = bar.fill() ? shadeFor(bar, fraction) : null;
+        String color = bar.fill() ? shadeFor(bar, fraction, filled, viewer) : null;
         return bar.segments() > 0
-                ? segmented(info, bar, fraction, color)
-                : new Drawn(strip(info, bar, (int) Math.round(fraction * bar.total())),
-                        (int) Math.round(fraction * bar.total()), color);
+                ? segmented(info, bar, total, fraction, color)
+                : new Drawn(strip(info, bar, (int) Math.round(fraction * total)),
+                        (int) Math.round(fraction * total), color);
     }
+
+    /** The longest a bar's length may come out from a value, in pixels. Studio's MAX_BAR_WIDTH. */
+    private static final double MAX_BAR_LENGTH = 512;
 
     /**
      * The colour a fill takes at this fraction, or null to keep the run's own.
@@ -430,9 +480,16 @@ public final class Overlays {
      * fallback to disagree with it. Every value in it is a MARK the pack has
      * declared a vertex branch for — see {@link OverlayInfo.OverlayRun.Bar.Shade}.
      */
-    private static String shadeFor(OverlayInfo.OverlayRun.Bar bar, double fraction) {
+    private static String shadeFor(OverlayInfo.OverlayRun.Bar bar, double fraction,
+                                   java.util.Map<String, String> filled, Player viewer) {
         for (OverlayInfo.OverlayRun.Bar.Shade shade : bar.colors()) {
-            if (fraction <= shade.at()) {
+            // A threshold can be moved per player: its value is a percentage.
+            // The catch-all at 1 never carries one, so the list still ends in
+            // a colour every fraction is under.
+            double at = shade.atFrom().isEmpty()
+                    ? shade.at()
+                    : number(shade.atFrom(), filled, viewer, shade.at() * 100d) / 100d;
+            if (fraction <= at) {
                 return shade.color();
             }
         }
@@ -476,12 +533,12 @@ public final class Overlays {
      * the cursor in different places and every run after them would move as the
      * value changed.
      */
-    private static Drawn segmented(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar,
+    private static Drawn segmented(OverlayInfo info, OverlayInfo.OverlayRun.Bar bar, int total,
                                    double fraction, String color) {
         int count = Math.max(1, bar.segments());
         int gap = Math.max(0, bar.gap());
         // What is left for the chunks once the gaps between them are taken out.
-        int chunk = Math.max(1, (bar.total() - gap * (count - 1)) / count);
+        int chunk = Math.max(1, (total - gap * (count - 1)) / count);
         int lit = (int) Math.ceil(fraction * count - 1e-9);
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < lit; i++) {

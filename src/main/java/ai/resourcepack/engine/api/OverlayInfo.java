@@ -69,6 +69,20 @@ public final class OverlayInfo {
         private final java.util.Map<String, String> players;
         private final Bar bar;
         private final double align;
+        private String when = "";
+        private java.util.List<State> states = java.util.List.of();
+        private String state = "";
+
+        /**
+         * A colour the run can be switched to by name.
+         *
+         * <p>{@code color} is a MARK, for the reason {@link Bar.Shade} gives:
+         * each one has a vertex branch in the pack restoring its own colour, so
+         * the engine picks between colours the pack declared and never invents
+         * one.
+         */
+        public record State(String name, String color) {
+        }
 
         /**
          * How to build a run whose LENGTH depends on a number.
@@ -93,6 +107,7 @@ public final class OverlayInfo {
             private final int segments;
             private final int gap;
             private final java.util.List<Shade> colors;
+            private String length = "";
 
             /** One rectangle: the character, and how many pixels it draws. */
             public record Glyph(String character, int px) {
@@ -109,7 +124,15 @@ public final class OverlayInfo {
              * between addresses that already exist. It cannot invent one — a
              * colour with no branch behind it is drawn as the address itself.
              */
-            public record Shade(double at, String color) {
+            public record Shade(double at, String color, String atFrom) {
+                /** A threshold at a fixed fraction. */
+                public Shade(double at, String color) {
+                    this(at, color, "");
+                }
+
+                public Shade {
+                    atFrom = atFrom == null ? "" : atFrom;
+                }
             }
 
             /** A bar of one colour, in one continuous strip. */
@@ -175,6 +198,21 @@ public final class OverlayInfo {
             /** What colour the fill takes by how full it is. See {@link Shade}. */
             public java.util.List<Shade> colors() {
                 return colors;
+            }
+
+            /**
+             * The same bar whose length comes from a value: a placeholder name
+             * or a number of pixels. Empty keeps {@link #total()}.
+             */
+            public Bar withLength(String length) {
+                Bar copy = new Bar(glyphs, total, value, max, fill, segments, gap, colors);
+                copy.length = length == null ? "" : length.trim();
+                return copy;
+            }
+
+            /** Where the length comes from, or empty for {@link #total()}. */
+            public String length() {
+                return length;
             }
         }
 
@@ -305,6 +343,38 @@ public final class OverlayInfo {
         /** {@code #rrggbb}, or empty for white. */
         public String color() {
             return color;
+        }
+
+        /**
+         * The same run, drawn only while {@code when} holds and switchable to
+         * the named colours by the value {@code state} names.
+         *
+         * @param when   a condition in Dialog Engine's {@code if:} language over
+         *               the overlay's values; empty is always
+         * @param states the colours it can be switched to; empty for none
+         * @param state  the placeholder whose answer names one of {@code states}
+         */
+        public OverlayRun live(String when, java.util.List<State> states, String state) {
+            OverlayRun copy = new OverlayRun(shift, x, text, font, color, advance, players, bar, align);
+            copy.when = when == null ? "" : when.trim();
+            copy.states = states == null ? java.util.List.of() : java.util.List.copyOf(states);
+            copy.state = state == null ? "" : state.trim();
+            return copy;
+        }
+
+        /** When this run is drawn, or empty for always. See {@link #live}. */
+        public String when() {
+            return when;
+        }
+
+        /** The colours it can be switched to. See {@link #live}. */
+        public java.util.List<State> states() {
+            return states;
+        }
+
+        /** The placeholder naming its state, or empty. See {@link #live}. */
+        public String state() {
+            return state;
         }
     }
 

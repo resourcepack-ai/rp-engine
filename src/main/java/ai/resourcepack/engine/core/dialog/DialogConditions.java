@@ -172,8 +172,8 @@ public final class DialogConditions {
             return result;
         } catch (RuntimeException e) {
             if (REPORTED.add(expression)) {
-                LOG.warning("[RPEngine] A dialog piece's condition '" + expression + "' could not be read (" + e.getMessage()
-                        + "), so the piece is hidden.");
+                LOG.warning("[RPEngine] The condition '" + expression + "' could not be read (" + e.getMessage()
+                        + "), so what it guards is hidden.");
             }
             return false;
         }
