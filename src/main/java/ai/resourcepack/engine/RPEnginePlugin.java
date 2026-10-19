@@ -2744,7 +2744,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             case "INVALID_URL":
                 // Settles nothing either, but the client is the only one who
                 // saw it fail, and without this the console stays silent.
-                delivery.failed(event.getPlayer(), pack, event.getStatus().name());
+                if (!getConfig().getBoolean("host.fallback-on-download-failure", false)
+                        || !delivery.retryFromLocal(event.getPlayer(), pack)) {
+                    delivery.failed(event.getPlayer(), pack, event.getStatus().name());
+                }
                 break;
             default:
                 // Progress, or a failure - neither settles anything.
@@ -2778,6 +2781,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
         delivery.loads().forget(event.getPlayer().getUniqueId());
+        delivery.forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
         holdingPacks.remove(event.getPlayer().getUniqueId());
         awaitingOthers.remove(event.getPlayer().getUniqueId());

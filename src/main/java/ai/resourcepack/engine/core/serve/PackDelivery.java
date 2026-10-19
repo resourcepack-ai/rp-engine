@@ -8,6 +8,9 @@ import org.bukkit.entity.Player;
 import java.util.List;
 import java.util.Optional;
 import java.util.logging.Logger;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Turns a {@link BundleSessions.Delta} into the calls Bukkit understands.
@@ -37,6 +40,8 @@ public final class PackDelivery {
     private boolean warnedAboutFailure;
     /** Player -> the stack they are waiting on an upload for. */
     private final java.util.Map<java.util.UUID, List<BuiltPack>> waiting = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Player -> pack id -> last sent pack and fallback state. */
+    private final Map<UUID, Map<UUID, SentPack>> sentPacks = new ConcurrentHashMap<>();
 
     public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
                         PackSending sending, Logger logger) {
@@ -116,6 +121,14 @@ public final class PackDelivery {
             }
             if (pack.url().isEmpty()) {
                 hosted.put(pack.uuid(), url.get());
+                sentPacks.computeIfAbsent(player.getUniqueId(),
+                        id -> new ConcurrentHashMap<>())
+                        .put(pack.uuid(), new SentPack(pack, url.get(), false));
+            } else {
+                Map<UUID, SentPack> sent = sentPacks.get(player.getUniqueId());
+                if (sent != null) {
+                    sent.remove(pack.uuid());
+                }
             }
             sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
             loads.sent(player.getUniqueId(), pack.uuid());
@@ -127,6 +140,8 @@ public final class PackDelivery {
         sessions.applied(player.getUniqueId(), desired);
         return true;
     }
+
+    private record SentPack(BuiltPack pack, String url, boolean retried) {}
 
     /**
      * A client could not download a pack. Logged when the pack is one this
@@ -159,6 +174,54 @@ public final class PackDelivery {
         }
         logger.warning(player.getName() + "'s game could not download " + url + " (" + status + "). "
                 + advice + " Said once per restart.");
+    }
+
+    /** Retries a failed hosted pack using the local HTTP server. */
+    public boolean retryFromLocal(Player player, UUID packId) {
+        if (packId == null) {
+            return false;
+        }
+
+        UUID playerId = player.getUniqueId();
+        Map<UUID, SentPack> packs = sentPacks.get(playerId);
+        if (packs == null) {
+            return false;
+        }
+
+        SentPack sent = packs.get(packId);
+        if (sent == null || sent.retried()
+                || !host.onPackHost(sent.url())
+                || !sentHere(player, packId)) {
+            return false;
+        }
+
+        Optional<String> local = host.localUrl(sent.pack());
+        if (local.isEmpty()) {
+            return false;
+        }
+
+        BuiltPack pack = sent.pack();
+        String url = local.get();
+
+        packs.put(packId, new SentPack(pack, url, true));
+
+        sending.send(player, packId, url,
+                hash(pack.sha1()), prompt, force);
+        loads.sent(playerId, packId);
+
+        player.getServer().getPluginManager().callEvent(
+                new PackSendEvent(player, pack.bundle(), url));
+
+        logger.info("Retrying resource pack " + pack.bundle()
+                + " for " + player.getName()
+                + " using local hosting: " + url);
+
+        return true;
+    }
+
+    /** Forgets a player's fallback state. */
+    public void forget(UUID playerId) {
+        sentPacks.remove(playerId);
     }
 
     /** Sends what {@code id} was waiting on, if they are still here and still want it. */

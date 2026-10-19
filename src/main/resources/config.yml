@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 3
+config-version: 4
 
 # How players download the packs this server builds.
 host:
@@ -43,8 +43,7 @@ host:
   # need a public address here, not 127.0.0.1.
   public-address: "http://127.0.0.1:8181"
   
-  # Also serve packs locally when using upload mode.
-  # Automatic retry handling is added separately.
+  # Retry failed downloads using the local HTTP server.
   fallback-on-download-failure: false
 
 pack:

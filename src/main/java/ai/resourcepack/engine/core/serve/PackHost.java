@@ -425,6 +425,22 @@ public final class PackHost {
         }
     }
 
+
+    /** Returns the locally hosted URL for a registered pack. */
+    public synchronized Optional<String> localUrl(BuiltPack pack) {
+        if (pack == null || mode != Mode.UPLOAD || listener == null) {
+            return Optional.empty();
+        }
+
+        String path = pathFor(pack);
+        if (!byPath.containsKey(path)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(publicAddress + path);
+    }
+
+
     private Optional<String> gamePortLink(String path, UUID player) {
         String address = player == null ? null : playerAddress.apply(player);
         if (address == null || address.isEmpty()) {

@@ -55,7 +55,9 @@ public final class ConfigMigrations {
                     + " and shaders.notify-players",
                     ConfigMigrations::shaderMerge),
             new Migration(3, "added chat.text-effects, which lets players with a permission use <fx:name> in chat",
-                    ConfigMigrations::chatTextEffects)
+                    ConfigMigrations::chatTextEffects),
+            new Migration(4, "added host.fallback-on-download-failure, which retries failed downloads locally",
+                    ConfigMigrations::hostFallback)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -276,6 +278,25 @@ public final class ConfigMigrations {
         String indent = childIndent(text, chat.end());
         String rest = text.startsWith("\n", chat.end()) ? text.substring(chat.end() + 1) : text.substring(chat.end());
         return text.substring(0, chat.end()) + "\n" + indent(block, indent) + "\n" + rest;
+    }
+
+    /** 4: Adds the local download fallback setting, disabled by default. */
+    static String hostFallback(String text, YamlConfiguration parsed) {
+        if (parsed.contains("host.fallback-on-download-failure")) {
+            return text;
+        }
+
+        Matcher host = Pattern.compile("(?m)^host:[ \\t]*(?:#[^\\n]*)?$").matcher(text);
+        if (!host.find()) {
+            return text + (text.endsWith("\n") ? "" : "\n")
+                    + "host:\n  fallback-on-download-failure: false\n";
+        }
+
+        String indent = childIndent(text, host.end());
+        String entry = "\n" + indent + "# Retry failed downloads using local hosting.\n"
+                + indent + "fallback-on-download-failure: false";
+
+        return text.substring(0, host.end()) + entry + text.substring(host.end());
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */
