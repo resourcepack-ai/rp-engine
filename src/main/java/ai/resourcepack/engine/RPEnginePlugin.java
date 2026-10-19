@@ -1876,9 +1876,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         + getDataFolder().getName() + "/output but not served.");
                 return;
             case UPLOAD:
-                getLogger().info("Packs are uploaded to " + uploader.base() + " and players download them from "
-                        + "there (host.mode: upload).");
-                getServer().getScheduler().runTaskTimer(this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
+                getLogger().info("Packs are uploaded to " + uploader.base()
+                        + " and players download them from there (host.mode: upload).");
+
+                if (getConfig().getBoolean("host.fallback-on-download-failure", false)) {
+                    int port = getConfig().getInt("host.port", 8181);
+
+                    try {
+                        int boundPort = packHost.start(port);
+
+                        getLogger().info("Serving packs locally on port " + boundPort
+                                + " as " + address + " (host.mode: upload, fallback enabled)");
+
+                        for (String problem : PackHost.addressProblems(address, boundPort)) {
+                            getLogger().warning(problem);
+                        }
+                    } catch (IOException e) {
+                        getLogger().warning("Could not listen on port " + port
+                                + " for local fallback: " + e.getMessage()
+                                + ". Official pack hosting remains available.");
+                    }
+                }
+
+                getServer().getScheduler().runTaskTimer(
+                        this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
                 return;
             case SAME_PORT:
                 if (proxied) {

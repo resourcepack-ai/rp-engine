@@ -42,6 +42,10 @@ host:
   # the outside world knows), so it is told. Players outside your network
   # need a public address here, not 127.0.0.1.
   public-address: "http://127.0.0.1:8181"
+  
+  # Also serve packs locally when using upload mode.
+  # Automatic retry handling is added separately.
+  fallback-on-download-failure: false
 
 pack:
   # The pack_format written into pack.mcmeta, which has to match your game
