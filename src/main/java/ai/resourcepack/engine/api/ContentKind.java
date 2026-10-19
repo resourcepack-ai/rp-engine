@@ -80,5 +80,12 @@ public enum ContentKind {
      * A text effect: a colour that makes any text drawn in it move, burn or
      * shine, by a function in the pack's text shader. See {@link TextEffects}.
      */
-    TEXT_EFFECT
+    TEXT_EFFECT,
+
+    /**
+     * A VFX: a spell or ability effect drawn in the world out of glowing
+     * sprites, played from a recipe (a preset, or Studio's JSON). See
+     * {@link Vfx}.
+     */
+    VFX
 }

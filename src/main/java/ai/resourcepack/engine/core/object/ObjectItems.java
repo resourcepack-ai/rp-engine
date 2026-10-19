@@ -14,9 +14,15 @@ import java.util.List;
  * tinted with its controls.
  *
  * <p>Its own class because both calls are 1.21.4 API; it is only made on a
- * server that has them, so an older one never loads it.
+ * server that has them, so an older one never loads it. The display's glide
+ * (1.20.2) is here for the same reason.
  */
 public final class ObjectItems {
+
+    /** How many ticks a display takes to glide to where it is teleported. */
+    static void glide(org.bukkit.entity.Display display, int ticks) {
+        display.setTeleportDuration(ticks);
+    }
 
     /** The item for {@code model} (e.g. {@code rpai:shader3d_0}) carrying the tint {@code color}. */
     public ItemStack item(String model, int color) {

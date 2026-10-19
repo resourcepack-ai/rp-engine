@@ -86,6 +86,19 @@ public final class StudioContent {
         List<Armor3d> armor3d;
         List<ShaderObject> objects;
         List<TextEffect> textEffects;
+        List<Vfx> vfx;
+    }
+
+    /**
+     * A VFX: its name and its whole recipe, the timeline the engine plays
+     * ({@code core/vfx/}). The sprites it draws are in the zip; a zip has no
+     * way to say "play this", so the timeline travels here. Cleaned again on
+     * the way in, by the same rules Studio cleaned it with.
+     */
+    static final class Vfx {
+        String id;
+        String name;
+        com.google.gson.JsonObject recipe;
     }
 
     /**
@@ -651,6 +664,7 @@ public final class StudioContent {
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -691,6 +705,7 @@ public final class StudioContent {
         copy.armor3d = armor3d;
         copy.objects = objects;
         copy.textEffects = textEffects;
+        copy.vfx = vfx;
         copy.packId = packId;
         return copy;
     }
@@ -714,6 +729,7 @@ public final class StudioContent {
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -728,6 +744,7 @@ public final class StudioContent {
             armor.putAll(pack.armor3d);
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
+            vfx.putAll(pack.vfx);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -740,6 +757,7 @@ public final class StudioContent {
         all.armor3d = Map.copyOf(armor);
         all.objects = Map.copyOf(objects);
         all.textEffects = Map.copyOf(effects);
+        all.vfx = Map.copyOf(vfx);
         all.packId = last;
         return all;
     }
@@ -796,6 +814,11 @@ public final class StudioContent {
         return textEffects;
     }
 
+    /** The pushed VFX, keyed by {@code studio:<id>}. */
+    public Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx() {
+        return vfx;
+    }
+
     /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
@@ -814,7 +837,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty();
+                && textEffects.isEmpty() && vfx.isEmpty();
     }
 
     /**
@@ -1001,6 +1024,22 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.TextEffectInfo.Source.STUDIO, null)));
         }
 
+        Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> readVfx = new LinkedHashMap<>();
+        for (Vfx effect : manifest.vfx == null ? List.<Vfx>of() : manifest.vfx) {
+            if (effect == null || effect.recipe == null) {
+                continue;
+            }
+            ai.resourcepack.engine.core.vfx.VfxRecipe recipe = ai.resourcepack.engine.core.vfx.VfxRecipe.clean(effect.recipe);
+            if (!recipe.drawable()) {
+                if (log != null) log.warning("Pushed VFX " + effect.id + " has nothing in it that can be drawn: "
+                        + String.join("; ", recipe.problems()));
+                continue;
+            }
+            id(effect.id, log, "VFX").ifPresent(id -> readVfx.put(id, new ai.resourcepack.engine.core.vfx.VfxEntry(
+                    new ai.resourcepack.engine.api.VfxInfo(id, effect.name, recipe.duration(),
+                            ai.resourcepack.engine.api.VfxInfo.Source.STUDIO, null), recipe)));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -1011,10 +1050,11 @@ public final class StudioContent {
         armor3d = Map.copyOf(readArmor);
         objects = Map.copyOf(readObjects);
         textEffects = Map.copyOf(readEffects);
+        vfx = Map.copyOf(readVfx);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size());
+                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size());
     }
 
     /**
@@ -1320,6 +1360,9 @@ public final class StudioContent {
         for (ContentId id : textEffects.keySet()) {
             claimed.define(ContentKind.TEXT_EFFECT, id.path());
         }
+        for (ContentId id : vfx.keySet()) {
+            claimed.define(ContentKind.VFX, id.path());
+        }
     }
 
     /** Drops the namespace, if it is held. */
@@ -1498,6 +1541,14 @@ public final class StudioContent {
             effect.name = info.name();
             effect.color = info.color();
             manifest.textEffects.add(effect);
+        }
+        manifest.vfx = new ArrayList<>();
+        for (ai.resourcepack.engine.core.vfx.VfxEntry entry : vfx.values()) {
+            Vfx effect = new Vfx();
+            effect.id = entry.info().id().path();
+            effect.name = entry.info().name();
+            effect.recipe = entry.recipe().toJson();
+            manifest.vfx.add(effect);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

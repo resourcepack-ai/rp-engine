@@ -218,6 +218,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ai.resourcepack.engine.core.object.ObjectCatalogue objectCatalogue =
             new ai.resourcepack.engine.core.object.ObjectCatalogue(() -> pushedAll.objects());
     private ai.resourcepack.engine.core.object.ObjectRuntime objectRuntime;
+    private final ai.resourcepack.engine.core.vfx.VfxCatalogue vfxCatalogue =
+            new ai.resourcepack.engine.core.vfx.VfxCatalogue(() -> pushedAll.vfx());
+    private ai.resourcepack.engine.core.vfx.VfxRuntime vfxRuntime;
 
     /**
      * Text effects: the pushes' and the content folder's, by name, and which
@@ -641,6 +644,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ? new ai.resourcepack.engine.core.object.ObjectItems()
                         : null);
         getServer().getPluginManager().registerEvents(objectRuntime, this);
+        // A Studio effect's sprites are only in the packs of the players
+        // holding that push, so its displays are shown to them alone: the
+        // same per-player lookup a pushed screen is answered by.
+        vfxRuntime = new ai.resourcepack.engine.core.vfx.VfxRuntime(this, vfxCatalogue,
+                compatibility.has(ai.resourcepack.engine.api.Feature.VFX),
+                (player, id) -> pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()))
+                        .map(content -> content.vfx().containsKey(id)).orElse(false));
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         // Before anything reads a plant's state: how many plants tripwire
@@ -750,6 +760,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vehicles.registerDismount(this);
         vehicles.start();
         objectRuntime.start();
+        vfxRuntime.start();
         liquids.start();
         // 3D armour. Only where a set's art can be named (a string
         // custom_model_data, 1.21.4) — below that the loop never starts and
@@ -973,7 +984,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                 ? null
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
                                         + "custom_model_data, which older servers cannot carry."),
-                new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects));
+                new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
+                new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1622,6 +1634,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return textEffects;
     }
 
+    /** The VFX this server can play, and playing them. */
+    public ai.resourcepack.engine.api.Vfx vfx() {
+        return vfxRuntime;
+    }
+
     /** The 3D shader objects this server holds, and the ones standing in its worlds. */
     public ai.resourcepack.engine.api.ShaderObjects shaderObjects() {
         return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);
@@ -1654,6 +1671,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (objectRuntime != null) {
             objectRuntime.stop();
+        }
+        if (vfxRuntime != null) {
+            vfxRuntime.stop();
         }
         if (vehicles != null) {
             vehicles.stop();
@@ -2135,6 +2155,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.textfx.TextEffectDefinitions.parse(loaded, name -> readContentFile(content, name));
         report(to, "text-effects", parsedEffects.diagnostics());
         Map<ContentId, Integer> effectIndices = assignTextEffects(parsedEffects, to);
+
+        // VFX: a preset or a recipe each, played by core/vfx and built into
+        // the bundles below as the sprites they draw.
+        ai.resourcepack.engine.core.vfx.VfxDefinitions.Result parsedVfx =
+                ai.resourcepack.engine.core.vfx.VfxDefinitions.parse(loaded, name -> readContentFile(content, name));
+        report(to, "vfx", parsedVfx.diagnostics());
+        vfxCatalogue.replaceAuthored(parsedVfx.effects());
         if (armor3dItems != null) {
             armor3dItems.forgetArt();
         }
@@ -2159,6 +2186,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
                 .with(new ai.resourcepack.engine.core.textfx.TextEffectAssets(parsedEffects.effects(), effectIndices,
                         compatibility.packFormat()))
+                .with(new ai.resourcepack.engine.core.vfx.VfxAssets(parsedVfx.effects(),
+                        compatibility.has(ai.resourcepack.engine.api.Feature.VFX)))
                 .build(content, output, loaded);
         report(to, "build", builtReport.diagnostics());
         // After the build, because the build is the last thing that can ask

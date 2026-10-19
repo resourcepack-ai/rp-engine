@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -44,6 +44,8 @@ permissions:
       rpengine.say: true
       rpengine.effects: true
       rpengine.effect: true
+      rpengine.vfx: true
+      rpengine.cast: true
       rpengine.screens: true
       rpengine.screen: true
       rpengine.dialogs: true
@@ -93,6 +95,7 @@ permissions:
       rpengine.armor.others: true
       rpengine.bind.others: true
       rpengine.unbind.others: true
+      rpengine.cast.others: true
       rpengine.update: true
       rpengine.shaders: true
   rpengine.reload:
@@ -145,6 +148,15 @@ permissions:
     default: op
   rpengine.effect:
     description: Send yourself text in a Text Effect.
+    default: op
+  rpengine.vfx:
+    description: List the VFX and the presets.
+    default: op
+  rpengine.cast:
+    description: Play a VFX where you stand, and stop every VFX playing.
+    default: op
+  rpengine.cast.others:
+    description: Play a VFX where somebody else stands.
     default: op
   rpengine.chat.effects.all:
     # One effect is rpengine.chat.effects.<name>, which cannot be listed here

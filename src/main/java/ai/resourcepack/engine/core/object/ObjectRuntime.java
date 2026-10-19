@@ -148,7 +148,7 @@ public final class ObjectRuntime implements Listener {
             d.setBillboard(Display.Billboard.FIXED);
             // A big object is seen from far off; the range is a multiple of 64 blocks.
             d.setViewRange((float) Math.max(1.0, diameter / 8.0));
-            d.setTeleportDuration(MOVE_TICKS);
+            ObjectItems.glide(d, MOVE_TICKS);
             d.setPersistent(true);
             PersistentDataContainer data = d.getPersistentDataContainer();
             data.set(idKey, PersistentDataType.STRING, info.id().toString());

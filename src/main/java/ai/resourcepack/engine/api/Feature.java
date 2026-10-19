@@ -240,6 +240,19 @@ public enum Feature {
                     + "its live words included, works as usual."),
 
     /**
+     * VFX: spell effects drawn in the world out of sprites on item displays.
+     *
+     * <p>A sprite picks its picture by a {@code custom_model_data} float through
+     * an item model definition, both of which are 1.21.4's, and that is how a
+     * fade or an age plays as a sequence of pictures on one entity.
+     */
+    VFX(
+            McVersion.of(1, 21, 4),
+            "VFX",
+            "VFX do not play: /rp cast says so, the API's play() returns empty, and the "
+                    + "pack carries none of their sprites."),
+
+    /**
      * Any item made playable in a jukebox by the {@code jukebox_playable}
      * component, rather than only the vanilla discs.
      *

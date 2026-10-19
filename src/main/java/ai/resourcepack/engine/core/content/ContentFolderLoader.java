@@ -157,6 +157,8 @@ public final class ContentFolderLoader {
         map.put("objects", ContentKind.OBJECT);
         // Text effects, a preset or GLSL each; see TextEffectDefinitions.
         map.put("text-effects", ContentKind.TEXT_EFFECT);
+        // VFX, a preset or a recipe each; see VfxDefinitions.
+        map.put("vfx", ContentKind.VFX);
         return Map.copyOf(map);
     }
 
@@ -705,10 +707,21 @@ public final class ContentFolderLoader {
     private void loadCategory(Path root, Path folder, ContentKind kind, Namespace namespace,
                               List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
-        for (Path file : sortedDefinitionFiles(folder, diagnostics, relative(root, folder), kind == ContentKind.EMOTE)) {
+        for (Path file : sortedDefinitionFiles(folder, diagnostics, relative(root, folder),
+                kind == ContentKind.EMOTE || kind == ContentKind.VFX)) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
             if (document.isEmpty()) {
+                continue;
+            }
+            // A VFX file that IS a recipe (Studio's JSON, as its page copies
+            // it out) is one effect named after the file, rather than a map of
+            // effects whose keys would be "duration" and "layers".
+            if (kind == ContentKind.VFX && document.get().has("layers")) {
+                String name = file.getFileName().toString();
+                String stem = name.substring(0, name.lastIndexOf('.')).toLowerCase(Locale.ROOT);
+                DefinitionNode wrapped = DefinitionNode.of(Map.of(stem, Map.of("recipe", document.get().values())));
+                define(kind, namespace, wrapped, stem, origin, unregisteredSeen, definitions, diagnostics);
                 continue;
             }
             // A CraftEngine file is read by its own translator, which needs

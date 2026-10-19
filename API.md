@@ -19,6 +19,7 @@ engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
 engine.icons();     // icons, and putting one into a piece of text
 engine.textEffects(); // Text Effects, and writing a piece of text in one
+engine.vfx();       // VFX: play one where somebody stands
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
 engine.dialogs();   // dialogs: open one, feed it values, read player settings
 engine.registry();  // everything this server holds, by id
@@ -983,6 +984,24 @@ a content folder's before a Studio one) give a `TextEffectInfo`: `id()`,
 and `preset()`. `apply` and `format` write legacy codes that reset after
 themselves; a tag naming nothing is left as written. A colour code inside the
 text ends the effect, bold and italic do not. Any thread.
+
+## VFX
+
+`engine.vfx()` is every VFX the server can play, from a content folder's `vfx/`
+and from Studio pushes (`studio:<id>`), and playing one.
+
+```java
+Vfx vfx = engine.vfx();
+vfx.find("frost_nova").ifPresent(info -> vfx.play(info.id(), player)); // at their feet, facing their way
+vfx.play(id, location);   // facing the location's yaw
+vfx.playing();            // every VfxPlay: id(), location(), running(), stop()
+vfx.stopAll();
+```
+
+`play` answers empty for an unknown id and below 1.21.4 (`Feature.VFX`). A
+Studio VFX's displays are shown only to the players holding that push, and its
+sounds are played to them alone; every sound an effect started is stopped when
+it ends. At most 32 play at once and a 33rd ends the oldest. Main thread only.
 
 ## Events
 

@@ -27,6 +27,7 @@ plugins/RPEngine/content/
     armor3d/     *.yml       3D armour sets - see 3D armour below
     objects/     *.yml       3D shader objects and their sequences - see below
     text-effects/ *.yml      Text Effects, a preset or GLSL each - see below
+    vfx/         *.yml       VFX, a preset or a recipe each; also *.json - see below
     assets/                  -> assets/mypack/ in the built pack
       textures/  **.png
       models/    **.json     Blockbench exports (see below)
@@ -3402,6 +3403,38 @@ Another plugin's text shader is merged as usual (`shaders.merge`).
 
 Only text drawn flat on the screen wears an effect. Signs, name tags and text
 displays in the world are plain text in that colour.
+
+## VFX
+
+A VFX is a spell or ability effect drawn in the world out of glowing sprites,
+played where a player stands, facing the way they face. Needs Minecraft 1.21.4
+or newer; below that nothing plays and the pack carries none of it.
+
+```yaml
+# vfx/spells.yml
+frost:
+  preset: frost_nova            # one of Studio's ten: /rp vfx presets
+  name: Frost Nova              # what /rp vfx calls it; the preset's name if absent
+burst:
+  file: mypack/vfx/burst.json   # a Studio recipe; the path is from the content folder
+spark:
+  recipe: { duration: 30, layers: [ { type: motes, kind: streak, start: 0, end: 20, burst: 40 } ] }
+```
+
+A `.json` file in `vfx/` that is a recipe on its own (it has `layers`) is one
+effect named after the file, which is what downloading a VFX's recipe from
+Studio gives you. Play one with `/rp cast <name> [player]`, end them all with
+`/rp cast stop`.
+
+**A recipe is cleaned by Studio's rules**, a port of Studio's cleaner, and what
+it changed is reported at load. The player and the sprite painter are ports of
+Studio's too, held to Studio's output by a test, so an effect plays in game as
+it plays in Studio's preview. The engine paints every sprite a bundle's effects
+draw into that bundle, under `rpai_vfx:` (the same names a Studio pack uses), so
+there are no image files to ship.
+
+A sprite is an item display. An effect keeps at most 240 alive, and at most 32
+effects play at once. Nothing is persistent.
 
 ## Reserved
 

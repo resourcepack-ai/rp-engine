@@ -48,11 +48,11 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                          InterfaceCommands ui, EmoteCommands emote,
                          SyncCommands sync, LiquidCommands liquid,
                          VehicleCommands vehicles, ObjectCommands objects, EditCommands edit, Armor3dCommands armor3d,
-                         TextEffectCommands textEffects) {
+                         TextEffectCommands textEffects, VfxCommands vfx) {
         this.registry = registry;
         this.built = built;
         this.emote = emote;
-        this.groups = List.of(content, models, ui, textEffects, emote, sync, liquid, vehicles, objects, edit, armor3d);
+        this.groups = List.of(content, models, ui, textEffects, vfx, emote, sync, liquid, vehicles, objects, edit, armor3d);
         for (Area area : groups) {
             for (String sub : area.subcommands()) {
                 areas.put(sub, area);
