@@ -286,6 +286,14 @@ public final class ConfigMigrations {
             return text;
         }
 
+        text = text.replace(
+                "# own-port only. The port to listen on.",
+                "# own-port or upload fallback. The port to listen on."
+        ).replace(
+                "# own-port only. How a CLIENT reaches that port.",
+                "# own-port or upload fallback. How a CLIENT reaches that port."
+        );
+
         Matcher host = Pattern.compile("(?m)^host:[ \\t]*(?:#[^\\n]*)?$").matcher(text);
         if (!host.find()) {
             return text + (text.endsWith("\n") ? "" : "\n")
@@ -293,7 +301,9 @@ public final class ConfigMigrations {
         }
 
         String indent = childIndent(text, host.end());
-        String entry = "\n" + indent + "# Retry failed downloads using local hosting.\n"
+        String entry = "\n" + indent
+                + "# In upload mode, retry failed client downloads once using local hosting.\n"
+                + indent + "# Requires a reachable public-address and port.\n"
                 + indent + "fallback-on-download-failure: false";
 
         return text.substring(0, host.end()) + entry + text.substring(host.end());

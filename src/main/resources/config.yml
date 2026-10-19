@@ -17,6 +17,8 @@ host:
   #              deleted), and only the Minecraft client can download them.
   #              If an upload fails, the pack is served on the game port
   #              instead (same-port below) and the console says so.
+  #              If fallback-on-download-failure is enabled, failed client
+  #              downloads are retried once using local hosting.
   #
   #   same-port  This server serves the packs itself, on its Minecraft port.
   #              Nothing leaves this machine and there is nothing to open.
@@ -32,19 +34,21 @@ host:
   #              folder, for you to host somewhere yourself.
   mode: upload
 
-  # own-port only. The port to listen on. 0 picks a free one, which is fine
-  # for testing and no use in production because the address below then has
-  # to match it.
+  # own-port or upload fallback. The port to listen on. 0 picks a free one,
+  # which is fine for testing and no use in production because the address
+  # below then has to match it.
   port: 8181
 
-  # own-port only. How a CLIENT reaches that port. The plugin cannot work
-  # this out for itself (it may be behind a proxy, a NAT, or a hostname only
-  # the outside world knows), so it is told. Players outside your network
-  # need a public address here, not 127.0.0.1.
+  # own-port or upload fallback. How a CLIENT reaches that port.
+  # The plugin cannot work this out for itself (it may be behind a proxy,
+  # a NAT, or a hostname only the outside world knows), so it is told.
+  # Players outside your network need a public address here, not 127.0.0.1.
   public-address: "http://127.0.0.1:8181"
-  
-  # Retry failed downloads using the local HTTP server.
+
+  # In upload mode, retry failed client downloads once using local hosting.
+  # Requires a reachable public-address and port.
   fallback-on-download-failure: false
+
 
 pack:
   # The pack_format written into pack.mcmeta, which has to match your game
