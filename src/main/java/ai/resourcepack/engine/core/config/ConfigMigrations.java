@@ -57,7 +57,10 @@ public final class ConfigMigrations {
             new Migration(3, "added chat.text-effects, which lets players with a permission use <fx:name> in chat",
                     ConfigMigrations::chatTextEffects),
             new Migration(4, "added vfx.max-sprites, how many VFX sprites may be alive at once",
-                    ConfigMigrations::vfxMaxSprites)
+                    ConfigMigrations::vfxMaxSprites),
+            new Migration(5, "added host.fallback-on-download-failure, which serves a player this server's own copy"
+                    + " when the pack host fails them",
+                    ConfigMigrations::hostFallback)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -299,6 +302,31 @@ public final class ConfigMigrations {
         String indent = childIndent(text, vfx.end());
         String rest = text.startsWith("\n", vfx.end()) ? text.substring(vfx.end() + 1) : text.substring(vfx.end());
         return text.substring(0, vfx.end()) + "\n" + indent(block, indent) + "\n" + rest;
+    }
+
+    /**
+     * 5: {@code host.fallback-on-download-failure}, off, first under
+     * {@code host:}. The port and address comments above it in older files
+     * still say "own-port only"; this one says it uses them too.
+     */
+    static String hostFallback(String text, YamlConfiguration parsed) {
+        if (parsed.contains("host.fallback-on-download-failure")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# upload only. Also serve the packs on port and public-address (as",
+                "# own-port does), for a player whose game could not download one from the",
+                "# pack host, and for everybody while an upload is failing. That port has to",
+                "# be open and that address reachable, as for own-port. Read at startup.",
+                "fallback-on-download-failure: false");
+        Matcher host = Pattern.compile("(?m)^host:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!host.find()) {
+            String section = "\nhost:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, host.end());
+        String rest = text.startsWith("\n", host.end()) ? text.substring(host.end() + 1) : text.substring(host.end());
+        return text.substring(0, host.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */
