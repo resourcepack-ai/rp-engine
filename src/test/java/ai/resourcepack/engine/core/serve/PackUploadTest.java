@@ -180,39 +180,58 @@ class PackUploadTest {
         assertEquals(null, LoginAddresses.normalize(null, 25565));
     }
 
+    /** Upload mode with host.fallback-on-download-failure: its own port up, at an address that reaches it. */
+    private PackHost uploadingWithFallback() throws IOException {
+        int port;
+        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+            port = probe.getLocalPort();
+        }
+        host = new PackHost(PackHost.Mode.UPLOAD, "http://127.0.0.1:" + port, PackHost.Limits.DEFAULT,
+                new PackUploader(base, "RPEngine/test", 10), Runnable::run, null);
+        host.start(port);
+        return host;
+    }
+
+    private static java.net.http.HttpResponse<byte[]> download(String url) throws Exception {
+        return java.net.http.HttpClient.newHttpClient().send(
+                java.net.http.HttpRequest.newBuilder(java.net.URI.create(url)).build(),
+                java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+    }
+
     @Test
     void uploadModeCanAlsoServeThePackLocally() throws Exception {
-        host = new PackHost(
-                PackHost.Mode.UPLOAD,
-                "http://127.0.0.1",
-                PackHost.Limits.DEFAULT,
-                new PackUploader(base, "RPEngine/test", 10),
-                Runnable::run,
-                null
-        );
-
-        int port = host.start(0);
+        PackHost host = uploadingWithFallback();
         BuiltPack pack = pack("default", "a".repeat(40));
 
         host.register(pack);
         settle(host, "default");
 
         assertTrue(host.onPackHost(host.url("default").orElseThrow()));
-        assertEquals(
-                Optional.of("http://127.0.0.1" + PackHost.pathFor(pack)),
-                host.localUrl(pack)
-        );
-
-        var response = java.net.http.HttpClient.newHttpClient().send(
-                java.net.http.HttpRequest.newBuilder(
-                        java.net.URI.create(
-                                "http://127.0.0.1:" + port + PackHost.pathFor(pack)
-                        )
-                ).build(),
-                java.net.http.HttpResponse.BodyHandlers.ofByteArray()
-        );
-
+        // The link a client is sent, downloaded as a client would.
+        var response = download(host.localUrl(pack).orElseThrow());
         assertEquals(200, response.statusCode());
         assertArrayEquals(Files.readAllBytes(pack.file()), response.body());
+    }
+
+    @Test
+    void aFailedUploadIsServedFromTheFallbackPortNotTheGamePort() throws Exception {
+        forced.set(400);
+        PackHost host = uploadingWithFallback();
+        BuiltPack pack = pack("default", "d".repeat(40));
+
+        host.register(pack);
+        settle(host, "default");
+
+        assertEquals(host.localUrl(pack), host.url("default", null));
+        assertEquals(200, download(host.url("default", null).orElseThrow()).statusCode());
+    }
+
+    @Test
+    void withoutTheFallbackThereIsNoLocalCopy() throws Exception {
+        PackHost host = uploading(10);
+        BuiltPack pack = pack("default", "a".repeat(40));
+        host.register(pack);
+        settle(host, "default");
+        assertEquals(Optional.empty(), host.localUrl(pack));
     }
 }

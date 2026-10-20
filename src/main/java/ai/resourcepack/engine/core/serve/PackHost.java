@@ -245,6 +245,11 @@ public final class PackHost {
         return mode;
     }
 
+    /** host.public-address, which this host's own port is reached at. */
+    public String publicAddress() {
+        return publicAddress;
+    }
+
     /**
      * How a player reached this server, {@code host:port} as they typed it,
      * for links to the game port: such a link has to use the address the
@@ -415,6 +420,10 @@ public final class PackHost {
                 if (upload.done) {
                     return Optional.of(upload.url);
                 }
+                if (upload.failed && listening()) {
+                    // host.fallback-on-download-failure: a port the owner opened for exactly this.
+                    return Optional.of(publicAddress + path);
+                }
                 if (upload.failed && samePort != null && samePort.running()) {
                     return gamePortLink(path, player);
                 }
@@ -425,21 +434,26 @@ public final class PackHost {
         }
     }
 
-
-    /** Returns the locally hosted URL for a registered pack. */
+    /**
+     * The link to this server's own copy of {@code pack}, in upload mode with
+     * host.fallback-on-download-failure on, or empty: not that, or not this
+     * build (a rebuild drops the old one's path).
+     */
     public synchronized Optional<String> localUrl(BuiltPack pack) {
         if (pack == null || mode != Mode.UPLOAD || listener == null) {
             return Optional.empty();
         }
-
         String path = pathFor(pack);
         if (!byPath.containsKey(path)) {
             return Optional.empty();
         }
-
         return Optional.of(publicAddress + path);
     }
 
+    /** Whether this host's own port is up. */
+    private synchronized boolean listening() {
+        return listener != null;
+    }
 
     private Optional<String> gamePortLink(String path, UUID player) {
         String address = player == null ? null : playerAddress.apply(player);
@@ -507,13 +521,19 @@ public final class PackHost {
         }
     }
 
-    /** An upload failed: serve that pack from the game port instead, and say so once. */
+    /**
+     * An upload failed: serve that pack from host.fallback-on-download-failure's
+     * port, or else the game port, and say so once.
+     */
     private void fallBack(BuiltPack pack, Exception why) {
         if (uploadThread == null || uploadThread.isShutdown()) {
             return;
         }
         String reason = why.getMessage() == null ? why.toString() : why.getMessage();
-        if (!gamePortReachable) {
+        if (listening()) {
+            sayOnce("Could not upload " + pack.bundle() + " to the pack host (" + reason + "), so this server is "
+                    + "serving it from " + publicAddress + " instead (host.fallback-on-download-failure).");
+        } else if (!gamePortReachable) {
             sayOnce("Could not upload " + pack.bundle() + " to the pack host (" + reason + "), and this server is "
                     + "behind a proxy, so it cannot be served on the game port instead. Players will not be sent it "
                     + "until an upload works; to serve it yourself, set host.mode to own-port in config.yml.");

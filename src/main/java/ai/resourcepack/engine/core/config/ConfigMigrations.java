@@ -58,7 +58,8 @@ public final class ConfigMigrations {
                     ConfigMigrations::chatTextEffects),
             new Migration(4, "added vfx.max-sprites, how many VFX sprites may be alive at once",
                     ConfigMigrations::vfxMaxSprites),
-            new Migration(5, "added host.fallback-on-download-failure, which retries failed downloads locally",
+            new Migration(5, "added host.fallback-on-download-failure, which serves a player this server's own copy"
+                    + " when the pack host fails them",
                     ConfigMigrations::hostFallback)
     );
 
@@ -282,35 +283,6 @@ public final class ConfigMigrations {
         return text.substring(0, chat.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
-    /** 4: Adds the local download fallback setting, disabled by default. */
-    static String hostFallback(String text, YamlConfiguration parsed) {
-        if (parsed.contains("host.fallback-on-download-failure")) {
-            return text;
-        }
-
-        text = text.replace(
-                "# own-port only. The port to listen on.",
-                "# own-port or upload fallback. The port to listen on."
-        ).replace(
-                "# own-port only. How a CLIENT reaches that port.",
-                "# own-port or upload fallback. How a CLIENT reaches that port."
-        );
-
-        Matcher host = Pattern.compile("(?m)^host:[ \\t]*(?:#[^\\n]*)?$").matcher(text);
-        if (!host.find()) {
-            return text + (text.endsWith("\n") ? "" : "\n")
-                    + "host:\n  fallback-on-download-failure: false\n";
-        }
-
-        String indent = childIndent(text, host.end());
-        String entry = "\n" + indent
-                + "# In upload mode, retry failed client downloads once using local hosting.\n"
-                + indent + "# Requires a reachable public-address and port.\n"
-                + indent + "fallback-on-download-failure: false";
-
-        return text.substring(0, host.end()) + entry + text.substring(host.end());
-    }
-
     static String vfxMaxSprites(String text, YamlConfiguration parsed) {
         if (parsed.contains("vfx.max-sprites")) {
             return text;
@@ -330,6 +302,31 @@ public final class ConfigMigrations {
         String indent = childIndent(text, vfx.end());
         String rest = text.startsWith("\n", vfx.end()) ? text.substring(vfx.end() + 1) : text.substring(vfx.end());
         return text.substring(0, vfx.end()) + "\n" + indent(block, indent) + "\n" + rest;
+    }
+
+    /**
+     * 5: {@code host.fallback-on-download-failure}, off, first under
+     * {@code host:}. The port and address comments above it in older files
+     * still say "own-port only"; this one says it uses them too.
+     */
+    static String hostFallback(String text, YamlConfiguration parsed) {
+        if (parsed.contains("host.fallback-on-download-failure")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# upload only. Also serve the packs on port and public-address (as",
+                "# own-port does), for a player whose game could not download one from the",
+                "# pack host, and for everybody while an upload is failing. That port has to",
+                "# be open and that address reachable, as for own-port. Read at startup.",
+                "fallback-on-download-failure: false");
+        Matcher host = Pattern.compile("(?m)^host:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!host.find()) {
+            String section = "\nhost:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, host.end());
+        String rest = text.startsWith("\n", host.end()) ? text.substring(host.end() + 1) : text.substring(host.end());
+        return text.substring(0, host.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

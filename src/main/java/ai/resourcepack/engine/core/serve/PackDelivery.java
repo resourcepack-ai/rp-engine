@@ -8,16 +8,14 @@ import org.bukkit.entity.Player;
 import java.util.List;
 import java.util.Optional;
 import java.util.logging.Logger;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Turns a {@link BundleSessions.Delta} into the calls Bukkit understands.
  *
  * <p>The only Bukkit-facing class in {@code core/serve}, and deliberately the
  * thinnest thing that could work. Every decision about what to send lives in
- * {@link BundleSessions}, which is testable without a server; this does the
+ * {@link BundleSessions} (and, for host.fallback-on-download-failure,
+ * {@link DownloadFallback}), which is testable without a server; this does the
  * sending and nothing else, so there is very little here that can be wrong in
  * a way a test would have caught.
  */
@@ -40,8 +38,12 @@ public final class PackDelivery {
     private boolean warnedAboutFailure;
     /** Player -> the stack they are waiting on an upload for. */
     private final java.util.Map<java.util.UUID, List<BuiltPack>> waiting = new java.util.concurrent.ConcurrentHashMap<>();
-    /** Player -> pack id -> last sent pack and fallback state. */
-    private final Map<UUID, Map<UUID, SentPack>> sentPacks = new ConcurrentHashMap<>();
+    /** host.fallback-on-download-failure, once this server is serving its own copies; null while it is not. */
+    private DownloadFallback fallback;
+    /** Player -> the stack last applied, which a fallback sends again. Kept only with the fallback on. */
+    private final java.util.Map<java.util.UUID, List<BuiltPack>> applied = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Said once a run, like {@link #warnedAboutFailure}. */
+    private boolean warnedAboutFallback;
 
     public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
                         PackSending sending, Logger logger) {
@@ -94,7 +96,7 @@ public final class PackDelivery {
         // second loading screen. Nothing is recorded either, so the retry
         // plans from scratch.
         for (BuiltPack pack : adding) {
-            if (pack.url().isEmpty() && host.pending(pack.bundle())) {
+            if (pack.url().isEmpty() && host.pending(pack.bundle()) && localCopy(player, pack).isEmpty()) {
                 java.util.UUID id = player.getUniqueId();
                 waiting.put(id, desired);
                 host.whenSettled(pack.bundle(), () -> retry(player, id));
@@ -103,6 +105,9 @@ public final class PackDelivery {
         }
         for (BundleSessions.Held held : delta.remove()) {
             sending.remove(player, held.uuid());
+            if (fallback != null) {
+                fallback.removed(player.getUniqueId(), held.uuid());
+            }
         }
         for (BuiltPack pack : adding) {
             // A pushed pack is already served, at an address Studio signed and
@@ -110,7 +115,9 @@ public final class PackDelivery {
             // a pushed pack's address is how a working push became "failed to
             // download" on every server whose host.public-address is still the
             // default — which is every server nobody has configured.
-            Optional<String> url = pack.url().isEmpty()
+            Optional<String> local = localCopy(player, pack);
+            Optional<String> url = local.isPresent() ? local
+                    : pack.url().isEmpty()
                     ? host.url(pack.bundle(), player.getUniqueId())
                     : Optional.of(pack.url());
             if (url.isEmpty()) {
@@ -119,32 +126,83 @@ public final class PackDelivery {
                 // an error, and not something to spam a console over.
                 continue;
             }
-            if (!sending.stacks()) {
-                sentPacks.remove(player.getUniqueId());
-            }
-            if (pack.url().isEmpty()) {
+            if (pack.url().isEmpty() && local.isEmpty()) {
                 hosted.put(pack.uuid(), url.get());
-                sentPacks.computeIfAbsent(player.getUniqueId(),
-                        id -> new ConcurrentHashMap<>())
-                        .put(pack.uuid(), new SentPack(pack, url.get(), false));
-            } else {
-                Map<UUID, SentPack> sent = sentPacks.get(player.getUniqueId());
-                if (sent != null) {
-                    sent.remove(pack.uuid());
-                }
             }
             sending.send(player, pack.uuid(), url.get(), hash(pack.sha1()), prompt, force);
             loads.sent(player.getUniqueId(), pack.uuid());
+            if (fallback != null) {
+                fallback.sent(player.getUniqueId(), sending.stacks() ? pack.uuid() : null,
+                        host.onPackHost(url.get()));
+            }
             player.getServer().getPluginManager().callEvent(
                     new PackSendEvent(player, pack.bundle(), url.get()));
         }
         // Recorded once the sends have gone out, never at plan time. See
         // BundleSessions for why the two are separate.
         sessions.applied(player.getUniqueId(), desired);
+        if (fallback != null) {
+            applied.put(player.getUniqueId(), List.copyOf(desired));
+        }
         return true;
     }
 
-    private record SentPack(BuiltPack pack, String url, boolean retried) {}
+    /** This server's own copy of {@code pack}, for a player the pack host has failed. */
+    private Optional<String> localCopy(Player player, BuiltPack pack) {
+        return fallback != null && pack.url().isEmpty() && fallback.local(player.getUniqueId())
+                ? host.localUrl(pack)
+                : Optional.empty();
+    }
+
+    /**
+     * Turns on host.fallback-on-download-failure, once {@link PackHost#start}
+     * has a listener up to serve this server's own copies.
+     */
+    public void fallBackLocally() {
+        fallback = new DownloadFallback();
+    }
+
+    /**
+     * Feeds the fallback what a client said and, when it is the pack host
+     * failing one of our downloads, sends that player this server's own copies
+     * instead: from the pack that failed to the top of their stack, because a
+     * pack sent again lands on top and the ones above it have to follow it to
+     * keep their order. Any of those that had loaded is cached, so it costs the
+     * player one reload.
+     *
+     * @param pack the pack, or null where packs do not stack
+     * @return whether it fell back, in which case the failure has been said
+     */
+    public boolean fallBack(Player player, java.util.UUID pack, String status) {
+        if (fallback == null || player == null
+                || !fallback.failedOnPackHost(player.getUniqueId(), pack, status)) {
+            return false;
+        }
+        java.util.UUID id = player.getUniqueId();
+        List<BuiltPack> stack = applied.getOrDefault(id, List.of());
+        int from = DownloadFallback.resendFrom(stack.stream().map(BuiltPack::uuid).toList(), pack);
+        if (from < 0 || host.localUrl(stack.get(from)).isEmpty()) {
+            return false;
+        }
+        String failedUrl = hosted.get(stack.get(from).uuid());
+        fallback.serveLocally(id);
+        // Somebody waiting on an upload gets the newer stack when it settles,
+        // from here now; sending the older one would supersede it.
+        if (!waiting.containsKey(id)) {
+            // As though they held only what is under it, so apply sends the rest.
+            sessions.applied(id, stack.subList(0, from));
+            apply(player, stack);
+        }
+        if (!warnedAboutFallback) {
+            warnedAboutFallback = true;
+            logger.warning(player.getName() + "'s game could not download " + failedUrl + " (" + status + ") from "
+                    + "ResourcePack AI's pack host, so it was sent this server's own copy from " + host.publicAddress()
+                    + " (host.fallback-on-download-failure), as is anybody else it happens to. Most likely their "
+                    + "own connection; if it is every player, set host.mode to own-port in config.yml. "
+                    + "Said once per restart.");
+        }
+        return true;
+    }
 
     /**
      * A client could not download a pack. Logged when the pack is one this
@@ -162,15 +220,21 @@ public final class PackDelivery {
             return;
         }
         warnedAboutFailure = true;
+        if (fallback != null && fallback.local(player.getUniqueId())) {
+            // Sent this server's own copy, not the pack host link recorded for everybody.
+            url = host.publicAddress();
+        }
         String advice;
         if (host.onPackHost(url)) {
             advice = "That is ResourcePack AI's pack host, so this is most likely the player's own connection. "
                     + "If every player sees it, set host.mode to same-port or own-port in config.yml.";
-        } else if (host.mode() == PackHost.Mode.OWN_PORT) {
+        } else if (host.mode() == PackHost.Mode.OWN_PORT || (fallback != null && url.startsWith(host.publicAddress()))) {
             advice = "That address comes from host.public-address in config.yml and has to be one the PLAYER'S "
                     + "computer can reach: this server's public IP or domain, with the port in host.port open to the "
                     + "internet (on a hosting panel, that usually means allocating the port to this server). "
-                    + "Or set host.mode to upload, which needs neither.";
+                    + (host.mode() == PackHost.Mode.OWN_PORT
+                    ? "Or set host.mode to upload, which needs neither."
+                    : "host.fallback-on-download-failure sends players there when the pack host fails them.");
         } else {
             advice = "That is this server's game port, which a player behind a proxy (Velocity, BungeeCord) cannot "
                     + "download from. Set host.mode to upload in config.yml.";
@@ -179,55 +243,12 @@ public final class PackDelivery {
                 + advice + " Said once per restart.");
     }
 
-    /** Retries a failed hosted pack using the local HTTP server. */
-    public boolean retryFromLocal(Player player, UUID packId) {
-        UUID playerId = player.getUniqueId();
-        Map<UUID, SentPack> packs = sentPacks.get(playerId);
-        if (packs == null) {
-            return false;
+    /** Forgets what the fallback knew about a player who left. */
+    public void forget(java.util.UUID player) {
+        if (fallback != null && player != null) {
+            fallback.forget(player);
+            applied.remove(player);
         }
-
-        if (packId == null) {
-            if (sending.stacks() || packs.size() != 1) {
-                return false;
-            }
-            packId = packs.keySet().iterator().next();
-        }
-
-        SentPack sent = packs.get(packId);
-        if (sent == null || sent.retried()
-                || !host.onPackHost(sent.url())
-                || !sentHere(player, packId)) {
-            return false;
-        }
-
-        Optional<String> local = host.localUrl(sent.pack());
-        if (local.isEmpty()) {
-            return false;
-        }
-
-        BuiltPack pack = sent.pack();
-        String url = local.get();
-
-        packs.put(packId, new SentPack(pack, url, true));
-
-        sending.send(player, packId, url,
-                hash(pack.sha1()), prompt, force);
-        loads.sent(playerId, packId);
-
-        player.getServer().getPluginManager().callEvent(
-                new PackSendEvent(player, pack.bundle(), url));
-
-        logger.info("Retrying resource pack " + pack.bundle()
-                + " for " + player.getName()
-                + " using local hosting: " + url);
-
-        return true;
-    }
-
-    /** Forgets a player's fallback state. */
-    public void forget(UUID playerId) {
-        sentPacks.remove(playerId);
     }
 
     /** Sends what {@code id} was waiting on, if they are still here and still want it. */
