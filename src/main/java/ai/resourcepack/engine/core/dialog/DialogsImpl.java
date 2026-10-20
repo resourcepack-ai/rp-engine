@@ -361,7 +361,7 @@ public final class DialogsImpl implements Dialogs {
         // The dialog itself, in the command. Nothing needs to be in the
         // registry for this, so nothing needs a restart — see the class note.
         Optional<String> inline = DialogSnbt.of(json);
-        if (inline.isPresent() && dispatch("minecraft:dialog show " + target(viewer) + " " + inline.get(),
+        if (inline.isPresent() && dispatch(dialogCommand(viewer, "show @s " + inline.get()),
                 named, false) == Outcome.SHOWN) {
             remember(viewer, shown, followed);
             return true;
@@ -376,7 +376,7 @@ public final class DialogsImpl implements Dialogs {
         // Its own refusal is worth a line only when the dialog never got that
         // far as itself: otherwise it says the id is not in the registry, which
         // reads like the problem and is not.
-        Outcome byName = dispatch("minecraft:dialog show " + target(viewer) + " " + named, named,
+        Outcome byName = dispatch(dialogCommand(viewer, "show @s " + named), named,
                 inline.isEmpty() && refused == null);
         if (byName == Outcome.SHOWN) {
             remember(viewer, shown, followed);
@@ -1041,18 +1041,30 @@ public final class DialogsImpl implements Dialogs {
         } catch (ReflectiveOperationException | RuntimeException e) {
             // Not there: the command, as before.
         }
-        dispatch("minecraft:dialog clear " + target(viewer), null, true);
+        dispatch(dialogCommand(viewer, "clear @s"), null, true);
     }
 
     /**
-     * Who a dialog command is aimed at: the player's UUID, which the game's
-     * entity argument reads as exactly one entity. Never their name. On an
-     * offline-mode server a name is whatever the client said, and a player
-     * called {@code @a} would turn every dialog anybody opened into one shown
-     * to the whole server.
+     * A {@code /dialog} command aimed at one player: run AS them, at
+     * {@code @s}. {@code rest} is everything after {@code dialog}, starting
+     * with {@code show @s} or {@code clear @s}.
+     *
+     * <p>Never their name. On an offline-mode server a name is whatever the
+     * client said, and a player called {@code @a} would turn every dialog
+     * anybody opened into one shown to the whole server.
+     *
+     * <p>Never their UUID in {@code /dialog} itself either, though a UUID is
+     * exactly one entity. The dialog command takes PLAYERS, and the game's
+     * parser refuses a UUID for a players-only argument whoever it names,
+     * because it cannot know at parse time that the entity is a player
+     * ({@code EntityArgument}: "Only players may be affected by this command,
+     * but the provided selector includes entities"). Written that way, this
+     * route never once opened a dialog. {@code execute as} takes any entity,
+     * and {@code @s} is the one selector a players-only argument accepts, then
+     * checks when it runs.
      */
-    static String target(Player viewer) {
-        return viewer.getUniqueId().toString();
+    static String dialogCommand(Player viewer, String rest) {
+        return "minecraft:execute as " + viewer.getUniqueId() + " run minecraft:dialog " + rest;
     }
 
     /**
