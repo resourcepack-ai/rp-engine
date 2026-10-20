@@ -1892,9 +1892,34 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         + getDataFolder().getName() + "/output but not served.");
                 return;
             case UPLOAD:
-                getLogger().info("Packs are uploaded to " + uploader.base() + " and players download them from "
-                        + "there (host.mode: upload).");
-                getServer().getScheduler().runTaskTimer(this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
+                getLogger().info("Packs are uploaded to " + uploader.base()
+                        + " and players download them from there (host.mode: upload).");
+
+                // Read here and only here, like the rest of host: the listener
+                // it needs is started once, so a reload could not honour it.
+                if (getConfig().getBoolean("host.fallback-on-download-failure", false)) {
+                    int port = getConfig().getInt("host.port", 8181);
+
+                    try {
+                        int boundPort = packHost.start(port);
+                        delivery.fallBackLocally();
+
+                        getLogger().info("Serving packs locally on port " + boundPort
+                                + " as " + address + " (host.mode: upload, fallback enabled)");
+
+                        for (String problem : PackHost.addressProblems(address, boundPort)) {
+                            getLogger().warning("host.fallback-on-download-failure: " + problem
+                                    + " This is only the fallback; packs from the pack host are not affected.");
+                        }
+                    } catch (IOException e) {
+                        getLogger().warning("Could not listen on port " + port
+                                + " for local fallback: " + e.getMessage()
+                                + ". Official pack hosting remains available.");
+                    }
+                }
+
+                getServer().getScheduler().runTaskTimer(
+                        this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
                 return;
             case SAME_PORT:
                 if (proxied) {
@@ -2763,6 +2788,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // By name, for the reason DistributionManager.onPackStatus gives: an
         // enum switch naming a constant this server lacks fails the class.
         keepOursOnTop(event.getPlayer(), pack, event.getStatus().name());
+        // Every status, not only failures: which send a failure is about is
+        // told by what the client said before it. See DownloadFallback.
+        boolean fellBack = delivery.fallBack(event.getPlayer(), pack, event.getStatus().name());
         switch (event.getStatus().name()) {
             case "SUCCESSFULLY_LOADED":
                 delivery.loads().confirmed(player, pack);
@@ -2774,7 +2802,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             case "INVALID_URL":
                 // Settles nothing either, but the client is the only one who
                 // saw it fail, and without this the console stays silent.
-                delivery.failed(event.getPlayer(), pack, event.getStatus().name());
+                if (!fellBack) {
+                    delivery.failed(event.getPlayer(), pack, event.getStatus().name());
+                }
                 break;
             default:
                 // Progress, or a failure - neither settles anything.
@@ -2808,6 +2838,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
         delivery.loads().forget(event.getPlayer().getUniqueId());
+        delivery.forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
         holdingPacks.remove(event.getPlayer().getUniqueId());
         awaitingOthers.remove(event.getPlayer().getUniqueId());
