@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 4
+config-version: 5
 
 # How players download the packs this server builds.
 host:
@@ -353,6 +353,13 @@ overlays:
   # works out itself ({health}, PlaceholderAPI). Lower is smoother for those
   # and one packet per wearer per redraw.
   refresh-ticks: 30
+
+# VFX (Minecraft 1.21.4+). Every sprite of an effect is a display entity, and
+# this is how many may be alive at once across the whole server. When a new
+# effect would go over it, the oldest effects playing end to make room, so a
+# cast always plays. A big effect is a couple of hundred. 0 for no limit.
+vfx:
+  max-sprites: 4000
 
 # Dialogs (Minecraft 1.21.6+).
 dialogs:

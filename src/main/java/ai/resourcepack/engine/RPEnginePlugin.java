@@ -409,6 +409,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
+    /** Which rank tag a player wears, by permission. See RankTagWearers. */
+    private final ai.resourcepack.engine.core.font.RankTagWearers rankTagWearers =
+            new ai.resourcepack.engine.core.font.RankTagWearers();
+    /** The tag nodes the last load registered, so the next one can take away those it no longer has. */
+    private final java.util.Set<String> rankTagNodes = new java.util.HashSet<>();
     private final Overlays overlays = new Overlays();
 
     /**
@@ -650,7 +655,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vfxRuntime = new ai.resourcepack.engine.core.vfx.VfxRuntime(this, vfxCatalogue,
                 compatibility.has(ai.resourcepack.engine.api.Feature.VFX),
                 (player, id) -> pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()))
-                        .map(content -> content.vfx().containsKey(id)).orElse(false));
+                        .map(content -> content.vfx().containsKey(id)).orElse(false),
+                // A loop's condition reads what an overlay's does: what a plugin
+                // set for the player, the engine's own, then PlaceholderAPI.
+                (player, name) -> ai.resourcepack.engine.core.font.Placeholders.lookup(player, name,
+                        player == null ? Map.of() : overlayRuntime.values(player)));
+        vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
+                ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         // Before anything reads a plant's state: how many plants tripwire
@@ -829,7 +840,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // has none of them from ever loading their classes. See its note.
         if (optional("PlaceholderAPI",
                 () -> Placeholders.register(this, registry, emotes(), items, icons, seats, sessions, group,
-                        (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name)))) {
+                        (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name),
+                        player -> rankTagWearers.tagOf(player::hasPermission)))) {
             getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
         }
         if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {
@@ -1030,6 +1042,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
         defaultBundle = getConfig().getString("default-bundle", "");
+        if (vfxRuntime != null) {
+            vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
+                    ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
+        }
         rebuild(to);
     }
 
@@ -2118,6 +2134,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
+        rankTagWearers.replace(parsedIcons);
+        registerRankTagPermissions();
 
         // Hand-authored emotes, and the rigs to play them on. The rigs are
         // baked from every skin the server has kept, on any server new
@@ -2383,6 +2401,39 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         sync.members(code, entries);
+    }
+
+    /**
+     * Declares a node per rank tag, {@code rpengine.tag.<namespace>.<path>},
+     * defaulting to nobody, and takes away the ones whose tag has gone.
+     *
+     * <p>Declared rather than merely checked because an undeclared node is
+     * granted to every op, and an op holding every tag would wear whichever
+     * ranked highest. Declared here rather than in plugin.yml because the tags
+     * are the server's content, which plugin.yml cannot know.
+     */
+    private void registerRankTagPermissions() {
+        if (!getServer().isPrimaryThread()) {
+            getServer().getScheduler().runTask(this, this::registerRankTagPermissions);
+            return;
+        }
+        org.bukkit.plugin.PluginManager manager = getServer().getPluginManager();
+        java.util.Set<String> wanted = new java.util.HashSet<>();
+        for (java.util.Map.Entry<String, ContentId> node : rankTagWearers.permissions()) {
+            wanted.add(node.getKey());
+            if (manager.getPermission(node.getKey()) == null) {
+                manager.addPermission(new org.bukkit.permissions.Permission(node.getKey(),
+                        "Wears the " + node.getValue() + " rank tag (%rpengine_tag%)",
+                        org.bukkit.permissions.PermissionDefault.FALSE));
+            }
+        }
+        for (String gone : rankTagNodes) {
+            if (!wanted.contains(gone)) {
+                manager.removePermission(gone);
+            }
+        }
+        rankTagNodes.clear();
+        rankTagNodes.addAll(wanted);
     }
 
     private void report(CommandSender to, String stage, List<Diagnostic> diagnostics) {

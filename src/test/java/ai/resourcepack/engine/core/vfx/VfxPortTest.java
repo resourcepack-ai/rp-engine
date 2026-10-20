@@ -96,14 +96,23 @@ class VfxPortTest {
             assertEquals(effect.get("recipe"), recipe.toJson(), key + " recipe differs at " + diff("", effect.get("recipe"), recipe.toJson()));
             VfxPlayer player = new VfxPlayer(recipe);
             List<VfxPlayer.Frame> frames = new ArrayList<>();
+            // Played on a loop, as Studio's playVfxLooped does it: to the
+            // section's end, back to its start `passes` times, then on.
+            int passes = effect.has("passes") ? effect.get("passes").getAsInt() : 0;
+            int[] loop = recipe.loopSection();
             while (!player.done()) {
+                if (loop != null && passes > 0 && player.tick() == loop[1]) {
+                    passes--;
+                    player.jumpTo(loop[0]);
+                }
                 frames.add(player.step());
             }
             assertEquals(effect.get("ticks").getAsInt(), frames.size(), key + " ticks");
             for (JsonElement fe : effect.getAsJsonArray("frames")) {
                 JsonObject expected = fe.getAsJsonObject();
                 int t = expected.get("t").getAsInt();
-                VfxPlayer.Frame frame = frames.get(t);
+                VfxPlayer.Frame frame = frames.get(expected.get("i").getAsInt());
+                assertEquals(t, frame.t(), key + " frame " + expected.get("i") + " tick");
                 JsonArray want = expected.getAsJsonArray("instances");
                 assertEquals(want.size(), frame.instances().size(), key + " tick " + t + " instance count");
                 for (int i = 0; i < want.size(); i++) {

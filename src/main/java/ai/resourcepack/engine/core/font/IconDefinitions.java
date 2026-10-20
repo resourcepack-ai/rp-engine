@@ -53,7 +53,7 @@ public final class IconDefinitions {
     public static Result parse(LoadReport loaded, PackFiles files) {
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
-            return new Result(Map.of(), List.of());
+            return new Result(Map.of(), Map.of(), Map.of(), List.of());
         }
         PackFiles reader = files == null ? PackFiles.NONE : files;
         List<String> namespaces = new ArrayList<>();
@@ -74,6 +74,8 @@ public final class IconDefinitions {
         Map<ContentId, Integer> codepoints = GlyphAllocator.allocate(loaded,
                 definition -> motions.getOrDefault(definition.id(), Motion.STILL).glyphs());
         Map<ContentId, IconInfo> icons = new LinkedHashMap<>();
+        Map<ContentId, RankTags.Spec> tags = new HashMap<>();
+        Map<ContentId, Integer> priorities = new HashMap<>();
         for (ContentDefinition definition : loaded.definitions(ContentKind.FONT)) {
             Integer codepoint = codepoints.get(definition.id());
             if (codepoint == null) {
@@ -87,10 +89,74 @@ public final class IconDefinitions {
             if (motion.broken) {
                 continue;
             }
+            Optional<DefinitionNode> tag = definition.body().node("tag");
+            if (tag.isPresent()) {
+                parseTag(definition, codepoint, tag.get(), tags, priorities, diagnostics)
+                        .ifPresent(icon -> icons.put(icon.id(), icon));
+                continue;
+            }
             parseOne(definition, codepoint, motion, diagnostics)
                     .ifPresent(icon -> icons.put(icon.id(), icon));
         }
-        return new Result(Map.copyOf(unshared(icons, loaded, diagnostics)), List.copyOf(diagnostics));
+        Map<ContentId, IconInfo> kept = unshared(icons, loaded, diagnostics);
+        tags.keySet().retainAll(kept.keySet());
+        priorities.keySet().retainAll(tags.keySet());
+        return new Result(Map.copyOf(kept), Map.copyOf(tags), Map.copyOf(priorities), List.copyOf(diagnostics));
+    }
+
+    /**
+     * A rank tag: an icon whose picture the build draws from {@code tag:}
+     * (see {@link RankTags}). Its size is the drawing's, so {@code height:}
+     * means nothing on one, and neither do the ways an icon finds its picture.
+     * {@code ascent:} still wins over the centred one the tag would take.
+     */
+    private static Optional<IconInfo> parseTag(ContentDefinition definition, int codepoint, DefinitionNode tag,
+                                               Map<ContentId, RankTags.Spec> tags, Map<ContentId, Integer> priorities,
+                                               List<Diagnostic> diagnostics) {
+        DefinitionNode body = definition.body();
+        String origin = definition.origin();
+        String where = definition.id().path();
+        for (String ignored : List.of("file", "gif", "grid", "animation", "height")) {
+            if (body.has(ignored)) {
+                diagnostics.add(Diagnostic.warning(origin, where, ignored + ": is ignored on a rank tag, which is "
+                        + "drawn from its tag: and is as big as that drawing. Use tag.scale to make it bigger"
+                        + (ignored.equals("animation") ? ", and tag.animation to make it move." : ".")));
+            }
+        }
+        Optional<RankTags.Spec> spec = RankTags.parse(tag, origin, where, diagnostics);
+        if (spec.isEmpty()) {
+            return Optional.empty();
+        }
+        RankTags.Drawn drawn = RankTags.render(spec.get());
+        if (!drawn.fits()) {
+            diagnostics.add(Diagnostic.error(origin, where, "The tag is " + drawn.width() + " by " + drawn.height()
+                    + " pixels, and a font glyph can be at most " + RankTags.MAX_EDGE
+                    + " either way. Use fewer letters, less padding or a smaller scale."));
+            return Optional.empty();
+        }
+        int ascent = body.integer("ascent").orElse(drawn.ascent());
+        if (ascent > drawn.height()) {
+            diagnostics.add(Diagnostic.warning(origin, where, "ascent: " + ascent + " is greater than the tag's height "
+                    + drawn.height() + ", which the game refuses to draw at all. Using " + drawn.height() + "."));
+            ascent = drawn.height();
+        }
+        tags.put(definition.id(), spec.get());
+        // Which tag a player wears when they hold several (RankTagWearers).
+        priorities.put(definition.id(), body.integer("priority").orElse(0));
+        IconInfo icon = IconInfo.of(definition.id(), tagFile(definition.id()), drawn.height(), ascent, codepoint);
+        if (spec.get().animated()) {
+            // Its frames stacked top to bottom (RankTags#strip), cut by the font
+            // one glyph per frame, as any animated icon's strip is.
+            int frames = spec.get().frames();
+            icon = icon.withCell(frames, 1, 1).withAnimation(frames, RankTags.FPS, true);
+        }
+        return Optional.of(icon.withChat(aliases(body, origin, where, diagnostics),
+                body.string("permission").map(String::trim).orElse(null)));
+    }
+
+    /** Where the build writes a rank tag's picture, under the pack's {@code textures/font/}. */
+    static String tagFile(ContentId id) {
+        return "rank_tags/" + id.path();
     }
 
     private static Optional<IconInfo> parseOne(ContentDefinition definition, int codepoint, Motion motion,
@@ -214,6 +280,14 @@ public final class IconDefinitions {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
+        // A rank tag is a picture the build draws, and an animated one is its
+        // frames, as many codepoints as it has (RankTags.Spec#frames). Read here
+        // for the count alone; parseTag reads it again and says what is wrong.
+        Optional<DefinitionNode> tag = body.node("tag");
+        if (tag.isPresent()) {
+            int frames = RankTags.parse(tag.get(), origin, where, new ArrayList<>()).map(RankTags.Spec::frames).orElse(1);
+            return frames > 1 ? new Motion(frames, frames, RankTags.FPS, true, null, false) : Motion.STILL;
+        }
         Optional<DefinitionNode> animation = body.node("animation");
         boolean loops = animation.flatMap(a -> a.bool("loop")).orElse(true);
         Optional<Integer> askedFps = animation.flatMap(a -> a.integer("fps"));
@@ -360,11 +434,26 @@ public final class IconDefinitions {
     public static final class Result {
 
         private final Map<ContentId, IconInfo> icons;
+        private final Map<ContentId, RankTags.Spec> tags;
+        private final Map<ContentId, Integer> tagPriorities;
         private final List<Diagnostic> diagnostics;
 
-        Result(Map<ContentId, IconInfo> icons, List<Diagnostic> diagnostics) {
+        Result(Map<ContentId, IconInfo> icons, Map<ContentId, RankTags.Spec> tags,
+               Map<ContentId, Integer> tagPriorities, List<Diagnostic> diagnostics) {
             this.icons = icons;
+            this.tags = tags;
+            this.tagPriorities = tagPriorities;
             this.diagnostics = diagnostics;
+        }
+
+        /** Each rank tag's {@code priority:}, which decides the one a player wears. */
+        public Map<ContentId, Integer> tagPriorities() {
+            return tagPriorities;
+        }
+
+        /** The icons that are rank tags, with what each is drawn from. */
+        public Map<ContentId, RankTags.Spec> tags() {
+            return tags;
         }
 
         /** Every icon that parsed, keyed by id, in codepoint order. */

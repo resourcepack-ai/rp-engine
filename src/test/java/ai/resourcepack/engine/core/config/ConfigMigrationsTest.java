@@ -158,7 +158,7 @@ class ConfigMigrationsTest {
         String migrated = ConfigMigrations.migrate(old).text();
         YamlConfiguration after = yaml(migrated);
 
-        assertEquals(4, after.getInt("config-version"));
+        assertEquals(5, after.getInt("config-version"));
         assertFalse(after.getBoolean("host.fallback-on-download-failure"));
 
         String enabled = "config-version: 3\nhost:\n"

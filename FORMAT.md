@@ -2686,6 +2686,86 @@ font of their own, `is_emoji`, a GIF's `offset`, and placeholders on a
 multi-bitmap glyph (it became several icons, and a placeholder cannot type all
 of them).
 
+### Rank tags
+
+A rank tag is the badge in front of a player's name — a rounded red OWNER, a
+gold VIP — for a chat prefix. It is an icon whose picture the build **draws**
+from a `tag:` block instead of reading a PNG:
+
+```yaml
+# fonts/ranks.yml
+owner:
+  priority: 100            # who wins when a player holds several; see below
+  tag:
+    text: OWNER
+    background: "#e53935"  # quote it: a bare # starts a YAML comment
+    face: gloss
+    icon: crown
+    animation: glint
+```
+
+Everything else about it is an icon's: one codepoint (one per frame when it is
+animated), `:mypack:owner:`, `%rpengine_icon_mypack:owner%`, `aliases`,
+`permission`. Its size is the drawing's, so `file`, `gif`, `grid`, `animation`
+and `height` beside `tag:` are ignored with a warning; `ascent` still wins over
+the centred one it takes by default.
+
+A tag is a kit of parts rather than one layout: a shape, a face, a frame round
+it, an effect on the words, an icon, and an animation, each a choice.
+
+| `tag.` field | Default | What it does |
+|---|---|---|
+| `text` | required | The words, at most 24 characters, set in five-pixel block capitals (lower case is set as capitals). A character the font has not got is left out, with a warning |
+| `shape` | `round` | `rect`, `round`, `pill`, `chamfer` (cut corners), `arrow` (pointed right end), `ribbon` (notched ends) or `slant` |
+| `face` | `flat` | `flat`, `gloss` (a lit top half), `panel` (dark inside a bright frame: give it a `rim`), `stripes`, `dither` or `sparkle` |
+| `background` | `"#d9413b"` | The tag |
+| `background-2` · `background-3` | none | Stops of a top-to-bottom gradient after the background |
+| `border` | the background, darker | The outline; `none` for no outline |
+| `rim` | none | A second ring just inside the border |
+| `lip` | `false` | A darker bottom edge, so the tag stands up off the line |
+| `text-color` | `"#ffffff"` | The letters |
+| `text-fade` | none | A colour the letters fade into, top to bottom |
+| `accent` | none | Everything from the first `+` on, in this colour: VIP+ |
+| `effect` | `shadow` | On the letters: `shadow` (under them), `drop` (under and right), `outline`, `outline+shadow` or `none` |
+| `effect-color` | the background, darker | The outline's or the shadow's colour |
+| `icon` | none | An icon of the tag set, by name: `crown`, `star`, `shield`, `hammer`, `chat`, `dot-red` and over a hundred more |
+| `icon-style` | `cell` | `cell` (its own square inside the tag), `inline` (beside the words) or `tile` (a square of its own before the tag) |
+| `icon-fill` | the background, darker | The cell's or the tile's colour |
+| `padding` | `2` | Columns of face either side of the words, up to 12 |
+| `animation` | `none` | `glint` (a shine sweeps across), `rainbow` (the letters cycle colours), `twinkle` (stars on the face) or `pulse` (the border breathes) |
+| `scale` | `1` | 1 to 4: every pixel drawn that many times over |
+| `offset` | `0` | Pixels above (negative: below) centred on a chat line |
+
+A colour is `"#rrggbb"`, `"#rgb"` or one of the game's sixteen names (`red`,
+`dark_red`, `gold`...). A mistake costs the field rather than the tag: it is a
+warning and the default. Only a tag with no `text`, or one too big for a glyph
+(256 pixels either way), is refused.
+
+**The default tag is 9 pixels tall, exactly one line of chat** — an outline, a
+row of face and five-pixel capitals each side — so it never overlaps the lines
+around it. An outline effect or a lip makes it taller.
+
+**An animated tag is sixteen frames at ten a second, played by the server**, as
+every animated icon is (see above): the tab list, a scoreboard or anything else
+that redraws shows it play, and a chat line, sent once, shows its first frame.
+A pulse with no border has nothing to light and is a still tag.
+
+**The drawing is ResourcePack AI Studio's rank tag kit, pixel for pixel**, so a
+tag designed there comes out the same written here. Studio can also set a tag
+in the game's own font or an uploaded one, and make its face of a block
+texture; a tag like that reaches a server from Studio already drawn (and plays
+its animation everywhere, chat included), and written here it is told, and
+drawn in the block capitals or a flat face instead.
+
+**Wearing one.** Codepoints move when content is added (see above), so a
+prefix that stores a tag's character breaks on some later reload. Every tag has
+a permission instead, `rpengine.tag.<namespace>.<id>` (a `/` in the ID is a
+`.`), which nobody holds by default — ops included. Give it to a group in your
+permissions plugin, and print `%rpengine_tag%` where the prefix goes: it is the
+character of the tag the player wears, the one with the highest `priority`
+among those they hold (an ID breaks a tie), and empty for none.
+`%rpengine_tag_id%` is which one.
+
 ## Screens and HUDs
 
 A custom GUI and a HUD overlay are the same trick as an icon, scaled up: the
@@ -3423,8 +3503,10 @@ spark:
 
 A `.json` file in `vfx/` that is a recipe on its own (it has `layers`) is one
 effect named after the file, which is what downloading a VFX's recipe from
-Studio gives you. Play one with `/rp cast <name> [player]`, end them all with
-`/rp cast stop`.
+Studio gives you. Play one with `/rp cast <name> [player] [options]` (loops, conditions, speed,
+scale, follow and the rest are on the VFX docs page), end them all with
+`/rp cast stop`. A recipe's optional `loop: [start, end]` is the stretch of
+ticks a loop repeats.
 
 **A recipe is cleaned by Studio's rules**, a port of Studio's cleaner, and what
 it changed is reported at load. The player and the sprite painter are ports of
@@ -3433,8 +3515,11 @@ it plays in Studio's preview. The engine paints every sprite a bundle's effects
 draw into that bundle, under `rpai_vfx:` (the same names a Studio pack uses), so
 there are no image files to ship.
 
-A sprite is an item display. An effect keeps at most 240 alive, and at most 32
-effects play at once. Nothing is persistent.
+A sprite is an item display. An effect stops starting new motes once it has
+240 sprites alive (its layers are not held to that), and
+`vfx.max-sprites` in config.yml (4,000 by default, 0 for no limit) caps how
+many are alive across the server: past it the oldest effects end. Nothing is
+persistent.
 
 ## Reserved
 
