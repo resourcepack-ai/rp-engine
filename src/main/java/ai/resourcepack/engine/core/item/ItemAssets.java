@@ -77,6 +77,8 @@ public final class ItemAssets implements PackContributor {
     private final Map<ContentId, String> armorArt = new LinkedHashMap<>();
     /** {@code first-person:}, read straight off the definitions like {@code armor-art:}. */
     private final Map<ContentId, String> firstPerson = new LinkedHashMap<>();
+    /** {@code pull:}, {@code charged:} and {@code charged-firework:}; see {@link UseStates}. */
+    private final Map<ContentId, UseStates> useStates = new LinkedHashMap<>();
 
     /** The armour this build wrote that the server will draw with vanilla art. */
     private final List<String> vanillaDrawn = new ArrayList<>();
@@ -149,6 +151,7 @@ public final class ItemAssets implements PackContributor {
         vanillaDrawn.clear();
         readArmorArt(loaded);
         readFirstPerson(loaded);
+        readUseStates(loaded, into);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
@@ -227,11 +230,38 @@ public final class ItemAssets implements PackContributor {
         }
     }
 
+    /**
+     * The looks an item takes while it is used, read off the definitions the
+     * same way. What cannot be used is reported against the item here, once,
+     * rather than again on every era it is written for.
+     */
+    private void readUseStates(LoadReport loaded, Contribution into) {
+        useStates.clear();
+        if (loaded == null) {
+            return;
+        }
+        for (ContentDefinition definition : loaded.definitions(ContentKind.ITEM)) {
+            List<String> problems = new ArrayList<>();
+            UseStates states = UseStates.read(definition.body(), problems);
+            for (String problem : problems) {
+                into.warn(definition.id().namespace() + "/items", definition.id().path(), problem);
+            }
+            if (states != null) {
+                useStates.put(definition.id(), states);
+            }
+        }
+    }
+
     /** One custom model on a base material, numbered eras only. A repeat is ignored. */
     private void addLegacy(String material, int number, String modelRef) {
-        if (legacySeen.add(material + "#" + number)) {
+        addLegacy(material, number, modelRef, "", 0);
+    }
+
+    /** {@link #addLegacy(String, int, String)} with more predicate after the number. */
+    private void addLegacy(String material, int number, String modelRef, String extra, int order) {
+        if (legacySeen.add(material + "#" + number + "#" + extra)) {
             legacyBases.computeIfAbsent(material, key -> new ArrayList<>())
-                    .add(new LegacyItemModels.Override(number, modelRef));
+                    .add(new LegacyItemModels.Override(number, modelRef, extra, order));
         }
     }
 
@@ -378,6 +408,7 @@ public final class ItemAssets implements PackContributor {
         String namespace = id.namespace();
         String modelRef = namespace + ":item/" + id.path();
         String modelPath = "assets/" + namespace + "/models/item/" + id.path() + ".json";
+        Used used = writeUseStates(item, modelRef, into);
 
         // How the model is reached is the server's version. On 1.21.4 and up
         // the id names an item definition; below it the id has a number and
@@ -401,22 +432,33 @@ public final class ItemAssets implements PackContributor {
                         "first-person: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
                                 + "it is seen. On this one the item's own model is drawn in first person too.");
             }
+            if (used != null) {
+                List<String[]> predicates = UseStates.legacyPredicates(used.pull, used.at, used.charged,
+                        used.firework);
+                for (int i = 0; i < predicates.size(); i++) {
+                    addLegacy(material, numbers.of(id), predicates.get(i)[1], predicates.get(i)[0], i + 1);
+                }
+            }
         } else {
-            String own = "{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}";
+            String look = "{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}";
             String firstPersonModel = firstPerson.get(id);
             if (firstPersonModel != null
-                    && writeFirstPerson(item, namespace, firstPersonModel, modelRef + "_first_person", into)) {
+                    && writeVariant(item, namespace, "first-person", firstPersonModel, null,
+                            modelRef + "_first_person", into)) {
                 // The game picks by where the item is being drawn: the holder's
                 // own view gets the first-person model, everything else (a
                 // third-person view, the inventory, the ground) the item's own.
-                into.add("assets/" + namespace + "/items/" + id.path() + ".json",
-                        json("{\"model\":{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
-                                + "\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
-                                + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_first_person\"}}],"
-                                + "\"fallback\":" + own + "}}"));
-            } else {
-                into.add("assets/" + namespace + "/items/" + id.path() + ".json", json("{\"model\":" + own + "}"));
+                look = "{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
+                        + "\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_first_person\"}}],"
+                        + "\"fallback\":" + look + "}";
             }
+            if (used != null) {
+                // Outside the first-person choice: a bow being drawn is drawn
+                // back in every view, the holder's own included.
+                look = UseStates.definition(look, item.material(), used.pull, used.at, used.charged, used.firework);
+            }
+            into.add("assets/" + namespace + "/items/" + id.path() + ".json", json("{\"model\":" + look + "}"));
         }
 
         if (item.model().isPresent()) {
@@ -592,33 +634,132 @@ public final class ItemAssets implements PackContributor {
         }
     }
 
+    /** The use states an item's definition can name, written; see {@link #writeUseStates}. */
+    private static final class Used {
+        final List<String> pull;
+        final double[] at;
+        final String charged;
+        final String firework;
+
+        Used(List<String> pull, double[] at, String charged, String firework) {
+            this.pull = pull;
+            this.at = at;
+            this.charged = charged;
+            this.firework = firework;
+        }
+    }
+
     /**
-     * Writes an item's {@code first-person:} model as {@code ref}, from a JSON
-     * model (a file or written inline; a Blockbench project is not read here,
-     * since a first-person view is a variation on a model the item already has).
+     * Writes the model of every use state an item has, and says which of them
+     * made it. The same on every era: only how they are reached differs.
      *
-     * @return whether it was written; when it was not, the error says why and
-     *         the item is drawn with its own model everywhere
+     * <p>A state whose model is missing is left out with an error rather than
+     * taking the item with it, so a bow with one broken frame still draws with
+     * the other two.
+     *
+     * @return null when the item has none, or none that can mean anything here
      */
-    private boolean writeFirstPerson(ItemInfo item, String namespace, String name, String ref, Contribution into) {
+    private Used writeUseStates(ItemInfo item, String modelRef, Contribution into) {
+        UseStates states = useStates.get(item.id());
+        if (states == null) {
+            return null;
+        }
+        String namespace = item.id().namespace();
+        String material = item.material();
+        List<UseStates.Look> pull = states.pull;
+        if (!pull.isEmpty() && numbered && !UseStates.legacyPullable(material)) {
+            into.warn(namespace + "/items", item.id().path(),
+                    "pull: below Minecraft 1.21.4 only a BOW or a CROSSBOW can be drawn back. "
+                            + "On this one the item keeps its own look while it is used.");
+            pull = List.of();
+        }
+        UseStates.Look charged = states.charged;
+        UseStates.Look firework = states.firework;
+        if ((charged != null || firework != null) && !UseStates.chargeable(material)) {
+            into.warn(namespace + "/items", item.id().path(),
+                    "charged: and charged-firework: are a crossbow's loaded looks, and a "
+                            + material.toLowerCase(java.util.Locale.ROOT)
+                            + " is never loaded. Build it on CROSSBOW to use them.");
+            charged = null;
+            firework = null;
+        }
+        // In threshold order, which is the order both eras need them in.
+        double[] at = UseStates.thresholds(material, pull);
+        Integer[] order = new Integer[pull.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        java.util.Arrays.sort(order, java.util.Comparator.comparingDouble(i -> at[i]));
+        List<String> refs = new ArrayList<>();
+        List<Double> kept = new ArrayList<>();
+        for (int i = 0; i < order.length; i++) {
+            UseStates.Look look = pull.get(order[i]);
+            String ref = modelRef + "_pull_" + i;
+            if (writeVariant(item, namespace, "pull", look.model, look.texture, ref, into)) {
+                refs.add(ref);
+                kept.add(at[order[i]]);
+            }
+        }
+        String chargedRef = charged != null
+                && writeVariant(item, namespace, "charged", charged.model, charged.texture, modelRef + "_charged", into)
+                ? modelRef + "_charged" : null;
+        String fireworkRef = firework != null
+                && writeVariant(item, namespace, "charged-firework", firework.model, firework.texture,
+                        modelRef + "_charged_firework", into)
+                ? modelRef + "_charged_firework" : null;
+        if (refs.isEmpty() && chargedRef == null && fireworkRef == null) {
+            return null;
+        }
+        return new Used(refs, kept.stream().mapToDouble(Double::doubleValue).toArray(), chargedRef, fireworkRef);
+    }
+
+    /**
+     * Writes one more look of an item as {@code ref}: a {@code first-person:}
+     * model or a use state. A model is a Blockbench project, a JSON model file
+     * or one written inline, exactly as {@code model:} is; a texture is a flat
+     * sprite, exactly as an item with no model is.
+     *
+     * @param label the key it was declared under, which every error starts with
+     * @return whether it was written; when it was not, the error says why and
+     *         the item is drawn with its own look instead
+     */
+    private boolean writeVariant(ItemInfo item, String namespace, String label, String name, String texture,
+                                 String ref, Contribution into) {
+        String path = "assets/" + ref.substring(0, ref.indexOf(':')) + "/models/" + ref.substring(ref.indexOf(':') + 1) + ".json";
+        if (texture != null) {
+            String location = ModelSources.textureLocation(namespace, texture);
+            into.add(path, json("{\"parent\":\"minecraft:item/generated\","
+                    + "\"textures\":{\"layer0\":\"" + location + "\"}}"));
+            String textureNamespace = location.substring(0, location.indexOf(':'));
+            if (!ModelSources.isLocation(texture) || bundle == null || bundle.namespaces().contains(textureNamespace)) {
+                requireTexture(item, namespace, Geometry.zipPathOf(location), into);
+            }
+            return true;
+        }
+        Optional<JsonObject> project = convertProject(item, namespace, name, into);
+        if (project.isPresent()) {
+            into.add(path, project.get().toString().getBytes(StandardCharsets.UTF_8));
+            return true;
+        }
         Optional<ModelSources.Found> source = source(into, namespace, name, ".json");
         Optional<Geometry.Model> model = source.flatMap(found -> Geometry.read(found.bytes(), found.textureNamespace()));
         if (model.isEmpty()) {
             into.error(namespace + "/items", item.id().path(),
                     source.isEmpty()
-                            ? "first-person: no model at " + (ModelSources.isInline(name) ? "(inline model)"
+                            ? label + ": no model at " + (ModelSources.isInline(name) ? "(inline model)"
                             : ModelSources.describe(namespace, name, ".json")) + "."
-                            : "first-person: " + source.get().path() + " is not a model file.");
+                            : label + ": " + source.get().path() + " is not a model file.");
             return false;
         }
-        String path = "assets/" + ref.substring(0, ref.indexOf(':')) + "/models/" + ref.substring(ref.indexOf(':') + 1) + ".json";
+        // The source stays: unlike the item's own model, one of these is often
+        // the parent of another (every frame of a bow built on the first).
         into.add(path, model.get().json());
-        for (String texture : model.get().textures()) {
-            String textureNamespace = texture.substring(0, texture.indexOf(':'));
+        for (String used : model.get().textures()) {
+            String textureNamespace = used.substring(0, used.indexOf(':'));
             if (bundle != null && !bundle.namespaces().contains(textureNamespace)) {
                 continue;
             }
-            requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
+            requireTexture(item, namespace, Geometry.zipPathOf(used), into);
         }
         return true;
     }
@@ -650,9 +791,26 @@ public final class ItemAssets implements PackContributor {
      */
     private boolean writeProject(ItemInfo item, String namespace, String name,
                                  String modelPath, Contribution into) {
+        Optional<JsonObject> model = convertProject(item, namespace, name, into);
+        if (model.isEmpty()) {
+            return false;
+        }
+        into.add(modelPath, model.get().toString().getBytes(StandardCharsets.UTF_8));
+        writeRig(item, namespace, model.get(), into);
+        return true;
+    }
+
+    /**
+     * A Blockbench project read into a Java model, its textures written and
+     * the project itself dropped from the pack.
+     *
+     * @return empty when there is no project by that name, or it has no cubes
+     *         (which has been reported)
+     */
+    private Optional<JsonObject> convertProject(ItemInfo item, String namespace, String name, Contribution into) {
         Optional<ModelSources.Found> source = source(into, namespace, name, ".bbmodel");
         if (source.isEmpty()) {
-            return false;
+            return Optional.empty();
         }
         String sourcePath = source.get().path();
         Optional<BbModel.Converted> converted = BbModel.convert(source.get().bytes(), namespace,
@@ -661,7 +819,7 @@ public final class ItemAssets implements PackContributor {
             into.error(namespace + "/items", item.id().path(),
                     sourcePath + " has no cube geometry in it. A mesh cannot become a "
                             + "Minecraft model; convert it to cubes in Blockbench first.");
-            return false;
+            return Optional.empty();
         }
 
         // The art rides inside the project file, which is the other half of why
@@ -677,9 +835,7 @@ public final class ItemAssets implements PackContributor {
         if (source.get().consumable()) {
             into.drop("assets/" + namespace + "/models/" + localName(name) + ".bbmodel");
         }
-        into.add(modelPath, converted.get().model().toString().getBytes(StandardCharsets.UTF_8));
-        writeRig(item, namespace, converted.get().model(), into);
-        return true;
+        return Optional.of(converted.get().model());
     }
 
     /**

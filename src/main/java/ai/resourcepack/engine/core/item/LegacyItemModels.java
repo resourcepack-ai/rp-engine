@@ -77,10 +77,23 @@ final class LegacyItemModels {
 
         final int number;
         final String modelRef;
+        /**
+         * More of the predicate after the number, such as a bow's
+         * {@code "pulling": 1}, or empty for the item's own model.
+         */
+        final String extra;
+        /** Where it goes among the overrides on the same number. */
+        final int order;
 
         Override(int number, String modelRef) {
+            this(number, modelRef, "", 0);
+        }
+
+        Override(int number, String modelRef, String extra, int order) {
             this.number = number;
             this.modelRef = modelRef;
+            this.extra = extra;
+            this.order = order;
         }
     }
 
@@ -135,11 +148,15 @@ final class LegacyItemModels {
         // model. Also makes the file byte-identical between two builds of the
         // same content, which the zip hash depends on.
         List<Override> sorted = new ArrayList<>(overrides);
-        sorted.sort(Comparator.comparingInt(entry -> entry.number));
+        // Within one number the item's own model comes first and its use
+        // states after it, in the order a draw passes through them, for the
+        // same reason.
+        sorted.sort(Comparator.<Override>comparingInt(entry -> entry.number).thenComparingInt(entry -> entry.order));
         for (int i = 0; i < sorted.size(); i++) {
             Override override = sorted.get(i);
             out.append("    { \"predicate\": { \"custom_model_data\": ")
                     .append(override.number)
+                    .append(override.extra.isEmpty() ? "" : ", " + override.extra)
                     .append(" }, \"model\": \"").append(override.modelRef).append("\" }");
             out.append(i + 1 < sorted.size() ? ",\n" : "\n");
         }
