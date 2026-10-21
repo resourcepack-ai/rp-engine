@@ -130,6 +130,47 @@ rifle_aimed:
 Minecraft 1.21.4 and newer; on an older server the item's own model is drawn in
 first person too, with a warning.
 
+**`pull:` is the look of each stage of being drawn**, the way a vanilla bow has
+three; `charged:` and `charged-firework:` are a crossbow's loaded looks:
+
+```yaml
+longbow:
+  material: BOW
+  model: longbow
+  pull: [longbow_pull_0, longbow_pull_1, longbow_pull_2]
+
+repeater:
+  material: CROSSBOW
+  model: repeater
+  pull:
+    - { at: 0,    model: repeater_pull_0 }
+    - { at: 0.58, model: repeater_pull_1 }
+    - { at: 1,    texture: item/repeater_pull_2 }
+  charged: repeater_arrow
+  charged-firework: repeater_rocket   # optional; charged: is shown for a rocket too
+```
+
+A bare entry is the same kind of thing as the item's own look: a model (written
+any of the three ways `model:` is) on an item with a `model:`, and a texture on
+a flat one, where a bare file name means `textures/item/`. Written out, an entry
+is `model:` or `texture:`, exactly one. **The first stage is shown from the
+moment drawing starts** whatever its `at:` says; entries are put in `at:` order
+whatever order they are written in. `at:` is seconds held for anything but a
+crossbow (a bow is fully drawn at one, so it reads as a fraction) and the
+fraction of the charge time for a crossbow, Quick Charge included. Left out, a
+three-stage bow or crossbow gets vanilla's own (0, 0.65, 0.9 and 0, 0.58, 1)
+and anything else an even spread.
+
+The client draws all of it: the item definition asks whether the item is in use
+and for how long, exactly as vanilla's bow does, and `first-person:` still
+applies when nothing is being drawn. Below 1.21.4 the stages are `pulling`,
+`pull`, `charged` and `firework` predicates after the item's number in the
+base material's model, which only a bow and a crossbow have, so `pull:` on
+anything else is dropped with a warning there. `charged:` on anything but a
+`CROSSBOW` is dropped with a warning on every version: nothing else is loaded.
+A stage whose model is missing is an error and is left out; the others still
+draw.
+
 An item can also wear another item's model with `copy-model: mypack:other`.
 Nothing is generated for it; it points at what is already there, which is how
 a pack ships five items that look the same without five copies of one file.
