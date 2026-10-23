@@ -1085,7 +1085,7 @@ public final class VehicleRuntime implements Listener {
         if (!target.getType().isAir()) {
             return;
         }
-        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target);
+        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target, item);
         plugin.getServer().getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
             return;
