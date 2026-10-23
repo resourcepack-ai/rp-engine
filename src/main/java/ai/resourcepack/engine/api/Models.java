@@ -87,10 +87,26 @@ public interface Models {
      * <p>By name rather than by trigger: a bound model has nothing to punch
      * and nothing to walk into, so the triggers a placed rig resolves have
      * nothing to fire from. Whatever drives the mob decides when it animates.
+     *
+     * <p><b>Only for a model put on with {@link #bind}.</b> A model standing in
+     * the world is not worn by anything, so its hitbox, or the entity a click
+     * on it hands you, answers false here. Play that one through its
+     * placement:
+     *
+     * <pre>{@code
+     * models.at(event.getRightClicked()).ifPresent(model -> model.play("wave", true));
+     * }</pre>
+     *
+     * @return false if the entity is wearing nothing of ours, or its model has
+     *         no animation by that name
      */
     boolean animate(Entity host, String animation);
 
-    /** Puts it back to rest, or to its idle loop if it has one. */
+    /**
+     * Puts it back to rest, or to its idle loop if it has one. Like
+     * {@link #animate}, only for a bound model; a placed one is
+     * {@link Placement#stop}.
+     */
     boolean stopAnimating(Entity host);
 
     /**

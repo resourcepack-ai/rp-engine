@@ -69,6 +69,7 @@ engine.models().place(location, "golem", PlaceOptions.defaults());
 engine.models().itemFor("golem", ItemOptions.defaults());
 engine.models().near(location, 16);      // what is standing around here
 engine.models().at(entity);              // is this entity part of a rig?
+engine.models().at(entity).ifPresent(model -> model.play("wave", true)); // play on a placed model
 ```
 
 `place(Location, String, ...)` stands up a Studio model. A content folder's
@@ -93,6 +94,13 @@ dropping the item (or the pack's `drop:`) when asked to.
 A `Placement` is a handle on a rig that is standing in a world: it can be
 asked what it is, told to play an animation, and removed. `playhead()` is
 how far into its animation it is, for keeping something else on its clock.
+
+`bind(entity, model)` puts a model on an entity that is not ours, such as an
+NPC, and `animate(entity, name)` plays on a model put on that way. **`animate`
+answers false for a model standing in the world**, because nothing is wearing
+it: for one of those, including the hitbox a right-click hands you, it is
+`at(entity)` and `play` on the placement, as above. `play(name, true)` starts
+the animation over even if it is already running.
 
 What a pack's `place:` block said is a `ModelInfo`, read-only. Beside the
 facing, scale, seat, light and the rest, `storage()` is the container the piece
