@@ -287,7 +287,7 @@ public final class ModelPlacementListener implements Listener {
 
         // Everything above is "can this physically go here". Whether it is
         // ALLOWED to is a rule about somebody's server, which we cannot see.
-        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target);
+        ModelPlaceEvent ask = new ModelPlaceEvent(player, info.id(), target, held);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
             return;

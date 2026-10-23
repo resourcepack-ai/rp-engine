@@ -194,7 +194,7 @@ public final class RigPlacementListener implements Listener {
         // correctly in a listener, and cannot collide with a content pack.
         ModelPlaceEvent ask = new ModelPlaceEvent(player,
                 ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT))
-                        .orElse(null), target);
+                        .orElse(null), target, item);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) return;
 

@@ -1031,7 +1031,7 @@ All cancellable unless the row says otherwise.
 | `PackSendEvent` | A pack went out to a player. Not cancellable |
 | `RigPackBuildEvent` | The emote rigs (one per player skin) were baked again: on every content load, and on their own when a new skin arrives or a plugin calls `reloadRigs()`. `alone()` says no content was reloaded; `separate()` says the rigs are a pack of their own stacked on the bundle (1.20.3+). Not cancellable |
 | `ItemUseEvent` | A custom item was right- or left-clicked. Cancelling also cancels the vanilla use |
-| `ModelPlaceEvent` | A model is about to be put down |
+| `ModelPlaceEvent` | A model is about to be put down. `stack()` is the live stack in the player's hand it is placed from, to read what the item carries; null when a plugin placed it |
 | `ModelBreakEvent` | A model is about to be broken. Carries a drop flag separate from cancelling |
 | `ModelInteractEvent` | A placed model was right-clicked |
 | `ModelAnimationEvent` | A rig is about to play an animation |
