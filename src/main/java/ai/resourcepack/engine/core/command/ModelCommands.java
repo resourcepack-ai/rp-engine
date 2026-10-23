@@ -3,6 +3,8 @@ package ai.resourcepack.engine.core.command;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.Items;
+import ai.resourcepack.engine.api.Models;
+import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.core.block.BlockStates;
 import ai.resourcepack.engine.core.block.CustomBlocks;
 import ai.resourcepack.engine.core.entity.CustomEntities;
@@ -18,9 +20,12 @@ import org.bukkit.util.RayTraceResult;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Things standing in the world: {@code models}, {@code purge},
@@ -36,16 +41,19 @@ public final class ModelCommands implements Area {
     private static final double REACH = 12;
 
     private final ModelPlacementListener placements;
+    /** Studio's models, which {@link #placements} only knows the content folder's half of. */
+    private final Models models;
     private final CustomEntities creatures;
     private final BoundModels bound;
     private final Items items;
     private final CustomBlocks customBlocks;
     private final BlockStates states;
 
-    public ModelCommands(ModelPlacementListener placements, CustomEntities creatures,
+    public ModelCommands(ModelPlacementListener placements, Models models, CustomEntities creatures,
                          BoundModels bound, Items items, CustomBlocks customBlocks,
                          BlockStates states) {
         this.placements = placements;
+        this.models = models;
         this.creatures = creatures;
         this.bound = bound;
         this.items = items;
@@ -202,6 +210,18 @@ public final class ModelCommands implements Area {
         Player looking = (Player) sender;
         double radius = args.length > 1 ? Args.radius(args[1]) : Args.DEFAULT_RADIUS;
         List<Interaction> found = new ArrayList<>(placements.near(looking.getLocation(), radius));
+        // A Studio model carries no content id, so the listener above cannot
+        // see it. Missing them told an owner standing beside one that nothing
+        // was there. An animated content-folder piece is in both lists.
+        Set<UUID> listed = new HashSet<>();
+        for (Interaction hitbox : found) {
+            listed.add(hitbox.getUniqueId());
+        }
+        for (Placement placement : models.near(looking.getLocation(), radius)) {
+            if (listed.add(placement.hitbox().getUniqueId())) {
+                found.add(placement.hitbox());
+            }
+        }
         if (found.isEmpty()) {
             Reply.to(sender, "No models within " + (int) radius + " blocks.");
             return true;
@@ -216,12 +236,26 @@ public final class ModelCommands implements Area {
         for (Interaction hitbox : found) {
             Location at = hitbox.getLocation();
             int away = (int) Math.round(at.distance(looking.getLocation()));
-            Reply.row(sender, placements.idOf(hitbox).map(Object::toString).orElse("unknown"),
+            Optional<ContentId> piece = placements.idOf(hitbox);
+            Reply.row(sender, piece.map(Object::toString).orElseGet(() -> studioLabel(hitbox)),
                     at.getBlockX() + " " + at.getBlockY() + " " + at.getBlockZ()
                             + " · " + away + "m"
-                            + (placements.isOrphan(hitbox) ? " · orphan" : ""));
+                            + (piece.isEmpty() ? " · Studio" : placements.isOrphan(hitbox) ? " · orphan" : ""));
         }
         return true;
+    }
+
+    /**
+     * {@code studio:<id>}, the id the model events name a Studio model by.
+     * There is no orphan mark for these: a still Studio model has no rig on
+     * record, so a model the server knows and one it has forgotten look alike.
+     */
+    private String studioLabel(Interaction hitbox) {
+        String model = models.at(hitbox).map(Placement::modelId).orElse(null);
+        if (model == null) {
+            return "unknown";
+        }
+        return ContentId.of("studio", model.toLowerCase(Locale.ROOT)).map(Object::toString).orElse(model);
     }
 
     private boolean purge(CommandSender sender, String[] args) {

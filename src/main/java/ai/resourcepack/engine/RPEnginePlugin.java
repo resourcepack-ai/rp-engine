@@ -982,7 +982,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack),
-                new ModelCommands(placements, creatures, boundModels, items, blocks, blockStates),
+                new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates),
                 new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
