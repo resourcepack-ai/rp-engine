@@ -1,6 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
 import ai.resourcepack.engine.api.event.ModelBreakEvent;
+import ai.resourcepack.engine.api.event.ModelInteractEvent;
 import ai.resourcepack.engine.api.event.ModelPlaceEvent;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.animation.RigMath;
@@ -205,7 +206,9 @@ public final class RigPlacementListener implements Listener {
         // The stack's choice becomes the placement's, stored on the entities
         // so it survives restarts and two copies of one model can stand side
         // by side playing different animations.
-        spawn(target, modelId, item, yaw, animationOf(item), scaleOf(item), player);
+        Interaction placed = spawn(target, modelId, item, yaw, animationOf(item), scaleOf(item), player);
+        Bukkit.getPluginManager().callEvent(new ai.resourcepack.engine.api.event.ModelPlacedEvent(
+                player, ask.model(), placement(placed), item));
 
         if (player.getGameMode() != GameMode.CREATIVE) {
             item.setAmount(item.getAmount() - 1);
@@ -276,7 +279,22 @@ public final class RigPlacementListener implements Listener {
         Interaction hitbox = (Interaction) event.getRightClicked();
         if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return;
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
-        if (modelId == null || !animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) return;
+        if (modelId == null) return;
+        // Bukkit fires this once per hand; the event is announced once.
+        if (event.getHand() != EquipmentSlot.HAND) {
+            if (animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) event.setCancelled(true);
+            return;
+        }
+        // The same event a content-folder piece fires, so a plugin listening
+        // for clicks on placed models hears about a Studio model too. It used
+        // to fire for those only, which left a plugin built on Studio models
+        // matching Interaction entities by hand.
+        ModelInteractEvent clicked = new ModelInteractEvent(event.getPlayer(),
+                ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT))
+                        .orElse(null),
+                hitbox, placement(hitbox), event.getClickedPosition());
+        Bukkit.getPluginManager().callEvent(clicked);
+        if (clicked.isCancelled() || !animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) return;
         event.setCancelled(true);
         animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, event.getPlayer());
     }
@@ -334,7 +352,8 @@ public final class RigPlacementListener implements Listener {
         ModelBreakEvent ask = new ModelBreakEvent(
                 ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT))
                         .orElse(null),
-                hitbox.getLocation(), player, player.getGameMode() != GameMode.CREATIVE);
+                hitbox, placement(hitbox), hitbox.getLocation(), player,
+                player.getGameMode() != GameMode.CREATIVE);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) return;
 

@@ -2,6 +2,7 @@ package ai.resourcepack.engine.api.event;
 
 import ai.resourcepack.engine.api.ContentId;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
 import org.bukkit.event.HandlerList;
@@ -46,6 +47,7 @@ public final class ItemUseEvent extends PlayerEvent implements Cancellable {
     private final ItemStack stack;
     private final Action action;
     private final Block block;
+    private final BlockFace face;
     private boolean cancelled;
 
     public ItemUseEvent(Player player, ContentId item, ItemStack stack, Action action, Block block) {
@@ -54,6 +56,17 @@ public final class ItemUseEvent extends PlayerEvent implements Cancellable {
         this.stack = stack;
         this.action = action;
         this.block = block;
+        this.face = null;
+    }
+
+    public ItemUseEvent(Player player, ContentId item, ItemStack stack, Action action, Block block,
+            BlockFace face) {
+        super(player);
+        this.item = item;
+        this.stack = stack;
+        this.action = action;
+        this.block = block;
+        this.face = face;
     }
 
     /** Which custom item. */
@@ -79,6 +92,15 @@ public final class ItemUseEvent extends PlayerEvent implements Cancellable {
     /** The block it was used on, or null if it was used in the air. */
     public Block block() {
         return block;
+    }
+
+    /**
+     * Which face of {@link #block()} was clicked, or null if it was used in
+     * the air. {@code block().getRelative(face())} is the space in front of
+     * it, where something placed by this use would go.
+     */
+    public BlockFace face() {
+        return block == null ? null : face;
     }
 
     @Override

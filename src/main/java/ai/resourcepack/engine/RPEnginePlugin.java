@@ -687,6 +687,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         // Models.place(Location, ContentId, ...) puts these down for a plugin.
         models.authored(placements);
+        placements.placements(models::handleFor);
         placements.bedrock(bedrock);
         placements.actions(actionRunner);
         // Containers. One service for everything that holds items, so a custom
@@ -862,7 +863,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         rigPlacement.placements(models::handleFor);
         getServer().getPluginManager().registerEvents(rigPlacement, this);
         getServer().getPluginManager().registerEvents(
-                new BoneListener(animator.bones(), seats), this);
+                new BoneListener(animator.bones(), seats, models::at), this);
         animator.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);

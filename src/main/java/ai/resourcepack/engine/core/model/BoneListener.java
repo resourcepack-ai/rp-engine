@@ -34,10 +34,15 @@ public final class BoneListener implements Listener {
 
     private final BoneParts bones;
     private final Seats seats;
+    private final java.util.function.Function<org.bukkit.entity.Entity,
+            Optional<ai.resourcepack.engine.api.Placement>> placements;
 
-    public BoneListener(BoneParts bones, Seats seats) {
+    public BoneListener(BoneParts bones, Seats seats,
+            java.util.function.Function<org.bukkit.entity.Entity,
+                    Optional<ai.resourcepack.engine.api.Placement>> placements) {
         this.bones = bones;
         this.seats = seats;
+        this.placements = placements;
     }
 
     /**
@@ -87,6 +92,7 @@ public final class BoneListener implements Listener {
         // The bone's own position, which the animation is already moving —
         // so a seat on a walking mount goes with it, and Seats does not have
         // to know a rig exists.
-        seats.sit(player, event.getRightClicked().getLocation());
+        seats.sit(player, event.getRightClicked().getLocation(),
+                placements.apply(part.get()).orElse(null));
     }
 }

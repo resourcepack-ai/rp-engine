@@ -207,8 +207,14 @@ public final class ModelsImpl implements Models {
             if (ask.isCancelled()) return Optional.empty();
         }
 
-        return Optional.of(new Handle(placements.spawn(
-                target, modelId, item, at.getYaw(), opts.animation(), clampScale(opts.scale()), opts.placer())));
+        Handle placed = new Handle(placements.spawn(
+                target, modelId, item, at.getYaw(), opts.animation(), clampScale(opts.scale()), opts.placer()));
+        if (opts.placer() != null) {
+            Bukkit.getPluginManager().callEvent(new ai.resourcepack.engine.api.event.ModelPlacedEvent(
+                    opts.placer(), ai.resourcepack.engine.api.ContentId.of("studio",
+                            modelId.toLowerCase(java.util.Locale.ROOT)).orElse(null), placed, null));
+        }
+        return Optional.of(placed);
     }
 
     @Override
@@ -237,8 +243,14 @@ public final class ModelsImpl implements Models {
             if (ask.isCancelled()) return Optional.empty();
         }
 
-        return Optional.of(new Handle(pieces.placeFor(target, info, at.getYaw(), clampScale(opts.scale()),
-                opts.placer())));
+        Interaction hitbox = pieces.placeFor(target, info, at.getYaw(), clampScale(opts.scale()), opts.placer());
+        if (hitbox == null) return Optional.empty();
+        Handle placed = new Handle(hitbox);
+        if (opts.placer() != null) {
+            Bukkit.getPluginManager().callEvent(new ai.resourcepack.engine.api.event.ModelPlacedEvent(
+                    opts.placer(), info.id(), placed, null));
+        }
+        return Optional.of(placed);
     }
 
     @Override
@@ -363,7 +375,7 @@ public final class ModelsImpl implements Models {
 
             ModelBreakEvent ask = new ModelBreakEvent(
                 ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT)).orElse(null),
-                hitbox.getLocation(), null, dropItem);
+                hitbox, this, hitbox.getLocation(), null, dropItem);
             Bukkit.getPluginManager().callEvent(ask);
             if (ask.isCancelled()) return false;
 

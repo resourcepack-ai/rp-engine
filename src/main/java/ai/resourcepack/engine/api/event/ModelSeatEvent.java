@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.api.event;
 
+import ai.resourcepack.engine.api.Placement;
+import ai.resourcepack.engine.api.Vehicle;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Cancellable;
@@ -23,16 +25,42 @@ public final class ModelSeatEvent extends PlayerEvent implements Cancellable {
     private static final HandlerList HANDLERS = new HandlerList();
 
     private final Location seat;
+    private final Placement placement;
+    private final Vehicle vehicle;
     private boolean cancelled;
 
+    /** A seat that belongs to nothing this can name. */
     public ModelSeatEvent(Player player, Location seat) {
+        this(player, seat, null, null);
+    }
+
+    public ModelSeatEvent(Player player, Location seat, Placement placement, Vehicle vehicle) {
         super(player);
         this.seat = seat;
+        this.placement = placement;
+        this.vehicle = vehicle;
     }
 
     /** Where they are about to sit. */
     public Location seat() {
         return seat;
+    }
+
+    /**
+     * The placed model they are sitting on: the chair, or the rig whose seat
+     * bone it is. Null for a vehicle, and for a seat bone on a model worn by a
+     * mob, which is not a placement.
+     */
+    public Placement placement() {
+        return placement;
+    }
+
+    /**
+     * The vehicle, when the seat is one of a vehicle's; null otherwise.
+     * {@link VehicleEnterEvent} follows with the seat's index.
+     */
+    public Vehicle vehicle() {
+        return vehicle;
     }
 
     @Override

@@ -136,7 +136,7 @@ public final class PackDelivery {
                         host.onPackHost(url.get()));
             }
             player.getServer().getPluginManager().callEvent(
-                    new PackSendEvent(player, pack.bundle(), url.get()));
+                    new PackSendEvent(player, pack.bundle(), url.get(), pack));
         }
         // Recorded once the sends have gone out, never at plan time. See
         // BundleSessions for why the two are separate.
