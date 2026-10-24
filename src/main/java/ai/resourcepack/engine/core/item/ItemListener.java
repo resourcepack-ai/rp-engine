@@ -113,7 +113,8 @@ public final class ItemListener implements Listener {
             return;
         }
 
-        ItemUseEvent used = new ItemUseEvent(player, id.get(), stack, action, event.getClickedBlock());
+        ItemUseEvent used = new ItemUseEvent(player, id.get(), stack, action, event.getClickedBlock(),
+                event.getBlockFace());
         player.getServer().getPluginManager().callEvent(used);
         if (used.isCancelled()) {
             event.setCancelled(true);

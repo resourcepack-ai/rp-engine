@@ -141,6 +141,14 @@ public final class Seats implements Listener {
      * @return whether they sat down
      */
     public boolean sit(Player player, Location where) {
+        return sit(player, where, null);
+    }
+
+    /**
+     * As {@link #sit(Player, Location)}, naming the placement the seat belongs
+     * to for {@link ModelSeatEvent#placement()}.
+     */
+    public boolean sit(Player player, Location where, ai.resourcepack.engine.api.Placement placement) {
         if (player == null || where == null || where.getWorld() == null) {
             return false;
         }
@@ -151,7 +159,7 @@ public final class Seats implements Listener {
         // Asked here rather than at each call site: a chair, a seat bone and
         // anything added later all arrive through this method, and a server
         // that refuses sitting means all of them.
-        ModelSeatEvent asked = new ModelSeatEvent(player, where);
+        ModelSeatEvent asked = new ModelSeatEvent(player, where, placement, null);
         player.getServer().getPluginManager().callEvent(asked);
         if (asked.isCancelled()) {
             return false;

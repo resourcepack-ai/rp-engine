@@ -1297,7 +1297,7 @@ public final class VehicleRuntime implements Listener {
             overhead(player, "You cannot ride that.");
             return false;
         }
-        ModelSeatEvent asked = new ModelSeatEvent(player, at);
+        ModelSeatEvent asked = new ModelSeatEvent(player, at, null, handle(ride.chassisId));
         plugin.getServer().getPluginManager().callEvent(asked);
         if (asked.isCancelled()) {
             return false;

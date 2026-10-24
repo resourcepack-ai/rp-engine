@@ -293,7 +293,11 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
-        place(target, info, yawFor(player, info), held);
+        Interaction placed = place(target, info, yawFor(player, info), held);
+        if (placed != null) {
+            Bukkit.getPluginManager().callEvent(
+                    new ai.resourcepack.engine.api.event.ModelPlacedEvent(player, info.id(), placement(placed), held));
+        }
 
         if (player.getGameMode() != GameMode.CREATIVE) {
             held.setAmount(held.getAmount() - 1);
@@ -571,7 +575,8 @@ public final class ModelPlacementListener implements Listener {
             // Somebody else's Interaction entity. Not ours to speak for.
             return;
         }
-        ModelInteractEvent clicked = new ModelInteractEvent(event.getPlayer(), id.get(), hitbox);
+        ModelInteractEvent clicked = new ModelInteractEvent(event.getPlayer(), id.get(), hitbox,
+                placement(hitbox), event.getClickedPosition());
         Bukkit.getPluginManager().callEvent(clicked);
         if (clicked.isCancelled()) {
             return;
@@ -642,7 +647,7 @@ public final class ModelPlacementListener implements Listener {
         // a decision about somebody's server, which is what the event is for —
         // and a listener that cancels gets its way before this runs.
         if (piece != null && piece.sittable()) {
-            seats.sit(clicker, seatOf(hitbox, piece, multiplierOf(hitbox)));
+            seats.sit(clicker, seatOf(hitbox, piece, multiplierOf(hitbox)), placement(hitbox));
         }
     }
 
@@ -1141,6 +1146,17 @@ public final class ModelPlacementListener implements Listener {
     }
 
     /** The model standing as {@code hitbox}, or empty if that is not one of ours. */
+    /** The handle an event carries. Wired in at startup; see RigPlacementListener. */
+    private java.util.function.Function<Interaction, ai.resourcepack.engine.api.Placement> placements;
+
+    public void placements(java.util.function.Function<Interaction, ai.resourcepack.engine.api.Placement> placements) {
+        this.placements = placements;
+    }
+
+    private ai.resourcepack.engine.api.Placement placement(Interaction hitbox) {
+        return placements == null ? null : placements.apply(hitbox);
+    }
+
     public Optional<ContentId> idOf(Interaction hitbox) {
         if (hitbox == null) {
             return Optional.empty();
@@ -1174,7 +1190,8 @@ public final class ModelPlacementListener implements Listener {
      * @return false if a listener refused
      */
     public boolean remove(Interaction hitbox, ContentId id, Player breaker, boolean dropItem) {
-        ModelBreakEvent ask = new ModelBreakEvent(id, hitbox.getLocation(), breaker, dropItem);
+        ModelBreakEvent ask = new ModelBreakEvent(id, hitbox, placement(hitbox), hitbox.getLocation(),
+                breaker, dropItem);
         Bukkit.getPluginManager().callEvent(ask);
         if (ask.isCancelled()) {
             return false;

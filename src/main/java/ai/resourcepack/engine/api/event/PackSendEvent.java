@@ -27,11 +27,18 @@ public final class PackSendEvent extends PlayerEvent {
 
     private final String bundle;
     private final String url;
+    private final ai.resourcepack.engine.api.BuiltPack pack;
 
+    /** A send with no built pack to name, so {@link #pack()} is null. */
     public PackSendEvent(Player player, String bundle, String url) {
+        this(player, bundle, url, null);
+    }
+
+    public PackSendEvent(Player player, String bundle, String url, ai.resourcepack.engine.api.BuiltPack pack) {
         super(player);
         this.bundle = bundle;
         this.url = url;
+        this.pack = pack;
     }
 
     /** Which bundle this is. */
@@ -42,6 +49,16 @@ public final class PackSendEvent extends PlayerEvent {
     /** Where the client was told to fetch it from. */
     public String url() {
         return url;
+    }
+
+    /**
+     * The pack that went out: its {@code uuid()}, which is the id Bukkit's
+     * {@code PlayerResourcePackStatusEvent} reports on 1.20.3 and newer, so the
+     * two can be matched when a player holds several; its {@code sha1()}; and
+     * its size.
+     */
+    public ai.resourcepack.engine.api.BuiltPack pack() {
+        return pack;
     }
 
     @Override

@@ -207,13 +207,12 @@ public final class CustomEntities implements Listener {
         if (id.isEmpty()) {
             return;
         }
-        // Bukkit's event above carries the drops and cannot say what the thing
-        // was; ours says what it was and cannot change them. A plugin editing
-        // the loot of a custom mob wants both, which is why this is a second
-        // event rather than an argument for making one of them do the other's
-        // job.
+        // Bukkit's event cannot say what the thing was; ours can, and hands
+        // over Bukkit's own drops list so the loot of a custom mob is edited
+        // in one listener rather than two that have to find each other.
         event.getEntity().getServer().getPluginManager().callEvent(
-                new ai.resourcepack.engine.api.event.EntityDeathEvent(event.getEntity(), id.get()));
+                new ai.resourcepack.engine.api.event.EntityDeathEvent(event.getEntity(), id.get(),
+                        event.getEntity().getKiller(), event.getDrops()));
         for (Entity passenger : event.getEntity().getPassengers()) {
             if (passenger instanceof ItemDisplay) {
                 passenger.remove();
