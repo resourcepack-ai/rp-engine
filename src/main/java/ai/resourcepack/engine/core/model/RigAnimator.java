@@ -1030,7 +1030,10 @@ public final class RigAnimator implements Listener {
             PersistentDataContainer pdc = display.getPersistentDataContainer();
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, animationIndex);
             pdc.set(animationStartKey, PersistentDataType.LONG, start);
-            if (pdc.has(partKey, PersistentDataType.INTEGER)) pose(display, false);
+            if (pdc.has(partKey, PersistentDataType.INTEGER)) {
+                keepTicking(display);
+                pose(display, false);
+            }
         }
 
         if (placements != null && replaced != null && !replaced.equals(animation.name)) {
@@ -1080,9 +1083,25 @@ public final class RigAnimator implements Listener {
             if (!pdc.has(partKey, PersistentDataType.INTEGER)) continue;
             pdc.set(activeAnimationKey, PersistentDataType.INTEGER, index);
             pdc.set(animationStartKey, PersistentDataType.LONG, start);
+            keepTicking(display);
             pose(display, false);
         }
         return true;
+    }
+
+    /**
+     * Puts a part that is about to animate back on the tick, if it fell off.
+     *
+     * <p>{@link #track} only ticks a part whose rig gave it an animation
+     * program at the time, and {@link #pose} drops one whose rig had none. So a
+     * rig that GAINED an animation after its parts were loaded (a Studio push
+     * adding one to a model already standing in the world) had parts nothing
+     * ticked: a play() was accepted, posed the first frame once and then stood
+     * still while {@code playing()} went on naming it. The tick put back here
+     * is the one that pose reads.
+     */
+    private void keepTicking(ItemDisplay display) {
+        if (display.isValid() && animates(display)) tracked.putIfAbsent(display.getUniqueId(), display);
     }
 
     /**
