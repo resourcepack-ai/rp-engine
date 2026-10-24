@@ -84,6 +84,22 @@ float rtx_ink_width(int corner) {
     return 1.0;
 }
 
+// Which corner of its glyph this vertex is, in the game's order: top-left,
+// bottom-left, bottom-right, top-right. Read off the UV, never the vertex
+// index: the game insets a glyph's UVs a hundredth of a texel inside its rect
+// (FontTexture), so a left or top corner sits just past a whole texel and a
+// right or bottom one just short of the next. The index is not ours to read:
+// the GUI shares one vertex buffer between every draw and gives each a base
+// vertex of its byte offset over its vertex size, which is a multiple of four
+// only by luck, so the letters came out blank whenever the screen happened to
+// put the text at an odd offset (a chat line, but not with "/" typed).
+int rtx_corner() {
+    vec2 inset = fract(UV0 * vec2(textureSize(Sampler0, 0)));
+    bool right = inset.x > 0.5;
+    bool bottom = inset.y > 0.5;
+    return right ? (bottom ? 2 : 3) : (bottom ? 1 : 0);
+}
+
 // Runs after vanilla's main, so everything vanilla set is already set; only a
 // letter in a text effect's colour is changed.
 void rtx_vertex() {
@@ -102,9 +118,7 @@ void rtx_vertex() {
     }
     if (rgb.r != 252 || rgb.b != 248 || (rgb.g & 3) != 0 || !rtx_known(rgb.g >> 2)) return;
     int id = rgb.g >> 2;
-    // The game's corner order for a glyph: top-left, bottom-left,
-    // bottom-right, top-right.
-    int corner = gl_VertexIndex % 4;
+    int corner = rtx_corner();
     vec4 room = rtx_pad(id) * RTX_PAD_SCALE;
     vec3 grown = Position;
     grown.x += corner < 2 ? -room.x : room.z;
