@@ -36,6 +36,18 @@ public interface Equipping {
     boolean wearable(ItemMeta meta, ContentId id, String slot,
                      ItemComponents.Warner warner);
 
+    /**
+     * Makes a stack whose material is a helmet show its own model when it is
+     * worn, rather than the vanilla helmet it is made of.
+     *
+     * <p>The game draws a worn item as its model only when nothing says it is
+     * armour with art of its own, and a {@code NETHERITE_HELMET} says exactly
+     * that: its equipment asset is {@code minecraft:netherite}. So a 3D hat
+     * carried on one shows in the inventory and draws as netherite on the
+     * head. Taking the asset away, slot kept, is what puts the hat there.
+     */
+    void showsModelOnHead(ItemMeta meta, ItemComponents.Warner warner);
+
     static Equipping forServer(Compatibility compatibility) {
         if (!compatibility.has(Feature.EQUIPPABLE_ITEMS)) {
             return new NoEquipping();

@@ -22,4 +22,11 @@ final class NoEquipping implements Equipping {
         warner.unsupported("armor", Feature.EQUIPPABLE_ITEMS);
         return false;
     }
+
+    @Override
+    public void showsModelOnHead(ItemMeta meta, ItemComponents.Warner warner) {
+        // Before the component, a helmet is drawn as the helmet it is, and
+        // there is nothing on the stack to say otherwise.
+        warner.unsupported("model on the head", Feature.EQUIPPABLE_ITEMS);
+    }
 }

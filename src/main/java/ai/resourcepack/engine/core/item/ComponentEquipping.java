@@ -42,6 +42,14 @@ final class ComponentEquipping implements Equipping {
         return true;
     }
 
+    @Override
+    public void showsModelOnHead(ItemMeta meta, ItemComponents.Warner warner) {
+        EquippableComponent equippable = meta.getEquippable();
+        equippable.setSlot(EquipmentSlot.HEAD);
+        equippable.setModel(null);
+        meta.setEquippable(equippable);
+    }
+
     private static EquipmentSlot slotOf(String slot) {
         switch (slot) {
             case "chest":
