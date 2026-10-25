@@ -127,6 +127,9 @@ public final class ItemsImpl implements Items {
         }
         ItemComponents.Warner warner = warnerFor(item);
         item.armor().ifPresent(slot -> equipping.wearable(meta, item.id(), slot, warner));
+        if (wornAsModel(item, material)) {
+            equipping.showsModelOnHead(meta, warner);
+        }
         item.maxStack().ifPresent(size -> components.maxStackSize(meta, size, warner));
         if (item.glow()) {
             components.glint(meta, warner);
@@ -140,6 +143,21 @@ public final class ItemsImpl implements Items {
 
         stack.setItemMeta(meta);
         return Optional.of(stack);
+    }
+
+    /**
+     * A helmet that is really a hat: made of a helmet, with no armour art of
+     * its own, and either a model of its own or {@code hat: true}.
+     *
+     * <p>A model on a helmet is a 3D helmet, which is how ItemsAdder, Nexo and
+     * Oraxen packs build one, and the person who made it wants it on the head
+     * rather than the vanilla helmet it is carried on. A flat sprite with no
+     * art is left as the vanilla helmet, which is the only look it has.
+     */
+    private static boolean wornAsModel(ItemInfo item, Material material) {
+        return item.armor().isEmpty()
+                && material.name().endsWith("_HELMET")
+                && (item.hat() || item.model().isPresent());
     }
 
     /**

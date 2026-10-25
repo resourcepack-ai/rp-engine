@@ -842,9 +842,13 @@ final class ItemsAdder {
                     .ifPresent(liquid -> out.put("liquid", liquid));
             behaviours.node("furniture").ifPresent(furniture ->
                     out.put("place", furniture(furniture)));
+            // Right-click to wear it, which is exactly what ours does.
+            if (behaviours.bool("hat").orElse(Boolean.FALSE) || behaviours.node("hat").isPresent()) {
+                out.put("hat", true);
+            }
 
             for (String behaviour : behaviours.keys()) {
-                if (!behaviour.equals("liquid_bucket") && !behaviour.equals("furniture")) {
+                if (!List.of("liquid_bucket", "furniture", "hat").contains(behaviour)) {
                     diagnostics.add(Diagnostic.warning(origin, id,
                             "the " + behaviour + " behaviour has no equivalent here and was skipped. "
                                     + "The item itself still loads."));
