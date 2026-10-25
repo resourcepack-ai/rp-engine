@@ -293,6 +293,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     /** Tells the console and joining ops when SpigotMC has a newer RP Engine; {@code update-check} turns it off. */
     private ai.resourcepack.common.update.UpdateCheck updates;
+    /** The startup banner while onEnable runs, then null: see {@link #startup}. */
+    private ai.resourcepack.common.banner.StartupBanner banner;
+    private final List<String> hooks = new ArrayList<>();
     private SkinApplier skins;
     private DistributionManager distribution;
     private BedrockSupport bedrock = BedrockSupport.NONE;
@@ -444,6 +447,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onLoad() {
+        // Asked before the worlds load, so the answer is back for the startup banner.
+        ai.resourcepack.common.update.UpdateCheck.early(this, SPIGOT_RESOURCE);
         // Before onEnable, and it has to be: WorldGuard parses its regions
         // between the two, and a flag registered after that is not merely
         // ignored — every region that set it has already dropped the value.
@@ -500,6 +505,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        banner = ai.resourcepack.common.banner.StartupBanner.begin(this)
+                .name("RP Engine")
+                .tagline("Custom items, models, emotes and screens from a folder of YAML.")
+                .docs("https://resourcepack.ai/docs/rp-engine");
+        hooks.clear();
         saveDefaultConfig();
         // Before anything reads it: a file from an older release gets the
         // settings added since, written in, so its owner can see them.
@@ -511,10 +521,29 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         } catch (IOException | IllegalArgumentException e) {
             getLogger().warning("Could not update config.yml (" + e.getMessage() + "). It is read as it is.");
         }
+        // Asks SpigotMC, not us: see UpdateCheck for why, and for exactly what
+        // the request carries (nothing about this server). Asked now, so the
+        // answer is usually back in time for the startup banner.
+        if (updates != null) {
+            updates.stop();
+        }
+        updates = ai.resourcepack.common.update.UpdateCheck.spigot(this, SPIGOT_RESOURCE)
+                .name("RP Engine")
+                .permission("rpengine.update")
+                .enabledWhen(() -> getConfig().getBoolean("update-check", true))
+                .player((player, update) -> {
+                    ai.resourcepack.engine.core.command.ChatStyle style = EngineCommand.chatStyle();
+                    ai.resourcepack.engine.core.Chat.link(player, style.prefix() + "RP Engine " + style.accent() + update.latest()
+                                    + style.body() + " is out (you have " + update.running() + "). " + style.accent(),
+                            "Get it on SpigotMC", update.url());
+                });
+        banner.updates(updates);
+
         // First, because what the rest of startup is allowed to do depends on
         // the answer, and because a server below the floor should be told so
         // before the engine has built anything it cannot use.
         if (!resolveCompatibility()) {
+            banner = null;
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -556,7 +585,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (getServer().getPluginManager().getPlugin("Geyser-Spigot") != null) {
             try {
                 bedrock = new GeyserBridge(this, reconnecting::add);
-                getLogger().info("Geyser found; Bedrock players are served their own pack.");
+                hooks.add("Geyser");
             } catch (RuntimeException | NoClassDefFoundError e) {
                 getLogger().warning("Geyser is here but the bridge would not start: " + e.getMessage());
             }
@@ -566,6 +595,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 PackSending.forServer(compatibility));
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
+        if (rigs.loaded() > 0) {
+            banner.ok("Rigs", plural(rigs.loaded(), "animation rig") + " from rigs.json");
+        }
         animator = new RigAnimator(library, rigs);
         animator.bedrock(bedrock);
         rigPlacement = new RigPlacementListener(library, rigs, animator);
@@ -574,6 +606,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         emoteStore = new EmoteStore(getDataFolder());
         emoteStore.load(getLogger());
+        if (emoteStore.loadedEmotes() > 0 || emoteStore.loadedGroups() > 0) {
+            banner.ok("Emotes", plural(emoteStore.loadedEmotes(), "emote") + " and "
+                    + plural(emoteStore.loadedGroups(), "group") + " from emotes.json");
+        }
         skinCache = new SkinCache(this);
         bakeOnJoin = getConfig().getBoolean("emotes.bake-on-join", true);
         skinCache.onNewSkin(player -> {
@@ -593,8 +629,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Dialogs need 1.21.6. Below it the definitions still load and still
         // list — a server owner should see the content they wrote and be told
         // why it does nothing, rather than watch a command fail.
+        ai.resourcepack.engine.core.dialog.DialogDatapack dialogDatapack =
+                new ai.resourcepack.engine.core.dialog.DialogDatapack(getLogger());
+        // While starting, its one note is a line of the banner's report.
+        dialogDatapack.notes(note -> {
+            if (banner != null) {
+                banner.ok("Dialogs", note);
+            } else {
+                getLogger().info("Dialogs: " + note + ". /rp dialogs lists them.");
+            }
+        });
         dialogs = new ai.resourcepack.engine.core.dialog.DialogsImpl(
-                new ai.resourcepack.engine.core.dialog.DialogDatapack(getLogger()),
+                dialogDatapack,
                 compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS),
                 // Each player's own dialog settings: what a Studio dialog's
                 // bound switches and sliders show, and what /rp var sets.
@@ -843,19 +889,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 () -> Placeholders.register(this, registry, emotes(), items, icons, seats, sessions, group,
                         (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name),
                         player -> rankTagWearers.tagOf(player::hasPermission)))) {
-            getLogger().info("PlaceholderAPI found: %rpengine_...% placeholders are available.");
+            hooks.add("PlaceholderAPI");
         }
         if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {
-            getLogger().info("WorldGuard found: rpengine-place and rpengine-use are available.");
+            hooks.add("WorldGuard");
         }
         if (optional("Citizens", () -> CitizensTrait.register(this, boundModels))) {
             // So a bind on an NPC survives it being despawned and respawned,
             // which Citizens does on every chunk unload and restart.
             boundModels.remembersWith(CitizensTrait::remember);
-            getLogger().info("Citizens found: a bound NPC keeps its model.");
+            hooks.add("Citizens");
         }
         if (optional("MythicMobs", () -> MythicHook.register(this, boundModels))) {
-            getLogger().info("MythicMobs found: rpmodel, rpanimate and rpunmodel are available.");
+            hooks.add("MythicMobs");
         }
         // The handle an event carries, wired both ways at startup exactly as
         // the library does it.
@@ -929,19 +975,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             heartbeat.start();
         }
 
-        // Asks SpigotMC, not us: see UpdateCheck for why, and for exactly what
-        // the request carries (nothing about this server).
-        updates = ai.resourcepack.common.update.UpdateCheck.spigot(this, SPIGOT_RESOURCE)
-                .name("RP Engine")
-                .permission("rpengine.update")
-                .enabledWhen(() -> getConfig().getBoolean("update-check", true))
-                .player((player, update) -> {
-                    ai.resourcepack.engine.core.command.ChatStyle style = EngineCommand.chatStyle();
-                    ai.resourcepack.engine.core.Chat.link(player, style.prefix() + "RP Engine " + style.accent() + update.latest()
-                                    + style.body() + " is out (you have " + update.running() + "). " + style.accent(),
-                            "Get it on SpigotMC", update.url());
-                })
-                .start();
+        updates.start();
+
+        if (!hooks.isEmpty()) {
+            banner.ok("Hooks", String.join(", ", hooks));
+        }
+        banner.print();
+        banner = null;
+    }
+
+    /**
+     * Says something about the start: in the startup banner's report while
+     * onEnable runs, and as a plain log line after (a /rp reload, a rebuild).
+     */
+    private void startup(String key, String text) {
+        if (banner != null) {
+            banner.ok(key, text);
+        } else {
+            getLogger().info(text);
+        }
     }
 
     /**
@@ -1233,8 +1285,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return false;
         }
 
-        for (String line : compatibility.report()) {
+        List<String> reduced = compatibility.report();
+        for (String line : reduced) {
             getLogger().info(line);
+        }
+        if (banner != null) {
+            banner.ok("Minecraft", compatibility.version() + (reduced.isEmpty() ? ""
+                    : ", with some features reduced (listed above)"));
         }
         return true;
     }
@@ -1889,12 +1946,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         switch (mode) {
             case NONE:
-                getLogger().info("Pack hosting is off (host.mode: none). Packs are built in plugins/"
+                startup("Hosting", "Off (host.mode: none). Packs are built in plugins/"
                         + getDataFolder().getName() + "/output but not served.");
                 return;
             case UPLOAD:
-                getLogger().info("Packs are uploaded to " + uploader.base()
-                        + " and players download them from there (host.mode: upload).");
+                startup("Hosting", "Uploaded to " + uploader.base() + " (host.mode: upload)");
 
                 // Read here and only here, like the rest of host: the listener
                 // it needs is started once, so a reload could not honour it.
@@ -1905,8 +1961,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         int boundPort = packHost.start(port);
                         delivery.fallBackLocally();
 
-                        getLogger().info("Serving packs locally on port " + boundPort
-                                + " as " + address + " (host.mode: upload, fallback enabled)");
+                        startup("Fallback", "Port " + boundPort + " as " + address
+                                + " (host.fallback-on-download-failure)");
 
                         for (String problem : PackHost.addressProblems(address, boundPort)) {
                             getLogger().warning("host.fallback-on-download-failure: " + problem
@@ -1929,7 +1985,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                             + "download packs. Set host.mode to upload or own-port in config.yml.");
                 }
                 if (packHost.startSamePort()) {
-                    getLogger().info("Serving packs on the game port (host.mode: same-port).");
+                    startup("Hosting", "The game port (host.mode: same-port)");
                 } else {
                     getLogger().warning("Packs are built but not served. Set host.mode to upload or own-port in config.yml.");
                 }
@@ -1939,7 +1995,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         try {
             int port = packHost.start(getConfig().getInt("host.port", 8181));
-            getLogger().info("Serving packs on port " + port + " as " + address + " (host.mode: own-port)");
+            startup("Hosting", "Port " + port + " as " + address + " (host.mode: own-port)");
             for (String problem : PackHost.addressProblems(address, port)) {
                 getLogger().warning(problem);
             }
@@ -2275,12 +2331,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         publishRigs(rigAssets, rigsApart);
         buildBedrockContent(output);
 
-        to.sendMessage("[RPEngine] " + plural(loaded.packs().size(), "pack") + ", "
+        String summary = plural(loaded.packs().size(), "pack") + ", "
                 + plural(loaded.definitions().size(), "definition") + ", "
                 + plural(built.size(), "bundle") + " built, "
                 + plural(recipes.size(), "recipe")
                 + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig")
-                        + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "") + ".");
+                        + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "");
+        if (banner != null && to instanceof ConsoleCommandSender) {
+            banner.ok("Content", summary);
+        } else {
+            to.sendMessage("[RPEngine] " + summary + ".");
+        }
 
         // Everybody online is holding a pack that may no longer exist, so they
         // are re-sent before they notice. Nothing is sent to a player whose
