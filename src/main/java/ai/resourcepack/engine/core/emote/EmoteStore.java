@@ -428,6 +428,16 @@ public final class EmoteStore {
     private volatile Bone capeBone = null;
     private final File file;
 
+    /** How many emotes the last load found, for the startup banner. */
+    public int loadedEmotes() {
+        return byId.size();
+    }
+
+    /** How many emote groups the last load found, for the startup banner. */
+    public int loadedGroups() {
+        return groupsById.size();
+    }
+
     public EmoteStore(File dataFolder) {
         this.file = new File(dataFolder, "emotes.json");
     }
@@ -865,8 +875,6 @@ public final class EmoteStore {
                     }
                 }
             }
-            logger.info("Loaded " + byId.size() + " emote(s) and " + groupsById.size()
-                + " group(s) from emotes.json");
         } catch (IOException | RuntimeException e) {
             logger.warning("Couldn't load emotes.json: " + e.getMessage());
         }

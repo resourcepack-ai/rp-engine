@@ -184,6 +184,11 @@ public final class RigStore {
     private final Map<String, String> packOfModel = new ConcurrentHashMap<>();
     private final File file;
 
+    /** How many rigs the last load found, for the startup banner. */
+    public int loaded() {
+        return byModel.size();
+    }
+
     public RigStore(File dataFolder) {
         this.file = new File(dataFolder, "rigs.json");
     }
@@ -316,7 +321,6 @@ public final class RigStore {
                 packOfModel.put(entry.getKey(), owner);
             }
 
-            logger.info("Loaded " + byModel.size() + " animation rig(s) from rigs.json");
             if (dropped > 0) {
                 logger.info(
                     "Dropped " + dropped + " rig(s) with no owning pack — sync from the panel to restore them");

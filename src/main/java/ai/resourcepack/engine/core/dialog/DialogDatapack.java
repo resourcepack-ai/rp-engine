@@ -94,6 +94,21 @@ public final class DialogDatapack {
     private volatile boolean reloadWanted;
 
     /**
+     * Whether the "dialogs were written" note has been given. Once per run:
+     * a start writes twice (the content folder, then the last push), and both
+     * writes saying the same paragraph read as a fault.
+     */
+    private boolean told;
+
+    /** Where that note goes: the log, or the startup banner while the engine starts. */
+    private java.util.function.Consumer<String> notes;
+
+    /** Sends the "dialogs were written" note to {@code notes} instead of the log; null for the log again. */
+    public void notes(java.util.function.Consumer<String> notes) {
+        this.notes = notes;
+    }
+
+    /**
      * The files this server's dialog registry was built from: what was on disk
      * when the engine came up, which is after the worlds loaded and before it
      * wrote anything. Empty when that cannot be known.
@@ -332,9 +347,16 @@ public final class DialogDatapack {
             // command, and telling somebody to restart for something that
             // already works is how a restart became the answer to every later
             // problem. The only thing the restart buys is the id.
-            log.info("Dialogs were written to " + root + ". They open now — /rp dialogs lists them. "
-                    + "After the next restart each one is also a registry id other datapacks and "
-                    + "command blocks can name, and their pages turn without waiting for the server.");
+            if (!told) {
+                told = true;
+                if (notes != null) {
+                    notes.accept("Written to " + root + ", open now. Registry ids after the next restart");
+                } else {
+                    log.info("Dialogs were written to " + root + ". They open now — /rp dialogs lists them. "
+                            + "After the next restart each one is also a registry id other datapacks and "
+                            + "command blocks can name, and their pages turn without waiting for the server.");
+                }
+            }
         }
     }
 
