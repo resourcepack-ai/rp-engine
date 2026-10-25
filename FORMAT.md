@@ -348,6 +348,13 @@ crown:
 anything by dragging it into the helmet slot. A head that is already wearing
 something is left alone rather than swapped.
 
+**A helmet with a model of its own is worn as that model.** `material:
+NETHERITE_HELMET` with a `model:` and no `armor:` is a 3D hat that keeps
+netherite's armour points: on the head it draws the model, not the netherite
+helmet (1.21.2 and newer; older servers draw the helmet). `hat: true` on a
+helmet does the same. A helmet with only a flat `texture:` still wears as the
+vanilla helmet, which is the only look it has.
+
 There is a third, for one specific job: `liquid: mypack:acid` makes the item a
 bucket of that [liquid](#liquids), which is how a pond gets built rather than
 marked out afterwards.
