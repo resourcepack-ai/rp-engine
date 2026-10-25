@@ -122,6 +122,36 @@ public final class DialogPlaceholders {
     private static final Pattern LEGACY = Pattern.compile("§.?");
 
     /**
+     * A glyph from the server's own pack, pasted into a Studio dialog, exactly
+     * as Studio's dialog builder writes it ({@code packGlyphComponents}): its
+     * characters, its font when it names one, white, no shadow, and its
+     * insertion. Studio's dialog check runs this pattern over a built body, so
+     * the two cannot drift without it failing.
+     *
+     * <p>A placeholder in one keeps its value's COLOUR CODES, which everywhere
+     * else in a dialog are dropped ({@link #clean}): a glyph a placeholder
+     * picks is often pixels coloured per player — a face built of one-pixel
+     * glyphs, one per skin pixel, each in its colour — and white, it is a
+     * silhouette. So the value is split into coloured runs ({@link #glyphRun}).
+     * Nothing that can run a command is in this component, so no code reaches
+     * one.
+     */
+    static final Pattern GLYPH = Pattern.compile(
+            "\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"(,\"font\":\"[^\"\\\\]*\")?,\"color\":\"white\",\"shadow_color\":0,\"insertion\":\"rp:glyph\"\\}");
+
+    /**
+     * A colour code in a pasted glyph's value, with {@code §} or {@code &}: one
+     * of the sixteen, a formatting code or reset, the hex run
+     * {@code §x§r§r§g§g§b§b}, or the {@code &#rrggbb} shorthand.
+     */
+    private static final Pattern COLOUR = Pattern.compile("[§&](?:x(?:[§&][0-9A-Fa-f]){6}|#[0-9A-Fa-f]{6}|[0-9A-Fa-fK-Ok-oRr])");
+
+    /** The sixteen legacy colours, by their code. */
+    private static final String[] COLOUR_NAMES = {
+            "black", "dark_blue", "dark_green", "dark_aqua", "dark_red", "dark_purple", "gold", "gray",
+            "dark_gray", "blue", "green", "aqua", "red", "light_purple", "yellow", "white"};
+
+    /**
      * A live head's marker, exactly as Studio's dialog builder writes it
      * ({@code liveHeadMarker}): an 8px space in the dialog's space font, its
      * colour, then its insertion, the name already filled. Studio's dialog
@@ -161,6 +191,109 @@ public final class DialogPlaceholders {
         if (json == null) {
             return null;
         }
+        // Pasted glyphs first, each as a whole, and the text between them as
+        // ever: still one pass, so no value is read twice.
+        Matcher g = GLYPH.matcher(json);
+        if (!g.find()) {
+            return fillText(json, lookup);
+        }
+        StringBuilder out = new StringBuilder(json.length() + 64);
+        int at = 0;
+        do {
+            out.append(fillText(json.substring(at, g.start()), lookup)).append(glyphRun(g, lookup));
+            at = g.end();
+        } while (g.find());
+        return out.append(fillText(json.substring(at), lookup)).toString();
+    }
+
+    /**
+     * A pasted glyph's component with its placeholders filled and the colour
+     * codes of what they say turned into coloured runs: the component keeps its
+     * font, its white and its shadow, its text goes empty, and the runs are its
+     * {@code extra}, which inherit all three. With no code anywhere it is the
+     * component it was, filled. With no placeholder it is left exactly as it is.
+     */
+    static String glyphRun(Matcher g, Function<String, Optional<String>> lookup) {
+        String escaped = g.group(1);
+        Matcher m = NAME.matcher(escaped);
+        if (!m.find()) {
+            return g.group();
+        }
+        StringBuilder text = new StringBuilder();
+        int at = 0;
+        do {
+            text.append(unescape(escaped.substring(at, m.start())));
+            Optional<String> value = lookup.apply(m.group(1));
+            if (m.group(2) != null) {
+                // A choice's entries are written as JSON, like the text round them.
+                text.append(unescape(choose(m.group(2), value.map(DialogPlaceholders::clean)).orElse(m.group())));
+            } else {
+                text.append(value.orElse(m.group()));
+            }
+            at = m.end();
+        } while (m.find());
+        text.append(unescape(escaped.substring(at)));
+
+        String font = g.group(2) == null ? "" : g.group(2);
+        String tail = font + ",\"color\":\"white\",\"shadow_color\":0,\"insertion\":\"rp:glyph\"";
+        Matcher c = COLOUR.matcher(text);
+        if (!c.find()) {
+            return "{\"text\":\"" + escape(clean(text.toString())) + "\"" + tail + "}";
+        }
+        StringBuilder runs = new StringBuilder();
+        String colour = null;
+        int from = 0;
+        do {
+            appendRun(runs, text.substring(from, c.start()), colour);
+            colour = colourOf(c.group(), colour);
+            from = c.end();
+        } while (c.find());
+        appendRun(runs, text.substring(from), colour);
+        return "{\"text\":\"\"" + tail + (runs.length() == 0 ? "" : ",\"extra\":[" + runs + "]") + "}";
+    }
+
+    /** One coloured run of a pasted glyph, unless it is empty; no colour is the component's own white. */
+    private static void appendRun(StringBuilder runs, String text, String colour) {
+        String clean = clean(text);
+        if (clean.isEmpty()) {
+            return;
+        }
+        if (runs.length() > 0) {
+            runs.append(',');
+        }
+        runs.append("{\"text\":\"").append(escape(clean)).append('"');
+        if (colour != null) {
+            runs.append(",\"color\":\"").append(colour).append('"');
+        }
+        runs.append('}');
+    }
+
+    /**
+     * The colour after a code: a hex one as {@code #rrggbb}, one of the sixteen
+     * by name, none (the component's white) after a reset, and unchanged after a
+     * formatting code, which a glyph has no use for.
+     */
+    private static String colourOf(String code, String current) {
+        char kind = Character.toLowerCase(code.charAt(1));
+        if (kind == 'x') {
+            StringBuilder hex = new StringBuilder("#");
+            for (int i = 3; i < code.length(); i += 2) {
+                hex.append(Character.toLowerCase(code.charAt(i)));
+            }
+            return hex.toString();
+        }
+        if (kind == '#') {
+            return code.substring(1).toLowerCase(Locale.ROOT);
+        }
+        if (kind == 'r') {
+            return null;
+        }
+        int index = Character.digit(kind, 16);
+        return index >= 0 ? COLOUR_NAMES[index] : current;
+    }
+
+    /** The text of a dialog outside its pasted glyphs, every placeholder filled. */
+    private static String fillText(String json, Function<String, Optional<String>> lookup) {
         Matcher m = NAME.matcher(json);
         if (!m.find()) {
             return json;

@@ -286,6 +286,61 @@ class DialogPlaceholdersTest {
         assertEquals(red, DialogPlaceholders.withHeads(red));
     }
 
+    /** A glyph from the server's pack as Studio's dialog builder writes it. */
+    private static String pasted(String text, String font) {
+        return "{\"text\":\"" + text + "\"" + (font == null ? "" : ",\"font\":\"" + font + "\"")
+                + ",\"color\":\"white\",\"shadow_color\":0,\"insertion\":\"rp:glyph\"}";
+    }
+
+    @Test
+    void aPastedGlyphKeepsItsValuesColours() {
+        // A card of one-pixel glyphs coloured per skin pixel, as a placeholder
+        // that works in chat hands it over: hex, a legacy colour, a reset.
+        String json = body(pasted("{card}", "card:pixels"));
+        String value = "§x§1§2§a§b§c§d§c§r";
+        String out = DialogPlaceholders.fill(json, from(Map.of("card", value)), false);
+        assertEquals(body("{\"text\":\"\",\"font\":\"card:pixels\",\"color\":\"white\",\"shadow_color\":0,\"insertion\":\"rp:glyph\",\"extra\":["
+                + "{\"text\":\"\",\"color\":\"#12abcd\"},{\"text\":\"\",\"color\":\"red\"},{\"text\":\"\"}]}"), out);
+        com.google.gson.JsonParser.parseString(out);
+    }
+
+    @Test
+    void aPastedGlyphReadsAmpersandCodesAndTheHexShorthand() {
+        String out = DialogPlaceholders.fill(body(pasted("{a}{b}", null)), from(Map.of("a", "&#FF8800", "b", "&l&2")), false);
+        assertTrue(out.contains("{\"text\":\"\",\"color\":\"#ff8800\"},{\"text\":\"\",\"color\":\"dark_green\"}"), out);
+    }
+
+    @Test
+    void aPastedGlyphWithNoCodeIsTheSameComponentFilled() {
+        String out = DialogPlaceholders.fill(body(pasted("\\uE000{icon}", "nexo:default")), from(Map.of("icon", "")), false);
+        assertEquals(body("{\"text\":\"\",\"font\":\"nexo:default\",\"color\":\"white\",\"shadow_color\":0,\"insertion\":\"rp:glyph\"}"), out);
+    }
+
+    @Test
+    void aPastedGlyphWithoutAPlaceholderOrAnswerIsLeftAlone() {
+        String still = body(pasted("", "nexo:default"));
+        assertEquals(still, DialogPlaceholders.fill(still, from(Map.of()), false));
+        String unanswered = body(pasted("{nobody}", null));
+        assertEquals(unanswered, DialogPlaceholders.fill(unanswered, from(Map.of()), false));
+    }
+
+    @Test
+    void codesStillGoEverywhereElseAndNoValueIsReadTwice() {
+        // Words beside the glyph lose their codes as ever; a value that looks
+        // like a placeholder is never filled again, in the glyph or out of it.
+        String json = body("{\"text\":\"Hi {name}\"}," + pasted("{card}", null) + ",{\"text\":\"{name}\"}");
+        String out = DialogPlaceholders.fill(json, from(Map.of("name", "§cBob", "card", "§a{name}")), false);
+        assertTrue(out.contains("{\"text\":\"Hi Bob\"}"), out);
+        assertTrue(out.contains("\"extra\":[{\"text\":\"{name}\",\"color\":\"green\"}]"), out);
+        assertTrue(out.contains("]},{\"text\":\"Bob\"},"), out);
+    }
+
+    @Test
+    void aPastedGlyphsChoiceIsResolved() {
+        String out = DialogPlaceholders.fill(body(pasted("{rank?vip:\\uE010|\\uE011}", null)), from(Map.of("rank", "vip")), false);
+        assertTrue(out.contains("{\"text\":\"\","), out);
+    }
+
     @Test
     void aNameIsReadBackOutOfItsJsonEscapes() {
         assertEquals("Steve", DialogPlaceholders.playerName(DialogPlaceholders.unescape("\\u0053teve")));
