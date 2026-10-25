@@ -124,32 +124,58 @@ public final class FontAssets implements PackContributor {
 
     /**
      * Tells {@link TextWidth} how wide an icon is drawn, so a value carrying it
-     * in an overlay measures as itself. The game scales a bitmap glyph's cell to
-     * the declared height and rounds its width; that rounded width is what is
-     * recorded. Nothing is recorded when the PNG cannot be read.
+     * in an overlay measures as itself. The game does not advance a bitmap
+     * glyph by its cell: it trims the cell's transparent columns off the right
+     * (keeping up to the last column with any pixel in it), scales that to the
+     * declared height and rounds. So that is what is recorded, frame by frame,
+     * since each frame is its own cell and can be trimmed differently. Counting
+     * the whole cell put every run after a picture with a clear right edge
+     * that many pixels short. Nothing is recorded when the PNG cannot be read.
      */
     private static void measure(IconInfo icon, String texture, Contribution into) {
         java.util.Optional<byte[]> png = into.read(texture);
         if (png.isEmpty() || png.get().length < 24) {
             return;
         }
-        byte[] b = png.get();
-        int width = ((b[16] & 0xff) << 24) | ((b[17] & 0xff) << 16) | ((b[18] & 0xff) << 8) | (b[19] & 0xff);
-        int height = ((b[20] & 0xff) << 24) | ((b[21] & 0xff) << 16) | ((b[22] & 0xff) << 8) | (b[23] & 0xff);
+        java.awt.image.BufferedImage image;
+        try {
+            image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png.get()));
+        } catch (java.io.IOException | RuntimeException e) {
+            image = null;
+        }
+        if (image == null) {
+            return;
+        }
         int columns = Math.max(1, icon.columns());
         // The sheet's own rows: an animated strip is one row a frame already,
         // and counting its frames again measured every animated icon as many
         // times too wide as it has frames.
         int rows = Math.max(1, icon.rows());
-        int cellWidth = width / columns;
-        int cellHeight = height / rows;
+        int cellWidth = image.getWidth() / columns;
+        int cellHeight = image.getHeight() / rows;
         if (cellWidth <= 0 || cellHeight <= 0) {
             return;
         }
-        int drawn = (int) Math.round(cellWidth * (double) icon.height() / cellHeight);
+        double scale = icon.height() / (double) cellHeight;
         for (int frame = 0; frame < Math.max(1, icon.frames()); frame++) {
-            TextWidth.glyph(icon.codepoint(frame), drawn);
+            int cell = icon.cell() - 1 + frame;
+            int x0 = (cell % columns) * cellWidth;
+            int y0 = (cell / columns) * cellHeight;
+            int used = y0 + cellHeight <= image.getHeight() ? usedWidth(image, x0, y0, cellWidth, cellHeight) : cellWidth;
+            TextWidth.glyph(icon.codepoint(frame), (int) (0.5 + used * scale));
         }
+    }
+
+    /** The game's own measure of a glyph: the last column with any opaque pixel, plus one. Empty is 0. */
+    static int usedWidth(java.awt.image.BufferedImage image, int x0, int y0, int w, int h) {
+        for (int x = w - 1; x >= 0; x--) {
+            for (int y = 0; y < h; y++) {
+                if ((image.getRGB(x0 + x, y0 + y) >>> 24) != 0) {
+                    return x + 1;
+                }
+            }
+        }
+        return 0;
     }
 
     /**
