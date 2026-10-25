@@ -53,7 +53,9 @@ import java.util.logging.Logger;
  * was installed, and a file whose contents no longer match its hash has been
  * changed by somebody, so the new version is not written over it. The console
  * names every file kept that way. Files the owner has not touched are updated,
- * and files new in this build are added.
+ * files new in this build are added, and files the last build installed that
+ * this one no longer ships are removed (unless changed, when they stay the
+ * owner's).
  *
  * <p>To take the new version of a file that was kept, delete it and restart
  * (or reload the addon): a missing file is always installed. A folder written
@@ -129,10 +131,11 @@ public final class AddonContent {
     public static boolean install(File jar, String prefix, Path into, String version, Logger log)
             throws IOException {
         Path stamp = into.resolve(STAMP);
-        if (Files.isRegularFile(stamp)
-                && version.equals(Files.readString(stamp, StandardCharsets.UTF_8).trim())) {
-            return false;
-        }
+        // The same build again: only a shipped file that has gone missing is
+        // written (the console's "delete it and restart" for a kept file, and
+        // that never worked while this returned at once). Nothing is hashed.
+        boolean same = Files.isRegularFile(stamp)
+                && version.equals(Files.readString(stamp, StandardCharsets.UTF_8).trim());
         Path root = into.toAbsolutePath().normalize();
         Path manifest = into.resolve(MANIFEST);
         boolean recorded = Files.isRegularFile(manifest);
@@ -162,6 +165,13 @@ public final class AddonContent {
                 if (!target.startsWith(root) || target.equals(root)) {
                     log.warning("Skipped " + entry.getName() + " in " + jar.getName()
                             + ": it names a file outside " + into + ".");
+                    continue;
+                }
+                if (same && Files.exists(target)) {
+                    String was = before.get(relative);
+                    if (was != null) {
+                        after.put(relative, was);
+                    }
                     continue;
                 }
                 byte[] shipped;
@@ -199,6 +209,31 @@ public final class AddonContent {
                 written++;
             }
         }
+        // A file the last version installed and this one no longer ships goes,
+        // if nobody has changed it. Left behind, it was unrecorded, so a later
+        // build shipping that path again found an "owner's own" file there and
+        // kept the stale one: a font a dialog's every line is measured by,
+        // which threw the whole dialog out.
+        int removed = 0;
+        for (Map.Entry<String, String> e : before.entrySet()) {
+            if (same && written == 0) {
+                break;
+            }
+            if (after.containsKey(e.getKey())) {
+                continue;
+            }
+            Path target = root.resolve(e.getKey()).normalize();
+            if (!target.startsWith(root) || target.equals(root) || !Files.isRegularFile(target)) {
+                continue;
+            }
+            if (hash(Files.readAllBytes(target)).equals(e.getValue())) {
+                Files.delete(target);
+                removed++;
+            }
+        }
+        if (same && written == 0) {
+            return false;
+        }
         Files.createDirectories(into);
         writeManifest(manifest, after);
         Files.writeString(stamp, version + "\n", StandardCharsets.UTF_8);
@@ -209,7 +244,7 @@ public final class AddonContent {
                     + " been changed since installed: " + String.join(", ", kept)
                     + ". To take this version of one, delete it and restart the server.");
         }
-        return written > 0;
+        return written > 0 || removed > 0;
     }
 
     /** {@code path -> hash} from a manifest, anything malformed skipped. */
