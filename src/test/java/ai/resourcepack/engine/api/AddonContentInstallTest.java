@@ -129,6 +129,25 @@ class AddonContentInstallTest {
     }
 
     @Test
+    void aFileNoLongerShippedGoesUnlessChangedAndCanComeBack() throws IOException {
+        Path into = dir.resolve("content").resolve("ns");
+        install(into, "1.0", Map.of("font/a.json", "a1", "font/b.json", "b1", "items/mine.yml", "m1"));
+        Files.writeString(into.resolve("items/mine.yml"), "owner");
+
+        // 2.0 drops all three: the untouched ones go, the edited one stays the owner's.
+        install(into, "2.0", Map.of("items/other.yml", "o"));
+        assertFalse(Files.exists(into.resolve("font/a.json")), "an untouched file no longer shipped is removed");
+        assertFalse(Files.exists(into.resolve("font/b.json")));
+        assertEquals("owner", read(into, "items/mine.yml"), "an edited one is the owner's");
+
+        // 3.0 ships a.json again: it is installed, not kept as somebody's.
+        warnings.clear();
+        install(into, "3.0", Map.of("items/other.yml", "o", "font/a.json", "a3"));
+        assertEquals("a3", read(into, "font/a.json"));
+        assertTrue(warnings.isEmpty(), warnings.toString());
+    }
+
+    @Test
     void theSameBuildTouchesNothing() throws IOException {
         Path into = dir.resolve("content").resolve("ns");
         install(into, "1.0", Map.of("items/a.yml", "a: 1\n"));
@@ -136,6 +155,11 @@ class AddonContentInstallTest {
 
         assertFalse(install(into, "1.0", Map.of("items/a.yml", "a: 1\n")));
         assertEquals("a: owner\n", read(into, "items/a.yml"));
+
+        // A kept file deleted comes back on the restart, as the console says it will.
+        Files.delete(into.resolve("items/a.yml"));
+        assertTrue(install(into, "1.0", Map.of("items/a.yml", "a: 1\n")));
+        assertEquals("a: 1\n", read(into, "items/a.yml"));
     }
 
     private boolean install(Path into, String version, Map<String, String> files) throws IOException {
