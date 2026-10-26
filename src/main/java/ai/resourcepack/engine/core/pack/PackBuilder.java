@@ -195,6 +195,8 @@ public final class PackBuilder {
         Map<String, String> writtenBy = new HashMap<>();
         // Overlay entries the packs' own pack.mcmeta declared, in pack order.
         com.google.gson.JsonArray overlays = new com.google.gson.JsonArray();
+        // Their filter and language sections, gathered for the same file.
+        MetaSections sections = new MetaSections();
 
         for (String namespace : bundle.namespaces()) {
             Path packFolder = contentRoot.resolve(namespace);
@@ -202,7 +204,7 @@ public final class PackBuilder {
                 // An ordinary resource pack: the whole folder is what a
                 // resourcepack/ folder would hold. See PlainPack.
                 copyTree(packFolder.resolve(ASSETS), ASSETS, namespace, bundle, zip, writtenBy, diagnostics);
-                copyOverlays(packFolder, "pack.mcmeta", namespace, bundle, zip, writtenBy, overlays, diagnostics);
+                copyOverlays(packFolder, "pack.mcmeta", namespace, bundle, zip, writtenBy, overlays, sections, diagnostics);
                 addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
                 continue;
             }
@@ -217,7 +219,7 @@ public final class PackBuilder {
             copyTree(packFolder.resolve(RESOURCE_PACK).resolve(ASSETS), ASSETS,
                     namespace, bundle, zip, writtenBy, diagnostics);
             copyOverlays(packFolder.resolve(RESOURCE_PACK), RESOURCE_PACK + "/pack.mcmeta",
-                    namespace, bundle, zip, writtenBy, overlays, diagnostics);
+                    namespace, bundle, zip, writtenBy, overlays, sections, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
 
@@ -230,7 +232,7 @@ public final class PackBuilder {
         }
         addGeneratedOverlays(overlays, generatedOverlays);
 
-        zip.add("pack.mcmeta", mcmeta(bundle, overlays).getBytes(StandardCharsets.UTF_8));
+        zip.add("pack.mcmeta", mcmeta(bundle, overlays, sections.json()).getBytes(StandardCharsets.UTF_8));
 
         Path file = outputDir.resolve(bundle.name() + ".zip");
         try {
@@ -327,8 +329,8 @@ public final class PackBuilder {
      * than the file has. The overlays a pack declared ready-made are the one
      * part that is somebody else's JSON, and those go through Gson.
      */
-    private String mcmeta(Bundle bundle, com.google.gson.JsonArray overlays) {
-        return packMeta(packFormat, description + " - " + bundle.name(), overlays);
+    private String mcmeta(Bundle bundle, com.google.gson.JsonArray overlays, com.google.gson.JsonObject sections) {
+        return packMeta(packFormat, description + " - " + bundle.name(), overlays, sections);
     }
 
     /**
@@ -338,6 +340,20 @@ public final class PackBuilder {
      * makes beside its bundles (the merged shaders), so they follow one rule.
      */
     public static String packMeta(int packFormat, String description, com.google.gson.JsonArray overlays) {
+        return packMeta(packFormat, description, overlays, new com.google.gson.JsonObject());
+    }
+
+    /**
+     * As above, plus top-level sections the packs declared themselves
+     * ({@code filter}, {@code language}), written after the rest as given.
+     */
+    public static String packMeta(int packFormat, String description, com.google.gson.JsonArray overlays,
+                                  com.google.gson.JsonObject sections) {
+        StringBuilder tail = new StringBuilder();
+        for (Map.Entry<String, com.google.gson.JsonElement> section : sections.entrySet()) {
+            tail.append(",\n  \"").append(escape(section.getKey())).append("\": ")
+                    .append(new com.google.gson.Gson().toJson(section.getValue()));
+        }
         String pack = "  \"pack\": {\n"
                 + "    \"pack_format\": " + packFormat + ",\n"
                 // Past format 64 a client wants the range at the top even with
@@ -348,7 +364,7 @@ public final class PackBuilder {
                         : "")
                 + "    \"description\": \"" + escape(description) + "\"\n"
                 + "  }";
-        if (overlays.isEmpty()) return "{\n" + pack + "\n}\n";
+        if (overlays.isEmpty()) return "{\n" + pack + tail + "\n}\n";
         // A pack whose overlays reach past format 64 must say, at the top,
         // which formats it supports (1.21.9+ refuses the whole pack
         // otherwise): from the oldest to the newest it or any overlay names.
@@ -375,7 +391,7 @@ public final class PackBuilder {
                 + "  }";
         com.google.gson.JsonObject entries = new com.google.gson.JsonObject();
         entries.add("entries", overlays);
-        return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + "\n}\n";
+        return "{\n" + pack + ",\n  \"overlays\": " + new com.google.gson.Gson().toJson(entries) + tail + "\n}\n";
     }
 
     /**
@@ -501,15 +517,22 @@ public final class PackBuilder {
      * which in the base pack would break every client its GLSL does not
      * compile on. Studio's dialogs use it for the shader that draws a live
      * player head at its full size.
+     *
+     * <p>The same file's {@code filter} and {@code language} sections are
+     * gathered into {@code sections} on the way, since the bundle's
+     * pack.mcmeta is the only one the game will read.
      */
     private void copyOverlays(Path resourcePack, String metaPath, String namespace, Bundle bundle, DeterministicZip zip,
                               Map<String, String> writtenBy, com.google.gson.JsonArray overlays,
-                              List<Diagnostic> diagnostics) {
+                              MetaSections sections, List<Diagnostic> diagnostics) {
         Path meta = resourcePack.resolve("pack.mcmeta");
         if (!Files.isRegularFile(meta)) return;
         com.google.gson.JsonArray declared;
         try {
             com.google.gson.JsonElement root = com.google.gson.JsonParser.parseString(Files.readString(meta, StandardCharsets.UTF_8));
+            if (root.isJsonObject()) {
+                sections.add(root.getAsJsonObject(), namespace, metaPath, diagnostics);
+            }
             com.google.gson.JsonElement list = root.isJsonObject() && root.getAsJsonObject().has("overlays")
                     ? root.getAsJsonObject().getAsJsonObject("overlays").get("entries") : null;
             if (list == null || !list.isJsonArray()) return;
@@ -529,6 +552,62 @@ public final class PackBuilder {
             }
             copyTree(resourcePack.resolve(directory), directory, namespace, bundle, zip, writtenBy, diagnostics);
             overlays.add(entry);
+        }
+    }
+
+    /**
+     * The two sections of a pack's own pack.mcmeta that mean something to the
+     * game besides its overlays, gathered from every pack in a bundle.
+     *
+     * <p>{@code filter} hides files in the packs below this one, vanilla
+     * included; every pack's patterns are kept, since one bundle now stands
+     * where each of them stood. {@code language} adds languages to the game's
+     * list; the first pack to declare a code keeps it, and a second that says
+     * something different is warned about.
+     */
+    private static final class MetaSections {
+        private final com.google.gson.JsonArray block = new com.google.gson.JsonArray();
+        private final com.google.gson.JsonObject language = new com.google.gson.JsonObject();
+        private final Map<String, String> languageBy = new HashMap<>();
+
+        void add(com.google.gson.JsonObject meta, String namespace, String metaPath, List<Diagnostic> diagnostics) {
+            com.google.gson.JsonElement filter = meta.get("filter");
+            if (filter != null && filter.isJsonObject()
+                    && filter.getAsJsonObject().get("block") instanceof com.google.gson.JsonArray patterns) {
+                for (com.google.gson.JsonElement pattern : patterns) {
+                    if (pattern.isJsonObject() && !block.contains(pattern)) {
+                        block.add(pattern);
+                    }
+                }
+            }
+            com.google.gson.JsonElement languages = meta.get("language");
+            if (languages == null || !languages.isJsonObject()) {
+                return;
+            }
+            for (Map.Entry<String, com.google.gson.JsonElement> entry : languages.getAsJsonObject().entrySet()) {
+                com.google.gson.JsonElement previous = language.get(entry.getKey());
+                if (previous == null) {
+                    language.add(entry.getKey(), entry.getValue());
+                    languageBy.put(entry.getKey(), namespace);
+                } else if (!previous.equals(entry.getValue())) {
+                    String first = languageBy.get(entry.getKey());
+                    diagnostics.add(Diagnostic.warning(namespace, metaPath, "Both " + first + " and " + namespace
+                            + " declare the language '" + entry.getKey() + "'. " + first + "'s is kept."));
+                }
+            }
+        }
+
+        com.google.gson.JsonObject json() {
+            com.google.gson.JsonObject out = new com.google.gson.JsonObject();
+            if (!block.isEmpty()) {
+                com.google.gson.JsonObject filter = new com.google.gson.JsonObject();
+                filter.add("block", block);
+                out.add("filter", filter);
+            }
+            if (language.size() > 0) {
+                out.add("language", language);
+            }
+            return out;
         }
     }
 

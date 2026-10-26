@@ -2302,7 +2302,10 @@ is what this engine claimed and ids written elsewhere have to resolve.
 ordinary resource pack**, and it is copied into the built pack as written,
 exactly as a pack's `resourcepack/` folder is (below): every namespace,
 `minecraft` included, its `pack.png`, and the overlay directories its
-`pack.mcmeta` lists. It defines nothing. `pack.yml` is not demanded of it
+`pack.mcmeta` lists. Its `filter` and `language` sections go into the built
+`pack.mcmeta` too, from this and from any `resourcepack/pack.mcmeta`: every
+pack's filter patterns are kept, and a language code two packs declare
+differently keeps the first and warns. It defines nothing. `pack.yml` is not demanded of it
 because `pack.mcmeta` beside `assets/` already says what the folder is, and a
 stray directory does not look like that.
 
