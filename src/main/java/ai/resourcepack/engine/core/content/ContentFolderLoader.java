@@ -13,6 +13,7 @@ import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.McVersion;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.PackMeta;
+import ai.resourcepack.engine.core.pack.PlainPack;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -306,6 +307,18 @@ public final class ContentFolderLoader {
             return;
         }
 
+        if (PlainPack.is(folder)) {
+            // An ordinary resource pack: art for the built pack and nothing
+            // to define, so its overlay folders are not read as categories.
+            ClaimResult claim = registration.claim(namespace, source);
+            if (!claim.success()) {
+                diagnostics.add(Diagnostic.error(origin, claimMessage(namespace, claim)));
+                return;
+            }
+            packs.add(PackMeta.of(namespace, source, null, null, null, List.of()));
+            return;
+        }
+
         Path packFile = folder.resolve(PACK_FILE);
         boolean itemsAdder = !Files.isRegularFile(packFile) && holdsItemsAdderConfig(folder, diagnostics, origin);
         boolean nexoOraxen = !Files.isRegularFile(packFile) && !itemsAdder
@@ -319,7 +332,8 @@ public final class ContentFolderLoader {
                 || holdsBbmodels(folder.resolve("players")));
         if (!Files.isRegularFile(packFile) && !itemsAdder && !nexoOraxen && !craftEngineOnly && !modelsOnly) {
             diagnostics.add(Diagnostic.error(origin,
-                    "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out."));
+                    "No " + PACK_FILE + ", so this is not a content pack. Add one, or move the folder out. "
+                            + "(A resource pack needs pack.mcmeta and assets/ at the top of the folder.)"));
             return;
         }
 

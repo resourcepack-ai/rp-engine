@@ -2296,6 +2296,24 @@ full blocks.
 something else is loaded under the folder's name and warns, because the folder
 is what this engine claimed and ids written elsewhere have to resolve.
 
+## A plain resource pack
+
+**A folder with `pack.mcmeta` and `assets/` at the top and no `pack.yml` is an
+ordinary resource pack**, and it is copied into the built pack as written,
+exactly as a pack's `resourcepack/` folder is (below): every namespace,
+`minecraft` included, its `pack.png`, and the overlay directories its
+`pack.mcmeta` lists. It defines nothing. `pack.yml` is not demanded of it
+because `pack.mcmeta` beside `assets/` already says what the folder is, and a
+stray directory does not look like that.
+
+**A `.zip` of one dropped into `content/` is unpacked** on the next load into a
+folder named after it (lower-cased, anything a namespace cannot hold turned
+into `_`), and the zip is moved to `plugins/RPEngine/unpacked-zips/`. A zip
+holding everything inside one folder is unwrapped. A zip is never unpacked over
+a folder that exists, since that folder may have been edited: delete it to
+replace it. A zip that is not a resource pack is left where it is, with a
+warning.
+
 ## A CraftEngine pack
 
 **Drop it in and it loads.** A pack folder out of CraftEngine's
