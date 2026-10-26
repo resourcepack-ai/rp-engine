@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.serve;
 
+import ai.resourcepack.common.host.PackUploader;
 import ai.resourcepack.engine.api.BuiltPack;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -145,7 +146,10 @@ class PackUploadTest {
     void aBusyHostIsTriedAgain() throws Exception {
         forced.set(429);
         PackUploader uploader = new PackUploader(base, "RPEngine/test", 10);
-        assertThrows(PackUploader.UploadException.class, () -> uploader.ensure(pack("default", "e".repeat(40))));
+        assertThrows(PackUploader.UploadException.class, () -> {
+            BuiltPack p = pack("default", "e".repeat(40));
+            uploader.ensure(p.sha1(), p.file(), p.bundle());
+        });
         assertEquals(3, calls.size());
     }
 
