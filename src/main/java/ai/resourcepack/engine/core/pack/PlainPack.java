@@ -135,7 +135,10 @@ public final class PlainPack {
                     + "Delete that folder to replace it with the zip."));
             return false;
         }
-        Path staging = contentRoot.resolve("." + namespace + ".unpacking");
+        // Straight into the folder rather than beside it and renamed: on
+        // Windows a folder of files just written is often still held open by
+        // a virus scanner, and renaming it fails. A failure part way removes
+        // what was written, so the next load tries again.
         try (ZipFile file = new ZipFile(zip.toFile())) {
             String prefix = packRoot(file);
             if (prefix == null) {
@@ -143,8 +146,7 @@ public final class PlainPack {
                         + " and assets/ inside), so it was left alone."));
                 return false;
             }
-            delete(staging);
-            Files.createDirectories(staging);
+            Files.createDirectories(target);
             Enumeration<? extends ZipEntry> entries = file.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
@@ -152,10 +154,10 @@ public final class PlainPack {
                 if (entry.isDirectory() || !path.startsWith(prefix)) {
                     continue;
                 }
-                Path out = staging.resolve(path.substring(prefix.length())).normalize();
+                Path out = target.resolve(path.substring(prefix.length())).normalize();
                 // A zip is somebody else's file: an entry naming ../ is not
                 // allowed out of the folder it is being unpacked into.
-                if (!out.startsWith(staging) || out.equals(staging)) {
+                if (!out.startsWith(target) || out.equals(target)) {
                     continue;
                 }
                 Files.createDirectories(out.getParent());
@@ -164,20 +166,24 @@ public final class PlainPack {
                 }
             }
         } catch (IOException | RuntimeException e) {
-            delete(staging);
-            diagnostics.add(Diagnostic.error(name, "Could not be unpacked: " + e.getMessage()));
+            delete(target);
+            diagnostics.add(Diagnostic.error(name, "Could not be unpacked. " + describe(e)));
             return false;
         }
         try {
-            Files.move(staging, target);
             Files.createDirectories(unpackedRoot);
             Files.move(zip, unpackedRoot.resolve(name), StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
-            delete(staging);
-            diagnostics.add(Diagnostic.error(name, "Could not be unpacked: " + e.getMessage()));
-            return false;
+            diagnostics.add(Diagnostic.warning(name, "Unpacked into " + namespace + "/, but the zip could not be "
+                    + "moved to " + unpackedRoot.getFileName() + "/, so delete it yourself. " + describe(e)));
         }
         return true;
+    }
+
+    /** An exception as a person can read it: several only carry a path as their message. */
+    private static String describe(Exception e) {
+        String message = e.getMessage();
+        return e.getClass().getSimpleName() + (message == null || message.isEmpty() ? "" : ": " + message);
     }
 
     /**
@@ -229,7 +235,7 @@ public final class PlainPack {
                 Files.deleteIfExists(path);
             }
         } catch (IOException ignored) {
-            // Staging is ours and hidden; a leftover is retried next time.
+            // Whatever is left is named by the next load's "already exists".
         }
     }
 }
