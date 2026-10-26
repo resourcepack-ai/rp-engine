@@ -1,5 +1,6 @@
 package ai.resourcepack.engine;
 
+import ai.resourcepack.common.host.PackUploader;
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.BlockInfo;
@@ -102,7 +103,6 @@ import ai.resourcepack.engine.core.serve.PackSending;
 import ai.resourcepack.engine.core.serve.ServerStack;
 import ai.resourcepack.engine.core.serve.LoginAddresses;
 import ai.resourcepack.engine.core.serve.PackHost;
-import ai.resourcepack.engine.core.serve.PackUploader;
 import ai.resourcepack.engine.core.skin.SkinApplier;
 import ai.resourcepack.engine.core.sound.SoundAssets;
 import ai.resourcepack.engine.core.sound.SoundDefinitions;
@@ -1913,7 +1913,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         String address = getConfig().getString("host.public-address", DEFAULT_PUBLIC_ADDRESS);
         PackHost.Mode mode = hostMode();
         PackUploader uploader = new PackUploader(
-                getConfig().getString("host.upload-url", "https://packs.resourcepack.ai"),
+                getConfig().getString("host.upload-url", PackUploader.HOST),
                 "RPEngine/" + getDescription().getVersion());
         packHost = PackHost.create(mode, address, uploader, runnable -> {
             // A finished upload's follow-up, onto the server thread; nothing to

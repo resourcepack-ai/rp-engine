@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.serve;
 
+import ai.resourcepack.common.host.PackUploader;
 import ai.resourcepack.engine.api.BuiltPack;
 
 import java.io.BufferedInputStream;
@@ -500,7 +501,7 @@ public final class PackHost {
         try {
             uploadThread.execute(() -> {
                 try {
-                    upload.url = uploader.ensure(pack);
+                    upload.url = uploader.ensure(pack.sha1(), pack.file(), pack.bundle());
                     upload.done = true;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -575,7 +576,7 @@ public final class PackHost {
             try {
                 uploadThread.execute(() -> {
                     try {
-                        uploader.ensure(upload.pack);
+                        uploader.ensure(upload.pack.sha1(), upload.pack.file(), upload.pack.bundle());
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     } catch (IOException | RuntimeException e) {
