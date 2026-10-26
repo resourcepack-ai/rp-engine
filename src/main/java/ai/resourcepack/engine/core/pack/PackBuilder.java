@@ -198,6 +198,14 @@ public final class PackBuilder {
 
         for (String namespace : bundle.namespaces()) {
             Path packFolder = contentRoot.resolve(namespace);
+            if (PlainPack.is(packFolder)) {
+                // An ordinary resource pack: the whole folder is what a
+                // resourcepack/ folder would hold. See PlainPack.
+                copyTree(packFolder.resolve(ASSETS), ASSETS, namespace, bundle, zip, writtenBy, diagnostics);
+                copyOverlays(packFolder, "pack.mcmeta", namespace, bundle, zip, writtenBy, overlays, diagnostics);
+                addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
+                continue;
+            }
             copyTree(packFolder.resolve(ASSETS), ASSETS + "/" + namespace,
                     namespace, bundle, zip, writtenBy, diagnostics);
             for (String theirs : IMPORTED_ASSETS) {
@@ -208,7 +216,8 @@ public final class PackBuilder {
                     namespace, bundle, zip, writtenBy, diagnostics);
             copyTree(packFolder.resolve(RESOURCE_PACK).resolve(ASSETS), ASSETS,
                     namespace, bundle, zip, writtenBy, diagnostics);
-            copyOverlays(packFolder.resolve(RESOURCE_PACK), namespace, bundle, zip, writtenBy, overlays, diagnostics);
+            copyOverlays(packFolder.resolve(RESOURCE_PACK), RESOURCE_PACK + "/pack.mcmeta",
+                    namespace, bundle, zip, writtenBy, overlays, diagnostics);
             addIcon(packFolder.resolve(ICON), namespace, bundle, zip, writtenBy, diagnostics);
         }
 
@@ -493,7 +502,7 @@ public final class PackBuilder {
      * compile on. Studio's dialogs use it for the shader that draws a live
      * player head at its full size.
      */
-    private void copyOverlays(Path resourcePack, String namespace, Bundle bundle, DeterministicZip zip,
+    private void copyOverlays(Path resourcePack, String metaPath, String namespace, Bundle bundle, DeterministicZip zip,
                               Map<String, String> writtenBy, com.google.gson.JsonArray overlays,
                               List<Diagnostic> diagnostics) {
         Path meta = resourcePack.resolve("pack.mcmeta");
@@ -506,7 +515,7 @@ public final class PackBuilder {
             if (list == null || !list.isJsonArray()) return;
             declared = list.getAsJsonArray();
         } catch (IOException | RuntimeException e) {
-            diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
+            diagnostics.add(Diagnostic.warning(namespace, metaPath,
                     "Could not be read, so its overlays are not shipped. " + message(e)));
             return;
         }
@@ -514,7 +523,7 @@ public final class PackBuilder {
             if (!entry.isJsonObject() || !entry.getAsJsonObject().has("directory")) continue;
             String directory = entry.getAsJsonObject().get("directory").getAsString();
             if (!OVERLAY_DIRECTORY.matcher(directory).matches() || directory.equals(ASSETS)) {
-                diagnostics.add(Diagnostic.warning(namespace, "resourcepack/pack.mcmeta",
+                diagnostics.add(Diagnostic.warning(namespace, metaPath,
                         "Overlay directory '" + directory + "' is not a name the game accepts; skipped."));
                 continue;
             }
@@ -572,7 +581,8 @@ public final class PackBuilder {
                 // Only reachable through overrides/ or a resource pack folder,
                 // since everything else is namespaced. Later-sorted wins, which is stable; the warning
                 // is what makes it findable.
-                String folder = from.endsWith(Path.of(RESOURCE_PACK, ASSETS)) ? RESOURCE_PACK : OVERRIDES;
+                String folder = from.endsWith(Path.of(RESOURCE_PACK, ASSETS)) ? RESOURCE_PACK
+                        : from.endsWith(OVERRIDES) ? OVERRIDES : from.getFileName().toString();
                 diagnostics.add(Diagnostic.warning(namespace + "/" + folder,
                         "Both " + previous + " and " + namespace + " replace " + path
                                 + " in the bundle " + bundle.name() + ". " + namespace + " wins."));

@@ -93,6 +93,7 @@ import ai.resourcepack.engine.core.model.RigCarrier;
 import ai.resourcepack.engine.core.model.RigStore;
 import ai.resourcepack.engine.core.model.Seats;
 import ai.resourcepack.engine.core.pack.PackBuilder;
+import ai.resourcepack.engine.core.pack.PlainPack;
 import ai.resourcepack.engine.core.version.Compatibility;
 import ai.resourcepack.engine.core.recipe.RecipeDefinitions;
 import ai.resourcepack.engine.core.recipe.Recipes;
@@ -2106,6 +2107,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             to.sendMessage("[RPEngine] Could not prepare " + getDataFolder() + ": " + e.getMessage());
             return;
         }
+
+        // A resource pack zip dropped into content/ becomes a folder first. See PlainPack.
+        PlainPack.Unpacked unpacked = PlainPack.unpackZips(content, getDataFolder().toPath().resolve(PlainPack.UNPACKED));
+        for (String zip : unpacked.unpacked()) {
+            String line = "Unpacked " + zip + " in content/. The zip is now in " + PlainPack.UNPACKED + "/.";
+            getLogger().info(line);
+            if (!(to instanceof ConsoleCommandSender)) {
+                EngineCommand.say(to, line);
+            }
+        }
+        report(to, "content", unpacked.diagnostics());
 
         // Everything goes, then the folder is read again. See clear().
         registry.clear();
