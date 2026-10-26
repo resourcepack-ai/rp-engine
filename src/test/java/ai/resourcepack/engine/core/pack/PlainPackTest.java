@@ -112,6 +112,43 @@ class PlainPackTest {
     }
 
     @Test
+    void keepsItsFilterAndLanguages() throws IOException {
+        write("alpha/pack.mcmeta", """
+                {"pack": {"pack_format": 46, "description": "A"},
+                 "filter": {"block": [{"namespace": "minecraft", "path": "textures/block/dirt.png"}]},
+                 "language": {"pirate_xx": {"name": "Pirate", "region": "Seas", "bidirectional": false}}}
+                """);
+        write("alpha/assets/minecraft/lang/pirate_xx.json", "{}");
+        write("beta/pack.mcmeta", """
+                {"pack": {"pack_format": 46, "description": "B"},
+                 "filter": {"block": [{"namespace": "other"}]},
+                 "language": {"pirate_xx": {"name": "Arr", "region": "Seas", "bidirectional": false}}}
+                """);
+        write("beta/assets/other/textures/x.png", "X");
+
+        BuildReport report = new PackBuilder().build(content, out, load());
+        String mcmeta = read(report.pack("main").orElseThrow().file()).get("pack.mcmeta");
+        com.google.gson.JsonObject meta = com.google.gson.JsonParser.parseString(mcmeta).getAsJsonObject();
+
+        assertEquals(2, meta.getAsJsonObject("filter").getAsJsonArray("block").size(), mcmeta);
+        assertEquals("Pirate", meta.getAsJsonObject("language").getAsJsonObject("pirate_xx")
+                .get("name").getAsString(), mcmeta);
+        assertTrue(report.diagnostics().stream().anyMatch(d -> d.toString().contains("pirate_xx")),
+                errors(report.diagnostics()));
+    }
+
+    @Test
+    void anOrdinaryBuildHasNeither() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+
+        String mcmeta = read(new PackBuilder().build(content, out, load()).pack("main").orElseThrow().file())
+                .get("pack.mcmeta");
+
+        assertFalse(mcmeta.contains("filter"), mcmeta);
+        assertFalse(mcmeta.contains("language"), mcmeta);
+    }
+
+    @Test
     void sitsBesideAContentPack() throws IOException {
         write("shaders/pack.mcmeta", OVERLAY_MCMETA);
         write("shaders/assets/minecraft/textures/block/stone.png", "STONE");
