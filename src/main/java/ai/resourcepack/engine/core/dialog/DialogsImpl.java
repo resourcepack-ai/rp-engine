@@ -1102,6 +1102,86 @@ public final class DialogsImpl implements Dialogs {
         return root.getClass().getName().endsWith("CommandSyntaxException");
     }
 
+    /** What came of a "Run as console" click ({@link #runConsole}). */
+    public enum ConsoleRun {
+        /** Run, and the server knew the command. */
+        RAN,
+        /** The dialog the player was shown has no such click (or it expired, or was closed). */
+        NOT_OFFERED,
+        /** Offered, but the command failed: unknown, threw, or a placeholder filled it with something no command takes. */
+        FAILED
+    }
+
+    /**
+     * The command a "Run as console" click names, as the console will run it:
+     * filled for this player, with what their dialog was opened with. Empty
+     * unless the dialog they were last shown (still theirs: see
+     * {@link #lastShown}) holds a click running exactly {@code rp click <key>}
+     * among the pieces they could see, and carries a command by that key.
+     *
+     * <p>That check is the whole of the security: {@code /rp click} is a
+     * command every player has, because their click runs it, so it must do
+     * what the click would have done and nothing else. The command was never
+     * sent to the client, so nobody can have changed a word of it.
+     */
+    public Optional<String> consoleCommand(Player viewer, String key) {
+        Shown shown = viewer == null || key == null || !DialogInfo.CONSOLE_KEY.matcher(key).matches() ? null : current(viewer);
+        if (shown == null || !visibleJson(viewer, shown.id(), shown.values())
+                .map(json -> DialogLinks.holdsCommand(json, DialogLinks.consoleClick(key))).orElse(false)) {
+            return Optional.empty();
+        }
+        return info(viewer, shown.id()).map(info -> info.consoleCommands().get(key))
+                .map(command -> filledCommand(viewer, command, shown.values()));
+    }
+
+    /**
+     * A console command's placeholders filled exactly as its dialog's text is
+     * ({@link #filled}), or empty when what they say leaves no command (a line
+     * break, say): the same pass, run over the command as a JSON string.
+     */
+    String filledCommand(Player viewer, String command, Map<String, String> values) {
+        if (!DialogPlaceholders.any(command)) {
+            return command;
+        }
+        com.google.gson.Gson gson = new com.google.gson.Gson();
+        try {
+            String filled = gson.fromJson(DialogPlaceholders.fill(gson.toJson(command), lookup(viewer, values), false), String.class);
+            String run = DialogInfo.consoleCommand(filled);
+            return run == null ? "" : run;
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Runs a "Run as console" click's command as the console, when the player
+     * was offered it ({@link #consoleCommand}). A failure is logged with the
+     * command, since the player is only told that it failed.
+     */
+    public ConsoleRun runConsole(Player viewer, String key) {
+        Optional<String> command = consoleCommand(viewer, key);
+        if (command.isEmpty()) {
+            return ConsoleRun.NOT_OFFERED;
+        }
+        String named = lastShown(viewer).map(shown -> shown.id().toString()).orElse("a dialog");
+        if (command.get().isEmpty()) {
+            Bukkit.getLogger().warning("[RPEngine] " + named + ": a console button's placeholders left no command to run for "
+                    + viewer.getName() + ".");
+            return ConsoleRun.FAILED;
+        }
+        try {
+            if (Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.get())) {
+                return ConsoleRun.RAN;
+            }
+            Bukkit.getLogger().warning("[RPEngine] " + named + ": the console does not know the command its button runs: /"
+                    + command.get());
+        } catch (RuntimeException e) {
+            Bukkit.getLogger().log(java.util.logging.Level.WARNING,
+                    "[RPEngine] " + named + ": the command its console button runs failed: /" + command.get(), e);
+        }
+        return ConsoleRun.FAILED;
+    }
+
     /**
      * Runs a vanilla command from the console and says what came of it.
      *

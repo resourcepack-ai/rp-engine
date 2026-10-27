@@ -354,12 +354,6 @@ overlays:
   # and one packet per wearer per redraw.
   refresh-ticks: 30
 
-  # How often a HUD's state triggers (crouching or holding an item) are
-  # checked, in ticks, 1 to 20. 1 puts a HUD on or takes it off on the same
-  # tick the player does the thing, for a minigame that needs it exact; a
-  # check only sends a packet when the answer changes.
-  trigger-ticks: 2
-
 # VFX (Minecraft 1.21.4+). Every sprite of an effect is a display entity, and
 # this is how many may be alive at once across the whole server. When a new
 # effect would go over it, the oldest effects playing end to make room, so a

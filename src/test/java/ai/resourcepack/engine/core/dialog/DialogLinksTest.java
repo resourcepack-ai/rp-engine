@@ -118,4 +118,18 @@ class DialogLinksTest {
         assertEquals("rp page studio:guide.chapter_2", DialogLinks.command(page));
         assertTrue(DialogLinks.opens("{\"command\":\"" + DialogLinks.command(page) + "\"}", page));
     }
+
+    /**
+     * A console button's key is Studio's {@code dialogConsoleKey}, character
+     * for character: the values here are what Studio's hash makes of the same
+     * strings, so a hand-written {@code console:} and a Studio button running
+     * the same command name it alike.
+     */
+    @Test
+    void aConsoleKeyIsStudiosHash() {
+        assertEquals("f56969d3", DialogLinks.consoleKey("warp spawn {player}"));
+        assertEquals("461f1f94", DialogLinks.consoleKey("give {player} diamond 1"));
+        assertEquals("5cc5edc5", DialogLinks.consoleKey("\u00e9\u2603"));
+        assertEquals("rp click f56969d3", DialogLinks.consoleClick("f56969d3"));
+    }
 }

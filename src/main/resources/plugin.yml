@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -41,10 +41,6 @@ permissions:
       rpengine.purge: true
       rpengine.sounds: true
       rpengine.sound: true
-      rpengine.music: true
-      rpengine.music.play: true
-      rpengine.music.stop: true
-      rpengine.music.skip: true
       rpengine.icons: true
       rpengine.say: true
       rpengine.effects: true
@@ -58,6 +54,7 @@ permissions:
       rpengine.var: true
       rpengine.page: true
       rpengine.slot: true
+      rpengine.click: true
       rpengine.quick: true
       rpengine.hud: true
       rpengine.shaders: true
@@ -92,7 +89,6 @@ permissions:
       rpengine.emote.cast: true
       rpengine.emote.force: true
       rpengine.sound.others: true
-      rpengine.music.others: true
       rpengine.screen.others: true
       rpengine.hud.others: true
       rpengine.shader.others: true
@@ -146,25 +142,6 @@ permissions:
     default: op
   rpengine.sound.others:
     description: Play a custom sound to somebody else.
-    default: op
-  rpengine.music:
-    description: List the music. Every /rp music verb also has its own node.
-    default: op
-    children:
-      rpengine.music.play: true
-      rpengine.music.stop: true
-      rpengine.music.skip: true
-  rpengine.music.play:
-    description: Start a piece of music for yourself.
-    default: op
-  rpengine.music.stop:
-    description: Stop your music.
-    default: op
-  rpengine.music.skip:
-    description: Skip to the next track of your music.
-    default: op
-  rpengine.music.others:
-    description: Start, stop or skip the music for somebody else.
     default: op
   rpengine.icons:
     description: List the icons.
@@ -236,6 +213,14 @@ permissions:
     # dialog the one they were last shown links to with exactly that
     # command - see DialogLinks.
     description: Turn a dialog to another of its pages - what a click on a paged dialog's sidebar runs.
+    default: true
+  rpengine.click:
+    # Everybody, for rpengine.page's reason: a "Run as console" button in a
+    # dialog runs /rp click as the player who clicked it, and the engine runs
+    # the button's command as the console. Only a click the dialog they were
+    # last shown holds runs anything, and the command never reaches the
+    # client - see DialogsImpl.consoleCommand.
+    description: Press a dialog's console button - what a "Run as console" button runs.
     default: true
   rpengine.slot:
     # Everybody, for rpengine.page's reason: a click on a slot of a dialog

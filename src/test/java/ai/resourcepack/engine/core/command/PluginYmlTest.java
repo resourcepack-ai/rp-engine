@@ -52,7 +52,7 @@ class PluginYmlTest {
      * to a command is a decision this test makes somebody take.
      */
     private static final Set<String> ACT_ON_OTHERS =
-            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast");
+            Set.of("sound", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast");
 
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
@@ -96,13 +96,9 @@ class PluginYmlTest {
             // A qualifier on a subcommand: the same command, aimed at somebody else.
             String sub = node.endsWith(".others") ? node.substring(0, node.length() - ".others".length()) : node;
             // Or one verb of a subcommand that has several, each its own node
-            // (rpengine.object.spawn, rpengine.music.play), which the code
-            // checks by name.
+            // (rpengine.object.spawn), which the code checks by name.
             if (sub.startsWith("object.")) {
                 sub = "object";
-            }
-            if (sub.startsWith("music.")) {
-                sub = "music";
             }
             // Or a cast at a place rather than on somebody (rpengine.cast.at).
             if (sub.equals("cast.at")) {

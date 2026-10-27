@@ -1,9 +1,9 @@
 package ai.resourcepack.engine.core.font;
 
-import ai.resourcepack.engine.core.pack.Images;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -900,7 +900,7 @@ public final class RankTags {
         BufferedImage image = new BufferedImage(drawn.width(), drawn.height(), BufferedImage.TYPE_INT_ARGB);
         image.setRGB(0, 0, drawn.width(), drawn.height(), drawn.argb(), 0, drawn.width());
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Images.write(image, "png", out);
+            ImageIO.write(image, "png", out);
             return out.toByteArray();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

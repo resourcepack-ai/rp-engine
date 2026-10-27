@@ -119,12 +119,10 @@ class Armor3dBakerTest {
         assertEquals(List.of(Armor3dSet.Piece.HELMET, Armor3dSet.Piece.CHESTPLATE, Armor3dSet.Piece.BOOTS),
                 new ArrayList<>(set.pieces().keySet()));
         assertTrue(set.authored());
-        // Drawn by 26.1 - 26.2's and 26.3's own shaders, displays for everybody else.
-        assertEquals(2, set.shaderProtocols().size());
+        // Drawn by 26.1 - 26.2's own shaders, displays for everybody else.
+        assertEquals(1, set.shaderProtocols().size());
         assertArrayEquals(new int[]{775, 776}, set.shaderProtocols().get(0));
-        assertArrayEquals(new int[]{777, 777}, set.shaderProtocols().get(1));
         assertTrue(set.drawnBy(775));
-        assertTrue(set.drawnBy(777));
         assertFalse(set.drawnBy(774));
     }
 
@@ -159,22 +157,6 @@ class Armor3dBakerTest {
         // The icons stay: a piece is still an item somebody holds.
         assertTrue(baked.files().containsKey(MODELS + "chestplate.json"));
         assertFalse(baked.files().containsKey(MODELS + "boots.left_foot.json"));
-    }
-
-    @Test
-    void shadersOffLeavesNothingForTheShadersAndDisplaysForEverybody() {
-        Armor3dBlockbench.Source source = Armor3dBlockbench.read(santa().getBytes(StandardCharsets.UTF_8),
-                "christmas/armor3d/costumes.yml", "santa", new ArrayList<>()).orElseThrow();
-        Armor3dBaker.Baked baked = Armor3dBaker.bake("christmas", "santa", "Santa Suit", source, true, false, false);
-
-        assertTrue(baked.overlayFiles().isEmpty());
-        assertNull(baked.shaderProblem());
-        assertFalse(baked.set().drawnBy(776));
-        for (Armor3dSet.Worn worn : baked.set().pieces().values()) {
-            assertNull(worn.asset(), worn.piece().wire());
-        }
-        assertFalse(baked.set().piece(Armor3dSet.Piece.CHESTPLATE).orElseThrow().parts().isEmpty());
-        assertFalse(baked.files().keySet().stream().anyMatch(path -> path.contains("/equipment/")));
     }
 
     @Test
@@ -306,8 +288,7 @@ class Armor3dBakerTest {
         bake(santa(), diagnostics);
 
         String said = diagnostics.toString();
-        // The cape is inside body, so it rides it: nothing to warn about.
-        assertFalse(said.contains("group cape"), said);
+        assertTrue(said.contains("cape"), said);
         assertTrue(said.contains("props"), said);
         assertTrue(said.contains("1 cube is not inside any bone"), said);
     }

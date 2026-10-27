@@ -1,6 +1,5 @@
 package ai.resourcepack.engine.core.bedrock;
 
-import ai.resourcepack.engine.core.pack.Images;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.core.pack.DeterministicZip;
 import com.google.gson.JsonArray;
@@ -8,7 +7,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -283,7 +284,7 @@ public final class BedrockContent {
                 if (icon.codepoint() < 0xE000 || icon.codepoint() > 0xF8FF) continue;
                 byte[] png = read(zip, icon.zipPath());
                 if (png == null) continue;
-                BufferedImage image = Images.read(png);
+                BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
                 if (image != null) image = cellOf(image, icon);
                 if (image != null) decoded.add(new Glyph(icon.codepoint(), image));
             }
@@ -315,7 +316,7 @@ public final class BedrockContent {
                         modelIdentifier(slot), key, json, ref -> texture(zip, ref, inputs.vanilla()));
                 if (converted.isEmpty()) continue;
                 ByteArrayOutputStream atlas = new ByteArrayOutputStream();
-                Images.write(converted.get().atlas(), "png", atlas);
+                ImageIO.write(converted.get().atlas(), "png", atlas);
                 files.put("textures/entity/rpe_" + key + ".png", atlas.toByteArray());
                 files.put("models/entity/rpe_" + key + ".geo.json", json(converted.get().geometry()));
                 files.put("entity/rpe_" + key + ".entity.json", json(converted.get().entity()));
@@ -405,7 +406,7 @@ public final class BedrockContent {
                 }
             }
             ByteArrayOutputStream png = new ByteArrayOutputStream();
-            Images.write(sheet, "png", png);
+            ImageIO.write(sheet, "png", png);
             out.put(String.format(Locale.ROOT, "font/glyph_%02X.png", page.getKey()), png.toByteArray());
         }
         return out;
@@ -537,7 +538,7 @@ public final class BedrockContent {
         String path = colon < 0 ? ref : ref.substring(colon + 1);
         try {
             byte[] png = read(zip, "assets/" + namespace + "/textures/" + path + ".png");
-            if (png != null) return Images.read(png);
+            if (png != null) return ImageIO.read(new ByteArrayInputStream(png));
         } catch (IOException ignored) {
             // Falls through to the game's copy.
         }

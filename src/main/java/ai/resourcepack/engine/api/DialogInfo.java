@@ -49,9 +49,16 @@ public final class DialogInfo {
     private final List<CommandSound> clickSounds;
     private final boolean closesAfterClick;
     private final QuickAction quickAction;
+    private final Map<String, String> consoleCommands;
 
     /** A command a dialog may be opened with: what a player types after the slash. */
     private static final Pattern COMMAND = Pattern.compile("[a-z0-9_-]{1,32}");
+
+    /** What a console command is known by in its click: lower-case letters and digits. */
+    public static final Pattern CONSOLE_KEY = Pattern.compile("[a-z0-9]{1,32}");
+
+    /** The longest console command a dialog may carry. */
+    public static final int MAX_CONSOLE_COMMAND = 1024;
 
     /** A permission node: dotted words. */
     private static final Pattern PERMISSION = Pattern.compile("[A-Za-z0-9_.*-]{1,96}");
@@ -67,13 +74,13 @@ public final class DialogInfo {
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission) {
-        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false, null);
+        this(id, json, name, pushed, variables, itemIcons, command, permission, null, List.of(), false, null, Map.of());
     }
 
     private DialogInfo(ContentId id, String json, String name, boolean pushed, Map<String, List<String>> variables,
                        Map<String, Integer> itemIcons, String command, String permission,
                        ClickSound clickSound, List<CommandSound> clickSounds, boolean closesAfterClick,
-                       QuickAction quickAction) {
+                       QuickAction quickAction, Map<String, String> consoleCommands) {
         this.id = Objects.requireNonNull(id, "id");
         this.json = json == null ? "{}" : json;
         this.name = name == null || name.isEmpty() ? id.path() : name;
@@ -111,6 +118,16 @@ public final class DialogInfo {
         this.clickSounds = List.copyOf(sounds);
         this.closesAfterClick = closesAfterClick;
         this.quickAction = quickAction;
+        Map<String, String> consoles = new LinkedHashMap<>();
+        if (consoleCommands != null) {
+            consoleCommands.forEach((key, line) -> {
+                String run = consoleCommand(line);
+                if (key != null && CONSOLE_KEY.matcher(key).matches() && run != null) {
+                    consoles.put(key, run);
+                }
+            });
+        }
+        this.consoleCommands = java.util.Collections.unmodifiableMap(consoles);
     }
 
     /**
@@ -121,7 +138,7 @@ public final class DialogInfo {
      */
     public DialogInfo withCommand(String command, String permission) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick, quickAction);
+                closesAfterClick, quickAction, consoleCommands);
     }
 
     /**
@@ -132,7 +149,7 @@ public final class DialogInfo {
      */
     public DialogInfo withClickSounds(ClickSound clickSound, List<CommandSound> clickSounds) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick, quickAction);
+                closesAfterClick, quickAction, consoleCommands);
     }
 
     /**
@@ -142,7 +159,7 @@ public final class DialogInfo {
      */
     public DialogInfo withClosesAfterClick(boolean closes) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closes, quickAction);
+                closes, quickAction, consoleCommands);
     }
 
     /**
@@ -151,7 +168,43 @@ public final class DialogInfo {
      */
     public DialogInfo withQuickAction(QuickAction quick) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
-                closesAfterClick, quick);
+                closesAfterClick, quick, consoleCommands);
+    }
+
+    /**
+     * The same dialog, with the commands its "Run as console" clicks run, each
+     * by the key its click names ({@code rp click <key>}). See
+     * {@link #consoleCommands()}. A key that is not {@link #CONSOLE_KEY}, or a
+     * command that is blank, too long or holds a control character, is left out.
+     */
+    public DialogInfo withConsoleCommands(Map<String, String> commands) {
+        return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
+                closesAfterClick, quickAction, commands);
+    }
+
+    /**
+     * A console command as a dialog may carry it — its slash taken off — or
+     * null: blank, longer than {@link #MAX_CONSOLE_COMMAND}, or holding a
+     * section sign or a control character, which no command can.
+     */
+    public static String consoleCommand(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String line = raw.trim();
+        if (line.startsWith("/")) {
+            line = line.substring(1).trim();
+        }
+        if (line.isEmpty() || line.length() > MAX_CONSOLE_COMMAND) {
+            return null;
+        }
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c < 0x20 || c == 0x7f || c == 0xa7) {
+                return null;
+            }
+        }
+        return line;
     }
 
     /**
@@ -305,10 +358,22 @@ public final class DialogInfo {
     }
 
     /**
-     * A click sound: a sound event, the game's ({@code ui.button.click}) or a
-     * pack's ({@code custom.laser}), with its volume and pitch. An empty
-     * {@code sound} is silence.
+     * The commands this dialog's "Run as console" clicks run, by the key each
+     * click names: a click on one runs {@code /rp click <key>} as the player, and
+     * the engine then runs this command as the CONSOLE, with the dialog's
+     * placeholders filled for that player ({@code {player}} is who clicked).
+     *
+     * <p>Only for a player whose shown dialog holds a click running exactly
+     * that {@code rp click}, so typing it in chat does nothing for anybody who
+     * was not offered it, and the command itself never reaches the client, so
+     * nobody can change a word of it. That is what makes it safe to let every
+     * player run {@code /rp click}: a dialog is the only way to a console command,
+     * which is the point. Empty when it has none.
      */
+    public Map<String, String> consoleCommands() {
+        return consoleCommands;
+    }
+
     /**
      * Whether the Quick Actions key (G) opens this dialog, and how. The key is
      * the client's: it opens a dialog out of the registry the player was sent
@@ -339,6 +404,11 @@ public final class DialogInfo {
     public record QuickAction(boolean launcher, String label) {
     }
 
+    /**
+     * A click sound: a sound event, the game's ({@code ui.button.click}) or a
+     * pack's ({@code custom.laser}), with its volume and pitch. An empty
+     * {@code sound} is silence.
+     */
     public record ClickSound(String sound, float volume, float pitch) {
 
         /**
