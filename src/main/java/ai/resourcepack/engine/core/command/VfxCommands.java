@@ -9,7 +9,13 @@ import ai.resourcepack.engine.core.vfx.VfxData;
 import ai.resourcepack.engine.core.vfx.VfxEntry;
 import ai.resourcepack.engine.core.vfx.VfxRuntime;
 
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.command.BlockCommandSender;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ProxiedCommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -20,15 +26,26 @@ import java.util.OptionalLong;
 import java.util.Arrays;
 
 /**
- * VFX: {@code vfx}, {@code vfx presets}, {@code cast <name> [player]} and
- * {@code cast stop}.
+ * VFX: {@code vfx}, {@code vfx presets}, {@code cast <name> [player]},
+ * {@code cast <name> at <x> <y> <z> [world]} and {@code cast stop}.
  *
  * <p>A cast plays at the player's feet, facing the way they face, which is the
- * frame every recipe is written in.
+ * frame every recipe is written in. A cast {@code at} a place has no caster:
+ * nobody's placeholders, nobody to follow, and it faces the way whoever ran
+ * the command faces (south from the console), which {@code turn:} changes.
  */
 public final class VfxCommands implements Area {
 
     private static final String STOP = "stop";
+
+    /**
+     * The word before coordinates. Never a player's name: those are three
+     * characters at least.
+     */
+    private static final String AT = "at";
+
+    /** {@code rpengine.cast.at}: a cast at a place is anywhere on the server, not on somebody. */
+    static final String AT_PERMISSION = EngineCommand.permissionFor("cast") + ".at";
 
     private final VfxCatalogue catalogue;
     private final VfxRuntime runtime;
@@ -49,6 +66,7 @@ public final class VfxCommands implements Area {
                 Help.of("vfx", "each VFX this server can play"),
                 Help.of("vfx", "presets", "the ready-made ones"),
                 Help.of("cast", "<name> [player] [options]", "play a VFX where a player stands"),
+                Help.of("cast", "<name> at <x> <y> <z> [world] [options]", "play a VFX at a place, cast by nobody"),
                 Help.of("cast", "stop [player|tag:<name>]", "end VFX playing"));
     }
 
@@ -103,7 +121,8 @@ public final class VfxCommands implements Area {
 
     private boolean cast(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rp cast <name> [player] [options], or /rp cast stop [player|tag:<name>]. /rp vfx lists them.");
+            Reply.to(sender, "/rp cast <name> [player] [options], /rp cast <name> at <x> <y> <z> [world] [options], "
+                    + "or /rp cast stop [player|tag:<name>]. /rp vfx lists them.");
             return true;
         }
         if (STOP.equalsIgnoreCase(args[1])) {
@@ -118,6 +137,9 @@ public final class VfxCommands implements Area {
         if (entry.isEmpty()) {
             Reply.to(sender, "No VFX called " + args[1] + ". /rp vfx lists them.");
             return true;
+        }
+        if (args.length > 2 && AT.equalsIgnoreCase(args[2])) {
+            return castAt(sender, entry.get(), args);
         }
         int at = 2;
         String named = null;
@@ -144,6 +166,83 @@ public final class VfxCommands implements Area {
         return true;
     }
 
+    /**
+     * {@code cast <name> at <x> <y> <z> [world] [options]}: a cast with nobody
+     * casting it, for an ability, an arena or a command block. {@code ~} is
+     * relative to whoever runs it: a player, a command block, the entity of an
+     * {@code execute as}, or the world's spawn from the console. (Bukkit hands a
+     * plugin command no {@code execute positioned}, so {@code as <entity>} is
+     * the way to put {@code ~} somewhere.)
+     */
+    private boolean castAt(CommandSender sender, VfxEntry entry, String[] args) {
+        if (!sender.hasPermission(AT_PERMISSION)) {
+            Reply.to(sender, "You need " + AT_PERMISSION + " to cast a VFX at a place.");
+            return true;
+        }
+        if (args.length < 6) {
+            Reply.to(sender, "/rp cast <name> at <x> <y> <z> [world] [options]");
+            return true;
+        }
+        Location here = placeOf(sender);
+        int next = 6;
+        World world;
+        if (args.length > 6 && !looksLikeOption(args[6])) {
+            world = Bukkit.getWorld(args[6]);
+            if (world == null) {
+                Reply.to(sender, "No world called " + args[6] + ".");
+                return true;
+            }
+            next = 7;
+        } else {
+            world = here != null ? here.getWorld() : Bukkit.getWorlds().get(0);
+        }
+        Location base = here != null && here.getWorld() == world ? here : world.getSpawnLocation();
+        Double x = coordinate(args[3], base.getX());
+        Double y = coordinate(args[4], base.getY());
+        Double z = coordinate(args[5], base.getZ());
+        if (x == null || y == null || z == null) {
+            Reply.to(sender, "The place is three numbers, each of them a number or ~ (~2 for two more): "
+                    + "/rp cast <name> at <x> <y> <z>.");
+            return true;
+        }
+        Location place = new Location(world, x, y, z, here != null ? here.getYaw() : 0, 0);
+        VfxOptions.Builder options = VfxOptions.builder();
+        String problem = parseOptions(args, next, options, null, true);
+        if (problem != null) {
+            Reply.to(sender, problem + " The options are on the VFX docs page.");
+            return true;
+        }
+        runtime.play(entry, place, null, options.build());
+        return true;
+    }
+
+    /** Where a command runs, or null for the console. */
+    private static Location placeOf(CommandSender sender) {
+        // `execute as <entity> run ...` arrives wrapped, with the entity as the callee.
+        if (sender instanceof ProxiedCommandSender proxied) {
+            return placeOf(proxied.getCallee());
+        }
+        if (sender instanceof Entity entity) {
+            return entity.getLocation();
+        }
+        if (sender instanceof BlockCommandSender block) {
+            return block.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        }
+        return null;
+    }
+
+    /** A number, or {@code ~}/{@code ~n} relative to {@code base}; null when it is neither. */
+    private static Double coordinate(String typed, double base) {
+        if (typed.startsWith("~")) {
+            if (typed.length() == 1) {
+                return base;
+            }
+            Double n = number(typed.substring(1));
+            return n == null ? null : base + n;
+        }
+        return number(typed);
+    }
+
     private static final List<String> FLAGS = List.of("loop", "follow", "vary", "quiet");
 
     private static final List<String> OPTIONS = List.of("loop", "loop:", "until:", "while:", "check:", "end:finish",
@@ -162,6 +261,14 @@ public final class VfxCommands implements Area {
      * line, because a condition has spaces in it.
      */
     static String parseOptions(String[] args, int from, VfxOptions.Builder out, Player target) {
+        return parseOptions(args, from, out, target, false);
+    }
+
+    /**
+     * The options of a cast {@code at} a place when {@code atPlace}, which
+     * refuses the two that need somebody it was cast on.
+     */
+    static String parseOptions(String[] args, int from, VfxOptions.Builder out, Player target, boolean atPlace) {
         for (int i = from; i < args.length; i++) {
             String word = args[i];
             int colon = word.indexOf(':');
@@ -251,6 +358,9 @@ public final class VfxCommands implements Area {
                     out.seed(n);
                 }
                 case "only" -> {
+                    if (atPlace) {
+                        return "only:caster needs a player to cast it on; a cast at a place has none.";
+                    }
                     if (!value.equalsIgnoreCase("caster")) {
                         return "only: is only:caster, for the player it is cast on alone.";
                     }
@@ -262,7 +372,12 @@ public final class VfxCommands implements Area {
                     }
                     out.tag(value);
                 }
-                case "follow" -> out.follow(target);
+                case "follow" -> {
+                    if (atPlace) {
+                        return "follow needs a player to cast it on; a cast at a place has none.";
+                    }
+                    out.follow(target);
+                }
                 case "vary" -> out.vary(true);
                 case "quiet" -> out.sounds(false);
                 default -> {
@@ -334,10 +449,26 @@ public final class VfxCommands implements Area {
             out.addAll(Targets.names(sender, "cast"));
             return startingWith(out, args[2]);
         }
+        if ("cast".equals(sub) && args.length >= 4 && AT.equalsIgnoreCase(args[2])) {
+            if (args.length <= 6) {
+                return startingWith(List.of("~"), args[args.length - 1]);
+            }
+            List<String> out = new ArrayList<>(OPTIONS);
+            out.removeAll(List.of("follow", "only:caster"));
+            if (args.length == 7) {
+                for (World world : Bukkit.getWorlds()) {
+                    out.add(world.getName());
+                }
+            }
+            return startingWith(out, args[args.length - 1]);
+        }
         if ("cast".equals(sub) && args.length >= 3 && !STOP.equalsIgnoreCase(args[1])) {
             List<String> out = new ArrayList<>(OPTIONS);
             if (args.length == 3) {
                 out.addAll(Targets.names(sender, "cast"));
+                if (sender.hasPermission(AT_PERMISSION)) {
+                    out.add(AT);
+                }
             }
             return startingWith(out, args[args.length - 1]);
         }

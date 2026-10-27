@@ -100,6 +100,11 @@ class PluginYmlTest {
             if (sub.startsWith("object.")) {
                 sub = "object";
             }
+            // Or a cast at a place rather than on somebody (rpengine.cast.at).
+            if (sub.equals("cast.at")) {
+                assertEquals("rpengine.cast.at", VfxCommands.AT_PERMISSION);
+                sub = "cast";
+            }
             assertTrue(subs.contains(sub) || sub.equals("info"),
                     "rpengine." + node + " gates nothing: no such subcommand");
         }
