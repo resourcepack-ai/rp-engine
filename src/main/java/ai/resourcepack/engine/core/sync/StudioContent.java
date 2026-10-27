@@ -223,6 +223,12 @@ public final class StudioContent {
         /** The clicks with a sound of their own, each naming its command. */
         List<DialogSound> clickSounds;
         /**
+         * What its "Run as console" clicks run, each by the key its click names
+         * — see {@link ai.resourcepack.engine.api.DialogInfo#consoleCommands()}.
+         * Absent: none.
+         */
+        List<DialogConsole> consoleCommands;
+        /**
          * The engine closes it after a click that opens nothing else — see
          * {@link ai.resourcepack.engine.api.DialogInfo#closesAfterClick()}.
          * Studio's "Seamless", sent with {@code after_action: none}. Absent: false.
@@ -250,6 +256,12 @@ public final class StudioContent {
         String sound;
         Float volume;
         Float pitch;
+        String command;
+    }
+
+    /** A console command a dialog's click runs: the key its {@code rp click} names, and the command. */
+    static final class DialogConsole {
+        String key;
         String command;
     }
 
@@ -1002,10 +1014,19 @@ public final class StudioContent {
                     clickSounds.add(new ai.resourcepack.engine.api.DialogInfo.CommandSound(sound.command, read));
                 }
             }
+            // What DialogInfo will not carry (a bad key, a blank or too long
+            // command) is left out there; the click then does nothing.
+            Map<String, String> consoles = new LinkedHashMap<>();
+            for (DialogConsole console : dialog.consoleCommands == null ? List.<DialogConsole>of() : dialog.consoleCommands) {
+                if (console != null && console.key != null && console.command != null) {
+                    consoles.put(console.key, console.command);
+                }
+            }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
                             .withCommand(dialog.command, dialog.permission)
                             .withClickSounds(clickSound, clickSounds)
+                            .withConsoleCommands(consoles)
                             .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))
                             .withQuickAction(dialog.quickAction == null ? null
                                     : new ai.resourcepack.engine.api.DialogInfo.QuickAction(
@@ -1538,6 +1559,16 @@ public final class StudioContent {
                 for (ai.resourcepack.engine.api.DialogInfo.CommandSound sound : entry.getValue().clickSounds()) {
                     dialog.clickSounds.add(soundOut(sound.sound(), sound.command()));
                 }
+            }
+            // Or after a restart every "Run as console" button does nothing.
+            if (!entry.getValue().consoleCommands().isEmpty()) {
+                dialog.consoleCommands = new ArrayList<>();
+                entry.getValue().consoleCommands().forEach((key, command) -> {
+                    DialogConsole console = new DialogConsole();
+                    console.key = key;
+                    console.command = command;
+                    dialog.consoleCommands.add(console);
+                });
             }
             manifest.dialogs.add(dialog);
         }

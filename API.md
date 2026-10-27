@@ -17,7 +17,6 @@ engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
-engine.music();     // background music
 engine.icons();     // icons, and putting one into a piece of text
 engine.textEffects(); // Text Effects, and writing a piece of text in one
 engine.vfx();       // VFX: play one where somebody stands
@@ -274,35 +273,13 @@ Main thread only, except `available`, `ids` and `info`.
 engine.sounds().play(player, id);       // only this player hears it
 engine.sounds().playAt(location, id);   // everybody nearby hears it here
 engine.sounds().playFrom(entity, id);   // everybody nearby hears it follow this entity
-engine.sounds().stop(player, id);       // end it early for this player
 ```
 
 All three use the sound's declared category, volume and pitch; overloads let
 you replace volume and pitch. `playFrom` is the moving-source form for engines,
 creatures and anything else where a fixed coordinate would leave the sound
-behind. `stop` ends a sound for one player however it was played, which is how
-a track gives way to the next. Playing and stopping are main thread only;
-`ids()` and `info()` are safe from any thread.
-
-A stereo file plays in stereo, at full volume, wherever it was played from:
-Minecraft only places a mono sound in the world. So music and interface sounds
-suit `play`, and anything heard from a spot suits a mono file. See FORMAT.md.
-
-## Music
-
-```java
-Music music = engine.music();
-music.play(player, id);     // a piece from its first track, until stopped
-music.skip(player);         // on to the next track
-music.stop(player);         // end it; the player's place music comes back
-music.playing(player);      // the piece playing for them, if any
-music.track(player);        // and the track
-```
-
-`play` beats the music of wherever the player is standing, so a boss fight can
-start its own and `stop` it when the boss dies, and the area's music picks up
-again. `ids()` and `info()` are safe from any thread; the rest are main thread
-only. See FORMAT.md for how a piece is written and where it plays by itself.
+behind. Playing methods are main thread only; `ids()` and `info()` are safe
+from any thread.
 
 ## Vehicles
 

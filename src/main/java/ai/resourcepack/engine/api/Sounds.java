@@ -68,19 +68,4 @@ public interface Sounds {
     default boolean playFrom(Entity entity, ContentId id, float volume, float pitch) {
         return entity != null && playAt(entity.getLocation(), id, volume, pitch);
     }
-
-    /**
-     * Stops one for a single player, however it was played. A sound otherwise
-     * runs to its end, which for a piece of music is minutes.
-     *
-     * @return false if there is no such sound
-     */
-    default boolean stop(Player player, ContentId id) {
-        Optional<SoundInfo> sound = info(id);
-        if (player == null || sound.isEmpty()) {
-            return false;
-        }
-        player.stopSound(sound.get().event());
-        return true;
-    }
 }

@@ -276,8 +276,7 @@ public final class DistributionManager implements Listener {
         }
         contentRelease = releaseId;
         java.util.function.Consumer<String> listener = contentListener;
-        // Null too: a release with no content must stop the last one's being drawn.
-        if (listener != null) {
+        if (json != null && listener != null) {
             Bukkit.getScheduler().runTask(plugin, () -> listener.accept(json));
         }
     }

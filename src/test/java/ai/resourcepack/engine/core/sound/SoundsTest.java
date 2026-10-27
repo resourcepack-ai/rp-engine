@@ -96,29 +96,6 @@ class SoundsTest {
     }
 
     @Test
-    void theFileSaysWhetherItIsStereoAndHowLongItRuns() throws IOException {
-        write("mypack/sounds/a.yml", "theme: {}\nengine:\n  length: 1.5\nbroken: {}\n");
-        Path audio = content.resolve("mypack/assets/sounds");
-        Files.createDirectories(audio);
-        Files.write(audio.resolve("theme.ogg"), OggInfoTest.vorbis(2, 44100, 44100L * 120));
-        Files.write(audio.resolve("engine.ogg"), OggInfoTest.vorbis(1, 44100, 44100L * 3));
-        Files.write(audio.resolve("broken.ogg"), "ID3 an mp3 with the wrong name".getBytes(StandardCharsets.US_ASCII));
-
-        SoundDefinitions.Result result = SoundDefinitions.parse(load(),
-                ai.resourcepack.engine.core.pack.PackFiles.folder(content));
-
-        SoundInfo theme = one(result, "mypack:theme");
-        assertTrue(theme.stereo());
-        assertEquals(120.0, theme.length(), 1e-9);
-        // A length somebody wrote is kept: they may have trimmed the loop.
-        SoundInfo engine = one(result, "mypack:engine");
-        assertEquals(1, engine.channels());
-        assertEquals(1.5, engine.length(), 1e-6);
-        assertEquals(0, one(result, "mypack:broken").channels());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("not an Ogg file")));
-    }
-
-    @Test
     void theFileDefaultsToTheIdsOwnPath() throws IOException {
         write("mypack/sounds/a.yml", "bells/chime: {}\n");
 

@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Reads custom entity definitions.
@@ -31,29 +30,18 @@ public final class EntityDefinitions {
 
     /** Everything of kind ENTITY in {@code loaded}, parsed. */
     public static Result parse(LoadReport loaded) {
-        return parse(loaded, null);
-    }
-
-    /**
-     * The same, and a warning for every {@code model:} that is not one of
-     * {@code items}. Without it a mob whose model names no item spawns as the
-     * plain vanilla mob with nothing anywhere to say why, and the usual cause
-     * is somebody naming their {@code .bbmodel} where an item id belongs.
-     */
-    public static Result parse(LoadReport loaded, Set<ContentId> items) {
         Map<ContentId, EntityInfo> entities = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
             return new Result(Map.of(), List.of());
         }
         for (ContentDefinition definition : loaded.definitions(ContentKind.ENTITY)) {
-            parseOne(definition, items, diagnostics).ifPresent(entity -> entities.put(entity.id(), entity));
+            parseOne(definition, diagnostics).ifPresent(entity -> entities.put(entity.id(), entity));
         }
         return new Result(Map.copyOf(entities), List.copyOf(diagnostics));
     }
 
-    private static Optional<EntityInfo> parseOne(ContentDefinition definition, Set<ContentId> items,
-                                                 List<Diagnostic> diagnostics) {
+    private static Optional<EntityInfo> parseOne(ContentDefinition definition, List<Diagnostic> diagnostics) {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
@@ -72,19 +60,13 @@ public final class EntityDefinitions {
             return Optional.empty();
         }
 
-        // The model is an item id, validated for SHAPE here and, when the
-        // caller has the items, for existence: every pack is loaded by then.
+        // The model is an item id, validated for SHAPE here and for existence
+        // at spawn: the item may belong to a pack that has not loaded yet.
         String model = body.string("model").orElse(null);
         if (model != null && ContentId.parse(model).isEmpty()) {
             diagnostics.add(Diagnostic.error(origin, where,
                     "model: " + model + " is not a namespace:id."));
             return Optional.empty();
-        }
-        if (model != null && items != null && !items.contains(ContentId.parse(model).get())) {
-            diagnostics.add(Diagnostic.warning(origin, where,
-                    "model: " + model + " is no item and no model, so it spawns as a plain "
-                            + type.toLowerCase(Locale.ROOT) + ". Save the Blockbench file as "
-                            + "assets/models/<name>.bbmodel in that pack and name it as <pack>:<name>."));
         }
 
         double health = 0;

@@ -280,16 +280,15 @@ class ContentFolderLoaderTest {
     void idsAreUniqueAcrossCategoryFolders() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby: {}\n");
-        write("mypack/sounds/a.yml", "ruby: {}\n");
+        write("mypack/entities/a.yml", "ruby: {}\n");
 
         LoadReport report = load();
 
         assertEquals(List.of("mypack:ruby"), ids(report));
-        // Category folders are walked in sorted order, so items/ gets there
-        // first and sounds/ is the one that loses. Which one wins is not the
-        // point; that it is the same one on every machine is. (Not entities/,
-        // which share names with items on purpose, as recipes do.)
-        assertEquals(ContentKind.ITEM, report.definitions().get(0).kind());
+        // Category folders are walked in sorted order, so entities/ gets there
+        // first and items/ is the one that loses. Which one wins is not the
+        // point; that it is the same one on every machine is.
+        assertEquals(ContentKind.ENTITY, report.definitions().get(0).kind());
         assertEquals(1, report.diagnostics(Diagnostic.Severity.ERROR).size());
     }
 
@@ -377,49 +376,5 @@ class ContentFolderLoaderTest {
         // reaching the output would make the zip differ between machines.
         assertEquals(List.of("alpha", "zebra"),
                 load().packs().stream().map(PackMeta::namespace).toList());
-    }
-
-    @Test
-    void anEntityMayShareItsNameWithTheModelItWears() throws IOException {
-        // The setup from a support thread: a mob named after its model, the
-        // model a .bbmodel in models/. The blueprint's item used to be refused
-        // as "already defined", so the dragon spawned as a sheep.
-        write("mypack/pack.yml", "{}\n");
-        write("mypack/entities/dragon.yml", "dragon:\n  type: SHEEP\n  model: mypack:dragon\n");
-        write("mypack/models/dragon.bbmodel", "{}\n");
-
-        LoadReport report = load();
-
-        assertFalse(report.hasErrors(), () -> messages(report, Diagnostic.Severity.ERROR).toString());
-        assertEquals(1, report.definitions(ContentKind.ITEM).size());
-        assertEquals(1, report.definitions(ContentKind.ENTITY).size());
-    }
-
-    @Test
-    void anEntityModelInAssetsNeedsNoItem() throws IOException {
-        write("mypack/pack.yml", "{}\n");
-        write("mypack/entities/dragon.yml", "dragon:\n  type: SHEEP\n  model: mypack:dragon\n");
-        write("mypack/assets/models/dragon.bbmodel", "{}\n");
-
-        LoadReport report = load();
-
-        assertFalse(report.hasErrors(), () -> messages(report, Diagnostic.Severity.ERROR).toString());
-        ContentDefinition item = report.definitions(ContentKind.ITEM).get(0);
-        assertEquals("mypack:dragon", item.id().toString());
-        assertEquals("dragon", item.body().string("model").orElse(null));
-    }
-
-    @Test
-    void anItemWrittenForAnEntityModelIsKept() throws IOException {
-        write("mypack/pack.yml", "{}\n");
-        write("mypack/items/dragon.yml", "dragon:\n  material: STICK\n  model: dragon\n");
-        write("mypack/entities/dragon.yml", "dragon:\n  type: SHEEP\n  model: mypack:dragon\n");
-        write("mypack/assets/models/dragon.bbmodel", "{}\n");
-
-        LoadReport report = load();
-
-        assertFalse(report.hasErrors(), () -> messages(report, Diagnostic.Severity.ERROR).toString());
-        assertEquals(1, report.definitions(ContentKind.ITEM).size());
-        assertEquals("STICK", report.definitions(ContentKind.ITEM).get(0).body().string("material").orElse(null));
     }
 }

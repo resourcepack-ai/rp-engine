@@ -44,17 +44,6 @@ public final class PushedPacks {
     private volatile String published;
 
     /**
-     * The live release's own content, fetched from distribution; null until it
-     * arrives, or when the live release came with none. Kept apart from
-     * {@link #packs} because a push and a release of the same pack are not the
-     * same thing: a Sync from last week still names a shader object the owner
-     * deleted before publishing, and while the two shared a slot whichever
-     * arrived last decided what every published player was drawn. Guarded by
-     * {@code this}.
-     */
-    private StudioContent release;
-
-    /**
      * Studio packs dropped into the content folder, read off their
      * {@link StudioContent#IN_PACK}. Their art is in the pack the engine
      * builds, which every player is sent, so their content is everybody's: it
@@ -82,31 +71,19 @@ public final class PushedPacks {
     }
 
     /**
-     * The live release's content arrived, from distribution rather than a
-     * push. It is what a player served the published pack is drawn from from
-     * now on, whatever was last pushed of the same pack; a push is still what
-     * its holders see, and is still the latest the server persists.
+     * The published pack's content arrived, from distribution rather than a
+     * push: kept as the published pack's, and not as the latest push, which
+     * is what the server persists and is somebody's Sync.
      */
     public synchronized void publishedArrived(StudioContent content) {
         if (content == null || content.packId().isEmpty()) {
             return;
         }
-        release = content;
+        packs.remove(content.packId());
+        packs.put(content.packId(), content);
         published = content.packId();
         withLocal.clear();
         prune();
-    }
-
-    /**
-     * The live release came with no content (published before releases
-     * carried one). Its players fall back to a push of the same pack, the only
-     * description of it there is.
-     */
-    public synchronized void releaseHasNoContent() {
-        if (release != null) {
-            release = null;
-            withLocal.clear();
-        }
     }
 
     /** The content folder's Studio packs, replacing the last set. Empty for none. */
@@ -149,10 +126,6 @@ public final class PushedPacks {
             return false;
         }
         published = packId;
-        if (release != null && !release.packId().equals(packId)) {
-            release = null;
-            withLocal.clear();
-        }
         return prune();
     }
 
@@ -160,9 +133,9 @@ public final class PushedPacks {
      * The pushed content {@code player} may be shown.
      *
      * <p>Their own push first. Failing that, the pack this server publishes to
-     * everybody if they were served it: the live release's own content, or,
-     * for a release that came with none, a push of the same pack. <b>When
-     * Studio does not say which pack it publishes, nothing.</b> The
+     * everybody if they were served it — a published pack is a Studio pack
+     * too, and its content arrives the only way content arrives, by a push of
+     * it. <b>When Studio does not say which pack it publishes, nothing.</b> The
      * engine used to assume the latest push, and that guess is exactly what
      * put one tester's always-on overlay on every screen of a server that
      * publishes some other pack.
@@ -175,7 +148,7 @@ public final class PushedPacks {
         if (mine != null) {
             theirs = packs.get(mine);
         } else if (servedPublished && published != null) {
-            theirs = release != null ? release : packs.get(published);
+            theirs = packs.get(published);
         }
         if (local == null) {
             return Optional.ofNullable(theirs);
@@ -187,17 +160,11 @@ public final class PushedPacks {
         return Optional.of(withLocal.computeIfAbsent(theirs, pack -> StudioContent.union(List.of(local, pack))));
     }
 
-    /**
-     * Every pack still in use: the content folder's first, then the live
-     * release's, then the pushes oldest first, so a later one wins in a union.
-     */
+    /** Every pack still in use, the content folder's first, then oldest push first, so a later one wins in a union. */
     public synchronized List<StudioContent> live() {
         List<StudioContent> all = new ArrayList<>();
         if (local != null) {
             all.add(local);
-        }
-        if (release != null) {
-            all.add(release);
         }
         all.addAll(packs.values());
         return List.copyOf(all);

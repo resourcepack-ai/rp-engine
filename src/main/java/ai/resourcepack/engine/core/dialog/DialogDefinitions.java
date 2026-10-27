@@ -130,8 +130,9 @@ public final class DialogDefinitions {
         }
 
         List<String> rendered = new ArrayList<>();
+        Map<String, String> consoles = new LinkedHashMap<>();
         for (DefinitionNode button : buttons) {
-            rendered.add(button(button, origin, where, diagnostics));
+            rendered.add(button(button, consoles, origin, where, diagnostics));
         }
         if (type.equals("notice")) {
             if (!rendered.isEmpty()) {
@@ -160,7 +161,7 @@ public final class DialogDefinitions {
         }
         json.append("}\n");
         return Optional.of(opened(DialogInfo.authored(definition.id(), json.toString(), name, vars(body, origin, where, diagnostics))
-                        .withClosesAfterClick(seamless), body, origin, where, diagnostics));
+                        .withClosesAfterClick(seamless).withConsoleCommands(consoles), body, origin, where, diagnostics));
     }
 
     /**
@@ -205,7 +206,7 @@ public final class DialogDefinitions {
 
     private static DialogInfo opened(DialogInfo authored, DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
-        DialogInfo dialog = sounded(authored, body, origin, where, diagnostics)
+        DialogInfo dialog = consoled(sounded(authored, body, origin, where, diagnostics), body, origin, where, diagnostics)
                 .withQuickAction(quickAction(body, origin, where, diagnostics));
         Optional<String> command = body.string("command");
         if (command.isEmpty()) {
@@ -262,6 +263,39 @@ public final class DialogDefinitions {
                         "quick-action: " + mode + " is not direct or launcher, so it is direct."));
                 return new DialogInfo.QuickAction(false, label);
         }
+    }
+
+    /**
+     * The console commands a {@code json:} dialog's clicks run, as Studio's
+     * export writes them beside the JSON: each by the key its click names
+     * ({@code rp click <key>}).
+     *
+     * <pre>
+     * console-commands:
+     *   "1a2b3c4d": "warp spawn {player}"
+     * </pre>
+     *
+     * A key or command {@link DialogInfo} will not carry is warned about and
+     * left out; its click then does nothing.
+     */
+    private static DialogInfo consoled(DialogInfo dialog, DefinitionNode body, String origin, String where,
+                                       List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node("console-commands");
+        if (declared.isEmpty()) {
+            return dialog;
+        }
+        Map<String, String> consoles = new LinkedHashMap<>(dialog.consoleCommands());
+        for (String key : declared.get().keys()) {
+            Optional<String> command = declared.get().string(key);
+            if (!DialogInfo.CONSOLE_KEY.matcher(key).matches() || command.isEmpty()
+                    || DialogInfo.consoleCommand(command.get()) == null) {
+                diagnostics.add(Diagnostic.warning(origin, where, "console-commands: " + key
+                        + " is not a key (lower-case letters and digits) with a command, so its button does nothing."));
+                continue;
+            }
+            consoles.put(key, command.get());
+        }
+        return dialog.withConsoleCommands(consoles);
     }
 
     /**
@@ -374,11 +408,29 @@ public final class DialogDefinitions {
         return out;
     }
 
-    private static String button(DefinitionNode node, String origin, String where, List<Diagnostic> diagnostics) {
+    private static String button(DefinitionNode node, Map<String, String> consoles, String origin, String where,
+                                 List<Diagnostic> diagnostics) {
         String label = node.string("label").orElse("Ok");
         StringBuilder out = new StringBuilder("{ \"label\": ").append(quote(label));
         node.string("tooltip").ifPresent(tip -> out.append(", \"tooltip\": ").append(quote(tip)));
         out.append(", \"width\": ").append(node.integer("width").orElse(150));
+
+        // The console runs it: the click names it by key (DialogLinks.CONSOLE),
+        // and the command stays on the server.
+        Optional<String> console = node.string("console");
+        if (console.isPresent()) {
+            String command = DialogInfo.consoleCommand(console.get());
+            if (command == null) {
+                diagnostics.add(Diagnostic.warning(origin, where, "console: \"" + console.get()
+                        + "\" is not a command (blank, too long, or with a section sign in it), so the button only closes."));
+                return out.append(" }").toString();
+            }
+            String key = DialogLinks.consoleKey(command);
+            consoles.put(key, command);
+            out.append(", \"action\": { \"type\": \"minecraft:run_command\", \"command\": ")
+                    .append(quote(DialogLinks.consoleClick(key))).append(" }");
+            return out.append(" }").toString();
+        }
 
         // One key per action, rather than an `action:` naming one and a
         // `value:` beside it. An author writing `command: spawn` has said both
@@ -395,7 +447,7 @@ public final class DialogDefinitions {
         if (node.has("action")) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "action: is not a key on a button. Write what it does instead — "
-                            + "command:, url:, suggest:, copy: or dialog:."));
+                            + "command:, console:, url:, suggest:, copy: or dialog:."));
         }
         return out.append(" }").toString();
     }

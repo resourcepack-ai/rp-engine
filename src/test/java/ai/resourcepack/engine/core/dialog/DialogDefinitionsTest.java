@@ -354,4 +354,43 @@ class DialogDefinitionsTest {
         // The flag survives what is added after it.
         assertTrue(menu.withCommand("menu", null).withClickSounds(null, java.util.List.of()).closesAfterClick());
     }
+
+    /**
+     * A {@code console:} button sends a click naming its command by key, never
+     * the command: the client is not to see it, let alone change it.
+     */
+    @Test
+    void aConsoleButtonSendsOnlyItsKey() throws IOException {
+        write("mypack/dialogs/menus.yml",
+                "warps:\n"
+                        + "  buttons:\n"
+                        + "    - label: Spawn\n"
+                        + "      console: /warp spawn {player}\n"
+                        + "    - label: Shop\n"
+                        + "      command: shop\n");
+        DialogInfo warps = one(parse(), "mypack:warps");
+        String key = DialogLinks.consoleKey("warp spawn {player}");
+        assertTrue(warps.json().contains("\"command\": \"rp click " + key + "\""), warps.json());
+        assertFalse(warps.json().contains("warp spawn"), warps.json());
+        assertEquals(java.util.Map.of(key, "warp spawn {player}"), warps.consoleCommands());
+        // Kept through what is added after it.
+        assertEquals(warps.consoleCommands(), warps.withCommand("warps", null).withClosesAfterClick(false).consoleCommands());
+    }
+
+    /** Studio's export puts a dialog's console commands beside its JSON file. */
+    @Test
+    void aJsonFileCarriesItsConsoleCommands() throws IOException {
+        write("mypack/dialogs/raw.json", "{\"type\":\"minecraft:notice\",\"action\":{\"label\":\"Go\","
+                + "\"action\":{\"type\":\"minecraft:run_command\",\"command\":\"rp click f56969d3\"}}}");
+        write("mypack/dialogs/menus.yml",
+                "future:\n"
+                        + "  json: mypack/dialogs/raw.json\n"
+                        + "  console-commands:\n"
+                        + "    \"f56969d3\": \"warp spawn {player}\"\n"
+                        + "    \"NOT A KEY\": \"op {player}\"\n");
+        DialogDefinitions.Result result = parse();
+        assertEquals(java.util.Map.of("f56969d3", "warp spawn {player}"), one(result, "mypack:future").consoleCommands());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("console-commands")),
+                result.diagnostics().toString());
+    }
 }

@@ -102,21 +102,6 @@ public final class SoundsImpl implements Sounds {
     }
 
     /**
-     * Plays one to a single player from the player themselves, so it follows
-     * them: what music needs, because a mono track left at the spot it
-     * started fades as the listener walks off. Engine internal.
-     */
-    public boolean playFollowing(Player player, ContentId id) {
-        Optional<SoundInfo> sound = info(id);
-        if (player == null || sound.isEmpty()) {
-            return false;
-        }
-        player.playSound(player, sound.get().event(), categoryOf(sound.get()),
-                sound.get().volume(), sound.get().pitch());
-        return true;
-    }
-
-    /**
      * Minecraft's category names and Bukkit's enum are the same set spelled
      * differently, and {@code sounds.json} has to use Minecraft's. This is the
      * one place the two meet.

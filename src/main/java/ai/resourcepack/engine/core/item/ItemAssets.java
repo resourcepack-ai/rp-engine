@@ -467,11 +467,7 @@ public final class ItemAssets implements PackContributor {
             writeSprite(item, namespace, modelPath, into);
         }
 
-        // An item wearing a 3D set's piece is dressed in the set's asset (or
-        // none) when it is made, so an asset of its own would go unused.
-        if (item.armor3d().isEmpty()) {
-            item.armor().ifPresent(slot -> writeEquipment(item, namespace, slot, into));
-        }
+        item.armor().ifPresent(slot -> writeEquipment(item, namespace, slot, into));
     }
 
     /**

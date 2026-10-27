@@ -80,6 +80,37 @@ public final class DialogLinks {
             "\"command\"[ ]*:[ ]*\"/?(?:rp|rpe|rpengine)[ ]+page[ ]+([a-z0-9_.-]+:[a-z0-9_./-]+)[ ]*\"",
             Pattern.CASE_INSENSITIVE);
 
+    /**
+     * What a "Run as console" click runs, as the player, before its key:
+     * {@code rp click <key>}. The console's command is not in the click, only
+     * named by it ({@link ai.resourcepack.engine.api.DialogInfo#consoleCommands()}),
+     * so a player can neither see it nor change it. Studio's
+     * {@code DIALOG_CONSOLE_COMMAND} is the same spelling, checked by its
+     * dialog check.
+     */
+    public static final String CONSOLE = "rp click";
+
+    /** The click that runs the console command known by {@code key}. */
+    public static String consoleClick(String key) {
+        return CONSOLE + " " + key;
+    }
+
+    /**
+     * The key a console command is known by: eight hex digits of its FNV-1a
+     * hash, over its UTF-16 characters, as Studio's {@code dialogConsoleKey}
+     * makes it. A hash rather than a position, so a click on a dialog still
+     * open from before a reload runs the command it showed or none, never one
+     * that took its place.
+     */
+    public static String consoleKey(String command) {
+        int hash = 0x811c9dc5;
+        for (int i = 0; i < command.length(); i++) {
+            hash ^= command.charAt(i);
+            hash *= 0x01000193;
+        }
+        return String.format("%08x", hash);
+    }
+
     /** The command a link to {@code target} runs — what Studio writes into a page's clicks. */
     public static String command(ContentId target) {
         return "rp page " + target;

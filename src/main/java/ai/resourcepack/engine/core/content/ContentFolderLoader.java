@@ -104,18 +104,11 @@ public final class ContentFolderLoader {
      * item or a recipe but never both — and naming a recipe after the thing it
      * makes is the first thing anybody writes.
      *
-     * <p>An entity is the same case: nothing ships for it, it is spawned by
-     * its id and never worn, given or placed by it, and naming a dragon mob
-     * after the dragon model it wears is the first thing anybody writes. While
-     * it was registered the two could not share an id, so the item a
-     * {@code .bbmodel} makes was refused as already defined and the mob
-     * spawned as the plain vanilla one.
-     *
      * <p>They still get a {@link ContentDefinition} and are still unique within
      * their own kind, so two recipes cannot quietly share a name either.
      */
     private static final Set<ContentKind> UNREGISTERED =
-            Set.of(ContentKind.RECIPE, ContentKind.ENTITY);
+            Set.of(ContentKind.RECIPE);
 
     private static final String PACK_FILE = "pack.yml";
 
@@ -167,8 +160,6 @@ public final class ContentFolderLoader {
         map.put("text-effects", ContentKind.TEXT_EFFECT);
         // VFX, a preset or a recipe each; see VfxDefinitions.
         map.put("vfx", ContentKind.VFX);
-        // Music, a playlist of sounds each; see MusicDefinitions.
-        map.put("music", ContentKind.MUSIC);
         return Map.copyOf(map);
     }
 
@@ -404,7 +395,6 @@ public final class ContentFolderLoader {
         // An ItemsAdder pack keeps its own art in models/, so only a pack
         // that is not one reads BetterModel's .bbmodel files from there.
         loadBlueprints(root, folder, claimed, definitions, diagnostics, !itemsAdder);
-        loadEntityModels(root, folder, claimed, definitions, diagnostics);
         loadPlayerAnimations(root, folder, claimed, definitions, diagnostics);
     }
 
@@ -516,47 +506,6 @@ public final class ContentFolderLoader {
                 define(ContentKind.ITEM, namespace, document, path, origin, seen,
                         definitions, diagnostics);
             }
-        }
-    }
-
-    /**
-     * An item for each entity whose {@code model:} names a model file of this
-     * pack that no item wears.
-     *
-     * <p>A mob's model is drawn by an item riding it, but nobody holds a
-     * dragon in their hand, so making somebody write an item to own the model
-     * is paperwork. This is what a blueprint gets, for the same reason, and a
-     * placed piece's state model already works without one.
-     */
-    private void loadEntityModels(Path root, Path folder, Namespace namespace,
-                                  List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
-        Set<ContentId> items = new HashSet<>();
-        List<ContentId> wanted = new ArrayList<>();
-        for (ContentDefinition definition : definitions) {
-            if (definition.kind() == ContentKind.ITEM) {
-                items.add(definition.id());
-            } else if (definition.kind() == ContentKind.ENTITY
-                    && definition.id().namespace().equals(namespace.name())) {
-                definition.body().string("model").flatMap(ContentId::parse)
-                        .filter(model -> model.namespace().equals(namespace.name()))
-                        .ifPresent(wanted::add);
-            }
-        }
-        Set<ContentId> seen = new HashSet<>();
-        for (ContentId model : wanted) {
-            if (items.contains(model) || seen.contains(model)) {
-                continue;
-            }
-            Path models = folder.resolve("assets").resolve("models");
-            if (!Files.isRegularFile(models.resolve(model.path() + ".bbmodel"))
-                    && !Files.isRegularFile(models.resolve(model.path() + ".json"))) {
-                continue;
-            }
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("material", "PAPER");
-            item.put("model", model.path());
-            define(ContentKind.ITEM, namespace, DefinitionNode.of(Map.of(model.path(), item)), model.path(),
-                    relative(root, models), seen, definitions, diagnostics);
         }
     }
 

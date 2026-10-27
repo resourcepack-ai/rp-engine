@@ -6,9 +6,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.LoadReport;
-import ai.resourcepack.engine.api.PackMeta;
 import ai.resourcepack.engine.api.SoundInfo;
-import ai.resourcepack.engine.core.pack.PackFiles;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,65 +26,17 @@ public final class SoundDefinitions {
     private SoundDefinitions() {
     }
 
-    /** Everything of kind SOUND in {@code loaded}, parsed, without looking at the audio. */
+    /** Everything of kind SOUND in {@code loaded}, parsed. */
     public static Result parse(LoadReport loaded) {
-        return parse(loaded, PackFiles.NONE);
-    }
-
-    /**
-     * Everything of kind SOUND in {@code loaded}, parsed, with each file's
-     * headers read through {@code files}: its channel count, and its length
-     * where the definition did not give one. See {@link OggInfo}.
-     */
-    public static Result parse(LoadReport loaded, PackFiles files) {
         Map<ContentId, SoundInfo> sounds = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
             return new Result(Map.of(), List.of());
         }
-        PackFiles reader = files == null ? PackFiles.NONE : files;
-        List<String> namespaces = new ArrayList<>();
-        for (PackMeta pack : loaded.packs()) {
-            namespaces.add(pack.namespace());
-        }
         for (ContentDefinition definition : loaded.definitions(ContentKind.SOUND)) {
-            parseOne(definition, diagnostics)
-                    .map(sound -> measured(sound, definition, reader, namespaces, diagnostics))
-                    .ifPresent(sound -> sounds.put(sound.id(), sound));
+            parseOne(definition, diagnostics).ifPresent(sound -> sounds.put(sound.id(), sound));
         }
         return new Result(Map.copyOf(sounds), List.copyOf(diagnostics));
-    }
-
-    /** Where the build puts a sound's audio, which is where {@link SoundAssets} looks for it too. */
-    static String audioPath(SoundInfo sound) {
-        String location = sound.file().indexOf(':') > 0
-                ? sound.file() : sound.id().namespace() + ":" + sound.file();
-        int colon = location.indexOf(':');
-        return "assets/" + location.substring(0, colon) + "/sounds/" + location.substring(colon + 1) + ".ogg";
-    }
-
-    /**
-     * The sound with what its file says added. A file that is not there is the
-     * build's error to report, with the path, so it is passed over here.
-     */
-    private static SoundInfo measured(SoundInfo sound, ContentDefinition definition, PackFiles files,
-                                      List<String> namespaces, List<Diagnostic> diagnostics) {
-        String path = audioPath(sound);
-        Optional<byte[]> bytes = files.find(path, namespaces);
-        if (bytes.isEmpty()) {
-            return sound;
-        }
-        Optional<OggInfo> read = OggInfo.read(bytes.get());
-        if (read.isEmpty() || !read.get().vorbis()) {
-            diagnostics.add(Diagnostic.warning(definition.origin(), definition.id().path(),
-                    path + (read.isEmpty() ? " is not an Ogg file" : " is an Ogg file but not Vorbis (Opus, perhaps)")
-                            + ", so it will play as silence. Minecraft only plays Ogg Vorbis: export it again as that."));
-            return sound;
-        }
-        // A length somebody wrote wins: they may have trimmed a tail of
-        // silence off the loop on purpose.
-        SoundInfo out = sound.withChannels(read.get().channels());
-        return out.length() > 0 ? out : out.withLength(read.get().seconds());
     }
 
     private static Optional<SoundInfo> parseOne(ContentDefinition definition, List<Diagnostic> diagnostics) {
@@ -109,10 +59,10 @@ public final class SoundDefinitions {
         float volume = number(body, "volume", 1f, 0f, 10f, origin, where, diagnostics);
         float pitch = number(body, "pitch", 1f, 0.5f, 2f, origin, where, diagnostics);
 
-        // How long the file runs. Absent is zero, meaning "nobody said", and
-        // parse() fills it from the file's own headers when it can read them;
-        // a sound whose file it cannot read keeps the zero, which everything
-        // that reads it treats as "play it once". See SoundInfo.length.
+        // How long the file runs, which nothing here can measure — the audio
+        // is bytes in the pack folder and this parses definitions. Absent is
+        // zero, meaning "nobody said", and the only thing that reads it treats
+        // that as "play it once". See SoundInfo.length.
         float length = number(body, "length", 0f, 0f, 3600f, origin, where, diagnostics);
 
         return Optional.of(SoundInfo.of(definition.id(), file, category,

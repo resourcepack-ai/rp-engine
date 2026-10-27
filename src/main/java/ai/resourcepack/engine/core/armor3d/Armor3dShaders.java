@@ -16,7 +16,7 @@ import java.util.Map;
  * formats load. <strong>A range ships only once it has been seen working in a
  * real client</strong>, because a core shader that fails to compile does not
  * degrade: the client refuses the WHOLE pack. Studio keeps the same table and
- * the same rule; only its verified ranges are here.
+ * the same rule; only its verified range is here.
  *
  * <p>The shader files under {@code armor3d/shaders/} in this jar are Studio's
  * port of obj³'s armour shaders (github.com/JagerMeistars/obj-cubed, MIT,
@@ -40,14 +40,9 @@ final class Armor3dShaders {
     record Range(String directory, int minFormat, int maxFormat, int minProtocol, int maxProtocol, String port) {
     }
 
-    /**
-     * 26.1 - 26.2: obj³'s own target, where the technique was proven in game.
-     * 26.3: the same decode in 26.3's entity shader, which is compiled for
-     * Vulkan (every varying at a location) and draws translucency with OIT.
-     */
+    /** 26.1 - 26.2: obj³'s own target, where the technique was proven in game. */
     static final List<Range> RANGES = List.of(
-            new Range("rpai_armor3d_26_1", 84, 88, 775, 776, "26.1"),
-            new Range("rpai_armor3d_26_3", 97, 97, 777, 777, "26.3"));
+            new Range("rpai_armor3d_26_1", 84, 88, 775, 776, "26.1"));
 
     /** The files of every port, relative to {@code assets/minecraft/shaders/}. */
     private static final List<String> PORT_FILES = List.of(

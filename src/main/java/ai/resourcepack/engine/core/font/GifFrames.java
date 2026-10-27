@@ -1,6 +1,5 @@
 package ai.resourcepack.engine.core.font;
 
-import ai.resourcepack.engine.core.pack.Images;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 
@@ -11,6 +10,7 @@ import javax.imageio.stream.ImageInputStream;
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -86,7 +86,7 @@ final class GifFrames {
             return Optional.empty();
         }
         ImageReader reader = readers.next();
-        try (ImageInputStream in = Images.stream(gif)) {
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(gif))) {
             if (in == null) {
                 return Optional.empty();
             }
@@ -227,7 +227,7 @@ final class GifFrames {
             }
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Images.write(sheet, "png", out);
+        ImageIO.write(sheet, "png", out);
         return out.toByteArray();
     }
 

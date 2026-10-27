@@ -1,6 +1,5 @@
 package ai.resourcepack.engine.core.font;
 
-import ai.resourcepack.engine.core.pack.Images;
 import ai.resourcepack.engine.api.Bundle;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.IconInfo;
@@ -140,7 +139,7 @@ public final class FontAssets implements PackContributor {
         }
         java.awt.image.BufferedImage image;
         try {
-            image = Images.read(png.get());
+            image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png.get()));
         } catch (java.io.IOException | RuntimeException e) {
             image = null;
         }
