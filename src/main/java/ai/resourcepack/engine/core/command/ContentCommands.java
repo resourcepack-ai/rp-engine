@@ -18,7 +18,8 @@ import java.util.function.Supplier;
 
 /**
  * What this server holds, and how to get hold of it: {@code reload},
- * {@code bundles}, {@code items}, {@code give}, {@code recipes}, {@code push}.
+ * {@code bundles}, {@code items}, {@code item menu}, {@code give}, {@code recipes},
+ * {@code push}.
  *
  * <p>The two verbs that <em>do</em> something — rebuilding and re-sending a
  * pack — arrive as callbacks rather than as reachable machinery. Both are the
@@ -34,10 +35,12 @@ public final class ContentCommands implements Area {
     private final Supplier<List<ContentId>> recipeIds;
     private final Consumer<CommandSender> rebuild;
     private final Consumer<Player> push;
+    private final Consumer<Player> menu;
 
     public ContentCommands(Items items, Supplier<List<BuiltPack>> built, PackHost host,
                            Recipes recipes, Supplier<List<ContentId>> recipeIds,
-                           Consumer<CommandSender> rebuild, Consumer<Player> push) {
+                           Consumer<CommandSender> rebuild, Consumer<Player> push,
+                           Consumer<Player> menu) {
         this.items = items;
         this.built = built;
         this.host = host;
@@ -45,6 +48,7 @@ public final class ContentCommands implements Area {
         this.recipeIds = recipeIds;
         this.rebuild = rebuild;
         this.push = push;
+        this.menu = menu;
     }
 
     @Override
@@ -57,6 +61,7 @@ public final class ContentCommands implements Area {
         return List.of(
                 Help.of("reload", "reread content and rebuild"),
                 Help.of("items", "list the custom items"),
+                Help.of("item menu", "take items from a chest"),
                 Help.of("give", "<id> [n]", "give yourself one"),
                 Help.of("recipes", "list the recipes"),
                 Help.of("bundles", "the built packs and their sizes"),
@@ -73,6 +78,8 @@ public final class ContentCommands implements Area {
                 return bundles(sender);
             case "items":
                 return items(sender);
+            case "item":
+                return item(sender, args);
             case "give":
                 return give(sender, args);
             case "recipes":
@@ -84,6 +91,9 @@ public final class ContentCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
+        if (sub.equals("item") && args.length == 2) {
+            return Completions.matching(args[1], "menu");
+        }
         if (sub.equals("give")) {
             if (args.length == 2) {
                 return Completions.matchingIds(args[1], items.ids());
@@ -140,6 +150,24 @@ public final class ContentCommands implements Area {
             ItemInfo info = items.info(id).orElseThrow();
             Reply.row(sender, id.toString(), describe(info));
         }
+        return true;
+    }
+
+    /** {@code item menu}: the chest of every custom item. {@code menu} is the only verb so far. */
+    private boolean item(CommandSender sender, String[] args) {
+        if (args.length < 2 || !args[1].equalsIgnoreCase("menu")) {
+            Reply.to(sender, "/rp item menu");
+            return true;
+        }
+        if (!(sender instanceof Player)) {
+            Reply.to(sender, "Only a player can open a menu.");
+            return true;
+        }
+        if (items.ids().isEmpty()) {
+            Reply.to(sender, "No items loaded. A pack declares them in items/.");
+            return true;
+        }
+        menu.accept((Player) sender);
         return true;
     }
 

@@ -182,6 +182,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ContentRegistryImpl registry = new ContentRegistryImpl();
     private final BundleSessions sessions = new BundleSessions();
     private ItemsImpl items;
+    private ai.resourcepack.engine.core.item.ItemMenu itemMenu;
     private ModelPlacementListener placements;
     private ai.resourcepack.engine.core.storage.Storages storages;
     private ai.resourcepack.engine.core.model.ModelGrowth growth;
@@ -802,6 +803,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Smithing results and anvil recipes are decided in events; see
         // RecipeStations. Registered once, holding whatever the last load gave.
         getServer().getPluginManager().registerEvents(recipes.stations(), this);
+        // /rp item menu's chest: cancels every click that would take from it
+        // or put into it. See ItemMenu.
+        itemMenu = new ai.resourcepack.engine.core.item.ItemMenu(this, items);
+        getServer().getPluginManager().registerEvents(itemMenu, this);
         // A custom tomato on paper is paper to vanilla's recipes; see
         // VanillaRecipeGuard.
         recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
@@ -1035,7 +1040,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
-                        this::reloadContent, this::sendPack),
+                        this::reloadContent, this::sendPack, itemMenu::open),
                 new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates),
                 new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
