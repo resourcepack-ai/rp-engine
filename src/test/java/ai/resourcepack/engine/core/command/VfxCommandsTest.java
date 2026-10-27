@@ -66,6 +66,17 @@ class VfxCommandsTest {
     }
 
     @Test
+    void aCastAtAPlaceHasNobodyToFollowOrShowAlone() {
+        for (String bad : new String[] {"follow", "only:caster", "loop follow"}) {
+            assertNotNull(VfxCommands.parseOptions(bad.split(" "), 0, VfxOptions.builder(), null, true), bad);
+        }
+        VfxOptions.Builder b = VfxOptions.builder();
+        assertNull(VfxCommands.parseOptions("loop:3x scale:2 turn:90 tag:arena".split(" "), 0, b, null, true));
+        assertEquals(3, b.build().loopTimes());
+        assertEquals(VfxOptions.Viewers.EVERYONE, b.build().viewers());
+    }
+
+    @Test
     void clampsWhatIsTooMuch() {
         VfxOptions o = read("speed:500 scale:0 volume:99");
         assertEquals(10, o.speed());

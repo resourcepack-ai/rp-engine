@@ -97,6 +97,7 @@ permissions:
       rpengine.bind.others: true
       rpengine.unbind.others: true
       rpengine.cast.others: true
+      rpengine.cast.at: true
       rpengine.update: true
       rpengine.shaders: true
   rpengine.reload:
@@ -161,6 +162,9 @@ permissions:
     default: op
   rpengine.cast.others:
     description: Play a VFX where somebody else stands.
+    default: op
+  rpengine.cast.at:
+    description: Play a VFX at any place, in any world, cast by nobody (/rp cast <name> at <x> <y> <z>).
     default: op
   rpengine.chat.effects.all:
     # One effect is rpengine.chat.effects.<name>, which cannot be listed here
