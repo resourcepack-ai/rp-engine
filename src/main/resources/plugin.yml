@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -34,6 +34,7 @@ permissions:
       rpengine.info: true
       rpengine.bundles: true
       rpengine.items: true
+      rpengine.item: true
       rpengine.give: true
       rpengine.models: true
       rpengine.blocks: true
@@ -115,6 +116,9 @@ permissions:
     default: op
   rpengine.items:
     description: List the custom items.
+    default: op
+  rpengine.item:
+    description: Open the item menu (/rp item menu) and take items from it.
     default: op
   rpengine.give:
     description: Give yourself a custom item.
