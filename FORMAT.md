@@ -953,6 +953,23 @@ a group with any other name is warned about by name, because a typo there
 means a pauldron glued to the wrong limb or to nothing. A cube in no bone at
 all is left out and counted in the warning.
 
+**A set's own pieces give no armour points.** For armour that protects, write
+each piece as an ordinary item and add `armor3d:` naming the set (an id in the
+item's own namespace, or `namespace:id`). The item keeps its name, attributes,
+durability and everything else, and wears the set's piece for its `armor:`
+slot, which is therefore required with it. It replaces `armor-art:`.
+
+```yaml
+# items/void_armour.yml
+void_helmet:
+  material: NETHERITE_HELMET
+  armor: head
+  armor3d: void_armour
+  durability: 1000
+  attributes:
+    - armor: 5
+```
+
 Cubes may be turned any way at all, on any axis and by any angle, and groups
 may be turned too. The block model format only allows one axis and five
 angles, so a cube turned past that is drawn as a piece of its own that the

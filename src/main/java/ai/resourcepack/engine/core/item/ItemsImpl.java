@@ -63,6 +63,25 @@ public final class ItemsImpl implements Items {
         this.items = Map.of();
     }
 
+    /** Puts a piece of a 3D armour set on an item that names one with {@code armor3d:}. */
+    public interface Armor3dDresser {
+
+        /**
+         * @param set  the set as the definition wrote it
+         * @param slot the item's {@code armor:} slot, which says which piece
+         * @return why it could not, or null once it has
+         */
+        String dress(ItemMeta meta, ContentId item, String set, String slot);
+    }
+
+    private volatile Armor3dDresser armor3d =
+            (meta, item, set, slot) -> "armor3d: " + set + " was ignored, 3D armour is not available on this server";
+
+    /** Wires up {@code armor3d:}, once the 3D armour sets exist. */
+    public void armor3d(Armor3dDresser dresser) {
+        this.armor3d = dresser;
+    }
+
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, ItemInfo> loaded) {
         this.items = loaded == null ? Map.of() : Map.copyOf(loaded);
@@ -127,6 +146,13 @@ public final class ItemsImpl implements Items {
         }
         ItemComponents.Warner warner = warnerFor(item);
         item.armor().ifPresent(slot -> equipping.wearable(meta, item.id(), slot, warner));
+        // After its own armour, which the 3D piece's slot and art replace.
+        item.armor3d().ifPresent(set -> item.armor().ifPresent(slot -> {
+            String problem = armor3d.dress(meta, item.id(), set, slot);
+            if (problem != null) {
+                warn(item, problem);
+            }
+        }));
         if (wornAsModel(item, material)) {
             equipping.showsModelOnHead(meta, warner);
         }
