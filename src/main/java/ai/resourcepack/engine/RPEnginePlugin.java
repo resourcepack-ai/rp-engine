@@ -800,6 +800,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // that can fail to happen.
         overlayRuntime.period(getConfig().getLong("overlays.refresh-ticks",
                 ai.resourcepack.engine.core.font.OverlayRuntime.DEFAULT_PERIOD_TICKS));
+        overlayRuntime.triggerPeriod(getConfig().getLong("overlays.trigger-ticks",
+                ai.resourcepack.engine.core.font.OverlayRuntime.DEFAULT_TRIGGER_TICKS));
         overlayRuntime.start(this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(placements, this);
