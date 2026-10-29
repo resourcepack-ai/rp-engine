@@ -119,10 +119,12 @@ class Armor3dBakerTest {
         assertEquals(List.of(Armor3dSet.Piece.HELMET, Armor3dSet.Piece.CHESTPLATE, Armor3dSet.Piece.BOOTS),
                 new ArrayList<>(set.pieces().keySet()));
         assertTrue(set.authored());
-        // Drawn by 26.1 - 26.2's own shaders, displays for everybody else.
-        assertEquals(1, set.shaderProtocols().size());
+        // Drawn by 26.1 - 26.2's and 26.3's own shaders, displays for everybody else.
+        assertEquals(2, set.shaderProtocols().size());
         assertArrayEquals(new int[]{775, 776}, set.shaderProtocols().get(0));
+        assertArrayEquals(new int[]{777, 777}, set.shaderProtocols().get(1));
         assertTrue(set.drawnBy(775));
+        assertTrue(set.drawnBy(777));
         assertFalse(set.drawnBy(774));
     }
 
