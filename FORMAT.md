@@ -2974,7 +2974,7 @@ welcome:
       tooltip: Back to the middle
       width: 150
     - label: Shop
-      console: warp shop {player}  # the CONSOLE runs it (0.2.39+)
+      console: warp shop {player}  # the CONSOLE runs it (0.2.41+)
     - label: The wiki
       url: https://example.com
 ```
