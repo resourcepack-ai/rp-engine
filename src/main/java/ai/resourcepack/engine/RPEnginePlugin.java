@@ -2236,7 +2236,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // chunks round spawn loaded before this plugin did.
         growth.rescan();
 
-        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded);
+        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded, withBlocks.keySet());
         report(to, "entities", parsedEntities.diagnostics());
         creatures.replace(parsedEntities.entities());
 
