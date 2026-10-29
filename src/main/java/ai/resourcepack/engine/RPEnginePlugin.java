@@ -601,6 +601,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // fetched once per release, so a published pack works without anybody
         // also pressing Sync on it. See PushedPacks#publishedArrived.
         distribution.onContent(json -> {
+            if (json == null) {
+                pushedPacks.releaseHasNoContent();
+                registerPushedContent();
+                return;
+            }
             StudioContent read = StudioContent.read(json, "the published pack's content", getLogger());
             if (read != null) {
                 pushedPacks.publishedArrived(read);
