@@ -1704,13 +1704,13 @@ over a bump, and goes quiet when it stops. That is the opposite of the
 has one note the way a rig has one clock, and two playing over each other is a
 vehicle that sounds broken rather than busy.
 
-**A sound loops for as long as the state holds, and it needs a `length:` to do
-it.** Minecraft has no looping sound — a sound event is a one-shot — so what
-happens here is that the engine plays your file again the moment it ends, which
-it can only do if the sound definition says how long it runs. Give the sound a
-`length:` (see Sounds, above) and it loops seamlessly; leave it out and the
-sound plays **once**, when the vehicle enters that state. That is deliberate:
-a two-second engine looped on a guessed half-second is four engines.
+**A sound loops for as long as the state holds.** Minecraft has no looping
+sound — a sound event is a one-shot — so what happens here is that the engine
+plays your file again the moment it ends, which it can only do knowing how long
+it runs: read off the file, or `length:` (see Sounds, below). A sound with
+neither plays **once**, when the vehicle enters that state. That is deliberate:
+a two-second engine looped on a guessed half-second is four engines. Use a
+**mono** file; a stereo one cannot come from the vehicle and is warned about.
 
 The sound is played **from the vehicle's chassis**, so everybody nearby hears
 it, it fades with distance, and its position follows the vehicle throughout
@@ -2591,7 +2591,7 @@ chime:
   volume: 1.0
   pitch: 1.0
   stream: false        # true for anything long
-  length: 2.4          # seconds. Only needed by something that loops it
+  length: 2.4          # seconds. Read from the file if you leave it out
 ```
 
 Play it with `/rp sound mypack:chime`, or from another plugin through the
@@ -2637,10 +2637,16 @@ the same key, the definition here wins.
 reason: Minecraft has no looping sound. A sound event is a one-shot, so
 anything that plays continuously is the server re-playing a short file on a
 timer — a vehicle's engine note, today — and the only way to do that without a
-gap or an overlap is to know how long the file is. Nothing here can measure
-that for you, so leave it out and a vehicle plays the sound once when it enters
-that state; write it (any audio player will tell you) and the sound loops for
-as long as the state lasts. Nothing else reads it.
+gap or an overlap is to know how long the file is. **The engine reads it off
+the file's own headers**, so you only write `length:` to override that (to
+trim a tail of silence off a loop, say); a written figure always wins. A sound
+whose file cannot be read keeps no length, and a vehicle plays it once when it
+enters that state.
+
+The same read gives each sound's channel count, which `/rp sounds` shows beside
+its length. A vehicle whose sound is a stereo file is warned about on load,
+since a stereo file cannot come from the vehicle. A file that is not Ogg Vorbis
+(an mp3 or Opus renamed to `.ogg`) is warned about too: it plays as silence.
 
 ## Icons
 
