@@ -57,6 +57,7 @@ public final class InterfaceCommands implements Area {
         return List.of(
                 Help.of("sounds", "list the custom sounds"),
                 Help.of("sound", "<id> [player]", "play one"),
+                Help.of("sound stop", "<id|all> [player]", "stop one"),
                 Help.of("icons", "list icons and their characters"),
                 Help.of("say", "<text>", ":pack:icon: and <fx:name>"),
                 Help.of("screens", "list the screens and HUDs"),
@@ -455,6 +456,14 @@ public final class InterfaceCommands implements Area {
             }
             return Completions.matching(args[args.length - 1], options);
         }
+        if (sub.equals("sound") && args.length >= 3 && args[1].equalsIgnoreCase("stop")) {
+            if (args.length == 3) {
+                List<String> options = new ArrayList<>(Completions.matchingIds(args[2], sounds.ids()));
+                options.addAll(Completions.matching(args[2], "all"));
+                return options;
+            }
+            return args.length == 4 ? Completions.matching(args[3], Targets.names(sender, sub)) : List.of();
+        }
         if (args.length == 3 && DRAWS.contains(sub)) {
             return Completions.matching(args[2], Targets.names(sender, sub));
         }
@@ -462,8 +471,11 @@ public final class InterfaceCommands implements Area {
             return List.of();
         }
         switch (sub) {
-            case "sound":
-                return Completions.matchingIds(args[1], sounds.ids());
+            case "sound": {
+                List<String> options = new ArrayList<>(Completions.matchingIds(args[1], sounds.ids()));
+                options.addAll(Completions.matching(args[1], "stop"));
+                return options;
+            }
             case "screen":
                 return Completions.matchingIds(args[1], overlays.screenIds());
             case "dialog":
@@ -498,6 +510,8 @@ public final class InterfaceCommands implements Area {
         for (ContentId id : sounds.ids()) {
             Reply.row(sender, id.toString(), sounds.info(id)
                     .map(sound -> sound.category()
+                            + (sound.channels() == 0 ? "" : sound.stereo() ? " · stereo" : " · mono")
+                            + (sound.length() > 0 ? " · " + String.format(Locale.ROOT, "%.1fs", sound.length()) : "")
                             + sound.subtitle().map(text -> " · \"" + text + "\"").orElse(""))
                     .orElse(""));
         }
@@ -508,6 +522,9 @@ public final class InterfaceCommands implements Area {
         if (args.length < 2) {
             Reply.to(sender, "/rpengine sound <id> [player]");
             return true;
+        }
+        if (args[1].equalsIgnoreCase("stop")) {
+            return stopSound(sender, args);
         }
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
@@ -528,6 +545,41 @@ public final class InterfaceCommands implements Area {
         // "played" is a half-truth worth completing.
         Reply.to(sender, "Played " + args[1] + " to " + target.getName()
                 + ". Heard nothing? The pack has to be on before the sound is in it.");
+        return true;
+    }
+
+    /**
+     * {@code /rp sound stop <id|all> [player]}: ends a track early. Under the
+     * same permission as playing one, since it undoes no more than that did.
+     * {@code all} is every custom sound and never vanilla's, so a player's
+     * own music and the world around them keep going.
+     */
+    private boolean stopSound(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            Reply.to(sender, "/rpengine sound stop <id|all> [player]");
+            return true;
+        }
+        Player target = Targets.of(sender, args.length > 3 ? args[3] : null);
+        if (target == null) {
+            Reply.to(sender, "Name a player: /rpengine sound stop <id|all> <player>");
+            return true;
+        }
+        if (!Targets.permitted(sender, "sound", target)) {
+            Targets.refuse(sender, "sound", "stop a sound for");
+            return true;
+        }
+        if (args[2].equalsIgnoreCase("all")) {
+            for (ContentId id : sounds.ids()) {
+                sounds.stop(target, id);
+            }
+            Reply.to(sender, "Stopped every custom sound for " + target.getName() + ".");
+            return true;
+        }
+        boolean stopped = ContentId.parse(args[2]).map(id -> sounds.stop(target, id))
+                .orElse(Boolean.FALSE);
+        Reply.to(sender, stopped
+                ? "Stopped " + args[2] + " for " + target.getName() + "."
+                : "No sound called " + args[2] + ".");
         return true;
     }
 

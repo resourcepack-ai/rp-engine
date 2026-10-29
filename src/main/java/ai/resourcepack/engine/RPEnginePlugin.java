@@ -397,6 +397,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
+    private final ai.resourcepack.engine.core.music.MusicRuntime music =
+            new ai.resourcepack.engine.core.music.MusicRuntime(this, sounds);
 
     /**
      * Runs content actions, for an item in hand and for a placed model or a
@@ -714,6 +716,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ? new ai.resourcepack.engine.core.object.ObjectItems()
                         : null);
         getServer().getPluginManager().registerEvents(objectRuntime, this);
+        getServer().getPluginManager().registerEvents(music, this);
         // A Studio effect's sprites are only in the packs of the players
         // holding that push, so its displays are shown to them alone: the
         // same per-player lookup a pushed screen is answered by.
@@ -1096,7 +1099,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
                                         + "custom_model_data, which older servers cannot carry."),
                 new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
-                new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime));
+                new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime),
+                new ai.resourcepack.engine.core.command.MusicCommands(music));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1184,6 +1188,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             }
         }
         pushedPacks.local(found);
+    }
+
+    /**
+     * A vehicle's sounds play from its chassis, and a stereo file cannot: the
+     * game plays it flat, at full volume, to everybody in range. Said once
+     * per vehicle and sound, because the fix is re-exporting the file as mono.
+     */
+    private static List<ai.resourcepack.engine.api.Diagnostic> stereoVehicleSounds(
+            java.util.Collection<ai.resourcepack.engine.api.VehicleInfo> vehicles, Map<ContentId, SoundInfo> known) {
+        List<ai.resourcepack.engine.api.Diagnostic> out = new java.util.ArrayList<>();
+        for (ai.resourcepack.engine.api.VehicleInfo vehicle : vehicles) {
+            for (String name : new java.util.TreeSet<>(vehicle.sounds().values())) {
+                ContentId.parse(name).map(known::get).filter(SoundInfo::stereo).ifPresent(sound ->
+                        out.add(ai.resourcepack.engine.api.Diagnostic.warning(vehicle.id().toString(),
+                                name + " is a stereo file, so it will be heard at full volume everywhere in range "
+                                        + "rather than from the vehicle. Export it as mono.")));
+            }
+        }
+        return out;
     }
 
     private void registerPushedContent() {
@@ -1811,6 +1834,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the world is guarded, so one refusal cannot cost the steps after it.
         boolean worldStopped = Regions.folia();
         ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
+        music.shutdown();
         if (heartbeat != null) {
             heartbeat.stop();
         }
@@ -1985,6 +2009,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     public ai.resourcepack.engine.api.Dialogs dialogs() {
         return dialogs;
+    }
+
+    /** Background music: playlists of the pack's sounds, by place or on request. */
+    public ai.resourcepack.engine.api.Music music() {
+        return music;
     }
 
     /** The custom sounds this server holds. */
@@ -2287,10 +2316,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // registered when the server boots and nothing can add one after.
         liquidBiomes.write(parsedLiquids.liquids().values());
 
-        SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
+        // With the content folder, so each file's channels and length come
+        // from the audio itself rather than from somebody typing them.
+        SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded,
+                ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "sounds", parsedSounds.diagnostics());
         authoredSounds = parsedSounds.sounds();
         sounds.replace(authoredSounds);
+        report(to, "vehicles", stereoVehicleSounds(authoredVehicles.values(), authoredSounds));
+
+        ai.resourcepack.engine.core.music.MusicDefinitions.Result parsedMusic =
+                ai.resourcepack.engine.core.music.MusicDefinitions.parse(loaded, authoredSounds);
+        report(to, "music", parsedMusic.diagnostics());
+        music.replace(parsedMusic);
 
         // With the content folder, because a GIF icon's frame count is its
         // number of codepoints and only the GIF knows it. The build reads the
