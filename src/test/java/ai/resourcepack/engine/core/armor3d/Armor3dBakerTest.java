@@ -515,4 +515,52 @@ class Armor3dBakerTest {
         assertEquals(0, helmet.getAsJsonObject("display").getAsJsonObject("head").getAsJsonArray("scale")
                 .get(0).getAsDouble());
     }
+
+    /**
+     * A set drawn on Blockbench's own player template: front at -Z, the left
+     * arm at -X. It is the engine's frame turned half round, and is read as
+     * though it had been drawn the engine's way.
+     */
+    @Test
+    void aSetFacingNorthIsTurnedRound() {
+        String project = "{"
+                + "\"meta\": {\"format_version\": \"5.0\", \"model_format\": \"free\"},"
+                + "\"resolution\": {\"width\": 32, \"height\": 32},"
+                + "\"elements\": ["
+                + cube("pad", "-9, 21, -3", "-4, 24, 2", "0, 0, 30", "-6.5, 22.5, 0") + ","
+                + "{\"name\": \"lid\", \"type\": \"cube\", \"uuid\": \"lid\", \"from\": [-4, 24, -4],"
+                + " \"to\": [4, 25, 4], \"origin\": [0, 24, 0],"
+                + " \"faces\": {\"up\": {\"uv\": [0, 0, 8, 8], \"texture\": 0, \"rotation\": 90}}}"
+                + "],"
+                + "\"groups\": ["
+                + "{\"name\": \"left_arm\", \"origin\": [-5, 22, 0], \"rotation\": [0, 0, 0], \"uuid\": \"g-larm\"},"
+                + "{\"name\": \"head\", \"origin\": [0, 24, 0], \"rotation\": [0, 0, 0], \"uuid\": \"g-head\"}"
+                + "],"
+                + "\"outliner\": ["
+                + "{\"uuid\": \"g-larm\", \"children\": [\"pad\"]},"
+                + "{\"uuid\": \"g-head\", \"children\": [\"lid\"]}"
+                + "],"
+                + "\"textures\": [{\"name\": \"t.png\", \"id\": \"0\", \"uuid\": \"t-0\","
+                + " \"source\": \"data:image/png;base64," + PNG + "\"}]"
+                + "}";
+        Armor3dBlockbench.Source source = Armor3dBlockbench.read(project.getBytes(StandardCharsets.UTF_8),
+                "x.yml", "turned", new ArrayList<>()).orElseThrow();
+
+        Armor3dBlockbench.Cube pad = source.cubes().get(0);
+        assertEquals("left_arm", pad.bone());
+        assertArrayEquals(new double[]{4, 21, -2}, pad.from(), 1e-9);
+        assertArrayEquals(new double[]{9, 24, 3}, pad.to(), 1e-9);
+        assertArrayEquals(new double[]{0, 0, -30}, pad.rotation(), 1e-9);
+        assertArrayEquals(new double[]{6.5, 22.5, 0}, pad.origin(), 1e-9);
+        // What was drawn on the front is on the front still.
+        assertArrayEquals(new double[]{0, 0, 8, 8}, pad.faces().get("south").uv(), 1e-9);
+        assertArrayEquals(new double[]{8, 8, 16, 32}, pad.faces().get("north").uv(), 1e-9);
+        assertEquals(270, source.cubes().get(1).faces().get("up").rotation());
+
+        // The engine's own frame is left alone.
+        Armor3dBlockbench.Source engine = Armor3dBlockbench.read(santa().getBytes(StandardCharsets.UTF_8),
+                "x.yml", "santa", new ArrayList<>()).orElseThrow();
+        assertFalse(Armor3dBlockbench.facesNorth(engine.cubes(), engine.quads()));
+        assertArrayEquals(new double[]{-9, 21, -3}, engine.cubes().get(2).from(), 1e-9);
+    }
 }
