@@ -1044,6 +1044,10 @@ custom entity never despawns: one that vanished because a player walked away
 would leave its model standing there, because a removed mount ejects its
 passengers rather than taking them.
 
+`model:` names an ITEM, never a file: the guard needs `guard:` in `items/` with
+`model: guard` for `assets/models/guard.bbmodel`. One naming no item spawns as
+the plain mob, and the load warns about it.
+
 `/rp spawn mypack:guard` puts one where you stand.
 
 ### Bones that do something
