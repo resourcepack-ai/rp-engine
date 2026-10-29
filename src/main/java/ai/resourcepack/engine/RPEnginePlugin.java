@@ -595,6 +595,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         distribution = new DistributionManager(this, bedrock, new ProtocolResolver(getLogger()),
                 getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"),
                 PackSending.forServer(compatibility));
+        // The published pack's content (shader objects, screens, dialogs),
+        // fetched once per release, so a published pack works without anybody
+        // also pressing Sync on it. See PushedPacks#publishedArrived.
+        distribution.onContent(json -> {
+            StudioContent read = StudioContent.read(json, "the published pack's content", getLogger());
+            if (read != null) {
+                pushedPacks.publishedArrived(read);
+                registerPushedContent();
+            }
+        });
         rigs = new RigStore(getDataFolder());
         rigs.load(getLogger());
         if (rigs.loaded() > 0) {
@@ -1137,6 +1147,35 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * take them away. The two cannot collide, because {@code studio} is a
      * namespace the folder loader is not allowed to hand out twice.
      */
+    /**
+     * The Studio content manifests of the content folder's resource packs,
+     * handed to {@link #pushedPacks} as everybody's: their art is in the pack
+     * the engine builds, so every player who has that pack can be shown them.
+     * They are registered with the pushed content, under {@code studio:}, so
+     * a shader object from a dropped-in export is {@code /rp shader
+     * studio:<id>} exactly as a synced one is.
+     */
+    private void readFolderStudioContent(Path content, CommandSender to) {
+        List<StudioContent> found = new ArrayList<>();
+        for (Map.Entry<String, Path> entry
+                : PlainPack.studioManifests(content, StudioContent.IN_PACK).entrySet()) {
+            String where = entry.getKey() + "/" + StudioContent.IN_PACK;
+            try {
+                StudioContent read = StudioContent.read(Files.readString(entry.getValue()), where, getLogger());
+                if (read != null && !read.isEmpty()) {
+                    found.add(read);
+                    getLogger().info("Studio pack " + entry.getKey() + "/: " + read.huds().size()
+                            + " shader object(s) and HUD(s), " + read.dialogs().size() + " dialog(s), "
+                            + read.screens().size() + " screen(s), " + read.sounds().size() + " sound(s)");
+                }
+            } catch (IOException e) {
+                report(to, "content", List.of(ai.resourcepack.engine.api.Diagnostic.warning(where,
+                        "Could not be read: " + e.getMessage())));
+            }
+        }
+        pushedPacks.local(found);
+    }
+
     private void registerPushedContent() {
         if (pushed == null) {
             return;
@@ -2350,6 +2389,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (String problem : recipes.replace(parsedRecipes.recipes())) {
             getLogger().warning("recipe " + problem);
         }
+
+        // A Studio export dropped in as a resource pack carries what its art
+        // is (shader objects, screens, dialogs); read before the push
+        // content is registered, because it is registered with it.
+        readFolderStudioContent(content, to);
 
         // The content folder has just replaced the registry wholesale, which
         // knows nothing about the pack somebody is already wearing.

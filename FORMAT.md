@@ -2337,6 +2337,15 @@ a folder that exists, since that folder may have been edited: delete it to
 replace it. A zip that is not a resource pack is left where it is, with a
 warning.
 
+**A pack exported from ResourcePack AI Studio carries `studio-content.json`** at
+its root, where the game never looks: which of the pack's characters are a
+shader object, a screen or a dialog, and its sounds, vehicles and VFX, which
+the art alone cannot say. The engine reads it on every load, so that pack's
+content is named `studio:<id>` exactly as a synced pack's is (`/rp shaders`,
+`/rp shader studio:<id>`, `/rp dialog studio:<id>`), and its rules (Always, On
+join...) apply. It is shown to every player, since its art is in the pack the
+engine builds for all of them. A synced pack wins an id it shares with one.
+
 ## A CraftEngine pack
 
 **Drop it in and it loads.** A pack folder out of CraftEngine's

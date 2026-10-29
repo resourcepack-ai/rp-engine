@@ -43,6 +43,18 @@ public final class PushedPacks {
      */
     private volatile String published;
 
+    /**
+     * Studio packs dropped into the content folder, read off their
+     * {@link StudioContent#IN_PACK}. Their art is in the pack the engine
+     * builds, which every player is sent, so their content is everybody's: it
+     * is under whatever a player holds, never instead of it. Null when there
+     * are none.
+     */
+    private StudioContent local;
+
+    /** {@link #local} under each pack's content, made once per pack. Emptied whenever either changes. */
+    private final Map<StudioContent, StudioContent> withLocal = new java.util.IdentityHashMap<>();
+
     /** A push arrived. Kept as the latest, and for whoever is then said to hold it. */
     public synchronized void arrived(StudioContent content) {
         if (content == null) {
@@ -54,7 +66,30 @@ public final class PushedPacks {
         packs.remove(id);
         packs.put(id, content);
         latest = id;
+        withLocal.clear();
         prune();
+    }
+
+    /**
+     * The published pack's content arrived, from distribution rather than a
+     * push: kept as the published pack's, and not as the latest push, which
+     * is what the server persists and is somebody's Sync.
+     */
+    public synchronized void publishedArrived(StudioContent content) {
+        if (content == null || content.packId().isEmpty()) {
+            return;
+        }
+        packs.remove(content.packId());
+        packs.put(content.packId(), content);
+        published = content.packId();
+        withLocal.clear();
+        prune();
+    }
+
+    /** The content folder's Studio packs, replacing the last set. Empty for none. */
+    public synchronized void local(List<StudioContent> found) {
+        local = found == null || found.isEmpty() ? null : StudioContent.union(found);
+        withLocal.clear();
     }
 
     /**
@@ -108,22 +143,38 @@ public final class PushedPacks {
      * @param servedPublished whether this player is holding the published pack
      */
     public synchronized Optional<StudioContent> contentFor(UUID player, boolean servedPublished) {
+        StudioContent theirs = null;
         String mine = player == null ? null : held.get(player);
         if (mine != null) {
-            return Optional.ofNullable(packs.get(mine));
+            theirs = packs.get(mine);
+        } else if (servedPublished && published != null) {
+            theirs = packs.get(published);
         }
-        if (servedPublished && published != null) {
-            return Optional.ofNullable(packs.get(published));
+        if (local == null) {
+            return Optional.ofNullable(theirs);
         }
-        return Optional.empty();
+        if (theirs == null) {
+            return Optional.of(local);
+        }
+        // Theirs last, so a pack they hold wins an id it shares with the folder's.
+        return Optional.of(withLocal.computeIfAbsent(theirs, pack -> StudioContent.union(List.of(local, pack))));
     }
 
-    /** Every pack still in use, oldest push first, so a later one wins in a union. */
+    /** Every pack still in use, the content folder's first, then oldest push first, so a later one wins in a union. */
     public synchronized List<StudioContent> live() {
-        return List.copyOf(new ArrayList<>(packs.values()));
+        List<StudioContent> all = new ArrayList<>();
+        if (local != null) {
+            all.add(local);
+        }
+        all.addAll(packs.values());
+        return List.copyOf(all);
     }
 
     private boolean prune() {
-        return packs.keySet().removeIf(id -> !id.equals(latest) && !id.equals(published) && !held.containsValue(id));
+        boolean removed = packs.keySet().removeIf(id -> !id.equals(latest) && !id.equals(published) && !held.containsValue(id));
+        if (removed) {
+            withLocal.clear();
+        }
+        return removed;
     }
 }

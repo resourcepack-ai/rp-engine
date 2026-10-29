@@ -146,6 +146,39 @@ class PushedPacksTest {
         assertEquals("Bob", packs.contentFor(BOB, true).orElseThrow().dialogs().get(MENU).name());
     }
 
+    @Test
+    void aStudioPackInTheContentFolderIsEverybodys() {
+        PushedPacks packs = new PushedPacks();
+        packs.local(List.of(StudioContent.read(
+                "{\"packId\":\"folder-pack\",\"huds\":[{\"id\":\"mana\",\"title\":\"x\"}]}", "test", null)));
+        ContentId mana = ContentId.parse("studio:mana").orElseThrow();
+
+        // Carol holds nothing and was served nothing; the folder's pack is in the engine's own.
+        assertTrue(packs.contentFor(CAROL, false).orElseThrow().huds().containsKey(mana));
+        assertEquals("folder-pack", ids(packs.live()).get(0));
+
+        // Somebody holding a push sees both, and their push wins a shared id.
+        packs.arrived(pack("alice-pack", "Alice"));
+        packs.hold(ALICE, "alice-pack");
+        StudioContent alices = packs.contentFor(ALICE, false).orElseThrow();
+        assertTrue(alices.huds().containsKey(mana));
+        assertEquals("Alice", alices.dialogs().get(MENU).name());
+
+        packs.local(List.of());
+        assertTrue(packs.contentFor(CAROL, false).isEmpty());
+    }
+
+    @Test
+    void thePublishedPacksContentNeedsNoPush() {
+        PushedPacks packs = new PushedPacks();
+        packs.publishedArrived(pack("shop-pack", "Shop"));
+        assertEquals("Shop", packs.contentFor(CAROL, true).orElseThrow().dialogs().get(MENU).name());
+        assertTrue(packs.contentFor(CAROL, false).isEmpty());
+        // A push of something else does not drop it: it is the published pack's.
+        packs.arrived(pack("bob-pack", "Bob"));
+        assertEquals("Shop", packs.contentFor(CAROL, true).orElseThrow().dialogs().get(MENU).name());
+    }
+
     private static List<String> ids(List<StudioContent> live) {
         return live.stream().map(StudioContent::packId).toList();
     }
