@@ -2143,6 +2143,19 @@ public final class VehicleRuntime implements Listener {
         private boolean bumped;
 
         /**
+         * Whether an impulse threw this vehicle upward since its last step.
+         *
+         * <p>A land vehicle on the ground has its vertical speed set to zero
+         * every step, which is what keeps it on a road over every bump - and
+         * which also threw away the vertical half of {@link #applyImpulse}, so
+         * a plugin's jump pad launched nothing. The step after an upward
+         * impulse is therefore taken as off the ground: the vehicle keeps the
+         * speed it was given and gravity takes it from there. One step is
+         * enough, because it rises past {@code SUPPORT_REACH} within it.
+         */
+        private boolean thrownUp;
+
+        /**
          * How far into its animation a speed-linked vehicle is, in seconds of
          * that animation - advanced by how far the vehicle TRAVELLED this
          * tick rather than by the tick itself. See
@@ -3105,6 +3118,7 @@ public final class VehicleRuntime implements Listener {
             state = state.impacted(horizontal[0] + delta.getX(),
                     Math.max(-40, Math.min(40, state.verticalSpeed() + delta.getY())),
                     horizontal[1] + delta.getZ(), spin);
+            if (state.verticalSpeed() > 0) thrownUp = true;
             bumped = true;
             parked = false;
         }
@@ -3388,6 +3402,13 @@ public final class VehicleRuntime implements Listener {
             lastDemand = demand;
 
             VehiclePhysics.Surroundings around = surroundings();
+            if (thrownUp) {
+                // Leaving the ground on this step: see thrownUp.
+                thrownUp = false;
+                if (info.medium() == VehicleMedium.LAND && around.supported()) {
+                    around = new VehiclePhysics.Surroundings(false, around.inWater(), around.submersion());
+                }
+            }
             // `driven` rather than `info`: the same vehicle with a plugin's
             // speed limit applied, or `info` itself when there is none.
             VehiclePhysics.Step step = VehiclePhysics.step(driven, state, demand, around, DT, damage);

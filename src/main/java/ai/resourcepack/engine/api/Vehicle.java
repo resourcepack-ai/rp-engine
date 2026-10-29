@@ -540,6 +540,11 @@ public interface Vehicle {
      * vehicle's heading. Non-finite values are ignored, and the engine applies
      * its ordinary stability bounds before the next physics step.
      *
+     * <p>An upward component lifts a land vehicle off the ground: it leaves
+     * with that vertical speed and falls back under gravity, which is how a
+     * jump pad or a ramp kicker is made. Before 0.2.45 a grounded land vehicle
+     * dropped the vertical part.
+     *
      * @param deltaVelocity velocity to add, in blocks per second
      * @param spinDelta degrees per second to add, clockwise positive
      */
