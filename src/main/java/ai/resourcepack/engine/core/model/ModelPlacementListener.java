@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.engine.core.Regions;
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.ModelInfo;
@@ -159,7 +161,7 @@ public final class ModelPlacementListener implements Listener {
     private final NamespacedKey stateKey;
 
     /** A piece's pending {@code reset-after}, by hitbox. One per piece, replaced on every click. */
-    private final Map<UUID, org.bukkit.scheduler.BukkitTask> resets = new java.util.HashMap<>();
+    private final Map<UUID, Tasks.Handle> resets = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** How long a door takes to swing, in ticks. Short: it is a click, not a cutscene. */
     private static final int SWING_TICKS = 5;
@@ -984,7 +986,7 @@ public final class ModelPlacementListener implements Listener {
      */
     private void scheduleReset(Interaction hitbox, ModelInfo info, int index) {
         UUID uuid = hitbox.getUniqueId();
-        org.bukkit.scheduler.BukkitTask pending = resets.remove(uuid);
+        Tasks.Handle pending = resets.remove(uuid);
         if (pending != null) {
             pending.cancel();
         }
@@ -992,7 +994,8 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
         ContentId id = info.id();
-        resets.put(uuid, Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        // On the piece's own thread, which on Folia is its region's.
+        resets.put(uuid, Tasks.onLater(plugin, hitbox, () -> {
             resets.remove(uuid);
             Entity entity = Bukkit.getEntity(uuid);
             ModelInfo current = model.get(id);
@@ -1023,11 +1026,7 @@ public final class ModelPlacementListener implements Listener {
      * before this plugin is, so their load events have been and gone.
      */
     public void adoptLoaded() {
-        for (World world : Bukkit.getWorlds()) {
-            for (Interaction hitbox : world.getEntitiesByClass(Interaction.class)) {
-                adopt(hitbox);
-            }
-        }
+        Regions.loaded(plugin, Interaction.class, this::adopt);
     }
 
     private void adopt(Entity entity) {
@@ -1052,7 +1051,7 @@ public final class ModelPlacementListener implements Listener {
 
     /** Every booked reset forgotten. The plugin is going, and its tasks with it. */
     public void stop() {
-        for (org.bukkit.scheduler.BukkitTask task : resets.values()) {
+        for (Tasks.Handle task : resets.values()) {
             task.cancel();
         }
         resets.clear();
@@ -1277,7 +1276,7 @@ public final class ModelPlacementListener implements Listener {
         }
 
         // A door due to shut itself has nothing to shut.
-        org.bukkit.scheduler.BukkitTask reset = resets.remove(hitbox.getUniqueId());
+        Tasks.Handle reset = resets.remove(hitbox.getUniqueId());
         if (reset != null) {
             reset.cancel();
         }

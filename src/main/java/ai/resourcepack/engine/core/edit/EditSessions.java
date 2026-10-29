@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.edit;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.VehicleInfo;
 import ai.resourcepack.engine.core.Chat;
@@ -9,7 +11,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -105,7 +106,7 @@ public final class EditSessions {
     private final EditClient client;
     private final Consumer<CommandSender> reload;
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
-    private BukkitTask watch;
+    private Tasks.Handle watch;
 
     public EditSessions(Plugin plugin, Path contentRoot, String studioUrl, Consumer<CommandSender> reload) {
         this.plugin = plugin;
@@ -117,7 +118,7 @@ public final class EditSessions {
     /** Starts the watch loop. Called once the plugin is up. */
     public void start() {
         stop();
-        watch = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::tick, POLL_TICKS, POLL_TICKS);
+        watch = Tasks.asyncTimer(plugin, this::tick, POLL_TICKS, POLL_TICKS);
     }
 
     /**
@@ -200,7 +201,7 @@ public final class EditSessions {
      * a command.
      */
     private void async(CommandSender who, TargetSupplier supplier) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             try {
                 open(who, supplier.get());
             } catch (EditException e) {
@@ -252,7 +253,7 @@ public final class EditSessions {
             }
             sessions.remove(session.id);
             final Session doomed = session;
-            Bukkit.getScheduler().runTaskAsynchronously(plugin,
+            Tasks.async(plugin,
                     () -> client.close(doomed.id, doomed.pullToken));
             closed++;
         }
@@ -342,12 +343,9 @@ public final class EditSessions {
         });
     }
 
+    /** On the main thread, or Folia's global region: a reload and a line of chat, nothing in the world. */
     private void main(Runnable work) {
-        if (Bukkit.isPrimaryThread()) {
-            work.run();
-            return;
-        }
-        Bukkit.getScheduler().runTask(plugin, work);
+        Regions.global(plugin, work);
     }
 
     /** The far end's expiry as epoch millis, or 0 when it did not say. */

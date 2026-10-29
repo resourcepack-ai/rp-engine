@@ -266,7 +266,14 @@ final class HiddenRiders {
         if (warnedGhost) {
             return;
         }
-        Team team = player.getScoreboard().getEntryTeam(player.getName());
+        Team team;
+        try {
+            team = player.getScoreboard().getEntryTeam(player.getName());
+        } catch (RuntimeException e) {
+            // A server whose scoreboard is not the API's to read (Folia's
+            // forks keep changing what they allow): nothing to warn about.
+            return;
+        }
         if (team == null || !team.canSeeFriendlyInvisibles()) {
             return;
         }

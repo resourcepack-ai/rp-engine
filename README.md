@@ -1,6 +1,6 @@
 # RP Engine
 
-A custom content engine for Spigot and Paper servers. Custom items, blocks,
+A custom content engine for Spigot, Paper and Folia servers. Custom items, blocks,
 furniture you can place and sit on, animated model rigs, player emotes,
 sounds, chat icons, GUI screens, HUD overlays, recipes, entities and liquids —
 all defined in a folder of YAML on your own server, and all served to players

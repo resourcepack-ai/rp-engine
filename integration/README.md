@@ -47,6 +47,11 @@ Reaching into `core` by reflection, and handing the placement path a `Player`
 that is a dynamic proxy, are both deliberate: this is a test, and the point is
 to drive the shipping code rather than a copy of it.
 
+## Folia
+
+This harness runs on Paper only. `folia/` beside it runs the engine on a real
+Folia server with two players in two regions; see its README.
+
 ## What it cannot reach
 
 Anything needing a real client or a real body: `ModelSeatEvent` (somebody has

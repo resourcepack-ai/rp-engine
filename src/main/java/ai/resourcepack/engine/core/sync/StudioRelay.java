@@ -1,5 +1,9 @@
 package ai.resourcepack.engine.core.sync;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
+import java.util.function.IntConsumer;
+import java.util.ArrayList;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -224,18 +228,19 @@ public final class StudioRelay {
                 packs.arrived(own);
             }
             if (pack != null) register.accept(pack);
-            int reached = eachRecipient(code, player -> {
+            eachRecipient(code, player -> {
                 boolean reachedThem = deliverTo(player, pack, bedrockUrl);
                 if (reachedThem) {
                     packs.hold(player.getUniqueId(), packId);
                 }
                 return reachedThem;
+            }, reached -> {
+                // After the recipients are recorded, since who holds what is what
+                // decides which pushes are still in the catalogue.
+                registerContent.run();
+                answer(reached, () -> sync.applied(code),
+                        why -> sync.failed(code, pack == null ? fetched.reason() : why));
             });
-            // After the recipients are recorded, since who holds what is what
-            // decides which pushes are still in the catalogue.
-            registerContent.run();
-            answer(reached, () -> sync.applied(code),
-                    why -> sync.failed(code, pack == null ? fetched.reason() : why));
         });
     }
 
@@ -307,8 +312,8 @@ public final class StudioRelay {
             return;
         }
         onMainThread(() -> {
-            int worn = eachRecipient(code, player -> skins.apply(player, texture[0], texture[1]).ok);
-            answer(worn, () -> sync.skinned(code), why -> sync.skinFailed(code, why));
+            eachRecipient(code, player -> skins.apply(player, texture[0], texture[1]).ok,
+                    worn -> answer(worn, () -> sync.skinned(code), why -> sync.skinFailed(code, why)));
         });
     }
 
@@ -329,20 +334,20 @@ public final class StudioRelay {
         String body = string(json, "body");
         String url = string(json, "url");
         onMainThread(() -> {
-            int told = eachRecipient(code, player -> {
+            eachRecipient(code, player -> {
                 for (String line : List.of(title, body == null ? "" : body, url == null ? "" : url)) {
                     if (!line.isEmpty()) {
                         EngineCommand.say(player, line);
                     }
                 }
                 return true;
-            });
-            answer(told, () -> sync.told(code), why -> sync.tellFailed(code, why));
+            }, told -> answer(told, () -> sync.told(code), why -> sync.tellFailed(code, why)));
         });
     }
 
+    /** On the main thread, or Folia's global region; anything per player goes through {@link #eachRecipient}. */
     private void onMainThread(Runnable work) {
-        plugin.getServer().getScheduler().runTask(plugin, work);
+        Tasks.global(plugin, work);
     }
 
     /**
@@ -413,22 +418,29 @@ public final class StudioRelay {
      * Runs {@code work} for every online recipient of a ref: the whole sync
      * group for a code, and exactly that player for a uuid.
      *
-     * @return how many it counted, {@code work} deciding whether it counts
+     * <p>Each player's part runs on that player's thread, and {@code then}
+     * after all of them on the main one (on Folia: their regions', then the
+     * global region's; see {@link Regions#each}).
+     *
+     * @param then handed how many it counted, {@code work} deciding whether it counts
      */
-    private int eachRecipient(String code, Predicate<Player> work) {
+    private void eachRecipient(String code, Predicate<Player> work, IntConsumer then) {
+        List<Player> players = new ArrayList<>();
         UUID direct = SyncCodes.uuidOf(code);
         if (direct != null) {
             Player player = plugin.getServer().getPlayer(direct);
-            return player != null && work.test(player) ? 1 : 0;
-        }
-        int reached = 0;
-        for (String name : group.recipients(code)) {
-            Player player = plugin.getServer().getPlayerExact(name);
-            if (player != null && work.test(player)) {
-                reached++;
+            if (player != null) {
+                players.add(player);
+            }
+        } else {
+            for (String name : group.recipients(code)) {
+                Player player = plugin.getServer().getPlayerExact(name);
+                if (player != null) {
+                    players.add(player);
+                }
             }
         }
-        return reached;
+        Regions.each(plugin, players, work, then);
     }
 
     /** Nobody reached is a failure with a reason, never a silence. */

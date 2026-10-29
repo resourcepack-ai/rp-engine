@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.vehicle;
 
+import ai.resourcepack.engine.core.Regions;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 
@@ -82,8 +83,15 @@ final class PassengerTeleport {
             }
             Object array = Array.newInstance(flag, 1);
             Array.set(array, 0, retain);
-            Method method = Entity.class.getMethod("teleport", Location.class,
-                    Array.newInstance(flag, 0).getClass());
+            // Folia refuses every synchronous teleport, flags or not, and
+            // moves an entity only asynchronously: the same flags, the async
+            // call, and a cause it requires alongside them.
+            Method method = Regions.folia()
+                    ? Entity.class.getMethod("teleportAsync", Location.class,
+                            org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.class,
+                            Array.newInstance(flag, 0).getClass())
+                    : Entity.class.getMethod("teleport", Location.class,
+                            Array.newInstance(flag, 0).getClass());
             return new PassengerTeleport(method, array);
         } catch (ReflectiveOperationException | RuntimeException e) {
             // Not Paper, or a Paper too old to have it. The plain teleport is
@@ -99,6 +107,17 @@ final class PassengerTeleport {
      *         something lossy, and means this server can do neither.
      */
     boolean move(Entity entity, Location target) {
+        if (withFlags != null && Regions.folia()) {
+            try {
+                // Started, and answered later; see Regions.move.
+                withFlags.invoke(entity, target,
+                        org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN, retainPassengers);
+                return true;
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                refused = true;
+                return false;
+            }
+        }
         if (withFlags != null) {
             try {
                 Object moved = withFlags.invoke(entity, target, retainPassengers);

@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.vehicle;
 
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.VehicleHitbox;
 import ai.resourcepack.engine.api.VehicleImpactArea;
 import ai.resourcepack.engine.core.animation.RigMath;
@@ -322,7 +323,7 @@ final class VehicleScuffs {
             Mark mark = marks.get(i);
             BlockDisplay display = displays.get(i);
             if (dirty) display.setBlock(mark.material().createBlockData());
-            display.teleport(at);
+            Regions.move(display, at);
             display.setInterpolationDelay(0);
             display.setTransformation(RigMath.toTransformation(pose(mark, pitch, roll)));
         }

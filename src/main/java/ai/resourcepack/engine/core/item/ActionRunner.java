@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.item;
 
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.api.Items;
@@ -137,7 +138,7 @@ public final class ActionRunner {
                             + ": a value put into \"" + step.argument() + "\" had a space or a control character in it.");
                     break;
                 }
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+                Regions.console(org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(ActionRunner.class), command);
                 break;
             }
             case RUN:

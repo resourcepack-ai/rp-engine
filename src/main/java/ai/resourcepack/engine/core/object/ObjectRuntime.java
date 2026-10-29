@@ -2,6 +2,8 @@ package ai.resourcepack.engine.core.object;
 
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ShaderObjectInfo;
+import ai.resourcepack.engine.core.Regions;
+import ai.resourcepack.common.scheduler.Tasks;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -17,15 +19,14 @@ import org.bukkit.event.world.EntitiesUnloadEvent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 /**
@@ -61,9 +62,11 @@ public final class ObjectRuntime implements Listener {
     final NamespacedKey sizeKey;
     final NamespacedKey turnKey;
 
-    private final Map<UUID, Driven> live = new LinkedHashMap<>();
-    private BukkitTask ticker;
-    private long tick;
+    /** Concurrent: on Folia, objects are adopted and ticked on many regions' threads. */
+    private final Map<UUID, Driven> live = new ConcurrentHashMap<>();
+    private final Regions.Fanout<Driven> each;
+    private Tasks.Handle ticker;
+    private volatile long tick;
 
     /**
      * @param items null where this server cannot drive objects (older than
@@ -74,6 +77,7 @@ public final class ObjectRuntime implements Listener {
         this.catalogue = catalogue;
         this.items = items;
         this.log = plugin.getLogger();
+        this.each = new Regions.Fanout<>(plugin);
         this.idKey = new NamespacedKey(plugin, "object");
         this.stateKey = new NamespacedKey(plugin, "object-state");
         this.previousKey = new NamespacedKey(plugin, "object-previous");
@@ -99,6 +103,10 @@ public final class ObjectRuntime implements Listener {
         return log;
     }
 
+    Plugin plugin() {
+        return plugin;
+    }
+
     /** The runtime's own clock, one a server tick. Moves and waits are measured in it. */
     long now() {
         return tick;
@@ -114,13 +122,9 @@ public final class ObjectRuntime implements Listener {
             return;
         }
         if (ticker == null) {
-            ticker = Bukkit.getScheduler().runTaskTimer(plugin, this::tickAll, 1L, 1L);
+            ticker = Tasks.globalTimer(plugin, this::tickAll, 1L, 1L);
         }
-        for (World world : Bukkit.getWorlds()) {
-            for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
-                adopt(display);
-            }
-        }
+        Regions.loaded(plugin, ItemDisplay.class, this::adopt);
     }
 
     public void stop() {
@@ -132,6 +136,7 @@ public final class ObjectRuntime implements Listener {
             driven.persist();
         }
         live.clear();
+        each.clear();
     }
 
     /** Puts one down. Empty where objects are not supported or there is no world. */
@@ -242,12 +247,17 @@ public final class ObjectRuntime implements Listener {
                 live.remove(driven.entity().getUniqueId());
                 continue;
             }
-            try {
-                driven.tick();
-            } catch (RuntimeException e) {
-                log.warning("A 3D object (" + driven.id() + ") stopped its sequence: " + e);
-                driven.stop();
-            }
+            each.on(driven, driven.entity(), this::tickOne);
+        }
+    }
+
+    /** One object's tick, on the thread that owns it. */
+    private void tickOne(Driven driven) {
+        try {
+            driven.tick();
+        } catch (RuntimeException e) {
+            log.warning("A 3D object (" + driven.id() + ") stopped its sequence: " + e);
+            driven.stop();
         }
     }
 

@@ -3,7 +3,9 @@ package ai.resourcepack.engine.core.liquid;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.LiquidInfo;
 import ai.resourcepack.engine.api.event.PlayerLiquidEvent;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.core.version.Vanilla;
+import ai.resourcepack.common.scheduler.Tasks;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -11,7 +13,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -41,7 +42,8 @@ public final class Liquids {
     private final LiquidPools pools;
 
     private volatile Map<ContentId, LiquidInfo> liquids = Map.of();
-    private BukkitTask task;
+    private Tasks.Handle task;
+    private final Regions.Fanout<UUID> each;
 
     /** Who was in what on the last pass, so a change can be told from a state. */
     private final Map<UUID, ContentId> inside = new ConcurrentHashMap<>();
@@ -49,6 +51,7 @@ public final class Liquids {
     public Liquids(Plugin plugin, LiquidPools pools) {
         this.plugin = plugin;
         this.pools = pools;
+        this.each = new Regions.Fanout<>(plugin);
     }
 
     /** Replaces the catalogue, as a reload does. */
@@ -81,7 +84,7 @@ public final class Liquids {
     /** Starts the pass. */
     public void start() {
         stop();
-        task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS);
+        task = Tasks.globalTimer(plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS);
     }
 
     /** Stops it. */
@@ -96,28 +99,40 @@ public final class Liquids {
         if (liquids.isEmpty() || pools.pools().isEmpty()) {
             // Nobody can be in a liquid that no longer exists, and somebody
             // who was is owed the event saying they are out of it.
-            inside.keySet().forEach(id -> left(Bukkit.getPlayer(id)));
+            // Each on their own thread, which on Folia is their region's.
+            for (UUID id : inside.keySet()) {
+                Player player = Bukkit.getPlayer(id);
+                each.on(id, player, ignored -> left(player));
+            }
             return;
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
-            // In the fluid, not merely inside the box. The box says which
-            // liquid a place counts as; being wet is still vanilla's answer,
-            // so somebody standing on a bridge over the acid is not in it.
-            // Spigot's API has isInWater but no isInLava, so lava is asked of
-            // the block the player is standing in.
-            if (!player.isInWater()
-                    && player.getLocation().getBlock().getType() != Material.LAVA) {
-                left(player);
-                continue;
-            }
-            Optional<LiquidInfo> in = at(player.getLocation());
-            if (in.isEmpty()) {
-                left(player);
-                continue;
-            }
-            apply(player, in.get());
-            entered(player, in.get().id());
+            each.on(player.getUniqueId(), player, ignored -> pass(player));
         }
+    }
+
+    /** One player's part of a pass, on the thread that owns them. */
+    private void pass(Player player) {
+        if (!player.isOnline()) {
+            return;
+        }
+        // In the fluid, not merely inside the box. The box says which
+        // liquid a place counts as; being wet is still vanilla's answer,
+        // so somebody standing on a bridge over the acid is not in it.
+        // Spigot's API has isInWater but no isInLava, so lava is asked of
+        // the block the player is standing in.
+        if (!player.isInWater()
+                && player.getLocation().getBlock().getType() != Material.LAVA) {
+            left(player);
+            return;
+        }
+        Optional<LiquidInfo> in = at(player.getLocation());
+        if (in.isEmpty()) {
+            left(player);
+            return;
+        }
+        apply(player, in.get());
+        entered(player, in.get().id());
     }
 
     /**

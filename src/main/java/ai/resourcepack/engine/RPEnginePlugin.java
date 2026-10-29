@@ -1,5 +1,7 @@
 package ai.resourcepack.engine;
 
+import ai.resourcepack.engine.core.Regions;
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.common.host.PackUploader;
 import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
@@ -970,7 +972,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // it for everyone" case. See PushedPacks.
         java.util.function.Function<org.bukkit.entity.Player, Optional<StudioContent>> theirs = player -> {
             if (pushedPacks.published(distribution.publishedPackId())) {
-                getServer().getScheduler().runTask(this, this::registerPushedContent);
+                Tasks.global(this, this::registerPushedContent);
             }
             return pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()));
         };
@@ -1450,7 +1452,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         long wait = since >= REBAKE_COOLDOWN_MS ? 1L : Math.max(1L, (REBAKE_COOLDOWN_MS - since + 49) / 50);
         rebaking = true;
         long booked = System.currentTimeMillis();
-        getServer().getScheduler().runTaskLater(this, () -> rebakeWhenQuiet(booked), wait);
+        Tasks.globalLater(this, () -> rebakeWhenQuiet(booked), wait);
     }
 
     /** The longest a rebuild for a new skin waits for downloads to finish before running anyway. */
@@ -1475,7 +1477,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (System.currentTimeMillis() - booked < REBAKE_QUIET_LIMIT_MS) {
             for (Player player : getServer().getOnlinePlayers()) {
                 if (holdingPacks.contains(player.getUniqueId()) || delivery.loads().waiting(player.getUniqueId())) {
-                    getServer().getScheduler().runTaskLater(this, () -> rebakeWhenQuiet(booked), 20L);
+                    Tasks.globalLater(this, () -> rebakeWhenQuiet(booked), 20L);
                     return;
                 }
             }
@@ -1792,6 +1794,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        // Folia disables plugins only as the server stops, after every region
+        // has stopped ticking, and from a thread that owns none of them: an
+        // entity cannot be removed there at all (Folia throws from inside its
+        // own entity tracking). Everything below that only takes away what
+        // this plugin spawned non-persistent is therefore skipped there — it
+        // goes with the server regardless — and anything that still writes to
+        // the world is guarded, so one refusal cannot cost the steps after it.
+        boolean worldStopped = Regions.folia();
         ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
         if (heartbeat != null) {
             heartbeat.stop();
@@ -1809,12 +1819,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             blockGrowth.stop();
         }
         if (objectRuntime != null) {
-            objectRuntime.stop();
+            guarded("3D objects", objectRuntime::stop);
         }
-        if (vfxRuntime != null) {
+        if (vfxRuntime != null && !worldStopped) {
             vfxRuntime.stop();
         }
-        if (vehicles != null) {
+        if (vehicles != null && !worldStopped) {
             vehicles.stop();
         }
         // The redraw loop goes with the plugin, and so does who was wearing
@@ -1833,15 +1843,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // that would have expired it goes with the plugin.
             invites.clear();
         }
-        if (emotes != null) {
+        if (emotes != null && !worldStopped) {
             // Everybody mid-emote is put back before the plugin goes, or they
-            // stay invisible with a rig standing where they were.
+            // stay invisible with a rig standing where they were. (On Folia,
+            // where that cannot happen here, they are put back as they next
+            // join: see EmoteDirector.restoreIfStranded.)
             emotes.stop();
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());
         }
-        if (wornArmour != null) {
+        if (wornArmour != null && !worldStopped) {
             // Every display off every body. None of them is persistent, so a
             // crash leaves nothing behind either; this is so a /reload does not
             // leave a second suit standing beside the first for a tick.
@@ -1860,7 +1872,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // Every open container is written back and closed while the
             // entities it is written onto still exist: onDisable runs before
             // the server saves its worlds, so this lands in the save.
-            storages.closeAll();
+            guarded("containers", storages::closeAll);
         }
         if (growth != null) {
             growth.stop();
@@ -1870,13 +1882,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // and is booked again when its chunk loads.
             placements.stop();
         }
-        if (seats != null) {
+        if (seats != null && !worldStopped) {
             // Everybody gets up before the plugin goes. A marker stand is not
             // persistent, so one left behind would survive until its chunk
             // unloaded — long enough to be a bug report.
             seats.clear();
         }
-        if (vehicles != null) {
+        if (vehicles != null && !worldStopped) {
             // Same reasoning, one level up: everybody gets out, and every
             // derived part goes. The chassis stays — it is the parked vehicle,
             // and it is the only thing here that is meant to survive.
@@ -1911,6 +1923,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (packHost != null) {
             packHost.stop();
+        }
+    }
+
+    /** One step of {@link #onDisable} that touches the world, which a refusal must not cut short. */
+    private void guarded(String what, Runnable step) {
+        try {
+            step.run();
+        } catch (RuntimeException e) {
+            getLogger().warning("Could not tidy up " + what + " while stopping: " + e);
         }
     }
 
@@ -1984,7 +2005,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // A finished upload's follow-up, onto the server thread; nothing to
             // follow up once the plugin is going away.
             if (isEnabled()) {
-                getServer().getScheduler().runTask(this, runnable);
+                Tasks.global(this, runnable);
             }
         }, getLogger());
         LoginAddresses addresses = new LoginAddresses(getServer()::getPlayer, getServer().getPort());
@@ -2040,8 +2061,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     }
                 }
 
-                getServer().getScheduler().runTaskTimer(
-                        this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
+                Tasks.globalTimer(this, packHost::refresh, PACK_REFRESH_TICKS, PACK_REFRESH_TICKS);
                 return;
             case SAME_PORT:
                 if (proxied) {
@@ -2560,8 +2580,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * are the server's content, which plugin.yml cannot know.
      */
     private void registerRankTagPermissions() {
-        if (!getServer().isPrimaryThread()) {
-            getServer().getScheduler().runTask(this, this::registerRankTagPermissions);
+        if (!Tasks.global()) {
+            Tasks.global(this, this::registerRankTagPermissions);
             return;
         }
         org.bukkit.plugin.PluginManager manager = getServer().getPluginManager();
@@ -2703,9 +2723,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // in, and the first build had only what was on disk. Fetched off
             // the main thread, then built once more.
             if (vanillaTextures.hasMissing()) {
-                getServer().getScheduler().runTaskAsynchronously(this, () -> {
+                Tasks.async(this, () -> {
                     if (vanillaTextures.fetchMissing()) {
-                        getServer().getScheduler().runTask(this, () -> buildBedrockContent(output));
+                        Tasks.global(this, () -> buildBedrockContent(output));
                     }
                 });
             }
@@ -2823,7 +2843,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * is the one calling.
      */
     private void announceEveryone() {
-        getServer().getScheduler().runTask(this, () -> {
+        Tasks.global(this, () -> {
             for (Player player : getServer().getOnlinePlayers()) {
                 announcePresence(player, true);
             }
@@ -2849,14 +2869,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // (nearly every server) a join sends at once, as it always did.
         if (!built.equals(builtUnmerged) && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
             awaitingOthers.add(joined.getUniqueId());
-            getServer().getScheduler().runTaskLater(this, () -> releaseForOthers(joined), OTHERS_WAIT_TICKS);
+            Tasks.onLater(this, joined, () -> releaseForOthers(joined), OTHERS_WAIT_TICKS);
         }
         SkinCache.Noticed skin = skinCache == null ? SkinCache.Noticed.SETTLED : skinCache.noticed(joined);
         announcePresence(joined, true);
         if (skin == SkinCache.Noticed.FETCHING && currentRigs != null && currentRigs.count() > 0
                 && !currentRigs.has(SkinCache.keyOf(joined.getUniqueId()))
                 && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
-            getServer().getScheduler().runTaskLater(this, () -> releasePacks(joined), JOIN_SKIN_WAIT_TICKS);
+            Tasks.onLater(this, joined, () -> releasePacks(joined), JOIN_SKIN_WAIT_TICKS);
         } else {
             releasePacks(joined);
         }
@@ -2867,7 +2887,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // not a guess about download time: the redraw loop puts it right on its
         // next pass either way, so the worst case here is that it appears a
         // second late rather than wrong.
-        getServer().getScheduler().runTask(this, () -> {
+        Tasks.on(this, event.getPlayer(), () -> {
             if (event.getPlayer().isOnline()) {
                 overlayRuntime.onJoin(event.getPlayer());
                 shaderClashes.onJoin(event.getPlayer());
@@ -2907,7 +2927,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return;
         }
         // A tick later, so their pack is in the client's list before ours go above it.
-        getServer().getScheduler().runTask(this, () -> {
+        Tasks.on(this, player, () -> {
             if (player.isOnline() && !stale(player) && !holdingPacks.contains(player.getUniqueId())
                     && delivery.restack(player, desiredFor(player))) {
                 getLogger().info("Another plugin sent " + player.getName() + " a resource pack after RP Engine's, "

@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.emote;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.EmoteResult.Reason;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.EmoteTrigger;
@@ -466,7 +468,9 @@ public final class EmoteDirector implements Listener {
      * frame. See {@link ai.resourcepack.engine.api.Emotes#lean}.
      */
     private final Map<UUID, float[]> leans = new ConcurrentHashMap<>();
-    private int taskId = -1;
+    private Tasks.Handle task;
+    /** Each session's pass, on its player's thread (their region's, on Folia). */
+    private Regions.Fanout<UUID> sessions;
 
     /**
      * Said once, however many players are ghosting. See {@link #warnIfGhosted}.
@@ -989,7 +993,7 @@ public final class EmoteDirector implements Listener {
         }
 
         void remove() {
-            if (display != null && display.isValid()) display.remove();
+            if (display != null && display.isValid()) Regions.remove(display);
             if (rig != null) rig.despawn();
         }
 
@@ -999,27 +1003,31 @@ public final class EmoteDirector implements Listener {
         }
 
         void moveTo(Location base, float yaw) {
-            if (display != null && display.isValid()) display.teleport(base);
+            if (display != null && display.isValid()) Regions.move(display, base);
             if (rig != null) rig.moveTo(base, yaw);
         }
     }
 
     public void start() {
-        taskId = Bukkit.getScheduler().runTaskTimer(host.plugin(), this::tick, PERIOD_TICKS, PERIOD_TICKS).getTaskId();
+        sessions = new Regions.Fanout<>(host.plugin());
+        task = Tasks.globalTimer(host.plugin(), this::tick, PERIOD_TICKS, PERIOD_TICKS);
         // A reload leaves rigs standing with nobody driving them; the players
         // themselves are restored by onJoin, but the displays have to go.
-        for (org.bukkit.World world : Bukkit.getWorlds()) {
-            for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
-                if (display.getPersistentDataContainer().has(emotePartKey, PersistentDataType.INTEGER)) {
-                    display.remove();
-                }
+        Regions.loaded(host.plugin(), ItemDisplay.class, display -> {
+            if (display.getPersistentDataContainer().has(emotePartKey, PersistentDataType.INTEGER)) {
+                display.remove();
             }
+        });
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Tasks.now(host.plugin(), player, () -> restoreIfStranded(player));
         }
-        for (Player player : Bukkit.getOnlinePlayers()) restoreIfStranded(player);
     }
 
     public void stop() {
-        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+        if (task != null) {
+            task.cancel();
+            task = null;
+        }
         for (UUID id : new ArrayList<>(active.keySet())) {
             Player player = Bukkit.getPlayer(id);
             if (player != null) stop(player, true, EmoteEndEvent.Cause.SHUTDOWN);
@@ -1126,7 +1134,8 @@ public final class EmoteDirector implements Listener {
             Session session = active.get(id);
             Player player = Bukkit.getPlayer(id);
             if (session == null || player == null) continue;
-            Bukkit.getPluginManager().callEvent(new EmoteRigSpawnEvent(player, passengerIds(session)));
+            Tasks.now(host.plugin(), player,
+                () -> Bukkit.getPluginManager().callEvent(new EmoteRigSpawnEvent(player, passengerIds(session))));
         }
     }
 
@@ -2251,7 +2260,7 @@ public final class EmoteDirector implements Listener {
         // an emote removes it, and a crash is covered by the marker written
         // above — the same guarantee the game-mode swap had.
         conceal(player, session);
-        if (!isLead) player.teleport(session.origin);
+        if (!isLead) Regions.move(player, session.origin);
         // Every display is new. Said by whoever called this, once what they
         // were doing is finished — see announceRigs.
         session.rigChanged = true;
@@ -2715,7 +2724,7 @@ public final class EmoteDirector implements Listener {
      */
     private void removeDisplays(Session session) {
         for (ItemDisplay display : session.parts) {
-            if (display != null && display.isValid()) display.remove();
+            if (display != null && display.isValid()) Regions.remove(display);
         }
         for (PropPart part : session.propParts) if (part != null) part.remove();
         session.propsSpawned = null;
@@ -2723,9 +2732,9 @@ public final class EmoteDirector implements Listener {
         // The hands are the third list, and the reason this method exists at
         // all: props were once added as a second one without it and leaked on
         // two of the three ways out.
-        if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.remove();
-        if (session.offHand != null && session.offHand.isValid()) session.offHand.remove();
-        if (session.shadow != null && session.shadow.isValid()) session.shadow.remove();
+        if (session.mainHand != null && session.mainHand.isValid()) Regions.remove(session.mainHand);
+        if (session.offHand != null && session.offHand.isValid()) Regions.remove(session.offHand);
+        if (session.shadow != null && session.shadow.isValid()) Regions.remove(session.shadow);
         if (session.nameTag != null) session.nameTag.remove();
     }
 
@@ -2924,7 +2933,7 @@ public final class EmoteDirector implements Listener {
                 // of ticks of falling happen between one and the finish, so "leave
                 // them where the path left them" has to mean the spot the path
                 // named.
-                if (!player.teleport(destination)) {
+                if (!Regions.move(player, destination)) {
                     // A refused teleport is a plugin cancelling the event or a
                     // player in a vehicle, and it leaves somebody standing
                     // wherever the emote's last step put them - worth a line,
@@ -3051,7 +3060,14 @@ public final class EmoteDirector implements Listener {
      */
     private void warnIfGhosted(Player player) {
         if (warnedGhost) return;
-        Team team = player.getScoreboard().getEntryTeam(player.getName());
+        Team team;
+        try {
+            team = player.getScoreboard().getEntryTeam(player.getName());
+        } catch (RuntimeException e) {
+            // A server whose scoreboard is not the API's to read (Folia's
+            // forks keep changing what they allow): nothing to warn about.
+            return;
+        }
         if (team == null || !team.canSeeFriendlyInvisibles()) return;
         warnedGhost = true;
         host.plugin().getLogger().warning("A player wearing a rig can still see a see-through copy of "
@@ -3415,7 +3431,7 @@ public final class EmoteDirector implements Listener {
         target.setYaw(player.getLocation().getYaw());
         target.setPitch(player.getLocation().getPitch());
         session.expected = target;
-        player.teleport(target);
+        Regions.move(player, target);
         carryFollowers(session, target);
     }
 
@@ -3459,7 +3475,7 @@ public final class EmoteDirector implements Listener {
             Location feet = target.clone();
             feet.setYaw(0);
             feet.setPitch(0);
-            if (!feet.equals(session.shadow.getLocation())) session.shadow.teleport(feet);
+            if (!feet.equals(session.shadow.getLocation())) Regions.move(session.shadow, feet);
         }
         // Standing height, always. See the note above: the rig is not
         // crouching, so neither is its name.
@@ -3801,14 +3817,14 @@ public final class EmoteDirector implements Listener {
         session.lastBase = base.clone();
         if (!session.rigHidden && moved) {
             for (ItemDisplay display : session.parts) {
-                if (display != null && display.isValid()) display.teleport(base);
+                if (display != null && display.isValid()) Regions.move(display, base);
             }
             for (PropPart part : session.propParts) if (part != null) part.moveTo(base, session.yaw);
             // Carried on the same terms as everything else. A hand left behind
             // would hold the sword where its owner was standing a moment ago,
             // which is the drift the lead exists to cancel.
-            if (session.mainHand != null && session.mainHand.isValid()) session.mainHand.teleport(base);
-            if (session.offHand != null && session.offHand.isValid()) session.offHand.teleport(base);
+            if (session.mainHand != null && session.mainHand.isValid()) Regions.move(session.mainHand, base);
+            if (session.offHand != null && session.offHand.isValid()) Regions.move(session.offHand, base);
         }
         // The shadow follows the FEET rather than the base: the same point a
         // block lower, lead and all.
@@ -3834,7 +3850,7 @@ public final class EmoteDirector implements Listener {
             Location flat = feet.clone();
             flat.setYaw(0);
             flat.setPitch(0);
-            if (!flat.equals(session.shadow.getLocation())) session.shadow.teleport(flat);
+            if (!flat.equals(session.shadow.getLocation())) Regions.move(session.shadow, flat);
         }
         // No `moved` gate here either, and for the shadow's reason plus one
         // more: the height moves with the crouch as well as with the feet, so
@@ -4030,15 +4046,29 @@ public final class EmoteDirector implements Listener {
             // ended and reported rather than allowed to abort the loop, because
             // an exception here used to skip everybody after it in the map —
             // every emote and worn rig on the server froze until a restart.
-            try {
-                tickSession(entry.getKey(), entry.getValue());
-            } catch (RuntimeException e) {
-                quarantine(entry.getKey(), entry.getValue(), e);
+            // On the player's own thread, which on Folia is their region's;
+            // somebody gone has no thread, and is ended from here.
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player == null || !player.isOnline()) {
+                runGuarded(entry.getKey(), entry.getValue());
+            } else {
+                sessions.on(entry.getKey(), player, id -> {
+                    Session session = active.get(id);
+                    if (session == entry.getValue()) runGuarded(id, session);
+                });
             }
         }
         // A movement set swapping to a member that carries other models
         // respawns them in the pass above.
         announceRigs();
+    }
+
+    private void runGuarded(UUID id, Session session) {
+        try {
+            tickSession(id, session);
+        } catch (RuntimeException e) {
+            quarantine(id, session, e);
+        }
     }
 
     /** One pass of one session. The body of {@link #tick}, lifted out so a failure stays its own. */

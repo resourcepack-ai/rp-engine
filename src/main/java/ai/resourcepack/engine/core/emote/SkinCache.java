@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.emote;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.profile.PlayerProfile;
@@ -168,7 +169,7 @@ public final class SkinCache {
         }
 
         String name = player.getName();
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             byte[] bytes = fetch(url);
             if (bytes == null) {
                 log.warning("Could not fetch " + name + "'s skin for their emote rig from " + url
@@ -195,7 +196,7 @@ public final class SkinCache {
                 log.warning("Could not keep " + name + "'s skin for their emote rig: " + e.getMessage());
                 return;
             }
-            plugin.getServer().getScheduler().runTask(plugin, () -> tellIfUnbaked(player, key));
+            Tasks.on(plugin, player, () -> tellIfUnbaked(player, key));
         });
         return Noticed.FETCHING;
     }

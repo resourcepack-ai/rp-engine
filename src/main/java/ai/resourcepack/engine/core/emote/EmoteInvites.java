@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.emote;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.EmoteInfo;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.Emotes;
@@ -68,7 +69,8 @@ public final class EmoteInvites {
     private final Emotes emotes;
 
     /** token -> the question it answers. Small: at most one per lead. */
-    private final Map<String, Invite> pending = new HashMap<>();
+    /** Concurrent: on Folia each player answers on their own region's thread. */
+    private final Map<String, Invite> pending = new java.util.concurrent.ConcurrentHashMap<>();
 
     public EmoteInvites(Plugin plugin, Emotes emotes) {
         this.plugin = plugin;
@@ -104,7 +106,7 @@ public final class EmoteInvites {
         List<UUID> castIds;
         List<String> castNames;
         Set<UUID> accepted = new LinkedHashSet<>();
-        int taskId = -1;
+        Tasks.Handle expiry;
     }
 
     /**
@@ -232,8 +234,8 @@ public final class EmoteInvites {
         }
         say(lead, EmoteWording.inviteSent(invite.castNames, TIMEOUT_SECONDS));
 
-        invite.taskId = Bukkit.getScheduler().runTaskLater(plugin, () -> expire(invite),
-            TIMEOUT_SECONDS * 20L).getTaskId();
+        invite.expiry = Tasks.globalLater(plugin, () -> expire(invite),
+            TIMEOUT_SECONDS * 20L);
     }
 
     /**
@@ -337,7 +339,7 @@ public final class EmoteInvites {
     private void expire(Invite invite) {
         // Already started or called off; the scheduled task outlived it.
         if (pending.get(invite.token) != invite) return;
-        invite.taskId = -1;
+        invite.expiry = null;
         close(invite);
         Player lead = Bukkit.getPlayer(invite.leadId);
         if (lead != null) {
@@ -367,9 +369,9 @@ public final class EmoteInvites {
 
     private void close(Invite invite) {
         pending.remove(invite.token);
-        if (invite.taskId != -1) {
-            Bukkit.getScheduler().cancelTask(invite.taskId);
-            invite.taskId = -1;
+        if (invite.expiry != null) {
+            invite.expiry.cancel();
+            invite.expiry = null;
         }
     }
 

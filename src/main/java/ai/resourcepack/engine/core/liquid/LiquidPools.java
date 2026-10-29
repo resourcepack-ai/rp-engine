@@ -156,7 +156,7 @@ public final class LiquidPools {
     }
 
     /** Marks out a new pool. */
-    public Pool add(ContentId liquid, String world, int[] from, int[] to) {
+    public synchronized Pool add(ContentId liquid, String world, int[] from, int[] to) {
         Pool pool = new Pool();
         pool.liquid = liquid.toString();
         pool.world = world;
@@ -184,8 +184,11 @@ public final class LiquidPools {
      * <p>The growing is why this is here rather than in the caller: the box
      * only ever gets bigger, so two people filling the same pond from opposite
      * ends end up with one pool between them.
+     *
+     * <p>Synchronized, as every writer here is: on Folia two regions can each
+     * be filling a pond at once, and the list is replaced rather than edited.
      */
-    public Pool addBlock(ContentId liquid, String world, int x, int y, int z) {
+    public synchronized Pool addBlock(ContentId liquid, String world, int x, int y, int z) {
         String name = liquid.toString();
         for (Pool pool : pools) {
             if (name.equals(pool.liquid) && pool.touches(world, x, y, z)) {
@@ -197,7 +200,7 @@ public final class LiquidPools {
     }
 
     /** Forgets the pool at a point, if there is one. */
-    public Optional<Pool> removeAt(String world, double x, double y, double z) {
+    public synchronized Optional<Pool> removeAt(String world, double x, double y, double z) {
         Optional<Pool> found = at(world, x, y, z);
         found.ifPresent(pool -> {
             List<Pool> next = new ArrayList<>(pools);
@@ -208,7 +211,7 @@ public final class LiquidPools {
     }
 
     /** Reads what was saved. A missing file is an empty world, not a problem. */
-    public void load(Logger logger) {
+    public synchronized void load(Logger logger) {
         if (!file.isFile()) {
             return;
         }

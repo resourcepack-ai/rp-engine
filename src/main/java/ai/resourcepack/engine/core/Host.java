@@ -109,7 +109,7 @@ public final class Host {
         if (!Bukkit.isPrimaryThread()) {
             throw new IllegalStateException(
                     "The ResourcePack AI library must be used on the main thread - "
-                            + "wrap this in Bukkit.getScheduler().runTask(yourPlugin, ...)");
+                            + "wrap this in a task on the main thread (on Folia, the scheduler of the entity or region it touches)");
         }
     }
 }

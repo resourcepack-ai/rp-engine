@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.common.quick.JoinCopies;
 import ai.resourcepack.common.quick.QuickActionPack;
 import ai.resourcepack.common.quick.StandIn;
@@ -132,7 +133,16 @@ public final class QuickDialogs implements Listener {
         String name = event.getName();
         Map<String, String> json;
         try {
-            json = Bukkit.getScheduler().callSyncMethod(plugin, () -> draw(player, name)).get(5, TimeUnit.SECONDS);
+            // On the main thread, or Folia's global region, and waited for here.
+            java.util.concurrent.CompletableFuture<Map<String, String>> drawing = new java.util.concurrent.CompletableFuture<>();
+            Tasks.global(plugin, () -> {
+                try {
+                    drawing.complete(draw(player, name));
+                } catch (Throwable t) {
+                    drawing.completeExceptionally(t);
+                }
+            });
+            json = drawing.get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             plugin.getLogger().fine("Could not draw " + name + "'s quick actions in time: " + e);
             return;
@@ -146,7 +156,7 @@ public final class QuickDialogs implements Listener {
             }
         });
         // A login refused after this point never reaches quit, so its copies go here.
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        Tasks.globalLater(plugin, () -> {
             if (Bukkit.getPlayer(player) == null) {
                 forget(player);
             }

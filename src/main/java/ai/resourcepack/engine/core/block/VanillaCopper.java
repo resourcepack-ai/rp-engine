@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.block;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import org.bukkit.Location;
 import ai.resourcepack.engine.api.Items;
 import org.bukkit.Chunk;
 import org.bukkit.ChunkSnapshot;
@@ -123,7 +125,7 @@ public final class VanillaCopper implements Listener {
             return;
         }
         Block block = event.getBlockPlaced();
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        Tasks.at(plugin, block.getLocation(), () -> {
             swap(block, placed, twin);
             if (block.getBlockData() instanceof Bisected) {
                 swap(block.getRelative(BlockFace.UP), placed, twin);
@@ -212,7 +214,7 @@ public final class VanillaCopper implements Listener {
         ChunkSnapshot snapshot = chunk.getChunkSnapshot(false, false, false);
         int minY = world.getMinHeight();
         int maxY = world.getMaxHeight();
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             List<int[]> found = new ArrayList<>();
             for (int section = 0; section < (maxY - minY) / 16; section++) {
                 if (snapshot.isSectionEmpty(section)) {
@@ -232,7 +234,7 @@ public final class VanillaCopper implements Listener {
             if (found.isEmpty()) {
                 return;
             }
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
+            Tasks.at(plugin, new Location(world, chunk.getX() << 4, 0, chunk.getZ() << 4), () -> {
                 if (!chunk.isLoaded()) {
                     return;
                 }
@@ -330,7 +332,8 @@ public final class VanillaCopper implements Listener {
         if (marks.isEmpty()) {
             return;
         }
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        // One explosion, one piston: one place, so one region.
+        Tasks.at(plugin, marks.get(0).getLocation(), () -> {
             for (Block block : marks) {
                 if (waxedOf(block.getType()) == null) {
                     mark(block, false);

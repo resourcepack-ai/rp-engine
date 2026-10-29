@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.item;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -227,7 +228,7 @@ public final class ItemMenu implements Listener {
                         reopen(player, sameKind(page, page.page + 1));
                     }
                 }
-                case CLOSE -> Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
+                case CLOSE -> Tasks.on(plugin, player, player::closeInventory);
                 default -> {
                 }
             }
@@ -265,14 +266,14 @@ public final class ItemMenu implements Listener {
      * still being processed against the chest being replaced.
      */
     private void reopen(Player player, Inventory next) {
-        Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(next));
+        Tasks.on(plugin, player, () -> player.openInventory(next));
     }
 
     private void take(Player player, ContentId id, boolean stack) {
         // The permission is checked again here, not only when the menu opened:
         // a menu left open outlives a permission taken away.
         if (!player.hasPermission(EngineCommand.permissionFor("item"))) {
-            Bukkit.getScheduler().runTask(plugin, () -> player.closeInventory());
+            Tasks.on(plugin, player, player::closeInventory);
             return;
         }
         Optional<ItemStack> made = items.create(id);
