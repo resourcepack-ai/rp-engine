@@ -403,8 +403,9 @@ A zero vector means "somewhere on it, and the engine cannot say where", not
 
 Use `applyImpulse(worldDeltaVelocity, spinDelta)` when an addon needs to alter
 the physical reaction. It accepts world blocks/second and degrees/second and
-passes through the engine's finite-value and magnitude bounds. `velocity()` is
-the matching read side. `showStatus(text)` uses the vehicle's action-bar status
+passes through the engine's finite-value and magnitude bounds. An upward part
+lifts a land vehicle off the ground (since 0.2.45; before, a grounded vehicle
+dropped it), so a jump pad is one call. `velocity()` is the matching read side. `showStatus(text)` uses the vehicle's action-bar status
 surface and yields the built-in speedometer briefly.
 
 `scuff(area, contact, amount)` adds a persistent scrape to the bodywork, in
