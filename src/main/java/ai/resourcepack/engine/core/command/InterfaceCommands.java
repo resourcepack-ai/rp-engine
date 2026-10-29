@@ -466,6 +466,8 @@ public final class InterfaceCommands implements Area {
         for (ContentId id : sounds.ids()) {
             Reply.row(sender, id.toString(), sounds.info(id)
                     .map(sound -> sound.category()
+                            + (sound.channels() == 0 ? "" : sound.stereo() ? " · stereo" : " · mono")
+                            + (sound.length() > 0 ? " · " + String.format(Locale.ROOT, "%.1fs", sound.length()) : "")
                             + sound.subtitle().map(text -> " · \"" + text + "\"").orElse(""))
                     .orElse(""));
         }

@@ -1184,6 +1184,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         pushedPacks.local(found);
     }
 
+    /**
+     * A vehicle's sounds play from its chassis, and a stereo file cannot: the
+     * game plays it flat, at full volume, to everybody in range. Said once
+     * per vehicle and sound, because the fix is re-exporting the file as mono.
+     */
+    private static List<ai.resourcepack.engine.api.Diagnostic> stereoVehicleSounds(
+            java.util.Collection<ai.resourcepack.engine.api.VehicleInfo> vehicles, Map<ContentId, SoundInfo> known) {
+        List<ai.resourcepack.engine.api.Diagnostic> out = new java.util.ArrayList<>();
+        for (ai.resourcepack.engine.api.VehicleInfo vehicle : vehicles) {
+            for (String name : new java.util.TreeSet<>(vehicle.sounds().values())) {
+                ContentId.parse(name).map(known::get).filter(SoundInfo::stereo).ifPresent(sound ->
+                        out.add(ai.resourcepack.engine.api.Diagnostic.warning(vehicle.id().toString(),
+                                name + " is a stereo file, so it will be heard at full volume everywhere in range "
+                                        + "rather than from the vehicle. Export it as mono.")));
+            }
+        }
+        return out;
+    }
+
     private void registerPushedContent() {
         if (pushed == null) {
             return;
@@ -2267,10 +2286,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // registered when the server boots and nothing can add one after.
         liquidBiomes.write(parsedLiquids.liquids().values());
 
-        SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded);
+        // With the content folder, so each file's channels and length come
+        // from the audio itself rather than from somebody typing them.
+        SoundDefinitions.Result parsedSounds = SoundDefinitions.parse(loaded,
+                ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "sounds", parsedSounds.diagnostics());
         authoredSounds = parsedSounds.sounds();
         sounds.replace(authoredSounds);
+        report(to, "vehicles", stereoVehicleSounds(authoredVehicles.values(), authoredSounds));
 
         // With the content folder, because a GIF icon's frame count is its
         // number of codepoints and only the GIF knows it. The build reads the

@@ -36,14 +36,15 @@ public final class SoundInfo {
     private final float pitch;
     private final boolean stream;
     private final double length;
+    private final int channels;
 
     private SoundInfo(ContentId id, String event, String file, String category, String subtitle,
                       float volume, float pitch, boolean stream) {
-        this(id, event, file, category, subtitle, volume, pitch, stream, 0);
+        this(id, event, file, category, subtitle, volume, pitch, stream, 0, 0);
     }
 
     private SoundInfo(ContentId id, String event, String file, String category, String subtitle,
-                      float volume, float pitch, boolean stream, double length) {
+                      float volume, float pitch, boolean stream, double length, int channels) {
         this.id = id;
         this.event = event;
         this.file = file;
@@ -53,6 +54,7 @@ public final class SoundInfo {
         this.pitch = pitch;
         this.stream = stream;
         this.length = length;
+        this.channels = channels;
     }
 
     /** Engine internal; built by the sound loader. */
@@ -161,10 +163,10 @@ public final class SoundInfo {
      *
      * <p><strong>Zero is a real answer and callers must handle it.</strong>
      * The bytes are the only place the true length lives and neither end
-     * always has them: a pack this engine builds states it in the definition
-     * ({@code length:}, which the author reads off any audio player), and a
-     * pushed Studio pack carries it in the manifest because Studio measured
-     * the file when it encoded it. A sound from neither route says nothing,
+     * always has them: a pack this engine builds reads it off the file's Ogg
+     * headers unless the definition gives {@code length:}, and a pushed
+     * Studio pack carries it in the manifest because Studio measured the file
+     * when it encoded it. A sound from neither route says nothing,
      * and a consumer that guessed would loop somebody's two-second engine
      * every half second.
      */
@@ -187,7 +189,34 @@ public final class SoundInfo {
         if (!Double.isFinite(length) || length <= 0 || length == this.length) {
             return this;
         }
-        return new SoundInfo(id, event, file, category, subtitle, volume, pitch, stream, length);
+        return new SoundInfo(id, event, file, category, subtitle, volume, pitch, stream, length, channels);
+    }
+
+    /**
+     * How many channels the audio has: 1 for mono, 2 for stereo, or
+     * <strong>0 for "nobody looked"</strong> (a pushed Studio sound, whose
+     * file this server never reads; Studio's are mono).
+     *
+     * <p>It decides how the sound is heard. Minecraft only places a mono sound
+     * in the world, coming from a direction and fading with distance; a stereo
+     * one keeps its left and right and plays at full volume wherever it was
+     * played from. Right for music, wrong for an engine note.
+     */
+    public int channels() {
+        return channels;
+    }
+
+    /** True when the file is known to be stereo, and so heard the same everywhere. */
+    public boolean stereo() {
+        return channels >= 2;
+    }
+
+    /** The same sound, saying how many channels it has. See {@link #channels()}. */
+    public SoundInfo withChannels(int channels) {
+        if (channels <= 0 || channels == this.channels) {
+            return this;
+        }
+        return new SoundInfo(id, event, file, category, subtitle, volume, pitch, stream, length, channels);
     }
 
     @Override
