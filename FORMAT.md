@@ -934,8 +934,11 @@ piece goes on by hand like any armour. Plugins reach the same sets through
 **The model is a Blockbench project** (`.bbmodel`, saved as it is, with its
 textures embedded; there is nothing to export) built on the player template,
 the same file MythicArmors reads. Its frame is the player's: feet on y = 0, the
-front facing +Z, the wearer's right at -X, 16 units to a block. Cubes go in
-groups named after the bone they ride:
+front facing +Z, the wearer's right at -X, 16 units to a block. A model drawn
+the other way round, facing -Z with the left arm at -X (which is how
+Blockbench's own player template and Bedrock armour templates stand), is
+recognised by where its left and right limbs are and turned to face forward,
+so either works. Cubes go in groups named after the bone they ride:
 
 | Group | Piece |
 |---|---|

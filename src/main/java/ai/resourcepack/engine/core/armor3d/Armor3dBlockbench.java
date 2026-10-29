@@ -26,9 +26,10 @@ import java.util.Set;
  * writes: cubes in groups named after the body's nine bones (see
  * {@link Armor3dBaker#BONES}), in the wearer's frame — feet on y = 0, the
  * front facing +Z, the wearer's right at -X, 16 units to a block, the
- * proportions of Blockbench's player template. Nothing is re-centred, because
- * a worn part is placed relative to the body and a re-centred model would
- * lose where the body was.
+ * proportions of Blockbench's player template. A file drawn facing -Z, as that
+ * template itself stands, is turned round to match (see {@link #facesNorth}).
+ * Nothing is re-centred, because a worn part is placed relative to the body
+ * and a re-centred model would lose where the body was.
  *
  * <p>Both of Blockbench's save shapes are read: 5.0's, where the outliner is a
  * tree of uuids and each group's data is in {@code groups}, and the older one,
@@ -248,6 +249,11 @@ public final class Armor3dBlockbench {
                     turned.rotation, turned.rotation == null ? null : turned.origin, faces));
         }
 
+        if (facesNorth(cubes, quads)) {
+            cubes.replaceAll(Armor3dBlockbench::turnedAround);
+            quads.replaceAll(Armor3dBlockbench::turnedAround);
+        }
+
         for (String name : unknown) {
             diagnostics.add(Diagnostic.warning(origin, where, "The group " + name + " is not one of the bones "
                     + Armor3dBaker.BONES.keySet() + ". Its cubes ride the bone it is inside, if any."));
@@ -263,6 +269,86 @@ public final class Armor3dBlockbench {
                     + " left out. Split them into triangles or quads in Blockbench."));
         }
         return Optional.of(new Source(List.copyOf(cubes), List.copyOf(textures), List.copyOf(quads)));
+    }
+
+    // ---- which way it faces ------------------------------------------------
+
+    /**
+     * Whether the set was drawn facing -Z, with the wearer's left at -X: the
+     * way Blockbench's own player template stands, and every set built on a
+     * Bedrock armour template. It is the engine's frame turned half round, so
+     * worn as it is the whole set faces backwards and each arm's cubes sit on
+     * the other arm. Told by which side the left limbs' cubes are on; a set
+     * with no left or right bone in it (a helmet alone) cannot say, and is
+     * read as drawn.
+     */
+    static boolean facesNorth(List<Cube> cubes, List<Quad> quads) {
+        double score = 0;
+        for (Cube cube : cubes) {
+            score += side(cube.bone()) * (cube.from()[0] + cube.to()[0]) / 2;
+        }
+        for (Quad quad : quads) {
+            for (double[] corner : quad.corners()) {
+                score += side(quad.bone()) * corner[0] / quad.corners().length;
+            }
+        }
+        return score < 0;
+    }
+
+    /** +1 for a left bone, -1 for a right one, 0 for the middle of the body. */
+    private static int side(String bone) {
+        return bone.startsWith("left_") ? 1 : bone.startsWith("right_") ? -1 : 0;
+    }
+
+    /**
+     * The cube turned 180 degrees about the vertical axis through x = z = 0.
+     * A turn, not a mirror: north and south change places, east and west, and
+     * the top and bottom faces' art turns with the cube. Its own angles about
+     * x and z change sign, because those axes now point the other way.
+     */
+    static Cube turnedAround(Cube cube) {
+        Map<String, Face> faces = new LinkedHashMap<>();
+        for (Map.Entry<String, Face> entry : cube.faces().entrySet()) {
+            Face face = entry.getValue();
+            String name = switch (entry.getKey()) {
+                case "north" -> "south";
+                case "south" -> "north";
+                case "east" -> "west";
+                case "west" -> "east";
+                default -> entry.getKey();
+            };
+            if (name.equals("up") || name.equals("down")) {
+                face = new Face(face.uv(), face.texture(), face.uvWidth(), face.uvHeight(),
+                        (face.rotation() + 180) % 360);
+            }
+            faces.put(name, face);
+        }
+        // Back in block-model order, so the files written from it do not move.
+        Map<String, Face> ordered = new LinkedHashMap<>();
+        for (String name : FACES) {
+            if (faces.containsKey(name)) {
+                ordered.put(name, faces.get(name));
+            }
+        }
+        double[] rotation = cube.rotation() == null ? null
+                : new double[]{-cube.rotation()[0], cube.rotation()[1], -cube.rotation()[2]};
+        double[] pivot = cube.origin() == null ? null
+                : new double[]{-cube.origin()[0], cube.origin()[1], -cube.origin()[2]};
+        return new Cube(cube.bone(), cube.piece(),
+                new double[]{-cube.to()[0], cube.from()[1], -cube.to()[2]},
+                new double[]{-cube.from()[0], cube.to()[1], -cube.from()[2]},
+                rotation, pivot, ordered);
+    }
+
+    /** The mesh face turned the same way; its corners keep their order, so it faces out still. */
+    static Quad turnedAround(Quad quad) {
+        double[][] corners = new double[quad.corners().length][];
+        for (int i = 0; i < corners.length; i++) {
+            double[] c = quad.corners()[i];
+            corners[i] = new double[]{-c[0], c[1], -c[2]};
+        }
+        return new Quad(quad.bone(), quad.piece(), corners, quad.uvs(), quad.texture(), quad.uvWidth(),
+                quad.uvHeight());
     }
 
     // ---- meshes ------------------------------------------------------------
