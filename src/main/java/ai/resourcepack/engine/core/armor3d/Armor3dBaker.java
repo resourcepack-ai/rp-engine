@@ -1,12 +1,11 @@
 package ai.resourcepack.engine.core.armor3d;
 
+import ai.resourcepack.engine.core.pack.Images;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
-import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -358,7 +357,7 @@ public final class Armor3dBaker {
         for (byte[] png : source.textures()) {
             BufferedImage image;
             try {
-                image = ImageIO.read(new ByteArrayInputStream(png));
+                image = Images.read(png);
             } catch (IOException | RuntimeException e) {
                 image = null;
             }

@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.armor3d;
 
+import ai.resourcepack.engine.core.pack.Images;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -604,7 +605,7 @@ final class Armor3dShaderEncoder {
         image.setRGB(0, 0, width, height, argb, 0, width);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
-            javax.imageio.ImageIO.write(image, "png", out);
+            Images.write(image, "png", out);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.vfx;
 
+import ai.resourcepack.engine.core.pack.Images;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -122,7 +123,7 @@ public final class VfxPack {
         image.setRGB(0, 0, width, height, argb, 0, width);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
-            javax.imageio.ImageIO.write(image, "png", out);
+            Images.write(image, "png", out);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

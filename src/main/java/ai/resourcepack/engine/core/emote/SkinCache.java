@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.emote;
 
+import ai.resourcepack.engine.core.pack.Images;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.profile.PlayerProfile;
@@ -342,7 +343,7 @@ public final class SkinCache {
         }
         java.awt.image.BufferedImage image;
         try {
-            image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(bytes));
+            image = Images.read(bytes);
         } catch (IOException e) {
             return null;
         }
