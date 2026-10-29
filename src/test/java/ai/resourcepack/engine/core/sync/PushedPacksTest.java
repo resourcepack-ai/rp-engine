@@ -179,6 +179,42 @@ class PushedPacksTest {
         assertEquals("Shop", packs.contentFor(CAROL, true).orElseThrow().dialogs().get(MENU).name());
     }
 
+    /**
+     * A user synced their pack, deleted an always-on shader object, then
+     * published: every player joining was still drawn the deleted object,
+     * because the old Sync and the new release shared one slot and the Sync
+     * (reloaded from disk, or simply later) won it.
+     */
+    @Test
+    void theReleaseWinsOverAnOlderSyncOfTheSamePack() {
+        PushedPacks packs = new PushedPacks();
+        packs.publishedArrived(pack("shop-pack", "New"));
+        packs.arrived(pack("shop-pack", "Old"));
+        packs.published("shop-pack");
+        assertEquals("New", packs.contentFor(CAROL, true).orElseThrow().dialogs().get(MENU).name());
+
+        // Whoever is holding the Sync itself still sees what they synced.
+        packs.hold(ALICE, "shop-pack");
+        assertEquals("Old", packs.contentFor(ALICE, true).orElseThrow().dialogs().get(MENU).name());
+    }
+
+    @Test
+    void aReleaseWithNoContentFallsBackToASyncOfIt() {
+        PushedPacks packs = new PushedPacks();
+        packs.arrived(pack("shop-pack", "Synced"));
+        packs.publishedArrived(pack("shop-pack", "Released"));
+        packs.releaseHasNoContent();
+        assertEquals("Synced", packs.contentFor(CAROL, true).orElseThrow().dialogs().get(MENU).name());
+    }
+
+    @Test
+    void publishingAnotherPackDropsTheOldRelease() {
+        PushedPacks packs = new PushedPacks();
+        packs.publishedArrived(pack("shop-pack", "Shop"));
+        packs.published("other-pack");
+        assertTrue(packs.contentFor(CAROL, true).isEmpty());
+    }
+
     private static List<String> ids(List<StudioContent> live) {
         return live.stream().map(StudioContent::packId).toList();
     }
