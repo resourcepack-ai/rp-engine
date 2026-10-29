@@ -256,7 +256,8 @@ public final class Armor3dBlockbench {
 
         for (String name : unknown) {
             diagnostics.add(Diagnostic.warning(origin, where, "The group " + name + " is not one of the bones "
-                    + Armor3dBaker.BONES.keySet() + ". Its cubes ride the bone it is inside, if any."));
+                    + Armor3dBaker.BONES.keySet() + " and is not inside one. A typo? A group rides a bone only by"
+                    + " having that name or sitting inside it."));
         }
         if (loose > 0) {
             diagnostics.add(Diagnostic.warning(origin, where, loose + (loose == 1 ? " cube is" : " cubes are")
@@ -528,7 +529,9 @@ public final class Armor3dBlockbench {
                 String lower = name.toLowerCase(Locale.ROOT);
                 if (Armor3dBaker.BONES.containsKey(lower)) {
                     mine = lower;
-                } else {
+                } else if (bone == null) {
+                    // Inside a bone, any name rides it (a cape in body); only a
+                    // group with no bone above it is worth a warning.
                     unknown.add(name);
                 }
             }
