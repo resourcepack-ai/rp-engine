@@ -273,13 +273,19 @@ Main thread only, except `available`, `ids` and `info`.
 engine.sounds().play(player, id);       // only this player hears it
 engine.sounds().playAt(location, id);   // everybody nearby hears it here
 engine.sounds().playFrom(entity, id);   // everybody nearby hears it follow this entity
+engine.sounds().stop(player, id);       // end it early for this player
 ```
 
 All three use the sound's declared category, volume and pitch; overloads let
 you replace volume and pitch. `playFrom` is the moving-source form for engines,
 creatures and anything else where a fixed coordinate would leave the sound
-behind. Playing methods are main thread only; `ids()` and `info()` are safe
-from any thread.
+behind. `stop` ends a sound for one player however it was played, which is how
+a track gives way to the next. Playing and stopping are main thread only;
+`ids()` and `info()` are safe from any thread.
+
+A stereo file plays in stereo, at full volume, wherever it was played from:
+Minecraft only places a mono sound in the world. So music and interface sounds
+suit `play`, and anything heard from a spot suits a mono file. See FORMAT.md.
 
 ## Vehicles
 

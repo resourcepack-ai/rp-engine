@@ -2616,6 +2616,18 @@ audio — which is more people than most server owners expect.
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
 
+**Mono or stereo is the file's choice, and it changes how the sound is heard.**
+Minecraft only places a mono sound in the world: it comes from a direction and
+fades with distance. A stereo file keeps its left and right and plays at full
+volume to everybody in range, wherever it was played from. So export music,
+menu clicks and anything that should sound the same everywhere in stereo, and
+anything that comes from a spot (a block, a vehicle's engine, a creature) in
+mono. The engine ships the file as it is and changes neither.
+
+`/rp sound stop mypack:theme` ends a sound early for you (`all` ends every
+custom sound, and a player name does it for somebody else); `Sounds.stop` does
+the same from a plugin. Without it a track plays to the end.
+
 The build writes one `sounds.json` and one `lang/en_us.json` per namespace. A
 pack that also ships its own at the same path (in `assets/`, or a
 `resourcepack/` folder) has the two merged rather than replaced; where both name
