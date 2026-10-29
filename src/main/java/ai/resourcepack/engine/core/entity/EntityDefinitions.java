@@ -82,9 +82,9 @@ public final class EntityDefinitions {
         }
         if (model != null && items != null && !items.contains(ContentId.parse(model).get())) {
             diagnostics.add(Diagnostic.warning(origin, where,
-                    "model: " + model + " is not an item, so it spawns as a plain "
-                            + type.toLowerCase(Locale.ROOT) + ". Define an item with that id in items/"
-                            + " whose model: names the file in assets/models/."));
+                    "model: " + model + " is no item and no model, so it spawns as a plain "
+                            + type.toLowerCase(Locale.ROOT) + ". Save the Blockbench file as "
+                            + "assets/models/<name>.bbmodel in that pack and name it as <pack>:<name>."));
         }
 
         double health = 0;
