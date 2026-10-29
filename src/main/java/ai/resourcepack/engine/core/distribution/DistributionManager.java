@@ -124,6 +124,23 @@ public final class DistributionManager implements Listener {
         }
     }
 
+    /**
+     * Who is told the published pack's content manifest: the plugin, which
+     * reads it as it reads a push. Called on the main thread.
+     *
+     * <p>Without it a published pack's shader objects, screens and dialogs
+     * reached the engine only if somebody also pressed Sync on that pack, and
+     * the zips the players were served carried pictures nobody could show.
+     */
+    private volatile java.util.function.Consumer<String> contentListener;
+
+    /** The release whose content manifest was last asked for, so it is asked once. */
+    private volatile String contentRelease = "";
+
+    public void onContent(java.util.function.Consumer<String> listener) {
+        this.contentListener = listener;
+    }
+
     /** How a pack reaches a player here; see {@link PackSending}. */
     private final PackSending sending;
 
@@ -174,6 +191,10 @@ public final class DistributionManager implements Listener {
                 this.token = result.token;
                 writeToken(result.token);
                 this.manifest = Manifest.parse(result.manifest);
+                contentRelease = "";
+                if (!manifest.releaseId.isEmpty()) {
+                    fetchContent(manifest.releaseId);
+                }
 
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     // Binding now normally happens BEFORE anything is
@@ -208,6 +229,7 @@ public final class DistributionManager implements Listener {
     public void unbind(CommandSender sender) {
         this.token = null;
         this.manifest = Manifest.empty();
+        contentRelease = "";
         writeToken(null);
         sender.sendMessage("This server is no longer serving a pack. "
                 + "Players keep what they already downloaded until they rejoin.");
@@ -223,6 +245,9 @@ public final class DistributionManager implements Listener {
                 Manifest fresh = Manifest.parse(client.manifest(token, protocols.serverVersion()));
                 boolean changed = !fresh.releaseId.equals(manifest.releaseId);
                 this.manifest = fresh;
+                if (!fresh.releaseId.isEmpty() && !fresh.releaseId.equals(contentRelease)) {
+                    fetchContent(fresh.releaseId);
+                }
                 if (changed) {
                     // A new release is the whole point of live republish:
                     // everybody standing here gets it without rejoining.
@@ -238,6 +263,22 @@ public final class DistributionManager implements Listener {
                 plugin.getLogger().warning("Couldn't refresh the distribution manifest: " + e.getMessage());
             }
         });
+    }
+
+    /** On the refresh's own thread; a failure is tried again at the next refresh. */
+    private void fetchContent(String releaseId) {
+        String json;
+        try {
+            json = client.content(token);
+        } catch (DistributionClient.DistributionException e) {
+            plugin.getLogger().warning("Couldn't fetch the published pack's content: " + e.getMessage());
+            return;
+        }
+        contentRelease = releaseId;
+        java.util.function.Consumer<String> listener = contentListener;
+        if (json != null && listener != null) {
+            Bukkit.getScheduler().runTask(plugin, () -> listener.accept(json));
+        }
     }
 
     // -----------------------------------------------------------------------

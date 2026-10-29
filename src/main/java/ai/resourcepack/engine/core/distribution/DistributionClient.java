@@ -97,6 +97,34 @@ public final class DistributionClient {
     }
 
     /**
+     * The live release's content manifest, as text, or null when it has none
+     * (published before releases carried one, or nothing in it an engine can
+     * name). Studio's, read by {@code StudioContent} exactly as a push's is.
+     */
+    public String content(String token) throws DistributionException {
+        try {
+            HttpResponse<String> response = http.send(HttpRequest.newBuilder()
+                    .uri(URI.create(apiBase + "/api/distribution/content"))
+                    .header("x-distribution-token", token)
+                    .header("x-plugin-version", pluginVersion)
+                    .timeout(TIMEOUT)
+                    .GET()
+                    .build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404) {
+                return null;
+            }
+            if (response.statusCode() >= 400) {
+                throw new DistributionException("The studio returned " + response.statusCode() + ".");
+            }
+            return response.body();
+        } catch (DistributionException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DistributionException("Couldn't reach the studio (" + e.getClass().getSimpleName() + ").");
+        }
+    }
+
+    /**
      * A batch of play data, answered with the live release id.
      *
      * <p>That answer is how a republish reaches players without anybody

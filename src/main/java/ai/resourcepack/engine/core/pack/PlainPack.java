@@ -115,6 +115,34 @@ public final class PlainPack {
     }
 
     /**
+     * The Studio content manifests in the content folder's resource packs, by
+     * folder name, sorted: the {@code studio-content.json} a ResourcePack AI
+     * Studio export carries at its root, where the game never looks. It is
+     * what says which of the pack's characters are a shader object, a screen
+     * or a dialog, which the art alone cannot. A folder whose name is not a
+     * namespace is skipped, since the loader refuses that folder's art too.
+     */
+    public static java.util.Map<String, Path> studioManifests(Path contentRoot, String fileName) {
+        java.util.Map<String, Path> found = new java.util.TreeMap<>();
+        if (contentRoot == null || !Files.isDirectory(contentRoot)) {
+            return found;
+        }
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(contentRoot)) {
+            for (Path child : children) {
+                String name = child.getFileName().toString();
+                Path manifest = child.resolve(fileName);
+                if (Files.isDirectory(child) && ContentId.isValidNamespace(name) && is(child)
+                        && Files.isRegularFile(manifest)) {
+                    found.put(name, manifest);
+                }
+            }
+        } catch (IOException e) {
+            return found;
+        }
+        return found;
+    }
+
+    /**
      * What {@link #unpackZips} did: each zip it unpacked, as
      * {@code "name.zip -> folder/"}, and what went wrong with the rest.
      */

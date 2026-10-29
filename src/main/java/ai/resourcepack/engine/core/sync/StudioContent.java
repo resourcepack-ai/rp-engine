@@ -679,6 +679,32 @@ public final class StudioContent {
         this.file = null;
     }
 
+    /**
+     * The manifest Studio writes at the root of an exported pack zip, where
+     * the game never looks. See {@link #read}.
+     */
+    public static final String IN_PACK = "studio-content.json";
+
+    /**
+     * One manifest that did not come by push: a Studio pack dropped into the
+     * content folder, or the pack this server publishes. Null when it reads as
+     * nothing, with the reason in the log.
+     *
+     * <p>A zip is art, and nothing in art says which characters are a shader
+     * object, a screen or a dialog. Until this, only a push said so, and a
+     * Studio export in {@code content/} brought its pictures and none of its
+     * objects.
+     */
+    public static StudioContent read(String json, String where, Logger log) {
+        StudioContent read = new StudioContent();
+        MergeResult result = read.updateFromJson(json, log);
+        if (!result.ok()) {
+            if (log != null) log.warning("Could not read " + where + ": " + result.error());
+            return null;
+        }
+        return read;
+    }
+
     /** The pack this came from, as Studio names it. Empty when the manifest named none. */
     public String packId() {
         return packId;
