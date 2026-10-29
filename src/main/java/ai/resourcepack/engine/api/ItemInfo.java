@@ -35,6 +35,7 @@ public final class ItemInfo {
     private final ContentId liquid;
     private final String armorTexture;
     private final boolean vanillaRecipes;
+    private final String armor3d;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
@@ -42,7 +43,7 @@ public final class ItemInfo {
                      Map<ItemAction.Trigger, List<ItemAction>> actions,
                      Map<String, AnimationSettings> animations, ItemStats stats,
                      boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes,
-                     ContentId liquid, String armorTexture, boolean vanillaRecipes) {
+                     ContentId liquid, String armorTexture, boolean vanillaRecipes, String armor3d) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -64,6 +65,7 @@ public final class ItemInfo {
         this.liquid = liquid;
         this.armorTexture = armorTexture;
         this.vanillaRecipes = vanillaRecipes;
+        this.armor3d = armor3d;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -91,7 +93,8 @@ public final class ItemInfo {
                 Map.of(),
                 null,
                 "",
-                false);
+                false,
+                "");
     }
 
     /**
@@ -106,7 +109,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
+                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /**
@@ -122,21 +125,21 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
+                hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /** The same item, with what a hit on each of its bones is worth. */
@@ -144,7 +147,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
                 hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes),
-                liquid, armorTexture, vanillaRecipes);
+                liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /**
@@ -156,7 +159,7 @@ public final class ItemInfo {
     public ItemInfo withLiquid(ContentId liquid) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /**
@@ -170,7 +173,7 @@ public final class ItemInfo {
     public ItemInfo withArmorTexture(String armorTexture) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture == null ? "" : armorTexture, vanillaRecipes);
+                hitboxes, liquid, armorTexture == null ? "" : armorTexture, vanillaRecipes, armor3d);
     }
 
     /**
@@ -340,6 +343,24 @@ public final class ItemInfo {
     }
 
     /**
+     * The same item, wearing a piece of a 3D armour set as well: {@code armor3d:}
+     * in its definition, naming the set ({@code namespace:id}, or an id in the
+     * item's own namespace). Which piece is the item's {@code armor:} slot.
+     * The item keeps everything else it is, its attributes and durability
+     * included, which is what a set's own pieces cannot have.
+     */
+    public ItemInfo withArmor3d(String armor3d) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d == null ? "" : armor3d);
+    }
+
+    /** The 3D armour set this item wears a piece of, as it was written, or empty. */
+    public Optional<String> armor3d() {
+        return armor3d.isEmpty() ? Optional.empty() : Optional.of(armor3d);
+    }
+
+    /**
      * The same item, allowed into vanilla's own recipes as the material it is
      * made of.
      *
@@ -351,7 +372,7 @@ public final class ItemInfo {
     public ItemInfo withVanillaRecipes(boolean vanillaRecipes) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d);
     }
 
     /**

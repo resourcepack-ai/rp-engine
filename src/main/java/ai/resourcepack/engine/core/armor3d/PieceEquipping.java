@@ -32,6 +32,9 @@ final class PieceEquipping {
     static void wearable(ItemMeta meta, EquipmentSlot slot, String asset, boolean withArt) {
         EquippableComponent equippable = meta.getEquippable();
         equippable.setSlot(slot);
+        // Cleared first: an item with armor3d: may already wear its own art,
+        // and a helmet's asset would stop the head layer drawing the model.
+        equippable.setModel(null);
         if (asset != null && withArt) {
             org.bukkit.NamespacedKey key = org.bukkit.NamespacedKey.fromString(asset);
             if (key != null) {

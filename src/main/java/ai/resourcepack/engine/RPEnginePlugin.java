@@ -835,6 +835,26 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 armor3dSets::all, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
+        if (compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)) {
+            ai.resourcepack.engine.core.armor3d.Armor3dItems dresser = armor3dItems;
+            items.armor3d((meta, item, typed, slot) -> {
+                String written = typed.contains(":") ? typed : item.namespace() + ":" + typed;
+                ai.resourcepack.engine.core.armor3d.Armor3dSet set = armor3dSets.find(written);
+                if (set == null) {
+                    return "armor3d: there is no 3D armour set called " + written;
+                }
+                ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece piece = switch (slot) {
+                    case "head" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.HELMET;
+                    case "chest" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.CHESTPLATE;
+                    case "legs" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.LEGGINGS;
+                    default -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.BOOTS;
+                };
+                return set.piece(piece).map(worn -> {
+                    dresser.dress(meta, set, worn);
+                    return (String) null;
+                }).orElse("armor3d: " + written + " has no " + piece.wire());
+            });
+        }
         // A page the client turned to by itself is only heard of through the next
         // command clicked on it, and a click on a picture sounds only if we play
         // it: see DialogClicks.

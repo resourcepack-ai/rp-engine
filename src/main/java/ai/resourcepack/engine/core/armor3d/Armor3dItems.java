@@ -74,34 +74,49 @@ public final class Armor3dItems {
         if (meta == null) {
             return stack;
         }
+        dress(meta, set, worn);
+        meta.setDisplayName(ChatColor.RESET + set.name() + " " + worn.piece().label());
+        meta.setLore(List.of(ChatColor.GRAY + "3D armour"));
+        stack.setItemMeta(meta);
+        return stack;
+    }
+
+    /**
+     * Makes {@code meta} a piece of {@code set}: its art, its slot, and the
+     * mark that says which piece it is. What {@link #piece} is made of, and
+     * what an ordinary item with {@code armor3d:} gets on top of everything it
+     * already is, its attributes and durability included. On anything but
+     * paper the art is named by {@code item_model}, paper's own when the set
+     * has no definition of its own (a pushed one), so the strings below are
+     * read through paper's definition whatever the stack is made of.
+     */
+    public void dress(ItemMeta meta, Armor3dSet set, Armor3dSet.Worn worn) {
         // The art at index 0; the Bedrock marker, when studio numbered the
         // piece, at index 1, which is where Geyser's mapping looks.
         tags.write(meta, worn.bedrockSlot() == null ? List.of(worn.item())
                 : List.of(worn.item(), BEDROCK_MARKER + worn.bedrockSlot()));
         meta.getPersistentDataContainer().set(pieceKey, PersistentDataType.STRING,
                 set.id() + "/" + worn.piece().wire());
-        meta.setDisplayName(ChatColor.RESET + set.name() + " " + worn.piece().label());
-        meta.setLore(List.of(ChatColor.GRAY + "3D armour"));
         equipping.wear(meta, worn.piece().slot(), worn.asset());
         String itemModel = set.itemModel(worn.item());
-        if (itemModel != null) {
-            naming.name(meta, itemModel);
-        }
-        stack.setItemMeta(meta);
-        return stack;
+        naming.name(meta, itemModel != null ? itemModel : "minecraft:paper");
     }
 
     /** Which set and piece a stack is, if it is one. */
     public Optional<Worn> read(ItemStack stack) {
-        if (stack == null || stack.getType() != Material.PAPER || !stack.hasItemMeta()) {
+        if (stack == null || !stack.hasItemMeta()) {
             return Optional.empty();
         }
         ItemMeta meta = stack.getItemMeta();
         if (meta == null) {
             return Optional.empty();
         }
+        // Marked, it is a piece whatever it is made of (an item with armor3d:).
         String marked = meta.getPersistentDataContainer().get(pieceKey, PersistentDataType.STRING);
         if (marked == null) {
+            if (stack.getType() != Material.PAPER) {
+                return Optional.empty();
+            }
             // A hand-written /give: the only thing on it is the art.
             List<String> strings = tags.read(stack);
             if (strings.isEmpty() || !strings.get(0).startsWith(MODEL_PREFIX)) {

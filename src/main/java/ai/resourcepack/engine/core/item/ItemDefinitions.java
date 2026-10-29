@@ -122,6 +122,7 @@ public final class ItemDefinitions {
                 .withHitboxes(hitboxes(body, definition.id(), origin, diagnostics))
                 .withLiquid(liquid(body, origin, where, diagnostics))
                 .withArmorTexture(armorTexture(body, origin, where, diagnostics))
+                .withArmor3d(armor3d(body, origin, where, diagnostics))
                 .withVanillaRecipes(body.bool("vanilla-recipes").orElse(Boolean.FALSE)));
     }
 
@@ -365,6 +366,26 @@ public final class ItemDefinitions {
                     settings.strings("bones")));
         }
         return Map.copyOf(out);
+    }
+
+    /**
+     * {@code armor3d:}, the 3D armour set this item wears a piece of. Which
+     * piece is the item's {@code armor:}, so without one the line does nothing
+     * and is said. The set itself is looked up when the item is made, because
+     * it may be another pack's, or pushed from Studio.
+     */
+    private static String armor3d(DefinitionNode body, String origin, String where,
+                                  List<Diagnostic> diagnostics) {
+        Optional<String> declared = body.string("armor3d").map(String::trim).filter(value -> !value.isEmpty());
+        if (declared.isEmpty()) {
+            return null;
+        }
+        if (body.string("armor").isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where, "armor3d: " + declared.get()
+                    + " needs armor: head, chest, legs or feet as well, to say which piece of the set this is."));
+            return null;
+        }
+        return declared.get();
     }
 
     /** The body slots a piece of armour can be worn in. */
