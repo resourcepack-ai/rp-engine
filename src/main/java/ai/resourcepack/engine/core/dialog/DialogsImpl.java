@@ -882,6 +882,13 @@ public final class DialogsImpl implements Dialogs {
             return json;
         }
         java.util.function.Function<String, Optional<String>> lookup = lookup(viewer, values);
+        // A sorted box's order for this player first (DialogSorts): it answers
+        // the placeholders its slots' conditions test.
+        if (DialogSorts.any(json)) {
+            DialogSorts.Sorted sorted = DialogSorts.apply(json, lookup, permissions(viewer));
+            json = sorted.json();
+            lookup = sorted.over(lookup);
+        }
         // The pieces this player is not to see go first, so nothing in one is
         // looked up and no marker in one is there for the passes after this.
         String out = conditions ? DialogConditions.strip(json, lookup, permissions(viewer)) : json;
@@ -899,9 +906,19 @@ public final class DialogsImpl implements Dialogs {
      * storage, and {@code /rp slot} would otherwise move items in it.
      */
     public Optional<String> visibleJson(Player viewer, ContentId id, Map<String, String> values) {
-        return info(viewer, id).map(info -> DialogConditions.any(info.json())
-                ? DialogConditions.strip(info.json(), lookup(viewer, values), permissions(viewer))
-                : info.json());
+        return info(viewer, id).map(info -> {
+            if (!DialogConditions.any(info.json())) {
+                return info.json();
+            }
+            java.util.function.Function<String, Optional<String>> lookup = lookup(viewer, values);
+            String json = info.json();
+            if (DialogSorts.any(json)) {
+                DialogSorts.Sorted sorted = DialogSorts.apply(json, lookup, permissions(viewer));
+                json = sorted.json();
+                lookup = sorted.over(lookup);
+            }
+            return DialogConditions.strip(json, lookup, permissions(viewer));
+        });
     }
 
     /** What a condition's {@code perm:} asks of the player. */
