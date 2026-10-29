@@ -395,6 +395,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Recipes are outside the id space, so this is the only list of them. */
     private List<ContentId> recipeIds = List.of();
     private final SoundsImpl sounds = new SoundsImpl();
+    private final ai.resourcepack.engine.core.music.MusicRuntime music =
+            new ai.resourcepack.engine.core.music.MusicRuntime(this, sounds);
 
     /**
      * Runs content actions, for an item in hand and for a placed model or a
@@ -712,6 +714,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ? new ai.resourcepack.engine.core.object.ObjectItems()
                         : null);
         getServer().getPluginManager().registerEvents(objectRuntime, this);
+        getServer().getPluginManager().registerEvents(music, this);
         // A Studio effect's sprites are only in the packs of the players
         // holding that push, so its displays are shown to them alone: the
         // same per-player lookup a pushed screen is answered by.
@@ -1094,7 +1097,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                 : "3D armour needs Minecraft 1.21.4 or newer: its art is named by a string "
                                         + "custom_model_data, which older servers cannot carry."),
                 new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
-                new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime));
+                new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime),
+                new ai.resourcepack.engine.core.command.MusicCommands(music));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1820,6 +1824,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
+        music.shutdown();
         if (heartbeat != null) {
             heartbeat.stop();
         }
@@ -1983,6 +1988,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     public ai.resourcepack.engine.api.Dialogs dialogs() {
         return dialogs;
+    }
+
+    /** Background music: playlists of the pack's sounds, by place or on request. */
+    public ai.resourcepack.engine.api.Music music() {
+        return music;
     }
 
     /** The custom sounds this server holds. */
@@ -2294,6 +2304,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         authoredSounds = parsedSounds.sounds();
         sounds.replace(authoredSounds);
         report(to, "vehicles", stereoVehicleSounds(authoredVehicles.values(), authoredSounds));
+
+        ai.resourcepack.engine.core.music.MusicDefinitions.Result parsedMusic =
+                ai.resourcepack.engine.core.music.MusicDefinitions.parse(loaded, authoredSounds);
+        report(to, "music", parsedMusic.diagnostics());
+        music.replace(parsedMusic);
 
         // With the content folder, because a GIF icon's frame count is its
         // number of codepoints and only the GIF knows it. The build reads the

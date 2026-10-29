@@ -146,4 +146,26 @@ public final class WorldGuardHook implements Listener {
             return true;
         }
     }
+
+    /**
+     * The ids of the WorldGuard regions at a place, for music that plays in
+     * one. Empty without WorldGuard, or when it is not answering: a region's
+     * music not starting is a smaller failure than an exception every tick.
+     */
+    public static java.util.Set<String> regionsAt(Location where) {
+        if (where == null || where.getWorld() == null) {
+            return java.util.Set.of();
+        }
+        try {
+            java.util.Set<String> out = new java.util.HashSet<>();
+            RegionQuery query = WorldGuard.getInstance().getPlatform().getRegionContainer().createQuery();
+            for (com.sk89q.worldguard.protection.regions.ProtectedRegion region
+                    : query.getApplicableRegions(BukkitAdapter.adapt(where))) {
+                out.add(region.getId());
+            }
+            return out;
+        } catch (NoClassDefFoundError | RuntimeException e) {
+            return java.util.Set.of();
+        }
+    }
 }

@@ -167,6 +167,8 @@ public final class ContentFolderLoader {
         map.put("text-effects", ContentKind.TEXT_EFFECT);
         // VFX, a preset or a recipe each; see VfxDefinitions.
         map.put("vfx", ContentKind.VFX);
+        // Music, a playlist of sounds each; see MusicDefinitions.
+        map.put("music", ContentKind.MUSIC);
         return Map.copyOf(map);
     }
 
