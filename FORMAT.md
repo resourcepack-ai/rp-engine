@@ -940,6 +940,7 @@ santa:
   name: "Santa Suit"     # optional; the id when absent
   model: armor_santa     # assets/models/armor_santa.bbmodel; the id when absent
   displays: false        # optional, default true; see How it is drawn
+  shaders: false         # optional, default true; see How it is drawn
   shader-helmet: false   # optional; see below
 ```
 
@@ -1031,6 +1032,13 @@ your server only admits the versions the shaders cover, or when you would
 rather show less than show it a moment behind (a display can never be quite as
 quick as the body). The wearer does not see their own displays in first person;
 `/rp armor self` shows them in F5.
+
+`shaders: false` keeps the set out of the shaders altogether: the pack carries
+no shader for it and every viewer is shown the displays. The shaders need
+OpenGL 4.5 with subgroup support, and a client whose graphics card or driver
+lacks it (older integrated graphics, a Mac) refuses the whole pack, not only
+the armour. If players report "Resource reload failed" once a set is added,
+this is the switch.
 
 **Needs Minecraft 1.21.4 or newer**, where art can be named by a string. On an
 older server the sets still load (and are checked, so the warnings are worth
