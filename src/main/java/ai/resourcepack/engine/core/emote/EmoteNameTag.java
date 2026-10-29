@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.emote;
 
+import ai.resourcepack.engine.core.Regions;
 import org.bukkit.Location;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
@@ -212,7 +213,7 @@ final class EmoteNameTag {
     }
 
     void remove() {
-        if (display.isValid()) display.remove();
+        if (display.isValid()) Regions.remove(display);
     }
 
     /**
@@ -227,7 +228,7 @@ final class EmoteNameTag {
         Location at = feet.clone().add(0, height(sneaking), 0);
         at.setYaw(0);
         at.setPitch(0);
-        if (!at.equals(display.getLocation())) display.teleport(at);
+        if (!at.equals(display.getLocation())) Regions.move(display, at);
         sneaking(sneaking);
     }
 

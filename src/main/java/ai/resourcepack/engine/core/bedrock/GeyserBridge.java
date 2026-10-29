@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.bedrock;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.core.sync.StudioPush;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -119,7 +121,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     private final Map<String, Map<String, Integer>> slotsByXuid = new ConcurrentHashMap<>();
 
     // playerId -> (hitboxId -> per-session geyser entity id). Main thread only.
-    private final Map<UUID, Map<UUID, Long>> spawned = new HashMap<>();
+    /** Concurrent, inside and out: on Folia each viewer is refreshed on their region's thread and a rig placed on its own. */
+    private final Map<UUID, Map<UUID, Long>> spawned = new ConcurrentHashMap<>();
 
     public GeyserBridge(JavaPlugin plugin, java.util.function.Consumer<UUID> expectReconnect) {
         this.plugin = plugin;
@@ -143,9 +146,9 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     public void shutdown() {
-        if (viewTask != -1) {
-            Bukkit.getScheduler().cancelTask(viewTask);
-            viewTask = -1;
+        if (viewTask != null) {
+            viewTask.cancel();
+            viewTask = null;
         }
         try {
             GeyserApi.api().eventBus().unregisterAll(registrar);
@@ -391,7 +394,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
      */
     public void applyPack(Player target, String bedrockUrl, Consumer<Boolean> done) {
         UUID id = target.getUniqueId();
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             File written = null;
             try {
                 GeyserConnection connection = GeyserApi.api().connectionByUuid(id);
@@ -407,7 +410,8 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
                 plugin.getLogger().warning("Couldn't download Bedrock pack: " + e.getMessage());
             }
             File packFile = written;
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            // On the player's own thread: a kick is theirs. One who left meanwhile was not reached.
+            Tasks.onLater(plugin, target, () -> {
                 if (packFile == null) {
                     done.accept(false);
                     return;
@@ -439,7 +443,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
                     transferred = true;
                 }
                 done.accept(transferred);
-            });
+            }, () -> done.accept(false), 1);
         });
     }
 
@@ -601,39 +605,48 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     private static final double DESPAWN_RANGE = 56;
     private static final long VIEW_PERIOD_TICKS = 20;
 
-    private int viewTask = -1;
+    private Tasks.Handle viewTask;
+    private Regions.Fanout<UUID> viewers;
 
     private void startViewTask() {
-        if (viewTask != -1) return;
-        viewTask = Bukkit.getScheduler().runTaskTimer(plugin, this::refreshViews, VIEW_PERIOD_TICKS, VIEW_PERIOD_TICKS)
-            .getTaskId();
+        if (viewTask != null) return;
+        viewers = new Regions.Fanout<>(plugin);
+        viewTask = Tasks.globalTimer(plugin, this::refreshViews, VIEW_PERIOD_TICKS, VIEW_PERIOD_TICKS);
     }
 
     /** Brings every Bedrock viewer's set of drawn rigs in line with what is near them. */
     private void refreshViews() {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            GeyserSession session = sessionOf(player.getUniqueId());
-            if (session == null) continue;
-            Map<UUID, Long> mine = spawned.computeIfAbsent(player.getUniqueId(), k -> new HashMap<>());
-
-            // Out of range, gone, or in another world: take it down.
-            mine.entrySet().removeIf(entry -> {
-                Entity hitbox = Bukkit.getEntity(entry.getKey());
-                boolean keep = hitbox != null && hitbox.isValid()
-                    && hitbox.getWorld().equals(player.getWorld())
-                    && hitbox.getLocation().distanceSquared(player.getLocation()) <= DESPAWN_RANGE * DESPAWN_RANGE;
-                if (!keep) removeEntity(session, entry.getValue());
-                return !keep;
-            });
-
-            for (Entity nearby : player.getWorld().getNearbyEntities(
-                    player.getLocation(), SPAWN_RANGE, SPAWN_RANGE, SPAWN_RANGE, e -> e instanceof Interaction)) {
-                if (mine.containsKey(nearby.getUniqueId())) continue;
-                PersistentDataContainer pdc = nearby.getPersistentDataContainer();
-                String modelId = pdc.get(authoredKey, PersistentDataType.STRING);
-                if (modelId == null) modelId = pdc.get(modelKey, PersistentDataType.STRING);
-                if (modelId != null) spawnFor(session, player.getUniqueId(), (Interaction) nearby, modelId);
+            if (sessionOf(player.getUniqueId()) != null) {
+                // On their own thread: what is near them is their region's to say.
+                viewers.on(player.getUniqueId(), player, ignored -> refreshView(player));
             }
+        }
+    }
+
+    /** One Bedrock viewer's pass. */
+    private void refreshView(Player player) {
+        GeyserSession session = sessionOf(player.getUniqueId());
+        if (session == null || !player.isOnline()) return;
+        Map<UUID, Long> mine = spawned.computeIfAbsent(player.getUniqueId(), k -> new ConcurrentHashMap<>());
+
+        // Out of range, gone, or in another world: take it down.
+        mine.entrySet().removeIf(entry -> {
+            Entity hitbox = Bukkit.getEntity(entry.getKey());
+            boolean keep = hitbox != null && hitbox.isValid()
+                && hitbox.getWorld().equals(player.getWorld())
+                && hitbox.getLocation().distanceSquared(player.getLocation()) <= DESPAWN_RANGE * DESPAWN_RANGE;
+            if (!keep) removeEntity(session, entry.getValue());
+            return !keep;
+        });
+
+        for (Entity nearby : player.getWorld().getNearbyEntities(
+                player.getLocation(), SPAWN_RANGE, SPAWN_RANGE, SPAWN_RANGE, e -> e instanceof Interaction)) {
+            if (mine.containsKey(nearby.getUniqueId())) continue;
+            PersistentDataContainer pdc = nearby.getPersistentDataContainer();
+            String modelId = pdc.get(authoredKey, PersistentDataType.STRING);
+            if (modelId == null) modelId = pdc.get(modelKey, PersistentDataType.STRING);
+            if (modelId != null) spawnFor(session, player.getUniqueId(), (Interaction) nearby, modelId);
         }
     }
 
@@ -771,7 +784,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             if (slot == null) return;
             identifier = "rpai:model_" + slot;
         }
-        Map<UUID, Long> entities = spawned.computeIfAbsent(playerId, k -> new HashMap<>());
+        Map<UUID, Long> entities = spawned.computeIfAbsent(playerId, k -> new ConcurrentHashMap<>());
         if (entities.containsKey(hitbox.getUniqueId())) return;
         try {
             long geyserId = session.getEntityCache().getNextEntityId().incrementAndGet();

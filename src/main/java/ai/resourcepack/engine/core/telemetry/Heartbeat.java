@@ -1,9 +1,9 @@
 package ai.resourcepack.engine.core.telemetry;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginDescriptionFile;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.net.URI;
@@ -66,7 +66,7 @@ public final class Heartbeat {
             .connectTimeout(TIMEOUT)
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
-    private BukkitTask task;
+    private Tasks.Handle task;
 
     public Heartbeat(Plugin plugin, String studioUrl) {
         this.plugin = plugin;
@@ -135,7 +135,7 @@ public final class Heartbeat {
     public void start() {
         stop();
         long ticks = INTERVAL_SECONDS * 20L;
-        task = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::beat, 20L, ticks);
+        task = Tasks.asyncTimer(plugin, this::beat, 20L, ticks);
     }
 
     public void stop() {

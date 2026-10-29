@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.block;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.BlockInfo;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -7,7 +8,6 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Locale;
 import java.util.Map;
@@ -53,7 +53,7 @@ public final class BlockBreaking {
         final BlockInfo info;
         final int overlay;
         double progress;
-        BukkitTask task;
+        Tasks.Handle task;
 
         Attempt(Block block, BlockInfo info, int overlay) {
             this.block = block;
@@ -79,7 +79,8 @@ public final class BlockBreaking {
         stop(player);
         Attempt attempt = new Attempt(block, info, player.getEntityId());
         breaking.put(player.getUniqueId(), attempt);
-        attempt.task = plugin.getServer().getScheduler().runTaskTimer(plugin,
+        // On the player's own thread, which on Folia is their region's.
+        attempt.task = Tasks.onTimer(plugin, player,
                 () -> tick(player, attempt), PERIOD_TICKS, PERIOD_TICKS);
     }
 

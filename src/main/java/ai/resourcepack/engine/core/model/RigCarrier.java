@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.core.Host;
 import ai.resourcepack.engine.core.animation.RigMath;
@@ -445,7 +446,7 @@ public final class RigCarrier {
                     // Preserve every vertex's world position while moving the physics origin to the part.
                     matrix.translateLocal(-offset.x, -offset.y, -offset.z);
                     display.setTransformation(RigMath.toTransformation(matrix));
-                    display.teleport(origin);
+                    Regions.move(display, origin);
                 }
                 display.getPersistentDataContainer().remove(modelKey);
                 display.getPersistentDataContainer().remove(partKey);
@@ -496,7 +497,7 @@ public final class RigCarrier {
             facing.setPitch(0);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {
-                yawHost.teleport(facing);
+                Regions.move(yawHost, facing);
             }
             // The yaw rides the SAME teleport as the position, which is the
             // whole point: both then update every tick and glide over the same
@@ -505,7 +506,7 @@ public final class RigCarrier {
             for (String id : partIds) {
                 Entity part = entity(id);
                 if (part != null) {
-                    part.teleport(facing);
+                    Regions.move(part, facing);
                 }
             }
         }
@@ -549,12 +550,12 @@ public final class RigCarrier {
             animator.carrierPose(anchorId, null);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {
-                yawHost.remove();
+                Regions.remove(yawHost);
             }
             for (String id : partIds) {
                 Entity part = entity(id);
                 if (part != null) {
-                    part.remove();
+                    Regions.remove(part);
                 }
             }
         }

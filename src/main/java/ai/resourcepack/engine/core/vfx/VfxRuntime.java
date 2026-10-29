@@ -5,6 +5,8 @@ import ai.resourcepack.engine.api.Vfx;
 import ai.resourcepack.engine.api.VfxInfo;
 import ai.resourcepack.engine.api.VfxOptions;
 import ai.resourcepack.engine.api.VfxPlay;
+import ai.resourcepack.engine.core.Regions;
+import ai.resourcepack.common.scheduler.Tasks;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -16,7 +18,6 @@ import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Transformation;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -31,6 +32,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 
@@ -73,15 +76,18 @@ public final class VfxRuntime implements Vfx {
     private final BiPredicate<Player, ContentId> holds;
     /** A placeholder's value for a player, for a loop's condition. */
     private final BiFunction<Player, String, Optional<String>> lookup;
-    private final List<Play> playing = new ArrayList<>();
-    private final Map<String, ItemStack> items = new HashMap<>();
-    private BukkitTask task;
+    /** Concurrent: on Folia, effects are cast, played and ended on many regions' threads. */
+    private final List<Play> playing = new CopyOnWriteArrayList<>();
+    private final Map<String, ItemStack> items = new ConcurrentHashMap<>();
+    private final Regions.Fanout<Play> each;
+    private Tasks.Handle task;
     /** Sprites alive at once across every effect; 0 is no limit. */
     private volatile int maxSprites = DEFAULT_MAX_SPRITES;
 
     public VfxRuntime(Plugin plugin, VfxCatalogue catalogue, boolean supported, BiPredicate<Player, ContentId> holds,
                       BiFunction<Player, String, Optional<String>> lookup) {
         this.plugin = plugin;
+        this.each = new Regions.Fanout<>(plugin);
         this.catalogue = catalogue;
         this.supported = supported;
         this.holds = holds;
@@ -107,14 +113,12 @@ public final class VfxRuntime implements Vfx {
             return;
         }
         // Leftovers of a crash mid-effect; nothing here is persistent, so this is belt and braces.
-        for (World world : Bukkit.getWorlds()) {
-            for (Entity e : world.getEntitiesByClass(ItemDisplay.class)) {
-                if (e.getScoreboardTags().contains(TAG)) {
-                    e.remove();
-                }
+        Regions.loaded(plugin, ItemDisplay.class, e -> {
+            if (e.getScoreboardTags().contains(TAG)) {
+                e.remove();
             }
-        }
-        task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
+        });
+        task = Tasks.globalTimer(plugin, this::tick, 1L, 1L);
     }
 
     public void stop() {
@@ -129,14 +133,12 @@ public final class VfxRuntime implements Vfx {
         if (playing.isEmpty()) {
             return;
         }
-        for (Play play : new ArrayList<>(playing)) {
-            try {
-                if (!play.tick()) {
-                    play.end();
-                }
-            } catch (RuntimeException e) {
-                plugin.getLogger().warning("VFX " + play.entry.info().id() + " stopped: " + e);
-                play.end();
+        for (Play play : playing) {
+            Entity follow = play.options.follow();
+            if (follow != null) {
+                each.on(play, follow, this::tickOne);
+            } else {
+                each.at(play, play.origin, this::tickOne);
             }
         }
         // Over the budget, the oldest give way. The newest is never ended for
@@ -147,11 +149,26 @@ public final class VfxRuntime implements Vfx {
             for (Play play : playing) {
                 alive += play.live.size();
             }
-            while (alive > max && playing.size() > 1) {
-                Play oldest = playing.get(0);
+            // Oldest first, off a copy: on Folia an effect ends on its own
+            // region's next tick, so the list has not shrunk yet.
+            List<Play> oldestFirst = new ArrayList<>(playing);
+            for (int i = 0; alive > max && i < oldestFirst.size() - 1; i++) {
+                Play oldest = oldestFirst.get(i);
                 alive -= oldest.live.size();
-                oldest.end();
+                oldest.endSoon();
             }
+        }
+    }
+
+    /** One effect's tick, on the thread that owns where it plays. */
+    private void tickOne(Play play) {
+        try {
+            if (!play.tick()) {
+                play.end();
+            }
+        } catch (RuntimeException e) {
+            plugin.getLogger().warning("VFX " + play.entry.info().id() + " stopped: " + e);
+            play.end();
         }
     }
 
@@ -211,7 +228,7 @@ public final class VfxRuntime implements Vfx {
     public int stopAll() {
         int n = playing.size();
         for (Play play : new ArrayList<>(playing)) {
-            play.end();
+            play.endSoon();
         }
         return n;
     }
@@ -336,7 +353,7 @@ public final class VfxRuntime implements Vfx {
 
         @Override
         public void stop() {
-            end();
+            endSoon();
         }
 
         @Override
@@ -346,7 +363,7 @@ public final class VfxRuntime implements Vfx {
             }
             // Only a loop has a fade to play out to; a one-shot stopped is stopped.
             if (!options.loop() || options.end() == VfxOptions.End.CUT) {
-                end();
+                endSoon();
             } else {
                 stopping = true;
             }
@@ -532,6 +549,20 @@ public final class VfxRuntime implements Vfx {
             sounds.add(s.sound());
         }
 
+        /**
+         * Ends it from anywhere: now on the thread that owns its sprites
+         * (always, off Folia), else on that region's next tick.
+         */
+        void endSoon() {
+            Entity follow = options.follow();
+            if (follow != null && follow.isValid()) {
+                Tasks.now(plugin, follow, this::end);
+            } else {
+                Tasks.nowAt(plugin, origin, this::end);
+            }
+        }
+
+        /** Ends it, on the thread that owns its sprites. */
         void end() {
             if (ended) {
                 return;
@@ -629,9 +660,9 @@ public final class VfxRuntime implements Vfx {
                     display.setItemStack(item(model, level));
                 }
                 if (billboard) {
-                    display.teleport(loc(inst.pos()));
+                    Regions.move(display, loc(inst.pos()));
                 } else if (options.follow() != null) {
-                    display.teleport(origin);
+                    Regions.move(display, origin);
                 }
                 display.setInterpolationDelay(0);
                 display.setInterpolationDuration(interpolation);
@@ -643,7 +674,7 @@ public final class VfxRuntime implements Vfx {
                 if (!display.isValid()) {
                     return;
                 }
-                display.teleport(billboard ? loc(pos) : origin);
+                Regions.move(display, billboard ? loc(pos) : origin);
             }
 
             void remove() {

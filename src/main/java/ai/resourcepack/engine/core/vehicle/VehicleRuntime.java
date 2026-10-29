@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.vehicle;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.EmoteResult;
 import ai.resourcepack.engine.api.Items;
@@ -593,7 +595,11 @@ public final class VehicleRuntime implements Listener {
     private final NamespacedKey scuffsKey;
 
     /** Temporary physical hosts and displays created by detached bodywork. */
-    private final List<Debris> debris = new ArrayList<>();
+    /** Copy-on-write: on Folia each piece is ticked, and drops itself, on its own region's thread. */
+    private final List<Debris> debris = new java.util.concurrent.CopyOnWriteArrayList<>();
+    /** Each vehicle's and each piece of debris' tick on Folia, on the thread that owns it. */
+    private final Regions.Fanout<Ride> rides;
+    private final Regions.Fanout<Debris> wrecks;
 
     /**
      * Every derived entity, to the chassis it belongs to.
@@ -757,6 +763,8 @@ public final class VehicleRuntime implements Listener {
         this.plugin = plugin;
         this.items = items;
         this.log = plugin.getLogger();
+        this.rides = new Regions.Fanout<>(plugin);
+        this.wrecks = new Regions.Fanout<>(plugin);
         this.rigs = rigs;
         this.particles = new VehicleParticles(plugin.getLogger());
         this.controls = VehicleControls.forServer(compatibility, plugin.getLogger());
@@ -853,8 +861,19 @@ public final class VehicleRuntime implements Listener {
                 continue;
             }
             reseat.put(chassisId, ride.seating());
-            ride.evictAll(VehicleExitEvent.Cause.RELOADED);
-            ride.despawnParts();
+            // On the vehicle's own thread, which on Folia is its region's. The
+            // fresh set adoptLoaded() spawns is a different set of entities,
+            // so which of the two a region gets to first does not matter.
+            Runnable teardown = () -> {
+                ride.evictAll(VehicleExitEvent.Cause.RELOADED);
+                ride.despawnParts();
+            };
+            Entity chassis = Regions.folia() ? ride.chassis() : null;
+            if (chassis != null) {
+                Tasks.now(plugin, chassis, teardown);
+            } else {
+                teardown.run();
+            }
         }
         // Not re-adopted here: adoptLoaded() runs straight after every call to
         // this, from the one place that knows the whole load finished. Doing it
@@ -1219,12 +1238,14 @@ public final class VehicleRuntime implements Listener {
 
     /** Adopts every chassis in every loaded chunk. Called after a load. */
     public void adoptLoaded() {
-        for (World world : plugin.getServer().getWorlds()) {
-            for (Entity entity : world.getEntities()) {
-                adopt(entity);
-            }
+        Regions.loaded(plugin, Entity.class, this::adopt);
+        if (Regions.folia()) {
+            // Each region adopts its own chassis on its next tick; the riders
+            // go back once they have.
+            Tasks.globalLater(plugin, this::putEveryoneBack, 5);
+        } else {
+            putEveryoneBack();
         }
-        putEveryoneBack();
     }
 
     /**
@@ -1247,7 +1268,7 @@ public final class VehicleRuntime implements Listener {
         }
         Map<UUID, List<UUID>> pending = Map.copyOf(reseat);
         reseat.clear();
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        Tasks.global(plugin, () -> {
             for (Map.Entry<UUID, List<UUID>> entry : pending.entrySet()) {
                 Ride ride = live.get(entry.getKey());
                 if (ride == null) {
@@ -1258,7 +1279,10 @@ public final class VehicleRuntime implements Listener {
                     UUID id = seating.get(index);
                     Player player = id == null ? null : plugin.getServer().getPlayer(id);
                     if (player != null) {
-                        sit(player, ride, index, true);
+                        // On the rider's thread, which on Folia is the region
+                        // they and the vehicle share.
+                        int seat = index;
+                        Tasks.now(plugin, player, () -> sit(player, ride, seat, true));
                     }
                 }
             }
@@ -1319,7 +1343,7 @@ public final class VehicleRuntime implements Listener {
         // says which way the occupant faces, and once they are a passenger
         // their look is their own. So this points a rear bench backwards as
         // somebody sits down and never fights them afterwards.
-        player.teleport(at);
+        Regions.move(player, at);
         if (!ride.mount(index, player)) {
             return false;
         }
@@ -1519,7 +1543,7 @@ public final class VehicleRuntime implements Listener {
 
     /** Starts the driving loop. Called once, on enable. */
     public void start() {
-        plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
+        Tasks.globalTimer(plugin, this::tick, 1L, 1L);
     }
 
     /** Removes temporary debris immediately when the host plugin stops. */
@@ -1551,6 +1575,30 @@ public final class VehicleRuntime implements Listener {
      * vehicle finished, impact included.
      */
     private void tick() {
+        if (Regions.folia()) {
+            // No one thread may touch every vehicle, so each takes its whole
+            // tick on its own region: its step, the vehicles it can reach
+            // (which, being within reach, share its region) and its settle.
+            // The exchange is no longer symmetric within a tick; on a server
+            // whose regions tick apart from each other it cannot be.
+            for (Ride ride : live.values()) {
+                rides.on(ride, ride.chassis(), this::tickAlone);
+            }
+            for (Debris part : debris) {
+                Entity host = plugin.getServer().getEntity(part.hostId);
+                if (host == null) {
+                    debris.remove(part);
+                    Regions.remove(plugin, plugin.getServer().getEntity(part.displayId));
+                    continue;
+                }
+                wrecks.on(part, host, piece -> {
+                    if (piece.tick()) {
+                        debris.remove(piece);
+                    }
+                });
+            }
+            return;
+        }
         for (Ride ride : live.values()) {
             try {
                 ride.tick();
@@ -1568,22 +1616,43 @@ public final class VehicleRuntime implements Listener {
             log.warning("Vehicle collisions failed a tick: " + e);
         }
         for (Ride ride : live.values()) {
-            try {
-                ride.settle();
-                Entity chassis = ride.chassis();
-                // At the BODY's height, not the position's: the model sits at
-                // the mean of its wheels, sprung, and a decal drawn at the
-                // position instead hangs above the paint by the ride height on
-                // every vehicle and visibly floats off it over every bump.
-                if (chassis != null) ride.scuffs.draw(chassis, scuffsKey, ride.modelAnchor(),
-                        ride.state.yaw(),
-                        ride.state.pitch() + ride.posturePitch, ride.state.roll() + ride.postureRoll,
-                        (ride.info.worn() && ride.occupied()) || !ride.detachedParts().isEmpty(), carry);
-            } catch (RuntimeException e) {
-                log.warning("Vehicle " + ride.info.id() + " failed to settle: " + e);
-            }
+            settleOne(ride);
         }
         debris.removeIf(Debris::tick);
+    }
+
+    /** One vehicle's whole tick, on Folia: see {@link #tick}. */
+    private void tickAlone(Ride ride) {
+        try {
+            ride.tick();
+        } catch (RuntimeException e) {
+            log.warning("Vehicle " + ride.info.id() + " failed a tick: " + e);
+        }
+        if (collide && live.size() >= 2) {
+            try {
+                impactsOf(ride);
+            } catch (RuntimeException e) {
+                log.warning("Vehicle collisions failed a tick: " + e);
+            }
+        }
+        settleOne(ride);
+    }
+
+    private void settleOne(Ride ride) {
+        try {
+            ride.settle();
+            Entity chassis = ride.chassis();
+            // At the BODY's height, not the position's: the model sits at
+            // the mean of its wheels, sprung, and a decal drawn at the
+            // position instead hangs above the paint by the ride height on
+            // every vehicle and visibly floats off it over every bump.
+            if (chassis != null) ride.scuffs.draw(chassis, scuffsKey, ride.modelAnchor(),
+                    ride.state.yaw(),
+                    ride.state.pitch() + ride.posturePitch, ride.state.roll() + ride.postureRoll,
+                    (ride.info.worn() && ride.occupied()) || !ride.detachedParts().isEmpty(), carry);
+        } catch (RuntimeException e) {
+            log.warning("Vehicle " + ride.info.id() + " failed to settle: " + e);
+        }
     }
 
     /** Lets one detached display follow a small vanilla-physics host until expiry. */
@@ -1628,15 +1697,15 @@ public final class VehicleRuntime implements Listener {
             Location at = host.getLocation().add(0, MODEL_LIFT, 0);
             at.setYaw((float) yaw);
             at.setPitch((float) pitch);
-            part.teleport(at);
+            Regions.move(part, at);
             return false;
         }
 
         void remove() {
             Entity host = plugin.getServer().getEntity(hostId);
             Entity part = plugin.getServer().getEntity(displayId);
-            if (host != null) host.remove();
-            if (part != null) part.remove();
+            Regions.remove(plugin, host);
+            Regions.remove(plugin, part);
         }
     }
 
@@ -1704,23 +1773,28 @@ public final class VehicleRuntime implements Listener {
             return;
         }
         for (Ride ride : live.values()) {
-            if (!ride.collidable() || !ride.ticked()) {
+            impactsOf(ride);
+        }
+    }
+
+    /** What one vehicle runs into this tick. */
+    private void impactsOf(Ride ride) {
+        if (!ride.collidable() || !ride.ticked()) {
+            return;
+        }
+        Location where = ride.at;
+        double reach = ride.impactReach();
+        for (Entity nearby : where.getWorld().getNearbyEntities(where, reach, reach, reach)) {
+            Ride other = live.get(nearby.getUniqueId());
+            if (other == null || other == ride || !other.collidable()) {
                 continue;
             }
-            Location where = ride.at;
-            double reach = ride.impactReach();
-            for (Entity nearby : where.getWorld().getNearbyEntities(where, reach, reach, reach)) {
-                Ride other = live.get(nearby.getUniqueId());
-                if (other == null || other == ride || !other.collidable()) {
-                    continue;
-                }
-                // The other side will take this pair if it ticked too and
-                // sorts first. Two parked vehicles are a pair nobody takes.
-                if (other.ticked() && other.chassisId.compareTo(ride.chassisId) < 0) {
-                    continue;
-                }
-                ride.collideWith(other);
+            // The other side will take this pair if it ticked too and
+            // sorts first. Two parked vehicles are a pair nobody takes.
+            if (other.ticked() && other.chassisId.compareTo(ride.chassisId) < 0) {
+                continue;
             }
+            ride.collideWith(other);
         }
     }
 
@@ -4908,7 +4982,7 @@ public final class VehicleRuntime implements Listener {
             // The chassis never carries a passenger — the model, the mounts
             // and the hitboxes are all moved by us rather than riding it — so
             // a plain teleport always works and is exact.
-            chassis.teleport(at);
+            Regions.move(chassis, at);
 
             for (int i = 0; i < mounts.size(); i++) {
                 Entity mount = plugin.getServer().getEntity(mounts.get(i));
@@ -4930,7 +5004,7 @@ public final class VehicleRuntime implements Listener {
                 Location target = mountLocation(i, mount instanceof ArmorStand);
                 if (occupant == null) {
                     // Nobody aboard, so nothing refuses a plain teleport.
-                    mount.teleport(target);
+                    Regions.move(mount, target);
                 } else if (!seatMover.move(mount, target)) {
                     if (mount instanceof ArmorStand) {
                         // The fallback arm. A stand with gravity has physics,
@@ -5017,14 +5091,14 @@ public final class VehicleRuntime implements Listener {
                     Location box = seatLocation(i);
                     box.setYaw(0);
                     box.setPitch(0);
-                    hitbox.teleport(box);
+                    Regions.move(hitbox, box);
                 }
             }
 
             for (int tile = 0; tile < body.size(); tile++) {
                 Entity part = plugin.getServer().getEntity(body.get(tile));
                 if (part != null) {
-                    part.teleport(bodyLocation(tile));
+                    Regions.move(part, bodyLocation(tile));
                 }
             }
 
@@ -5053,7 +5127,7 @@ public final class VehicleRuntime implements Listener {
                 // pitch would be a vehicle lying on its side with no way to
                 // lean it. This is the line that keeps the two apart.
                 where.setPitch(0);
-                model.teleport(where);
+                Regions.move(model, where);
                 if (model instanceof ItemDisplay display) {
                     tiltModel(display);
                 }

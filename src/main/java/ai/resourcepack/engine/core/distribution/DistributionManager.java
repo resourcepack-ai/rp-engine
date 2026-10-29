@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.distribution;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.google.gson.Gson;
@@ -161,7 +162,7 @@ public final class DistributionManager implements Listener {
 
     /** Start the refresh and report loops. Safe to call with no binding. */
     public void start() {
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::flushReports,
+        Tasks.asyncTimer(plugin, this::flushReports,
                 REPORT_INTERVAL_TICKS, REPORT_INTERVAL_TICKS);
         if (isBound()) {
             refreshAsync(null);
@@ -184,7 +185,7 @@ public final class DistributionManager implements Listener {
      * reports back in chat.
      */
     public void claim(CommandSender sender, String code) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             try {
                 DistributionClient.ClaimResult result = client.claim(
                         code, protocols.serverVersion(), protocols.hasVia(), bedrock.available());
@@ -196,7 +197,7 @@ public final class DistributionManager implements Listener {
                     fetchContent(manifest.releaseId);
                 }
 
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                Tasks.global(plugin, () -> {
                     // Binding now normally happens BEFORE anything is
                     // published (the studio's Serve-a-pack modal binds
                     // first), so "not serving yet" is the expected state and
@@ -219,7 +220,7 @@ public final class DistributionManager implements Listener {
                     applyToEveryoneOnline();
                 });
             } catch (DistributionClient.DistributionException e) {
-                Bukkit.getScheduler().runTask(plugin, () ->
+                Tasks.global(plugin, () ->
                         sender.sendMessage(e.getMessage()));
             }
         });
@@ -240,7 +241,7 @@ public final class DistributionManager implements Listener {
         if (!isBound()) {
             return;
         }
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        Tasks.async(plugin, () -> {
             try {
                 Manifest fresh = Manifest.parse(client.manifest(token, protocols.serverVersion()));
                 boolean changed = !fresh.releaseId.equals(manifest.releaseId);
@@ -251,10 +252,10 @@ public final class DistributionManager implements Listener {
                 if (changed) {
                     // A new release is the whole point of live republish:
                     // everybody standing here gets it without rejoining.
-                    Bukkit.getScheduler().runTask(plugin, this::applyToEveryoneOnline);
+                    Tasks.global(plugin, this::applyToEveryoneOnline);
                 }
                 if (then != null) {
-                    Bukkit.getScheduler().runTask(plugin, then);
+                    Tasks.global(plugin, then);
                 }
             } catch (DistributionClient.DistributionException e) {
                 // A failed refresh keeps the manifest we already have. That is
@@ -277,7 +278,7 @@ public final class DistributionManager implements Listener {
         contentRelease = releaseId;
         java.util.function.Consumer<String> listener = contentListener;
         if (json != null && listener != null) {
-            Bukkit.getScheduler().runTask(plugin, () -> listener.accept(json));
+            Tasks.global(plugin, () -> listener.accept(json));
         }
     }
 
@@ -293,12 +294,13 @@ public final class DistributionManager implements Listener {
         // A tick late, deliberately: a client that is handed a pack in the
         // same tick it joins can miss it, and Geyser's session isn't settled
         // either.
-        Bukkit.getScheduler().runTaskLater(plugin, () -> serve(event.getPlayer()), 20L);
+        Tasks.onLater(plugin, event.getPlayer(), () -> serve(event.getPlayer()), 20L);
     }
 
     private void applyToEveryoneOnline() {
+        // Each on their own thread, which on Folia is their region's.
         for (Player player : Bukkit.getOnlinePlayers()) {
-            serve(player);
+            Tasks.now(plugin, player, () -> serve(player));
         }
     }
 

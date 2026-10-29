@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.engine.core.Regions;
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
 import ai.resourcepack.engine.api.Dialogs;
@@ -651,7 +653,7 @@ public final class DialogsImpl implements Dialogs {
         org.bukkit.plugin.Plugin scheduler = plugin;
         if (scheduler != null && ownCommand(command)) {
             long before = shows.getOrDefault(viewer, 0L);
-            Bukkit.getScheduler().runTask(scheduler, () -> {
+            Tasks.on(scheduler, viewer, () -> {
                 if (viewer.isOnline() && shows.getOrDefault(viewer, 0L) == before) {
                     closeAnswered(viewer, waits);
                 }
@@ -1170,7 +1172,11 @@ public final class DialogsImpl implements Dialogs {
             return ConsoleRun.FAILED;
         }
         try {
-            if (Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.get())) {
+            org.bukkit.plugin.Plugin owner = plugin;
+            boolean ran = owner == null
+                    ? Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.get())
+                    : Regions.console(owner, command.get());
+            if (ran) {
                 return ConsoleRun.RAN;
             }
             Bukkit.getLogger().warning("[RPEngine] " + named + ": the console does not know the command its button runs: /"
@@ -1198,6 +1204,16 @@ public final class DialogsImpl implements Dialogs {
      *                needs to hear about it.
      */
     private Outcome dispatch(String command, String named, boolean explain) {
+        org.bukkit.plugin.Plugin owner = plugin;
+        if (owner != null && Regions.folia() && !Tasks.global()) {
+            // Folia runs the console's commands on its global region and
+            // nowhere else, and a show is asked for from the viewer's region.
+            // Sent there, with an optimistic answer: on Folia this is only the
+            // fallback, behind DialogPackets' direct route, which a Paper
+            // build new enough to have dialogs always has.
+            Tasks.global(owner, () -> dispatch(command, named, explain));
+            return Outcome.SHOWN;
+        }
         try {
             return Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command) ? Outcome.SHOWN : Outcome.FAILED;
         } catch (RuntimeException e) {

@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.Keyframe;
 import ai.resourcepack.engine.api.Placement;
 import ai.resourcepack.engine.api.event.ModelAnimationEndEvent;
@@ -281,7 +283,10 @@ public final class RigAnimator implements Listener {
             return (float) Math.min(1, Math.max(0, (now - startedTick) / (double) ticks));
         }
     }
-    private int taskId = -1;
+    private Tasks.Handle task;
+    /** Each part's pose and each hitbox's range scan, on the thread that owns it (its region's, on Folia). */
+    private Regions.Fanout<ItemDisplay> posing;
+    private Regions.Fanout<Interaction> scanning;
     /** Ticks since start. The odd ones are the carried-only passes; see tick. */
     private long clock;
     private int rangeScanCountdown;
@@ -317,27 +322,34 @@ public final class RigAnimator implements Listener {
     }
 
     public void start() {
-        taskId = Bukkit.getScheduler().runTaskTimer(host.plugin(), this::tick, 1, 1).getTaskId();
+        posing = new Regions.Fanout<>(host.plugin());
+        scanning = new Regions.Fanout<>(host.plugin());
+        task = Tasks.globalTimer(host.plugin(), this::tick, 1, 1);
         // Pick up rigs already standing in loaded chunks (plugin reload,
         // server restart). Unloaded ones arrive via EntitiesLoadEvent.
-        int orphans = 0;
-        for (World world : Bukkit.getWorlds()) {
-            for (ItemDisplay display : world.getEntitiesByClass(ItemDisplay.class)) {
-                if (reaped(display)) {
-                    orphans++;
-                    continue;
-                }
-                track(display);
+        java.util.concurrent.atomic.AtomicInteger orphans = new java.util.concurrent.atomic.AtomicInteger();
+        Regions.loaded(host.plugin(), ItemDisplay.class, display -> {
+            if (reaped(display)) {
+                orphans.incrementAndGet();
+                return;
             }
-            for (Interaction hitbox : world.getEntitiesByClass(Interaction.class)) {
-                track(hitbox);
-            }
+            track(display);
+        });
+        Regions.loaded(host.plugin(), Interaction.class, this::track);
+        if (Regions.folia()) {
+            // Each region reads its own chunks on its next tick; by two
+            // seconds every one has had its say.
+            Tasks.globalLater(host.plugin(), () -> reportReaped(orphans.get()), 40);
+        } else {
+            reportReaped(orphans.get());
         }
-        reportReaped(orphans);
     }
 
     public void stop() {
-        if (taskId != -1) Bukkit.getScheduler().cancelTask(taskId);
+        if (task != null) {
+            task.cancel();
+            task = null;
+        }
         tracked.clear();
         hitboxes.clear();
         rangeOccupants.clear();
@@ -653,7 +665,7 @@ public final class RigAnimator implements Listener {
                 Posed was = posed.get(display.getUniqueId());
                 if (was == null || !was.carried) continue;
             }
-            pose(display, false);
+            posing.on(display, display, d -> pose(d, false));
         }
         if (everyone && --rangeScanCountdown <= 0) {
             rangeScanCountdown = RANGE_SCAN_INTERVAL;
@@ -1356,7 +1368,7 @@ public final class RigAnimator implements Listener {
         long totalTicks = Math.max(1L, Math.round(animation.length / speed * 20.0));
         long ticks = Math.max(1L, totalTicks - Math.max(0L, now - startedAt));
         String name = animation.name;
-        Bukkit.getScheduler().runTaskLater(host.plugin(), () -> {
+        Tasks.onLater(host.plugin(), hitbox, () -> {
             if (!hitbox.isValid() || !stillRunning(hitbox, index, startedAt)) return;
             end(hitbox, name, ModelAnimationEndEvent.Cause.FINISHED);
         }, ticks + 1);
@@ -1556,31 +1568,36 @@ public final class RigAnimator implements Listener {
                 rangeOccupants.remove(entry.getKey());
                 continue;
             }
-            PersistentDataContainer hitboxPdc = hitbox.getPersistentDataContainer();
-            String modelId = hitboxPdc.get(modelKey, PersistentDataType.STRING);
-            RigStore.Rig rig = rigs.get(modelId);
-            int animationIndex =
-                RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RANGE, hitboxPdc.get(animationKey, PersistentDataType.STRING));
-            RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
-            RigStore.Trigger trigger = RigAnimations.triggerOf(animation, RigAnimations.TRIGGER_RANGE);
-            if (trigger == null) {
-                rangeOccupants.remove(entry.getKey());
-                continue;
-            }
+            scanning.on(hitbox, hitbox, this::scanRange);
+        }
+    }
 
-            double distance = trigger.distance > 0 ? Math.min(64, Math.max(0.5, trigger.distance)) : 5;
-            double distanceSquared = distance * distance;
-            Set<UUID> current = new HashSet<>();
-            for (Player player : hitbox.getWorld().getPlayers()) {
-                if (!player.isOnline() || player.isDead() || player.getGameMode() == GameMode.SPECTATOR) continue;
-                if (player.getLocation().distanceSquared(hitbox.getLocation()) <= distanceSquared) {
-                    current.add(player.getUniqueId());
-                }
+    /** One placement's range trigger, on the thread that owns it. */
+    private void scanRange(Interaction hitbox) {
+        PersistentDataContainer hitboxPdc = hitbox.getPersistentDataContainer();
+        String modelId = hitboxPdc.get(modelKey, PersistentDataType.STRING);
+        RigStore.Rig rig = rigs.get(modelId);
+        int animationIndex =
+            RigAnimations.findAnimationIndex(rig, RigAnimations.TRIGGER_RANGE, hitboxPdc.get(animationKey, PersistentDataType.STRING));
+        RigStore.Animation animation = RigAnimations.animationAt(rig, animationIndex);
+        RigStore.Trigger trigger = RigAnimations.triggerOf(animation, RigAnimations.TRIGGER_RANGE);
+        if (trigger == null) {
+            rangeOccupants.remove(hitbox.getUniqueId());
+            return;
+        }
+
+        double distance = trigger.distance > 0 ? Math.min(64, Math.max(0.5, trigger.distance)) : 5;
+        double distanceSquared = distance * distance;
+        Set<UUID> current = new HashSet<>();
+        for (Player player : hitbox.getWorld().getPlayers()) {
+            if (!player.isOnline() || player.isDead() || player.getGameMode() == GameMode.SPECTATOR) continue;
+            if (player.getLocation().distanceSquared(hitbox.getLocation()) <= distanceSquared) {
+                current.add(player.getUniqueId());
             }
-            Set<UUID> previous = rangeOccupants.put(entry.getKey(), current);
-            if (hasNewEntrant(previous, current)) {
-                startAnimation(hitbox, rig, animationIndex, ModelAnimationEvent.Cause.RANGE, null);
-            }
+        }
+        Set<UUID> previous = rangeOccupants.put(hitbox.getUniqueId(), current);
+        if (hasNewEntrant(previous, current)) {
+            startAnimation(hitbox, rig, animationIndex, ModelAnimationEvent.Cause.RANGE, null);
         }
     }
 

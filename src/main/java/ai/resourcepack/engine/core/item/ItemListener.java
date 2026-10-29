@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.item;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemAction;
 import ai.resourcepack.engine.core.liquid.LiquidBuckets;
@@ -313,7 +314,7 @@ public final class ItemListener implements Listener {
         // One tick later even here: the respawn event fires before the player
         // is fully in the world, and an inventory change made during it does
         // not always reach the client.
-        org.bukkit.Bukkit.getScheduler().runTask(plugin, () -> {
+        Tasks.on(plugin, player, () -> {
             for (ItemStack one : kept) {
                 player.getInventory().addItem(one).values()
                         .forEach(over -> player.getWorld().dropItemNaturally(player.getLocation(), over));

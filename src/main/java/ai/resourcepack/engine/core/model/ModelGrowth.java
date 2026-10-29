@@ -1,11 +1,13 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import java.util.ArrayList;
+import java.util.List;
 import ai.resourcepack.engine.api.ModelInfo;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -49,9 +51,10 @@ public final class ModelGrowth {
      * rather than a queue, because a chunk unloading forgets hundreds at once
      * and removing from the middle of a queue is a walk along it each time.
      */
+    /** Guarded by itself: on Folia models are placed, and so tracked, on many regions' threads. */
     private final LinkedHashSet<UUID> waiting = new LinkedHashSet<>();
 
-    private BukkitTask task;
+    private Tasks.Handle task;
 
     public ModelGrowth(Plugin plugin, ModelPlacementListener placements) {
         this.plugin = plugin;
@@ -61,7 +64,7 @@ public final class ModelGrowth {
     /** Starts checking. Idempotent. */
     public void start() {
         if (task == null) {
-            task = Bukkit.getScheduler().runTaskTimer(plugin, this::run, PERIOD, PERIOD);
+            task = Tasks.globalTimer(plugin, this::run, PERIOD, PERIOD);
         }
     }
 
@@ -71,7 +74,9 @@ public final class ModelGrowth {
             task.cancel();
             task = null;
         }
-        waiting.clear();
+        synchronized (waiting) {
+            waiting.clear();
+        }
     }
 
     /**
@@ -79,37 +84,58 @@ public final class ModelGrowth {
      * have given pieces {@code grow:} or taken it away.
      */
     public void rescan() {
-        waiting.clear();
+        synchronized (waiting) {
+            waiting.clear();
+        }
         placements.adoptLoaded();
     }
 
     /** Adds a piece that can grow. A piece already waiting keeps its place in line. */
     void track(Interaction hitbox) {
         if (hitbox != null) {
-            waiting.add(hitbox.getUniqueId());
+            synchronized (waiting) {
+                waiting.add(hitbox.getUniqueId());
+            }
         }
     }
 
     /** A piece that was broken, grew, or went with its chunk. */
     void forget(UUID hitbox) {
-        waiting.remove(hitbox);
+        synchronized (waiting) {
+            waiting.remove(hitbox);
+        }
     }
 
     /** How many loaded pieces are waiting to grow, for a status line. */
     public int size() {
-        return waiting.size();
+        synchronized (waiting) {
+            return waiting.size();
+        }
     }
 
     private void run() {
-        int budget = Math.min(PER_RUN, waiting.size());
-        for (int i = 0; i < budget && !waiting.isEmpty(); i++) {
+        List<UUID> due = new ArrayList<>();
+        synchronized (waiting) {
             Iterator<UUID> first = waiting.iterator();
-            UUID uuid = first.next();
-            first.remove();
-            if (check(uuid)) {
-                // Not yet: to the back.
-                waiting.add(uuid);
+            for (int i = 0; i < PER_RUN && first.hasNext(); i++) {
+                due.add(first.next());
+                first.remove();
             }
+        }
+        for (UUID uuid : due) {
+            Entity entity = Bukkit.getEntity(uuid);
+            if (!(entity instanceof Interaction) || !entity.isValid()) {
+                continue;
+            }
+            // On the model's own thread, which on Folia is its region's.
+            Tasks.now(plugin, entity, () -> {
+                if (check(uuid)) {
+                    // Not yet: to the back.
+                    synchronized (waiting) {
+                        waiting.add(uuid);
+                    }
+                }
+            });
         }
     }
 

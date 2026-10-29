@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.armor3d;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.core.model.DisplayCarry;
 import ai.resourcepack.engine.core.model.DisplayLatency;
 import ai.resourcepack.engine.core.version.Compatibility;
@@ -133,13 +135,15 @@ public final class WornArmour implements Listener {
     /** A player's client protocol — see {@link Armor3dSet#drawnBy}. */
     private final java.util.function.ToIntFunction<Player> protocolOf;
     /** Looked up once per session: a connection does not change version. */
-    private final Map<UUID, Integer> protocols = new HashMap<>();
+    private final Map<UUID, Integer> protocols = new java.util.concurrent.ConcurrentHashMap<>();
 
-    private final Map<UUID, Wearer> wearers = new HashMap<>();
+    private final Map<UUID, Wearer> wearers = new java.util.concurrent.ConcurrentHashMap<>();
     /** Who asked to see their own. Session-only, and kept when they take it off and put it back on. */
-    private final Set<UUID> showingSelf = new HashSet<>();
-    private long tick;
-    private int taskId = -1;
+    private final Set<UUID> showingSelf = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private volatile long tick;
+    private Tasks.Handle task;
+    /** Each wearer's part of the loop, on their own thread (their region's, on Folia). */
+    private final Regions.Fanout<UUID> each;
 
     public WornArmour(Plugin plugin, Compatibility compatibility, Armor3dItems items,
                       Supplier<Map<String, Armor3dSet>> sets, boolean available,
@@ -152,21 +156,23 @@ public final class WornArmour implements Listener {
         this.ownGlide = DisplayCarry.forServer(compatibility, OWN_GLIDE_TICKS);
         this.snap = DisplayCarry.forServer(compatibility, 0);
         this.available = available;
+        this.each = new Regions.Fanout<>(plugin);
     }
 
     public void start() {
-        if (!available || taskId != -1) {
+        if (!available || task != null) {
             return;
         }
-        taskId = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 1, 1).getTaskId();
+        task = Tasks.globalTimer(plugin, this::tick, 1, 1);
     }
 
     /** Takes every display down. Nothing here is persistent, so this is tidiness, not safety. */
     public void stop() {
-        if (taskId != -1) {
-            Bukkit.getScheduler().cancelTask(taskId);
-            taskId = -1;
+        if (task != null) {
+            task.cancel();
+            task = null;
         }
+        each.clear();
         for (Wearer wearer : wearers.values()) {
             wearer.clear();
         }
@@ -202,62 +208,7 @@ public final class WornArmour implements Listener {
         boolean pose = tick % POSE_PERIOD == 0;
         boolean visibility = tick % VISIBILITY_PERIOD == 0;
         for (Player player : Bukkit.getOnlinePlayers()) {
-            try {
-                Wearer wearer = wearers.get(player.getUniqueId());
-                if (readEquipment) {
-                    Map<String, Placed> wanted = wanted(player, known);
-                    if (wanted.isEmpty()) {
-                        if (wearer != null) {
-                            wearer.clear();
-                            wearers.remove(player.getUniqueId());
-                        }
-                        continue;
-                    }
-                    if (wearer == null) {
-                        wearer = new Wearer(player);
-                        wearers.put(player.getUniqueId(), wearer);
-                    }
-                    wearer.wanted = wanted;
-                }
-                if (wearer == null) {
-                    continue;
-                }
-                wearer.step(player);
-                wearer.shared.sync(player, wearer.wanted, feet(player), false);
-                // Their own copy is only the parts their client does not already
-                // draw: a set their shaders draw is on their body with no lag at
-                // all, and nothing here could improve on that.
-                Map<String, Placed> ownWanted = new LinkedHashMap<>();
-                int ownProtocol = protocol(player);
-                for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
-                    if (!entry.getValue().set().drawnBy(ownProtocol)) {
-                        ownWanted.put(entry.getKey(), entry.getValue());
-                    }
-                }
-                boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
-                if (own) {
-                    if (wearer.own == null) {
-                        wearer.own = new Copy(true);
-                    }
-                    wearer.own.sync(player, ownWanted, feet(player).add(wearer.lead), wearer.jumped);
-                } else if (wearer.own != null) {
-                    wearer.own.clear();
-                    wearer.own = null;
-                }
-                if (pose || wearer.poseNow) {
-                    wearer.pose(player);
-                }
-                if (visibility) {
-                    wearer.mirrorVisibility(player);
-                }
-            } catch (RuntimeException e) {
-                // One wearer's failure must not skip everybody after them, every tick.
-                long now = System.currentTimeMillis();
-                if (now - lastFailureLog > 10_000) {
-                    lastFailureLog = now;
-                    plugin.getLogger().log(java.util.logging.Level.WARNING, "3D armour tick failed for " + player.getName(), e);
-                }
-            }
+            each.on(player.getUniqueId(), player, ignored -> tickOne(player, known, readEquipment, pose, visibility));
         }
         // Gone without a quit event: a reload, a kick mid-tick.
         if (readEquipment) {
@@ -269,6 +220,70 @@ public final class WornArmour implements Listener {
                 entry.getValue().clear();
                 return true;
             });
+        }
+    }
+
+    /** One wearer's tick, on the thread that owns them. */
+    private void tickOne(Player player, Map<String, Armor3dSet> known, boolean readEquipment, boolean pose,
+                         boolean visibility) {
+        if (!player.isOnline()) {
+            return;
+        }
+        try {
+            Wearer wearer = wearers.get(player.getUniqueId());
+            if (readEquipment) {
+                Map<String, Placed> wanted = wanted(player, known);
+                if (wanted.isEmpty()) {
+                    if (wearer != null) {
+                        wearer.clear();
+                        wearers.remove(player.getUniqueId());
+                    }
+                    return;
+                }
+                if (wearer == null) {
+                    wearer = new Wearer(player);
+                    wearers.put(player.getUniqueId(), wearer);
+                }
+                wearer.wanted = wanted;
+            }
+            if (wearer == null) {
+                return;
+            }
+            wearer.step(player);
+            wearer.shared.sync(player, wearer.wanted, feet(player), false);
+            // Their own copy is only the parts their client does not already
+            // draw: a set their shaders draw is on their body with no lag at
+            // all, and nothing here could improve on that.
+            Map<String, Placed> ownWanted = new LinkedHashMap<>();
+            int ownProtocol = protocol(player);
+            for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
+                if (!entry.getValue().set().drawnBy(ownProtocol)) {
+                    ownWanted.put(entry.getKey(), entry.getValue());
+                }
+            }
+            boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
+            if (own) {
+                if (wearer.own == null) {
+                    wearer.own = new Copy(true);
+                }
+                wearer.own.sync(player, ownWanted, feet(player).add(wearer.lead), wearer.jumped);
+            } else if (wearer.own != null) {
+                wearer.own.clear();
+                wearer.own = null;
+            }
+            if (pose || wearer.poseNow) {
+                wearer.pose(player);
+            }
+            if (visibility) {
+                wearer.mirrorVisibility(player);
+            }
+        } catch (RuntimeException e) {
+            // One wearer's failure must not skip everybody after them, every tick.
+            long now = System.currentTimeMillis();
+            if (now - lastFailureLog > 10_000) {
+                lastFailureLog = now;
+                plugin.getLogger().log(java.util.logging.Level.WARNING, "3D armour tick failed for " + player.getName(), e);
+            }
         }
     }
 
@@ -629,7 +644,7 @@ public final class WornArmour implements Listener {
                 Placed part = wanted.get(entry.getKey());
                 if (part == null || !display.isValid() || display.getWorld() != world
                         || !part.part().model().equals(shown.get(entry.getKey()).part().model())) {
-                    display.remove();
+                    Regions.remove(plugin, display);
                     displays.remove(entry.getKey());
                     shown.remove(entry.getKey());
                 }
@@ -646,10 +661,10 @@ public final class WornArmour implements Listener {
             for (ItemDisplay display : displays.values()) {
                 if (moved || display.getLocation().distanceSquared(at) > SNAP_DISTANCE * SNAP_DISTANCE) {
                     snap.carry(display);
-                    display.teleport(at);
+                    Regions.move(display, at);
                     carry.carry(display);
                 } else {
-                    display.teleport(at);
+                    Regions.move(display, at);
                 }
             }
         }
@@ -729,7 +744,7 @@ public final class WornArmour implements Listener {
 
         void clear() {
             for (ItemDisplay display : displays.values()) {
-                display.remove();
+                Regions.remove(plugin, display);
             }
             displays.clear();
             shown.clear();

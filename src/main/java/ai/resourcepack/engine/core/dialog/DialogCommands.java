@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
 import ai.resourcepack.engine.core.command.EngineCommand;
@@ -69,14 +70,14 @@ public final class DialogCommands {
 
     /**
      * Makes the registered commands the catalogue's: one per dialog that names
-     * one, the first dialog to name a command keeping it. On the main thread,
-     * because the command map is not safe anywhere else; a call from another
-     * thread is moved there.
+     * one, the first dialog to name a command keeping it. On the main thread
+     * (Folia's global region), because the command map is not safe anywhere
+     * else; a call from another thread is moved there.
      */
     public void sync(Collection<DialogInfo> catalogue) {
-        if (!Bukkit.isPrimaryThread()) {
+        if (!Tasks.global()) {
             if (plugin.isEnabled()) {
-                Bukkit.getScheduler().runTask(plugin, () -> sync(catalogue));
+                Tasks.global(plugin, () -> sync(catalogue));
             }
             return;
         }
@@ -212,7 +213,7 @@ public final class DialogCommands {
             plugin.getLogger().fine("No syncCommands on this server; dialog command completions may lag.");
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
-            player.updateCommands();
+            Tasks.now(plugin, player, player::updateCommands);
         }
     }
 

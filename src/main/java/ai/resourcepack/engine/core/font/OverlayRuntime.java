@@ -1,11 +1,12 @@
 package ai.resourcepack.engine.core.font;
 
+import ai.resourcepack.common.scheduler.Tasks;
+import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.OverlayInfo;
 import ai.resourcepack.engine.api.OverlayTrigger;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -110,9 +111,13 @@ public final class OverlayRuntime {
      */
     private final Set<UUID> dirty = ConcurrentHashMap.newKeySet();
     private long periodTicks = DEFAULT_PERIOD_TICKS;
-    private BukkitTask task;
-    private BukkitTask triggerTask;
-    private BukkitTask flushTask;
+    private Tasks.Handle task;
+    private Tasks.Handle triggerTask;
+    private Tasks.Handle flushTask;
+    /** Each player's part of each loop, on their own thread (their region's, on Folia). */
+    private Regions.Fanout<UUID> drawing;
+    private Regions.Fanout<UUID> triggering;
+    private Regions.Fanout<UUID> flushing;
 
     public OverlayRuntime(Overlays overlays) {
         this.overlays = overlays;
@@ -131,10 +136,12 @@ public final class OverlayRuntime {
         if (task != null) {
             return;
         }
-        task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, periodTicks, periodTicks);
-        triggerTask = plugin.getServer().getScheduler()
-                .runTaskTimer(plugin, this::triggerTick, TRIGGER_TICKS, TRIGGER_TICKS);
-        flushTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::flushDirty, 1L, 1L);
+        drawing = new Regions.Fanout<>(plugin);
+        triggering = new Regions.Fanout<>(plugin);
+        flushing = new Regions.Fanout<>(plugin);
+        task = Tasks.globalTimer(plugin, this::tick, periodTicks, periodTicks);
+        triggerTask = Tasks.globalTimer(plugin, this::triggerTick, TRIGGER_TICKS, TRIGGER_TICKS);
+        flushTask = Tasks.globalTimer(plugin, this::flushDirty, 1L, 1L);
     }
 
     /** Stops the loops and forgets everything. For disable and for reload. */
@@ -168,7 +175,7 @@ public final class OverlayRuntime {
      */
     private void triggerTick() {
         for (Player viewer : org.bukkit.Bukkit.getOnlinePlayers()) {
-            applyStateTriggers(viewer);
+            triggering.on(viewer.getUniqueId(), viewer, ignored -> applyStateTriggers(viewer));
         }
     }
 
@@ -182,7 +189,7 @@ public final class OverlayRuntime {
             it.remove();
             Player viewer = org.bukkit.Bukkit.getPlayer(id);
             if (viewer != null) {
-                draw(viewer);
+                flushing.on(id, viewer, ignored -> draw(viewer));
             }
         }
     }
@@ -192,7 +199,7 @@ public final class OverlayRuntime {
         // a state trigger has to be able to turn an overlay ON for somebody
         // wearing nothing, which a loop over wearers can never do.
         for (Player viewer : org.bukkit.Bukkit.getOnlinePlayers()) {
-            draw(viewer);
+            drawing.on(viewer.getUniqueId(), viewer, ignored -> draw(viewer));
         }
         // Anyone who left takes their set with them. An overlay is something a
         // caller put on; a caller that wants it back on login has a JOIN

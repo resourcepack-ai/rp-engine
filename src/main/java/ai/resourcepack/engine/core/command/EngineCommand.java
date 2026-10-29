@@ -175,9 +175,19 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(EngineCommand.class);
         switch (command.getName().toLowerCase(Locale.ROOT)) {
-            case "emote":
-                return emote.perform(sender, args);
+            case "emote": {
+                if (!ai.resourcepack.engine.core.Regions.folia()) {
+                    return emote.perform(sender, args);
+                }
+                // The emote's words, after the subcommand slot CommandThreads skips.
+                String[] words = new String[args.length + 1];
+                words[0] = "emote";
+                System.arraycopy(args, 0, words, 1, args.length);
+                CommandThreads.run(plugin, sender, "emote", words, () -> emote.perform(sender, args));
+                return true;
+            }
             case "emotereply":
                 return emote.reply(sender, args);
             default:
@@ -196,7 +206,17 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             Reply.to(sender, "You need " + permissionFor(sub) + " for that.");
             return true;
         }
-        return areas.get(sub).run(sender, sub, args);
+        if (!ai.resourcepack.engine.core.Regions.folia()) {
+            return areas.get(sub).run(sender, sub, args);
+        }
+        // On Folia, on the thread that owns what the command is about; its
+        // usage line, if it wants one, is printed from there.
+        CommandThreads.run(plugin, sender, sub, args, () -> {
+            if (!areas.get(sub).run(sender, sub, args)) {
+                Reply.to(sender, "Usage: /" + label + " " + sub + " ...");
+            }
+        });
+        return true;
     }
 
     @Override

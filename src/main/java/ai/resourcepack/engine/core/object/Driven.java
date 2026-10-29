@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.Easing;
 import ai.resourcepack.engine.api.ShaderObject;
 import ai.resourcepack.engine.api.ShaderObjectInfo;
 
+import ai.resourcepack.engine.core.Regions;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.ItemDisplay;
@@ -266,7 +267,7 @@ public final class Driven implements ShaderObject {
     private void tickMove() {
         double[] at = move.sample(runtime.now());
         Location to = new Location(display.getWorld(), at[0], at[1], at[2]);
-        display.teleport(to);
+        Regions.move(display, to);
         if (move.done(runtime.now())) {
             move = null;
         }
@@ -359,7 +360,7 @@ public final class Driven implements ShaderObject {
                     .replace("{z}", String.format(Locale.ROOT, "%.3f", at.getZ()))
                     .replace("{world}", at.getWorld().getName())
                     .replace("{size}", String.format(Locale.ROOT, "%.3f", size));
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+            Regions.console(runtime.plugin(), command);
         } else if (step instanceof ObjectSequence.Settle) {
             settle();
         } else if (step instanceof ObjectSequence.Remove) {

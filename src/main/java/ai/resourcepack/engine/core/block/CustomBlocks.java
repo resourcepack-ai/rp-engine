@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.block;
 
+import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ItemAction;
@@ -842,7 +843,7 @@ public final class CustomBlocks implements Listener {
             if (found.get().behaviour().falls()) {
                 Block block = event.getBlock();
                 // Next tick: a block cannot be replaced from inside its own update.
-                plugin.getServer().getScheduler().runTask(plugin, () -> at(block)
+                Tasks.at(plugin, block.getLocation(), () -> at(block)
                         .ifPresent(still -> fallIfLoose(block, still)));
             }
         }

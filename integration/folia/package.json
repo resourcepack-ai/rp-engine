@@ -1,0 +1,11 @@
+{
+  "name": "rp-engine-folia-session",
+  "private": true,
+  "description": "Runs RP Engine on a real Folia server with two players in two regions. See README.md.",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "mineflayer": "^4.39.0"
+  }
+}
