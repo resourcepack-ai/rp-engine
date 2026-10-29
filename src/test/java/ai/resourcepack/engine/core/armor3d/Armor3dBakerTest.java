@@ -162,6 +162,22 @@ class Armor3dBakerTest {
     }
 
     @Test
+    void shadersOffLeavesNothingForTheShadersAndDisplaysForEverybody() {
+        Armor3dBlockbench.Source source = Armor3dBlockbench.read(santa().getBytes(StandardCharsets.UTF_8),
+                "christmas/armor3d/costumes.yml", "santa", new ArrayList<>()).orElseThrow();
+        Armor3dBaker.Baked baked = Armor3dBaker.bake("christmas", "santa", "Santa Suit", source, true, false, false);
+
+        assertTrue(baked.overlayFiles().isEmpty());
+        assertNull(baked.shaderProblem());
+        assertFalse(baked.set().drawnBy(776));
+        for (Armor3dSet.Worn worn : baked.set().pieces().values()) {
+            assertNull(worn.asset(), worn.piece().wire());
+        }
+        assertFalse(baked.set().piece(Armor3dSet.Piece.CHESTPLATE).orElseThrow().parts().isEmpty());
+        assertFalse(baked.files().keySet().stream().anyMatch(path -> path.contains("/equipment/")));
+    }
+
+    @Test
     void theHelmetIsTheGamesSoItHasNoDisplays() {
         Armor3dBaker.Baked baked = bake(santa(), new ArrayList<>());
         Armor3dSet.Worn helmet = baked.set().piece(Armor3dSet.Piece.HELMET).orElseThrow();
@@ -290,7 +306,8 @@ class Armor3dBakerTest {
         bake(santa(), diagnostics);
 
         String said = diagnostics.toString();
-        assertTrue(said.contains("cape"), said);
+        // The cape is inside body, so it rides it: nothing to warn about.
+        assertFalse(said.contains("group cape"), said);
         assertTrue(said.contains("props"), said);
         assertTrue(said.contains("1 cube is not inside any bone"), said);
     }

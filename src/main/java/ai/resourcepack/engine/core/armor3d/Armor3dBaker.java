@@ -163,6 +163,20 @@ public final class Armor3dBaker {
      */
     public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source,
                              boolean displays, boolean shaderHelmet) {
+        return bake(namespace, key, name, source, displays, shaderHelmet, true);
+    }
+
+    /**
+     * Bakes one set.
+     *
+     * @param shaders whether the set goes to the client's shaders at all. Off,
+     *                the pack carries no shader for it and every client is
+     *                shown the displays, for a server whose players' graphics
+     *                cards cannot compile the shaders: a client that cannot
+     *                refuses the whole pack, not only the armour
+     */
+    public static Baked bake(String namespace, String key, String name, Armor3dBlockbench.Source source,
+                             boolean displays, boolean shaderHelmet, boolean shaders) {
         String setId = namespace + ":" + key;
         Map<String, byte[]> files = new TreeMap<>();
 
@@ -293,20 +307,22 @@ public final class Armor3dBaker {
         Map<String, byte[]> overlayFiles = Map.of();
         String shaderProblem = null;
         List<int[]> shaderProtocols = List.of();
-        try {
-            Armor3dShaderEncoder.Encoded encoded = encodeShaderSet(namespace, key, source, shaderHelmet);
-            files.putAll(encoded.baseFiles());
-            overlayFiles = encoded.overlayFiles();
-            shaderProtocols = Armor3dShaders.protocols();
-            for (Map.Entry<Armor3dSet.Piece, String> asset : encoded.equipment().entrySet()) {
-                Armor3dSet.Worn worn = pieces.get(asset.getKey());
-                if (worn != null && (shaderHelmet || asset.getKey() != Armor3dSet.Piece.HELMET)) {
-                    pieces.put(asset.getKey(), new Armor3dSet.Worn(worn.piece(), worn.item(), worn.parts(),
-                            asset.getValue()));
+        if (shaders) {
+            try {
+                Armor3dShaderEncoder.Encoded encoded = encodeShaderSet(namespace, key, source, shaderHelmet);
+                files.putAll(encoded.baseFiles());
+                overlayFiles = encoded.overlayFiles();
+                shaderProtocols = Armor3dShaders.protocols();
+                for (Map.Entry<Armor3dSet.Piece, String> asset : encoded.equipment().entrySet()) {
+                    Armor3dSet.Worn worn = pieces.get(asset.getKey());
+                    if (worn != null && (shaderHelmet || asset.getKey() != Armor3dSet.Piece.HELMET)) {
+                        pieces.put(asset.getKey(), new Armor3dSet.Worn(worn.piece(), worn.item(), worn.parts(),
+                                asset.getValue()));
+                    }
                 }
+            } catch (IllegalArgumentException e) {
+                shaderProblem = e.getMessage();
             }
-        } catch (IllegalArgumentException e) {
-            shaderProblem = e.getMessage();
         }
 
         for (Map.Entry<String, JsonObject> model : models.entrySet()) {

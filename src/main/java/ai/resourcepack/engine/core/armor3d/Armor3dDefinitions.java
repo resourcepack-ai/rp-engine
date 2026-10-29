@@ -23,6 +23,7 @@ import java.util.Set;
  *   name: "Santa Suit"   # optional; the id when absent
  *   model: armor_santa   # assets/models/armor_santa.bbmodel; the id's path when absent
  *   displays: false      # optional, default true; see below
+ *   shaders: false       # optional, default true; see below
  *   shader-helmet: true  # optional, default false; see below
  * }</pre>
  *
@@ -32,6 +33,11 @@ import java.util.Set;
  * the body, or, with {@code displays: false}, nothing but the helmet (which the
  * game draws as a head item on every client). For a server that only admits
  * clients the shaders cover, or would rather show less than show it late.
+ *
+ * <p>{@code shaders: false} keeps the set out of the client's shaders, so the
+ * pack carries no shader for it and every viewer gets the displays. The
+ * shaders need OpenGL 4.5 with subgroup support, and a graphics card or driver
+ * without it does not just miss the armour: it refuses the whole pack.
  *
  * <p>{@code shader-helmet} hands the helmet to the shaders as well, so it
  * follows the same rules as the body (any turn, mesh faces) instead of a block
@@ -46,7 +52,7 @@ import java.util.Set;
  */
 public final class Armor3dDefinitions {
 
-    private static final Set<String> KEYS = Set.of("name", "model", "displays", "shader-helmet");
+    private static final Set<String> KEYS = Set.of("name", "model", "displays", "shaders", "shader-helmet");
 
     private Armor3dDefinitions() {
     }
@@ -82,7 +88,7 @@ public final class Armor3dDefinitions {
             for (String written : body.keys()) {
                 if (!KEYS.contains(written)) {
                     diagnostics.add(Diagnostic.warning(origin, key, written + " is not a 3D armour setting, "
-                            + "so it was ignored. A set takes name, model, displays and shader-helmet."));
+                            + "so it was ignored. A set takes name, model, displays, shaders and shader-helmet."));
                 }
             }
             String model = body.string("model").orElse(key);
@@ -100,9 +106,18 @@ public final class Armor3dDefinitions {
                 continue;
             }
             boolean displays = body.bool("displays").orElse(true);
-            boolean shaderHelmet = body.bool("shader-helmet").orElse(false);
+            boolean shaders = body.bool("shaders").orElse(true);
+            boolean shaderHelmet = shaders && body.bool("shader-helmet").orElse(false);
+            if (!shaders && body.bool("shader-helmet").orElse(false)) {
+                diagnostics.add(Diagnostic.warning(origin, key, "shader-helmet is ignored with shaders: false, "
+                        + "so the helmet is the game's head item."));
+            }
+            if (!shaders && !displays) {
+                diagnostics.add(Diagnostic.warning(origin, key, "With shaders: false and displays: false nobody "
+                        + "sees more of this set than the helmet."));
+            }
             Armor3dBaker.Baked set = Armor3dBaker.bake(namespace, key, body.string("name").orElse(null),
-                    source.get(), displays, shaderHelmet);
+                    source.get(), displays, shaderHelmet, shaders);
             boolean meshHelmet = source.get().quads().stream().anyMatch(q -> q.piece() == Armor3dSet.Piece.HELMET);
             if (meshHelmet && !shaderHelmet) {
                 diagnostics.add(Diagnostic.warning(origin, key, "The helmet has mesh faces, which only the "
