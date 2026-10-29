@@ -998,7 +998,7 @@ head is drawn from its model, the pack's helmet is built to land exactly on the
 head, and it follows the head on every client with nothing from the server.
 
 The rest is drawn by **the client's own core shaders** wherever a shader port
-exists for its version, which today is **Minecraft 26.1 to 26.2**: the pack
+exists for its version, which today is **Minecraft 26.1 to 26.3**: the pack
 carries the set encoded into armour layers, and the client turns them back into
 the set's cubes on the player's own limbs. That is part of the body, so it
 never lags, not even for the wearer, and it is drawn on anything that wears
