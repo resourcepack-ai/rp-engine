@@ -2648,6 +2648,53 @@ its length. A vehicle whose sound is a stereo file is warned about on load,
 since a stereo file cannot come from the vehicle. A file that is not Ogg Vorbis
 (an mp3 or Opus renamed to `.ogg`) is warned about too: it plays as silence.
 
+## Music
+
+A piece of music is a playlist of your sounds, played to each player while
+they are somewhere it belongs, or when a command or plugin starts it.
+
+```yaml
+# music/lobby.yml
+lobby:
+  tracks: [theme, calm]      # sounds; a bare name is this pack's
+  shuffle: false             # a new order each time round, never a repeat back to back
+  loop: true                 # start again after the last track
+  gap: 2                     # seconds between tracks, 0 to 600. Default 1
+  vanilla-music: false       # true lets Minecraft's own music play over it
+  priority: 0                # the higher wins where two places overlap
+  where:                     # leave it out and it only plays when started
+    worlds: [lobby]
+    regions: [spawn]         # WorldGuard
+    areas:
+      - { world: world, from: [0, 0, 0], to: [100, 255, 100] }
+```
+
+**A player hears one piece at a time**: what `/rp music play` or
+`Music.play` started for them, otherwise their place's music (highest
+`priority`, then the id that sorts first), otherwise nothing. Walking between
+places changes it within half a second. `/rp music stop` ends started music and
+the place's comes back; with nothing started, it quiets the place's music until
+they leave it. `/rp music skip` moves to the next track.
+
+**Each track starts when the one before ends**, because Minecraft cannot queue a
+sound. That takes its length, which the engine reads off the file (see
+`length`, above); a track with none plays once and the music stops there, and
+the load warns about it. A track the server has no sound for is passed over.
+
+A track is played from the player, so it follows them: a mono track does not
+fade as they walk. Stereo is still the right export for music, since it plays
+the same whatever the listener does.
+
+**Minecraft's own music is stopped while yours plays**, by name and never by
+category, which would stop yours too: as each track starts and every ten
+seconds after, because the client starts its own on a timer. `vanilla-music:
+true` leaves it alone.
+
+Each verb has its own node: `rpengine.music` (the list, and parent of the
+rest), `rpengine.music.play`, `.stop` and `.skip`, and `rpengine.music.others`
+to aim any of them at somebody else. All op by default, so a server can grant
+players `stop` and `skip` without `play`.
+
 ## Icons
 
 An icon is a picture that behaves like a letter.
