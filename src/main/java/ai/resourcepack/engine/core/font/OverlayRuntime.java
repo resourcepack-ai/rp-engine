@@ -85,8 +85,15 @@ public final class OverlayRuntime {
      * on the tick the answer actually changes — {@link #triggered} is what makes
      * that true. The redraw stays at thirty because that one really does send a
      * packet every time.
+     *
+     * <p>Two is the default rather than the rule: a minigame whose HUD answers
+     * a crouch or a held item wants it on the same tick, and
+     * {@code overlays.trigger-ticks} says so.
      */
-    private static final long TRIGGER_TICKS = 2L;
+    public static final long DEFAULT_TRIGGER_TICKS = 2L;
+
+    /** The longest trigger period the config may ask for: a second, past which a trigger stops reading as a response. */
+    public static final long MAX_TRIGGER_TICKS = 20L;
 
     private final Overlays overlays;
     private final Map<UUID, Set<ContentId>> worn = new ConcurrentHashMap<>();
@@ -111,6 +118,7 @@ public final class OverlayRuntime {
      */
     private final Set<UUID> dirty = ConcurrentHashMap.newKeySet();
     private long periodTicks = DEFAULT_PERIOD_TICKS;
+    private long triggerTicks = DEFAULT_TRIGGER_TICKS;
     private Tasks.Handle task;
     private Tasks.Handle triggerTask;
     private Tasks.Handle flushTask;
@@ -131,6 +139,14 @@ public final class OverlayRuntime {
         periodTicks = Math.max(1L, Math.min(MAX_PERIOD_TICKS, ticks));
     }
 
+    /**
+     * Sets how often state triggers are re-asked, clamped to 1 to
+     * {@link #MAX_TRIGGER_TICKS}. Takes effect at the next {@link #start}.
+     */
+    public void triggerPeriod(long ticks) {
+        triggerTicks = Math.max(1L, Math.min(MAX_TRIGGER_TICKS, ticks));
+    }
+
     /** Starts the redraw loop, the trigger loop and the value flush. Idempotent. */
     public void start(Plugin plugin) {
         if (task != null) {
@@ -140,7 +156,7 @@ public final class OverlayRuntime {
         triggering = new Regions.Fanout<>(plugin);
         flushing = new Regions.Fanout<>(plugin);
         task = Tasks.globalTimer(plugin, this::tick, periodTicks, periodTicks);
-        triggerTask = Tasks.globalTimer(plugin, this::triggerTick, TRIGGER_TICKS, TRIGGER_TICKS);
+        triggerTask = Tasks.globalTimer(plugin, this::triggerTick, triggerTicks, triggerTicks);
         flushTask = Tasks.globalTimer(plugin, this::flushDirty, 1L, 1L);
     }
 
