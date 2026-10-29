@@ -924,7 +924,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (optional("PlaceholderAPI",
                 () -> Placeholders.register(this, registry, emotes(), items, icons, seats, sessions, group,
                         (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name),
-                        player -> rankTagWearers.tagOf(player::hasPermission)))) {
+                        player -> rankTagWearers.tagOf(player::hasPermission),
+                        () -> creatures.ids().size()))) {
             hooks.add("PlaceholderAPI");
         }
         if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {

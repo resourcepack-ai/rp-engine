@@ -1026,7 +1026,7 @@ A real mob wearing a model.
 ```yaml
 guard:
   type: ZOMBIE         # required. Chosen for BEHAVIOUR: the looks are replaced
-  model: mypack:guard  # an item id, whose model it wears
+  model: mypack:guard  # assets/models/guard.bbmodel, or an item id
   name: "&cTemple Guard"
   health: 40
   scale: 1.2
@@ -1044,9 +1044,11 @@ custom entity never despawns: one that vanished because a player walked away
 would leave its model standing there, because a removed mount ejects its
 passengers rather than taking them.
 
-`model:` names an ITEM, never a file: the guard needs `guard:` in `items/` with
-`model: guard` for `assets/models/guard.bbmodel`. One naming no item spawns as
-the plain mob, and the load warns about it.
+`model:` is an item id, but nobody holds a mob's model in their hand, so the
+item need not be written: a model of the same pack in `assets/models/` that no
+item wears gets a plain one, as a blueprint does. An entity may share its id
+with that item; entities are outside the id space, as recipes are. One naming
+neither an item nor a model spawns as the plain mob, and the load warns.
 
 `/rp spawn mypack:guard` puts one where you stand.
 

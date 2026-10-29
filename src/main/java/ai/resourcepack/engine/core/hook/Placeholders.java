@@ -57,13 +57,16 @@ public final class Placeholders extends PlaceholderExpansion {
     private final SyncGroup group;
     /** A player's dialog settings — what a Studio dialog's bound controls show. */
     private final java.util.function.BiFunction<Player, String, Optional<String>> dialogVars;
+    /** Entities are outside the id space (see ContentFolderLoader), so the registry cannot count them. */
+    private final java.util.function.IntSupplier entityCount;
     /** The rank tag a player wears, by permission (core/font/RankTagWearers). */
     private final java.util.function.Function<Player, Optional<ContentId>> rankTag;
 
     private Placeholders(Plugin plugin, ContentRegistry registry, Emotes emotes, Items items, Icons icons,
                          Seats seats, BundleSessions sessions, SyncGroup group,
                          java.util.function.BiFunction<Player, String, Optional<String>> dialogVars,
-                         java.util.function.Function<Player, Optional<ContentId>> rankTag) {
+                         java.util.function.Function<Player, Optional<ContentId>> rankTag,
+                         java.util.function.IntSupplier entityCount) {
         this.plugin = plugin;
         this.registry = registry;
         this.emotes = emotes;
@@ -74,6 +77,7 @@ public final class Placeholders extends PlaceholderExpansion {
         this.group = group;
         this.dialogVars = dialogVars;
         this.rankTag = rankTag;
+        this.entityCount = entityCount;
     }
 
     /**
@@ -91,7 +95,8 @@ public final class Placeholders extends PlaceholderExpansion {
     public static boolean register(Plugin plugin, ContentRegistry registry, Emotes emotes,
                                    Items items, Icons icons, Seats seats, BundleSessions sessions, SyncGroup group,
                                    java.util.function.BiFunction<Player, String, Optional<String>> dialogVars,
-                                   java.util.function.Function<Player, Optional<ContentId>> rankTag) {
+                                   java.util.function.Function<Player, Optional<ContentId>> rankTag,
+                                   java.util.function.IntSupplier entityCount) {
         if (plugin.getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
             return false;
         }
@@ -102,7 +107,7 @@ public final class Placeholders extends PlaceholderExpansion {
             // rather than our problem to solve.
             return false;
         }
-        return new Placeholders(plugin, registry, emotes, items, icons, seats, sessions, group, dialogVars, rankTag).register();
+        return new Placeholders(plugin, registry, emotes, items, icons, seats, sessions, group, dialogVars, rankTag, entityCount).register();
     }
 
     @Override
@@ -157,7 +162,7 @@ public final class Placeholders extends PlaceholderExpansion {
             case "huds":
                 return count(ContentKind.HUD);
             case "entities":
-                return count(ContentKind.ENTITY);
+                return String.valueOf(entityCount.getAsInt());
             case "recipes":
                 return count(ContentKind.RECIPE);
             case "content":
