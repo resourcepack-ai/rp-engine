@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -41,6 +41,10 @@ permissions:
       rpengine.purge: true
       rpengine.sounds: true
       rpengine.sound: true
+      rpengine.music: true
+      rpengine.music.play: true
+      rpengine.music.stop: true
+      rpengine.music.skip: true
       rpengine.icons: true
       rpengine.say: true
       rpengine.effects: true
@@ -89,6 +93,7 @@ permissions:
       rpengine.emote.cast: true
       rpengine.emote.force: true
       rpengine.sound.others: true
+      rpengine.music.others: true
       rpengine.screen.others: true
       rpengine.hud.others: true
       rpengine.shader.others: true
@@ -142,6 +147,25 @@ permissions:
     default: op
   rpengine.sound.others:
     description: Play a custom sound to somebody else.
+    default: op
+  rpengine.music:
+    description: List the music. Every /rp music verb also has its own node.
+    default: op
+    children:
+      rpengine.music.play: true
+      rpengine.music.stop: true
+      rpengine.music.skip: true
+  rpengine.music.play:
+    description: Start a piece of music for yourself.
+    default: op
+  rpengine.music.stop:
+    description: Stop your music.
+    default: op
+  rpengine.music.skip:
+    description: Skip to the next track of your music.
+    default: op
+  rpengine.music.others:
+    description: Start, stop or skip the music for somebody else.
     default: op
   rpengine.icons:
     description: List the icons.

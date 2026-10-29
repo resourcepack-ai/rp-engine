@@ -87,5 +87,12 @@ public enum ContentKind {
      * sprites, played from a recipe (a preset, or Studio's JSON). See
      * {@link Vfx}.
      */
-    VFX
+    VFX,
+
+    /**
+     * Music: a playlist of the pack's sounds, played to each player while they
+     * are somewhere it belongs, or when a command or plugin starts it. See
+     * {@link Music}.
+     */
+    MUSIC
 }

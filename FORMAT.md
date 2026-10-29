@@ -998,7 +998,7 @@ head is drawn from its model, the pack's helmet is built to land exactly on the
 head, and it follows the head on every client with nothing from the server.
 
 The rest is drawn by **the client's own core shaders** wherever a shader port
-exists for its version, which today is **Minecraft 26.1 to 26.2**: the pack
+exists for its version, which today is **Minecraft 26.1 to 26.3**: the pack
 carries the set encoded into armour layers, and the client turns them back into
 the set's cubes on the player's own limbs. That is part of the body, so it
 never lags, not even for the wearer, and it is drawn on anything that wears
@@ -1704,13 +1704,13 @@ over a bump, and goes quiet when it stops. That is the opposite of the
 has one note the way a rig has one clock, and two playing over each other is a
 vehicle that sounds broken rather than busy.
 
-**A sound loops for as long as the state holds, and it needs a `length:` to do
-it.** Minecraft has no looping sound — a sound event is a one-shot — so what
-happens here is that the engine plays your file again the moment it ends, which
-it can only do if the sound definition says how long it runs. Give the sound a
-`length:` (see Sounds, above) and it loops seamlessly; leave it out and the
-sound plays **once**, when the vehicle enters that state. That is deliberate:
-a two-second engine looped on a guessed half-second is four engines.
+**A sound loops for as long as the state holds.** Minecraft has no looping
+sound — a sound event is a one-shot — so what happens here is that the engine
+plays your file again the moment it ends, which it can only do knowing how long
+it runs: read off the file, or `length:` (see Sounds, below). A sound with
+neither plays **once**, when the vehicle enters that state. That is deliberate:
+a two-second engine looped on a guessed half-second is four engines. Use a
+**mono** file; a stereo one cannot come from the vehicle and is warned about.
 
 The sound is played **from the vehicle's chassis**, so everybody nearby hears
 it, it fades with distance, and its position follows the vehicle throughout
@@ -2591,7 +2591,7 @@ chime:
   volume: 1.0
   pitch: 1.0
   stream: false        # true for anything long
-  length: 2.4          # seconds. Only needed by something that loops it
+  length: 2.4          # seconds. Read from the file if you leave it out
 ```
 
 Play it with `/rp sound mypack:chime`, or from another plugin through the
@@ -2616,6 +2616,18 @@ audio — which is more people than most server owners expect.
 `stream: true` for anything long. A file loaded whole keeps its decompressed
 audio in memory for the session.
 
+**Mono or stereo is the file's choice, and it changes how the sound is heard.**
+Minecraft only places a mono sound in the world: it comes from a direction and
+fades with distance. A stereo file keeps its left and right and plays at full
+volume to everybody in range, wherever it was played from. So export music,
+menu clicks and anything that should sound the same everywhere in stereo, and
+anything that comes from a spot (a block, a vehicle's engine, a creature) in
+mono. The engine ships the file as it is and changes neither.
+
+`/rp sound stop mypack:theme` ends a sound early for you (`all` ends every
+custom sound, and a player name does it for somebody else); `Sounds.stop` does
+the same from a plugin. Without it a track plays to the end.
+
 The build writes one `sounds.json` and one `lang/en_us.json` per namespace. A
 pack that also ships its own at the same path (in `assets/`, or a
 `resourcepack/` folder) has the two merged rather than replaced; where both name
@@ -2625,10 +2637,63 @@ the same key, the definition here wins.
 reason: Minecraft has no looping sound. A sound event is a one-shot, so
 anything that plays continuously is the server re-playing a short file on a
 timer — a vehicle's engine note, today — and the only way to do that without a
-gap or an overlap is to know how long the file is. Nothing here can measure
-that for you, so leave it out and a vehicle plays the sound once when it enters
-that state; write it (any audio player will tell you) and the sound loops for
-as long as the state lasts. Nothing else reads it.
+gap or an overlap is to know how long the file is. **The engine reads it off
+the file's own headers**, so you only write `length:` to override that (to
+trim a tail of silence off a loop, say); a written figure always wins. A sound
+whose file cannot be read keeps no length, and a vehicle plays it once when it
+enters that state.
+
+The same read gives each sound's channel count, which `/rp sounds` shows beside
+its length. A vehicle whose sound is a stereo file is warned about on load,
+since a stereo file cannot come from the vehicle. A file that is not Ogg Vorbis
+(an mp3 or Opus renamed to `.ogg`) is warned about too: it plays as silence.
+
+## Music
+
+A piece of music is a playlist of your sounds, played to each player while
+they are somewhere it belongs, or when a command or plugin starts it.
+
+```yaml
+# music/lobby.yml
+lobby:
+  tracks: [theme, calm]      # sounds; a bare name is this pack's
+  shuffle: false             # a new order each time round, never a repeat back to back
+  loop: true                 # start again after the last track
+  gap: 2                     # seconds between tracks, 0 to 600. Default 1
+  vanilla-music: false       # true lets Minecraft's own music play over it
+  priority: 0                # the higher wins where two places overlap
+  where:                     # leave it out and it only plays when started
+    worlds: [lobby]
+    regions: [spawn]         # WorldGuard
+    areas:
+      - { world: world, from: [0, 0, 0], to: [100, 255, 100] }
+```
+
+**A player hears one piece at a time**: what `/rp music play` or
+`Music.play` started for them, otherwise their place's music (highest
+`priority`, then the id that sorts first), otherwise nothing. Walking between
+places changes it within half a second. `/rp music stop` ends started music and
+the place's comes back; with nothing started, it quiets the place's music until
+they leave it. `/rp music skip` moves to the next track.
+
+**Each track starts when the one before ends**, because Minecraft cannot queue a
+sound. That takes its length, which the engine reads off the file (see
+`length`, above); a track with none plays once and the music stops there, and
+the load warns about it. A track the server has no sound for is passed over.
+
+A track is played from the player, so it follows them: a mono track does not
+fade as they walk. Stereo is still the right export for music, since it plays
+the same whatever the listener does.
+
+**Minecraft's own music is stopped while yours plays**, by name and never by
+category, which would stop yours too: as each track starts and every ten
+seconds after, because the client starts its own on a timer. `vanilla-music:
+true` leaves it alone.
+
+Each verb has its own node: `rpengine.music` (the list, and parent of the
+rest), `rpengine.music.play`, `.stop` and `.skip`, and `rpengine.music.others`
+to aim any of them at somebody else. All op by default, so a server can grant
+players `stop` and `skip` without `play`.
 
 ## Icons
 
