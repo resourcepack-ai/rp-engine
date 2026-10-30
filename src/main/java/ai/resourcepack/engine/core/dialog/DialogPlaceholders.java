@@ -115,8 +115,15 @@ public final class DialogPlaceholders {
      * A placeholder: a name of letters, digits and underscores between braces —
      * or, after a {@code ?}, the entries of a choice, which hold no brace.
      * {@link DialogConditions} fills a condition's operands with it too.
+     *
+     * <p>The name may instead be a whole PlaceholderAPI placeholder, percent
+     * signs and all ({@code {%stat_{player_name}%}}), which is handed to
+     * PlaceholderAPI exactly as written: its arguments may hold colons, dashes,
+     * maths and one level of {@code {inner}} placeholders, which the expansion
+     * reads itself. No space, quote or backslash, so it never reaches across a
+     * JSON string's end.
      */
-    static final Pattern NAME = Pattern.compile("\\{([A-Za-z0-9_]{1,48})(?:\\?([^{}]*))?\\}");
+    static final Pattern NAME = Pattern.compile("\\{([A-Za-z0-9_]{1,48}|%[A-Za-z0-9]+_(?:[^\\s%{}\\\\\\x22]|\\{[^\\s%{}\\\\\\x22]{1,64}\\}){1,200}%)(?:\\?([^{}]*))?\\}");
 
     /** A legacy formatting code. The game refuses a whole dialog over one in a command. */
     private static final Pattern LEGACY = Pattern.compile("§.?");

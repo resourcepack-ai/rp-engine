@@ -62,6 +62,21 @@ class OverlayFillTest {
         assertEquals("", OverlayRuntime.fill("", Map.of()));
     }
 
+    /**
+     * PlaceholderAPI's own spelling works in a label: a plain %name% as
+     * {name}, and one with arguments in it (inner braces included) as one
+     * placeholder, asked for whole.
+     */
+    @Test
+    void placeholderApiSpellingsAreFilled() {
+        Map<String, String> values = Map.of("mana", "42", "%stat_{player_name}%", "12", "%server_time_HH:mm%", "09:30");
+        assertEquals("Mana 42", OverlayRuntime.fill("Mana %mana%", values));
+        assertEquals("Kills 12", OverlayRuntime.fill("Kills %stat_{player_name}%", values));
+        assertEquals("Kills 12", OverlayRuntime.fill("Kills {%stat_{player_name}%}", values));
+        assertEquals("09:30", OverlayRuntime.fill("%server_time_HH:mm%", values));
+        assertEquals("50% off, 20% more", OverlayRuntime.fill("50% off, 20% more", values));
+    }
+
     /** A value containing a brace must not be re-scanned as another placeholder. */
     @Test
     void aValueIsNotItselfExpanded() {
