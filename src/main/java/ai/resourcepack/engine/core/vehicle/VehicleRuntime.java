@@ -1179,6 +1179,13 @@ public final class VehicleRuntime implements Listener {
         for (Ride ride : live.values()) {
             int index = ride.seatIndexOfHitbox(clicked);
             if (index < 0 && ride.isBody(clicked)) {
+                // Somebody already aboard clicking their own vehicle (a racer
+                // using an item, a driver swinging at a mob) is not asking for
+                // a seat, and telling them it is full every click was chat spam.
+                if (ride.seating().contains(event.getPlayer().getUniqueId())) {
+                    event.setCancelled(true);
+                    return;
+                }
                 // The body seats you in the first free seat rather than a
                 // particular one — see firstFreeSeat.
                 index = ride.firstFreeSeat();
