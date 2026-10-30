@@ -1038,6 +1038,18 @@ vary, seed, sounds, volume, viewers, tag). A loop goes round the recipe's loop
 section when it has one, the whole effect when not; `VfxPlay.finish()` plays
 the fade, `stop()` ends now.
 
+**On a vehicle, follow the vehicle**, not its driver and not an entity:
+
+```java
+vfx.play(id, vehicle.location(), driver, VfxOptions.builder().follow(vehicle).build());
+```
+
+`follow(Vehicle)` rides with it, turning with its heading rather than with
+wherever its driver looks, so an effect made in front of the caster plays in
+front of the vehicle and an exhaust stays at its tail through a turn; `turn`
+and `offset` are measured from its nose. Cast at `vehicle.location()`, which
+carries the heading, so the first frame faces the right way too.
+
 `play` answers empty for an unknown id and below 1.21.4 (`Feature.VFX`). A
 Studio VFX's displays are shown only to the players holding that push, and its
 sounds are played to them alone; every sound an effect started is stopped when
