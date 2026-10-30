@@ -262,6 +262,45 @@ class ItemsTest {
     }
 
     @Test
+    void aGuiIconIsDrawnOnlyInAnInventory() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "kart:\n  material: PAPER\n"
+                + "  model: {parent: mypack:kart, textures: {skin: mypack:item/kart}}\n"
+                + "  gui: {texture: kart_icon}\n");
+        write("mypack/assets/textures/item/kart.png", "PNG");
+        write("mypack/assets/textures/item/kart_icon.png", "PNG");
+
+        Map<String, String> zip = buildAndRead();
+
+        assertEquals("{\"model\":{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
+                        + "\"cases\":[{\"when\":\"gui\","
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/kart_gui\"}}],"
+                        + "\"fallback\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/kart\"}}}",
+                zip.get("assets/mypack/items/kart.json"));
+        assertEquals("{\"parent\":\"minecraft:item/generated\",\"textures\":{\"layer0\":\"mypack:item/kart_icon\"}}",
+                zip.get("assets/mypack/models/item/kart_gui.json"));
+        assertTrue(zip.containsKey("assets/mypack/textures/item/kart_icon.png"));
+    }
+
+    @Test
+    void aGuiModelSitsBesideAFirstPersonOne() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "rifle:\n  material: PAPER\n"
+                + "  model: {parent: mypack:rifle, textures: {skin: mypack:item/rifle}}\n"
+                + "  first-person: {parent: mypack:rifle_sights, textures: {skin: mypack:item/rifle}}\n"
+                + "  gui: {parent: minecraft:item/generated, textures: {layer0: mypack:item/rifle_icon}}\n");
+        write("mypack/assets/textures/item/rifle.png", "PNG");
+        write("mypack/assets/textures/item/rifle_icon.png", "PNG");
+
+        String definition = buildAndRead().get("assets/mypack/items/rifle.json");
+
+        assertTrue(definition.contains("\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
+                + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/rifle_first_person\"}},"
+                + "{\"when\":\"gui\",\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/rifle_gui\"}}]"),
+                definition);
+    }
+
+    @Test
     void anItemWithoutAFirstPersonModelKeepsItsPlainDefinition() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\n");

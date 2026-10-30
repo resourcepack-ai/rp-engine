@@ -77,6 +77,8 @@ public final class ItemAssets implements PackContributor {
     private final Map<ContentId, String> armorArt = new LinkedHashMap<>();
     /** {@code first-person:}, read straight off the definitions like {@code armor-art:}. */
     private final Map<ContentId, String> firstPerson = new LinkedHashMap<>();
+    /** {@code gui:}, the inventory's look, as {model, texture} with exactly one set; see {@link #readGui}. */
+    private final Map<ContentId, String[]> gui = new LinkedHashMap<>();
     /** {@code pull:}, {@code charged:} and {@code charged-firework:}; see {@link UseStates}. */
     private final Map<ContentId, UseStates> useStates = new LinkedHashMap<>();
 
@@ -151,6 +153,7 @@ public final class ItemAssets implements PackContributor {
         vanillaDrawn.clear();
         readArmorArt(loaded);
         readFirstPerson(loaded);
+        readGui(loaded, into);
         readUseStates(loaded, into);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
         for (ItemInfo item : parsed.items().values()) {
@@ -226,6 +229,44 @@ public final class ItemAssets implements PackContributor {
             String model = ItemDefinitions.model(definition.body(), "first-person");
             if (model != null && !model.isBlank()) {
                 firstPerson.put(definition.id(), model.trim());
+            }
+        }
+    }
+
+    /**
+     * {@code gui:}: how an item looks in an inventory, in place of its own model.
+     *
+     * <p>What it is for is a big model: a vehicle, a placed piece of furniture or
+     * a prop is built to be seen in the world, and shrunk into a slot it reads as
+     * a smudge. An icon drawn for the slot reads at sixteen pixels. Written the
+     * three ways {@code model:} is, or as {@code {texture: ...}} for a flat icon,
+     * where a bare file name means {@code textures/item/}.
+     */
+    private void readGui(LoadReport loaded, Contribution into) {
+        gui.clear();
+        if (loaded == null) {
+            return;
+        }
+        for (ContentDefinition definition : loaded.definitions(ContentKind.ITEM)) {
+            Object raw = definition.body().raw("gui");
+            if (raw == null) {
+                continue;
+            }
+            if (raw instanceof Map<?, ?> map && map.size() == 1 && map.get("texture") instanceof String texture
+                    && !texture.isBlank()) {
+                String name = texture.trim();
+                if (name.endsWith(".png")) {
+                    name = name.substring(0, name.length() - 4);
+                }
+                gui.put(definition.id(), new String[]{null, name.contains("/") || name.contains(":") ? name : "item/" + name});
+                continue;
+            }
+            String model = ItemDefinitions.model(definition.body(), "gui");
+            if (model != null && !model.isBlank()) {
+                gui.put(definition.id(), new String[]{model.trim(), null});
+            } else if (into != null) {
+                into.warn(definition.id().namespace() + "/items", definition.id().path(),
+                        "gui: is a model, or {texture: ...} for a flat icon. It was left out.");
             }
         }
     }
@@ -432,6 +473,11 @@ public final class ItemAssets implements PackContributor {
                         "first-person: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
                                 + "it is seen. On this one the item's own model is drawn in first person too.");
             }
+            if (gui.containsKey(id)) {
+                into.warn(namespace + "/items", id.path(),
+                        "gui: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
+                                + "it is seen. On this one the item's own model is drawn in inventories too.");
+            }
             if (used != null) {
                 List<String[]> predicates = UseStates.legacyPredicates(used.pull, used.at, used.charged,
                         used.firework);
@@ -441,17 +487,26 @@ public final class ItemAssets implements PackContributor {
             }
         } else {
             String look = "{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}";
+            // The game picks by where the item is being drawn: the holder's own
+            // view gets the first-person model, an inventory the gui one, and
+            // everything else (a third-person view, the ground) the item's own.
+            List<String> cases = new ArrayList<>();
             String firstPersonModel = firstPerson.get(id);
             if (firstPersonModel != null
                     && writeVariant(item, namespace, "first-person", firstPersonModel, null,
                             modelRef + "_first_person", into)) {
-                // The game picks by where the item is being drawn: the holder's
-                // own view gets the first-person model, everything else (a
-                // third-person view, the inventory, the ground) the item's own.
+                cases.add("{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_first_person\"}}");
+            }
+            String[] guiLook = gui.get(id);
+            if (guiLook != null
+                    && writeVariant(item, namespace, "gui", guiLook[0], guiLook[1], modelRef + "_gui", into)) {
+                cases.add("{\"when\":\"gui\","
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_gui\"}}");
+            }
+            if (!cases.isEmpty()) {
                 look = "{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
-                        + "\"cases\":[{\"when\":[\"firstperson_righthand\",\"firstperson_lefthand\"],"
-                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_first_person\"}}],"
-                        + "\"fallback\":" + look + "}";
+                        + "\"cases\":[" + String.join(",", cases) + "],\"fallback\":" + look + "}";
             }
             if (used != null) {
                 // Outside the first-person choice: a bow being drawn is drawn

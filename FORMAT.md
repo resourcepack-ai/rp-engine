@@ -130,6 +130,23 @@ rifle_aimed:
 Minecraft 1.21.4 and newer; on an older server the item's own model is drawn in
 first person too, with a warning.
 
+**`gui:` is how the item looks in an inventory**, in place of its own model:
+the hotbar, a chest, a creative tab. A model built to be seen in the world (a
+vehicle, a chair, a big prop) shrunk into a slot reads as a smudge, and an icon
+drawn for sixteen pixels does not. Written the three ways `model:` is, or as
+`{texture: ...}` for a flat icon, where a bare file name means `textures/item/`:
+
+```yaml
+red_kart:
+  material: PAPER
+  model: red_kart
+  gui: {texture: red_kart_icon}     # textures/item/red_kart_icon.png
+```
+
+Held, worn, dropped or placed, the item is still its own model. Minecraft
+1.21.4 and newer, like `first-person:`; on an older server the model is drawn
+in inventories too, with a warning.
+
 **`pull:` is the look of each stage of being drawn**, the way a vanilla bow has
 three; `charged:` and `charged-firework:` are a crossbow's loaded looks:
 
