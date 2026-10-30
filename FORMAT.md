@@ -3609,6 +3609,29 @@ by `repair` for every `addition-amount` of the addition, using as many as it
 takes, as a vanilla material repair does. Take the result with the mouse; the
 number keys and dropping do nothing on an anvil recipe.
 
+### Replacing a vanilla recipe
+
+```yaml
+better_sticks:
+  type: shapeless
+  result: STICK
+  amount: 8
+  ingredients: [OAK_PLANKS]
+  replaces: minecraft:stick   # or a list; a bare name means minecraft:
+```
+
+**`replaces:` takes the named recipes off the server while yours is
+registered**, and puts them back when it goes (a reload, or the plugin
+stopping). Without it, a recipe with the same grid as a vanilla one does not
+win: both match, and the game picks one. Any recipe type can replace any
+recipe, so a shaped recipe can stand in for a smelting one.
+
+The id is the one `/recipe give` lists and the recipe book uses, which is not
+always the item's name: `minecraft:iron_ingot_from_smelting_raw_iron`, and a
+few change between versions. An id the server has no recipe for is a warning
+at load, naming it. A recipe that fails to register replaces nothing, so the
+vanilla one keeps working.
+
 **A recipe ID is not a content ID.** It lives outside the ID space, so a recipe
 may be called `ruby_cube` while an item is called `ruby_cube` — which is the
 first thing anybody writes. Two recipes still cannot share a name.

@@ -40,7 +40,9 @@ public final class RecipeDefinitions {
             return new Result(Map.of(), List.of());
         }
         for (ContentDefinition definition : loaded.definitions(ContentKind.RECIPE)) {
-            parseOne(definition, diagnostics).ifPresent(recipe -> recipes.put(recipe.id(), recipe));
+            parseOne(definition, diagnostics)
+                    .map(recipe -> recipe.replacing(replaces(definition, diagnostics)))
+                    .ifPresent(recipe -> recipes.put(recipe.id(), recipe));
         }
         return new Result(Map.copyOf(recipes), List.copyOf(diagnostics));
     }
@@ -312,6 +314,28 @@ public final class RecipeDefinitions {
         List<String> ingredients = ingredient.map(List::of).orElse(List.of());
         return Optional.of(RecipeInfo.of(definition.id(), type, made, amount,
                 List.of(), Map.of(), ingredients, 0f, 0, stations));
+    }
+
+    /**
+     * {@code replaces:}, the server recipes this one takes the place of, as
+     * keys. A bare name is vanilla's, so {@code stick} is {@code minecraft:stick},
+     * which is the id {@code /recipe} and the recipe book use.
+     */
+    private static List<String> replaces(ContentDefinition definition, List<Diagnostic> diagnostics) {
+        List<String> keys = new ArrayList<>();
+        for (String written : definition.body().strings("replaces")) {
+            String key = written.trim().toLowerCase(Locale.ROOT);
+            if (key.indexOf(':') < 0) {
+                key = "minecraft:" + key;
+            }
+            if (!key.matches("[a-z0-9_.-]+:[a-z0-9_./-]+")) {
+                diagnostics.add(Diagnostic.warning(definition.origin(), definition.id().path(),
+                        "replaces: " + written + " is not a recipe id like minecraft:stick. Ignored."));
+            } else if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        return keys;
     }
 
     /** What each station recipe is made of, for the message when part of it is missing. */
