@@ -121,10 +121,11 @@ public final class RecipeInfo {
     private final float experience;
     private final int cookingTime;
     private final Stations stations;
+    private final List<String> replaces;
 
     private RecipeInfo(ContentId id, Type type, String result, int amount, List<String> rows,
                        Map<String, String> keys, List<String> ingredients,
-                       float experience, int cookingTime, Stations stations) {
+                       float experience, int cookingTime, Stations stations, List<String> replaces) {
         this.id = id;
         this.type = type;
         this.result = result;
@@ -135,6 +136,7 @@ public final class RecipeInfo {
         this.experience = experience;
         this.cookingTime = cookingTime;
         this.stations = stations;
+        this.replaces = replaces;
     }
 
     /** Engine internal; built by the recipe loader. */
@@ -157,12 +159,29 @@ public final class RecipeInfo {
                 keys == null ? Map.of() : Map.copyOf(keys),
                 ingredients == null ? List.of() : List.copyOf(ingredients),
                 experience, cookingTime,
-                stations == null ? Stations.none() : stations);
+                stations == null ? Stations.none() : stations, List.of());
+    }
+
+    /**
+     * This recipe, taking the place of the server recipes named, as keys like
+     * {@code minecraft:stick}. Engine internal; built by the recipe loader.
+     */
+    public RecipeInfo replacing(List<String> keys) {
+        return new RecipeInfo(id, type, result, amount, rows, this.keys, ingredients, experience, cookingTime,
+                stations, keys == null ? List.of() : List.copyOf(keys));
     }
 
     /** Its id, which also becomes the recipe's key in the server's registry. */
     public ContentId id() {
         return id;
+    }
+
+    /**
+     * The recipes it replaces, as keys like {@code minecraft:stick}: taken off
+     * the server while this one is registered, and put back when it goes.
+     */
+    public List<String> replaces() {
+        return replaces;
     }
 
     /** Which kind of recipe. */

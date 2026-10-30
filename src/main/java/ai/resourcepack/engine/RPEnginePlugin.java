@@ -2482,6 +2482,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 + plural(loaded.definitions().size(), "definition") + ", "
                 + plural(built.size(), "bundle") + " built, "
                 + plural(recipes.size(), "recipe")
+                + (recipes.replacedCount() > 0 ? " (" + recipes.replacedCount() + " replacing vanilla's)" : "")
                 + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig")
                         + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "");
         if (banner != null && to instanceof ConsoleCommandSender) {

@@ -53,6 +53,13 @@ import java.util.Optional;
  * nothing but {@link RecipeStations}, there being no anvil recipe to register;
  * and a brewing recipe goes to Paper's brewer, there being no Bukkit one (see
  * {@link PaperBrewing}).
+ *
+ * <p>A recipe with {@code replaces:} also takes the server recipes it names
+ * away, once it has itself been registered, and they go back when it goes.
+ * Removing rather than out-ranking is the only way: two recipes for the same
+ * grid both match, and the game picks one, usually vanilla's. Put back from
+ * the {@link Recipe} the server handed over rather than by resetting every
+ * recipe, which would undo every other plugin's too.
  */
 public final class Recipes {
 
@@ -63,6 +70,7 @@ public final class Recipes {
     private final VanillaRecipeGuard guard;
     private final List<NamespacedKey> registered = new ArrayList<>();
     private final List<NamespacedKey> brewing = new ArrayList<>();
+    private final Map<NamespacedKey, Recipe> replaced = new LinkedHashMap<>();
     private Optional<PaperBrewing> brewer;
     private int anvilCount;
 
@@ -117,11 +125,17 @@ public final class Recipes {
             try {
                 switch (info.type()) {
                     case ANVIL:
-                        anvil(info, problems).ifPresent(anvil::add);
+                        anvil(info, problems).ifPresent(resolved -> {
+                            anvil.add(resolved);
+                            takeOver(info, problems);
+                        });
                         break;
                     case BREWING:
+                        int brewed = brewing.size();
                         if (!brew(info, problems)) {
                             unbrewed++;
+                        } else if (brewing.size() > brewed) {
+                            takeOver(info, problems);
                         }
                         break;
                     case SMITHING:
@@ -130,12 +144,14 @@ public final class Recipes {
                             NamespacedKey key = keyOf(info.id());
                             registered.add(key);
                             smithing.put(key, resolved);
+                            takeOver(info, problems);
                         });
                         break;
                     default:
                         build(info, problems).ifPresent(recipe -> {
                             Bukkit.addRecipe(recipe);
                             registered.add(keyOf(info.id()));
+                            takeOver(info, problems);
                         });
                 }
             } catch (IllegalArgumentException | IllegalStateException e) {
@@ -154,12 +170,23 @@ public final class Recipes {
         return problems;
     }
 
-    /** Removes every recipe this engine registered. */
+    /** Removes every recipe this engine registered, and puts back every one it replaced. */
     public void clear() {
         for (NamespacedKey key : registered) {
             Bukkit.removeRecipe(key);
         }
         registered.clear();
+        for (Map.Entry<NamespacedKey, Recipe> entry : replaced.entrySet()) {
+            try {
+                if (Bukkit.getRecipe(entry.getKey()) == null) {
+                    Bukkit.addRecipe(entry.getValue());
+                }
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                plugin.getLogger().warning("Could not put back the recipe " + entry.getKey()
+                        + " that a content pack replaced (" + e.getMessage() + "). A restart restores it.");
+            }
+        }
+        replaced.clear();
         if (!brewing.isEmpty() && brewer != null) {
             brewer.ifPresent(paper -> brewing.forEach(paper::remove));
         }
@@ -171,6 +198,39 @@ public final class Recipes {
     /** How many are currently registered, anvil recipes included. */
     public int size() {
         return registered.size() + brewing.size() + anvilCount;
+    }
+
+    /** How many server recipes are currently taken away by {@code replaces:}. */
+    public int replacedCount() {
+        return replaced.size();
+    }
+
+    /**
+     * Takes away the server recipes {@code info} replaces. Called only once
+     * {@code info} is registered, so a replacement that failed leaves the
+     * original working rather than leaving nothing.
+     */
+    private void takeOver(RecipeInfo info, List<String> problems) {
+        for (String written : info.replaces()) {
+            NamespacedKey key = NamespacedKey.fromString(written);
+            if (key == null || replaced.containsKey(key)) {
+                continue;
+            }
+            if (key.getNamespace().equals(plugin.getName().toLowerCase(Locale.ROOT))) {
+                problems.add(info.id() + ": replaces " + written + ", which is one of this engine's own "
+                        + "recipes. Edit or delete that recipe instead.");
+                continue;
+            }
+            Recipe original = Bukkit.getRecipe(key);
+            if (original == null) {
+                problems.add(info.id() + ": replaces " + written + ", and this server has no recipe by that "
+                        + "id. Vanilla recipe ids are what /recipe give lists, like minecraft:stick or "
+                        + "minecraft:iron_ingot_from_smelting_raw_iron, and some differ between versions.");
+                continue;
+            }
+            Bukkit.removeRecipe(key);
+            replaced.put(key, original);
+        }
     }
 
     private NamespacedKey keyOf(ContentId id) {

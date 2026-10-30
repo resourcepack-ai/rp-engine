@@ -395,4 +395,43 @@ class RecipeDefinitionsTest {
         assertTrue(RecipeDefinitions.parse(null).recipes().isEmpty());
         assertTrue(RecipeDefinitions.parse(LoadReport.empty()).recipes().isEmpty());
     }
+
+
+    @Test
+    void replacesReadsVanillaIdsAndDefaultsTheNamespace() throws IOException {
+        write("mypack/recipes/a.yml", String.join("\n",
+                "better_sticks:",
+                "  type: shapeless",
+                "  result: STICK",
+                "  amount: 8",
+                "  ingredients: [OAK_PLANKS]",
+                "  replaces: [stick, \"Minecraft:Stick\", minecraft:stick_from_bamboo_item, \"no good\"]",
+                ""));
+
+        RecipeDefinitions.Result result = parse();
+        RecipeInfo recipe = one(result, "mypack:better_sticks");
+
+        assertEquals(List.of("minecraft:stick", "minecraft:stick_from_bamboo_item"), recipe.replaces());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("no good")));
+    }
+
+    @Test
+    void replacesTakesASingleIdAndIsEmptyWithout() throws IOException {
+        write("mypack/recipes/a.yml", String.join("\n",
+                "a:",
+                "  type: shapeless",
+                "  result: STICK",
+                "  ingredients: [DIRT]",
+                "  replaces: minecraft:stick",
+                "b:",
+                "  type: shapeless",
+                "  result: STICK",
+                "  ingredients: [DIRT]",
+                ""));
+
+        RecipeDefinitions.Result result = parse();
+
+        assertEquals(List.of("minecraft:stick"), one(result, "mypack:a").replaces());
+        assertEquals(List.of(), one(result, "mypack:b").replaces());
+    }
 }
