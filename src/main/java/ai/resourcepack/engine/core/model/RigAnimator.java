@@ -181,6 +181,16 @@ public final class RigAnimator implements Listener {
     private final Map<UUID, float[]> tilts = new ConcurrentHashMap<>();
 
     /**
+     * A carried rig's steering: the animation that is its steering, and how
+     * far through it the wheels are, 0 full left to 1 full right. Keyed by
+     * yaw host, like {@link #tilts}. See {@link #steer}.
+     */
+    private record Steering(String animation, double fraction) {
+    }
+
+    private final Map<UUID, Steering> steers = new ConcurrentHashMap<>();
+
+    /**
      * A carried rig's authored parent transform, in model space.
      *
      * <p>Vehicles need only {@link #tilt}; an animated emote prop may hang
@@ -493,6 +503,52 @@ public final class RigAnimator implements Listener {
         }
     }
 
+    /**
+     * Poses a carried rig's steering animation at {@code fraction} of its
+     * length, over and outside whatever it is playing; null clears it.
+     *
+     * <p>Outside, because the bones it moves are usually the same wheels the
+     * base animation spins: a spin about the axle composed INSIDE a turn about
+     * the vertical is a wheel that turns with the steering, while the other
+     * order tips the spinning wheel over and it wobbles. See
+     * {@code VehicleInfo.steering}.
+     */
+    void steer(UUID yawHost, String animation, double fraction) {
+        if (yawHost == null) return;
+        if (animation == null || !Double.isFinite(fraction)) {
+            steers.remove(yawHost);
+        } else {
+            steers.put(yawHost, new Steering(animation, Math.max(0, Math.min(1, fraction))));
+        }
+    }
+
+    private Steering steeringOf(PersistentDataContainer pdc) {
+        String host = pdc.get(yawHostKey, PersistentDataType.STRING);
+        if (host == null || steers.isEmpty()) return null;
+        try {
+            return steers.get(UUID.fromString(host));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The steering animation's pose for this part, as a matrix to compose
+     * outside everything else, or null when it does not move the part.
+     */
+    private static Matrix4f steeringPose(RigStore.Rig rig, RigStore.Part part, Steering steering) {
+        if (steering == null) return null;
+        RigStore.Animation animation = RigAnimations.animationAt(rig,
+                RigAnimations.findAnimationIndexByName(rig, steering.animation()));
+        if (animation == null || !RigAnimations.moves(animation, part)) return null;
+        double t = steering.fraction() * Math.max(0, animation.length);
+        Matrix4f s = new Matrix4f();
+        for (RigStore.Step step : part.program) {
+            RigMath.applyStep(s, animation.animators, step.target, step.pivot, t);
+        }
+        return s;
+    }
+
     /** Sets or clears the model-space parent transform of a carried rig. */
     void carrierPose(UUID yawHost, Matrix4f pose) {
         if (yawHost == null) return;
@@ -713,6 +769,7 @@ public final class RigAnimator implements Listener {
         boolean carried = pdc.has(yawHostKey, PersistentDataType.STRING);
         float[] tilt = carried ? tiltOf(pdc) : null;
         Matrix4f carrierPose = carried ? carrierPoseOf(pdc) : null;
+        Matrix4f steering = carried ? steeringPose(rig, part, steeringOf(pdc)) : null;
         int playbackIndex = RigAnimations.playbackAnimationIndex(
             rig, activeIndex, elapsed, pdc.get(animationKey, PersistentDataType.STRING), !carried);
 
@@ -806,7 +863,7 @@ public final class RigAnimator implements Listener {
         // A tilted carried part is exempt too: the body under it is moving
         // whether or not its animation is. Dedupe below still drops a frame
         // whose matrix comes out identical.
-        if (!bound && !overlaid && fade == null && tilt == null && carrierPose == null
+        if (!bound && !overlaid && fade == null && tilt == null && carrierPose == null && steering == null
                 && !RigAnimations.shouldUpdatePose(playbackIndex, activeIndex, forceRestPose)) {
             was.values = target;
             return;
@@ -850,6 +907,12 @@ public final class RigAnimator implements Listener {
         // fixed rotation. See RigStore.Part.applyRest for why their order is
         // the one thing about it that matters.
         part.applyRest(animationTransform);
+
+        // Outermost of the animations: the steering, which turns whatever the
+        // rest of them did. See steer.
+        if (steering != null) {
+            animationTransform = new Matrix4f(steering).mul(animationTransform);
+        }
 
         Matrix4f m = new Matrix4f();
         if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));

@@ -306,6 +306,7 @@ public final class VehicleDefinitions {
                 .withJump(jump)
                 .withTurnInPlace(turnInPlace)
                 .withAnimationFollowsSpeed(animationFollowsSpeed)
+                .withSteering(body.string("steering").orElse(null))
                 .withWallRide(wallRide)
                 .withWorn(worn)
                 .withCoast(coast)

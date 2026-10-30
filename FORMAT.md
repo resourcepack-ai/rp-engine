@@ -1626,6 +1626,29 @@ bobbing suspension, a flapping flag or an exhaust puff is authored at a rate
 somebody chose, and slowing those down with the vehicle is not obviously right.
 Turn it on for anything whose animation IS the motion.
 
+### Steering
+
+A vehicle has one `turning` state for turning either way, so an animation on it
+can only ever steer one way. For front wheels that follow the steering, name an
+animation as `steering` instead:
+
+```yaml
+kart:
+  model: mypack:kart
+  steering: steer
+```
+
+It is never played. Its first frame is full lock to the left, its middle is
+straight ahead and its last frame full lock to the right, and every tick RP
+Engine poses it at the angle the front wheels are really at: full lock is 38
+degrees, less at speed. Draw it with the wheels at 38 degrees either side and
+it matches what the vehicle does.
+
+It goes on top of whatever else the vehicle is playing and only touches the
+bones it moves. A wheel your `moving` animation spins on its axle keeps
+spinning while it steers, and turns as a whole rather than wobbling. Steering
+works going backwards too, and in the middle of a trick.
+
 When both `moving` and `reversing` are mapped, RP Engine keeps their cycle
 phase across a direction change instead of restarting the other animation at
 frame zero. Author them as the same cycle in opposite directions (for example,
