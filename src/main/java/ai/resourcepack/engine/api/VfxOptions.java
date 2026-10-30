@@ -57,6 +57,7 @@ public final class VfxOptions {
     private final double turn;
     private final double[] offset;
     private final Entity follow;
+    private final Vehicle followVehicle;
     private final int delay;
     private final boolean vary;
     private final int seed;
@@ -79,6 +80,7 @@ public final class VfxOptions {
         this.turn = b.turn;
         this.offset = b.offset.clone();
         this.follow = b.follow;
+        this.followVehicle = b.followVehicle;
         this.delay = b.delay;
         this.vary = b.vary;
         this.seed = b.seed;
@@ -108,6 +110,7 @@ public final class VfxOptions {
         b.turn = turn;
         b.offset = offset.clone();
         b.follow = follow;
+        b.followVehicle = followVehicle;
         b.delay = delay;
         b.vary = vary;
         b.seed = seed;
@@ -177,9 +180,17 @@ public final class VfxOptions {
         return offset.clone();
     }
 
-    /** What it moves and turns with, or null to stay where it was cast. */
+    /**
+     * What it moves and turns with, or null to stay where it was cast. For a
+     * {@linkplain #followVehicle() vehicle}, its chassis.
+     */
     public Entity follow() {
         return follow;
+    }
+
+    /** The vehicle it rides with, when it was cast with {@link Builder#follow(Vehicle)}; else null. */
+    public Vehicle followVehicle() {
+        return followVehicle;
     }
 
     /** Ticks before it starts. */
@@ -230,6 +241,7 @@ public final class VfxOptions {
         private double turn;
         private double[] offset = {0, 0, 0};
         private Entity follow;
+        private Vehicle followVehicle;
         private int delay;
         private boolean vary;
         private int seed = 1;
@@ -330,6 +342,21 @@ public final class VfxOptions {
         /** Moves and turns with this entity (a player, a mob) for as long as it plays. */
         public Builder follow(Entity entity) {
             this.follow = entity;
+            this.followVehicle = null;
+            return this;
+        }
+
+        /**
+         * Rides with this vehicle for as long as it plays: where it is, and
+         * which way its body points ({@link Vehicle#heading()}), not where its
+         * driver is looking. So an effect made in front of the caster plays in
+         * front of the vehicle, an exhaust stays at its tail through every
+         * turn, and {@link #turn} and {@link #offset} are measured from its
+         * nose. Ends with the vehicle.
+         */
+        public Builder follow(Vehicle vehicle) {
+            this.followVehicle = vehicle;
+            this.follow = vehicle == null ? null : vehicle.chassis();
             return this;
         }
 

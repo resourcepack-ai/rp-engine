@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.Vfx;
 import ai.resourcepack.engine.api.VfxInfo;
 import ai.resourcepack.engine.api.VfxOptions;
 import ai.resourcepack.engine.api.VfxPlay;
+import ai.resourcepack.engine.api.Vehicle;
 import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.common.scheduler.Tasks;
 
@@ -437,7 +438,11 @@ public final class VfxRuntime implements Vfx {
                 if (!follow.isValid() || follow.getWorld() != world) {
                     return false;
                 }
-                place(follow.getLocation());
+                // A vehicle by its own position and heading: the chassis is
+                // only what it is checked and scheduled against.
+                Vehicle vehicle = options.followVehicle();
+                Location to = vehicle != null && vehicle.isValid() ? vehicle.location() : null;
+                place(to != null ? to : follow.getLocation());
             }
             if (!world.isChunkLoaded(origin.getBlockX() >> 4, origin.getBlockZ() >> 4)) {
                 return false;

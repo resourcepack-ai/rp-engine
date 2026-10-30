@@ -5010,7 +5010,17 @@ public final class VehicleRuntime implements Listener {
             // The chassis never carries a passenger — the model, the mounts
             // and the hitboxes are all moved by us rather than riding it — so
             // a plain teleport always works and is exact.
-            Regions.move(chassis, at);
+            //
+            // With the heading, though `at` has none: the chassis' yaw is the
+            // vehicle's heading at rest (the constructor reads it back after a
+            // chunk loads) and what anything following the chassis turns with.
+            // It used to be moved to `at` as built each step, at yaw 0, so every
+            // VFX on a vehicle faced south and a parked vehicle came back
+            // facing south too.
+            Location to = at.clone();
+            to.setYaw((float) state.yaw());
+            to.setPitch(0);
+            Regions.move(chassis, to);
 
             for (int i = 0; i < mounts.size(); i++) {
                 Entity mount = plugin.getServer().getEntity(mounts.get(i));
