@@ -50,6 +50,21 @@ class DialogPlaceholdersTest {
         assertEquals("{\"title\":\"{VIP} lounge for Alex\"}", out);
     }
 
+    /**
+     * A whole PlaceholderAPI placeholder with arguments in it is asked for as
+     * written, inner braces and all, and never as the inner name it holds.
+     */
+    @Test
+    void aPlaceholderApiPlaceholderWithArgumentsIsAskedForWhole() {
+        String json = "{\"title\":\"Kills {%stat_{player_name}%} at {%server_time_HH:mm%}\"}";
+        Map<String, String> values = Map.of("%stat_{player_name}%", "12", "%server_time_HH:mm%", "09:30", "player_name", "WRONG");
+        assertEquals("{\"title\":\"Kills 12 at 09:30\"}", DialogPlaceholders.fill(json, from(values), false));
+        assertTrue(DialogPlaceholders.any(json));
+        // Never across a string's end, and never a space in one.
+        assertFalse(DialogPlaceholders.any("{\"a\":\"{%x_\",\"b\":\"y%}\"}"));
+        assertFalse(DialogPlaceholders.any("{\"a\":\"{%x_ y%}\"}"));
+    }
+
     @Test
     void escapesAValueAsTheInsideOfAString() {
         String out = DialogPlaceholders.fill("{\"title\":\"Hi {name}\"}", from(Map.of("name", "a\"b\\c\nd")));

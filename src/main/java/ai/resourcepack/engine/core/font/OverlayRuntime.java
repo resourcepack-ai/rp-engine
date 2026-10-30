@@ -504,8 +504,17 @@ public final class OverlayRuntime {
      * anything left to PlaceholderAPI.
      */
     static String fill(String text, Map<String, String> values, org.bukkit.entity.Player viewer) {
-        if (text == null || text.isEmpty() || text.indexOf('{') < 0) {
+        if (text == null || text.isEmpty()) {
             return text == null ? "" : text;
+        }
+        if (text.indexOf('%') >= 0) {
+            // PlaceholderAPI's own spelling, read as ours: a plain %name% as
+            // {name}, one with arguments in it whole, {%stat_{player_name}%}.
+            text = Placeholders.PERCENT.matcher(text).replaceAll(m ->
+                    java.util.regex.Matcher.quoteReplacement("{" + (m.group(1) != null ? m.group(1) : m.group(2)) + "}"));
+        }
+        if (text.indexOf('{') < 0) {
+            return text;
         }
         StringBuilder out = new StringBuilder(text.length());
         int at = 0;
@@ -515,7 +524,7 @@ public final class OverlayRuntime {
                 out.append(text, at, text.length());
                 break;
             }
-            int close = text.indexOf('}', open + 1);
+            int close = closing(text, open);
             if (close < 0) {
                 // An unclosed brace is text, not a placeholder. Somebody wrote
                 // it on purpose or wrote it wrong, and either way eating the
@@ -531,6 +540,24 @@ public final class OverlayRuntime {
             at = close + 1;
         }
         return out.toString();
+    }
+
+    /**
+     * Where the brace opened at {@code open} closes, counting braces inside it,
+     * so {@code {%stat_{player_name}%}} is one placeholder rather than one that
+     * ends after the inner name. -1 when it never closes.
+     */
+    private static int closing(String text, int open) {
+        int depth = 0;
+        for (int i = open; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Every id anybody is wearing, for diagnostics. */

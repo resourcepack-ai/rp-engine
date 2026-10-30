@@ -94,6 +94,11 @@ public final class Placeholders {
         if (viewer == null) {
             return Optional.empty();
         }
+        if (isRawPapi(name)) {
+            // A whole PlaceholderAPI placeholder ({%stat_{player_name}%}): never
+            // one of ours, and its arguments are the expansion's to read.
+            return papiLookup(viewer, name);
+        }
         String built;
         try {
             built = builtIn(viewer, name.toLowerCase(Locale.ROOT));
@@ -220,7 +225,8 @@ public final class Placeholders {
      * does not know it either.
      *
      * <p>Our syntax is braces and PAPI's is percent signs, so the name is
-     * re-spelled on the way in. An unknown placeholder comes back from PAPI
+     * re-spelled on the way in, unless it already is a whole PAPI placeholder
+     * ({@link #isRawPapi}), which goes as written. An unknown placeholder comes back from PAPI
      * unchanged — as the literal {@code %name%} — which is the one answer we
      * must not pass on, because a percent-wrapped word on somebody's HUD reads
      * as a broken pack exactly the way a brace-wrapped one did.
@@ -231,7 +237,7 @@ public final class Placeholders {
             return Optional.empty();
         }
         try {
-            String wrapped = "%" + name + "%";
+            String wrapped = isRawPapi(name) ? name : "%" + name + "%";
             // A joining player's stand-in is asked about as the offline player
             // it stands for, which expansions know how to answer.
             Object value = method.invoke(null, ai.resourcepack.common.quick.StandIn.forPlaceholders(viewer), wrapped);
@@ -241,6 +247,26 @@ public final class Placeholders {
             return Optional.empty();
         }
     }
+
+    /**
+     * Whether a placeholder's name is a whole PlaceholderAPI placeholder,
+     * percent signs and all ({@code %stat_{player_name}%}), rather than a name
+     * of ours: it carries arguments only its expansion understands.
+     */
+    public static boolean isRawPapi(String name) {
+        return name != null && name.length() > 2 && name.charAt(0) == '%' && name.charAt(name.length() - 1) == '%';
+    }
+
+    /**
+     * A PlaceholderAPI placeholder written bare in a HUD label: a plain name
+     * ({@code %vault_eco_balance%}, read as that name, so our own values answer
+     * it first) or one with arguments in it ({@code %stat_{player_name}%},
+     * handed over whole). No space, so prose with two percent signs in it
+     * ("50% off, 20% more") stays words. Studio's dialog builder reads the same
+     * two forms ({@code bracedPlaceholders}).
+     */
+    static final java.util.regex.Pattern PERCENT = java.util.regex.Pattern.compile(
+            "(?<!\\{)%([A-Za-z0-9_]{1,48})%|(?<!\\{)(%[A-Za-z0-9]+_(?:[^\\s%{}\\\\\\x22]|\\{[^\\s%{}\\\\\\x22]{1,64}\\}){1,200}%)");
 
     private static Method papiMethod() {
         if (papiChecked) {
