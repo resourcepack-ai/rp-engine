@@ -544,9 +544,19 @@ public final class RigCarrier {
 
 
 
+        /**
+         * Poses its steering animation at {@code fraction} of its length (0
+         * full left, 1 full right), or clears it for a null animation. See
+         * {@code RigAnimator.steer}.
+         */
+        public void steer(String animation, double fraction) {
+            animator.steer(anchorId, animation, fraction);
+        }
+
         /** Takes every entity of it out of the world. */
         public void despawn() {
             animator.tilt(anchorId, 0f, 0f);
+            animator.steer(anchorId, null, 0);
             animator.carrierPose(anchorId, null);
             Entity yawHost = Bukkit.getEntity(anchorId);
             if (yawHost != null) {

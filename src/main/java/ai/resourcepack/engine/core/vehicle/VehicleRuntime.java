@@ -3824,6 +3824,11 @@ public final class VehicleRuntime implements Listener {
             if (rig == null) {
                 return;
             }
+            // The steering is posed from the wheel angle every tick, whatever
+            // else is playing: a trick or a spin-out still has front wheels.
+            // See VehicleInfo.steering.
+            rig.steer(info.steering().orElse(null),
+                    0.5 + state().steer() / (2 * VehiclePhysics.STEERING_LOCK));
             // A plugin's `perform` outranks the state table, the way `dress`
             // outranks a seat's. Asked FIRST rather than folded into the
             // table, so a vehicle with no `animations:` at all can still be
