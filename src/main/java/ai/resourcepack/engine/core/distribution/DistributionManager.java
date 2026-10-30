@@ -109,7 +109,43 @@ public final class DistributionManager implements Listener {
      */
     public String publishedPackId() {
         Manifest current = manifest;
-        return isBound() && current.enabled && !current.packId.isEmpty() ? current.packId : null;
+        // Mirrored, the pack is folder content and everybody's already.
+        return isBound() && !mirroring() && current.enabled && !current.packId.isEmpty() ? current.packId : null;
+    }
+
+    /**
+     * Where the published pack is kept as content, or null when it is served
+     * straight from the CDN ({@code distribution.mode: cdn}). See
+     * {@link StudioPackMirror}.
+     */
+    private volatile StudioPackMirror mirror;
+
+    /** Rebuilds the engine's pack after the mirror changed. Run on the global thread. */
+    private volatile Runnable afterMirror;
+
+    /** Whether a pack id is one of the engine's own, sent to that player. */
+    private volatile java.util.function.BiPredicate<Player, UUID> enginePack;
+
+    /** One download at a time: a refresh and a report can both notice a new release. */
+    private final Object mirrorLock = new Object();
+
+    /** The server version last warned about having no artifact of its own, so it is said once. */
+    private volatile String warnedVersion = "";
+
+    /**
+     * Keep the published pack in {@code content/} and serve it inside the
+     * engine's own pack, rather than as a second pack from the CDN. Called
+     * once, before {@link #start()}.
+     */
+    public void mirrorInto(StudioPackMirror into, Runnable rebuild,
+                           java.util.function.BiPredicate<Player, UUID> ownPack) {
+        this.mirror = into;
+        this.afterMirror = rebuild;
+        this.enginePack = ownPack;
+    }
+
+    private boolean mirroring() {
+        return mirror != null;
     }
 
     /** Whether this player is holding the published pack. See {@link #loaded}. */
@@ -193,9 +229,14 @@ public final class DistributionManager implements Listener {
                 writeToken(result.token);
                 this.manifest = Manifest.parse(result.manifest);
                 contentRelease = "";
-                if (!manifest.releaseId.isEmpty()) {
+                String folder = null;
+                if (mirroring()) {
+                    syncMirror(manifest);
+                    folder = manifest.releaseId.equals(mirror.releaseId()) ? mirror.folder() : null;
+                } else if (!manifest.releaseId.isEmpty()) {
                     fetchContent(manifest.releaseId);
                 }
+                String into = folder;
 
                 Tasks.global(plugin, () -> {
                     // Binding now normally happens BEFORE anything is
@@ -205,7 +246,13 @@ public final class DistributionManager implements Listener {
                     // not a success line with caveats stacked under it.
                     // result.name is this SERVER's name on the panel, not the
                     // pack's — don't print it as if it were a pack.
-                    if (manifest.enabled && !manifest.entries.isEmpty()) {
+                    if (manifest.enabled && !manifest.entries.isEmpty() && into != null) {
+                        sender.sendMessage("Server bound. The pack is in content/" + into
+                                + "/ and is served to everyone who joins.");
+                    } else if (manifest.enabled && !manifest.entries.isEmpty() && mirroring()) {
+                        sender.sendMessage("Server bound, but the pack could not be put in content/ yet. "
+                                + "The console says why; it is tried again every minute.");
+                    } else if (manifest.enabled && !manifest.entries.isEmpty()) {
                         sender.sendMessage("Server bound. "
                                 + "Serving the pack to everyone who joins.");
                     } else {
@@ -226,14 +273,51 @@ public final class DistributionManager implements Listener {
         });
     }
 
-    /** Forget the binding. The studio side is unbound from the tab. */
-    public void unbind(CommandSender sender) {
+    /**
+     * Forget the binding. The studio side is unbound from the tab. A
+     * mirrored pack's folder goes too, unless {@code keep}, which leaves it as
+     * the owner's own content.
+     */
+    public void unbind(CommandSender sender, boolean keep) {
         this.token = null;
         this.manifest = Manifest.empty();
         contentRelease = "";
         writeToken(null);
-        sender.sendMessage("This server is no longer serving a pack. "
-                + "Players keep what they already downloaded until they rejoin.");
+        StudioPackMirror into = mirror;
+        if (into == null) {
+            sender.sendMessage("This server is no longer serving a pack. "
+                    + "Players keep what they already downloaded until they rejoin.");
+            return;
+        }
+        Tasks.async(plugin, () -> {
+            String folder;
+            boolean had;
+            synchronized (mirrorLock) {
+                folder = into.folder();
+                try {
+                    had = into.remove(keep);
+                } catch (IOException e) {
+                    Tasks.global(plugin, () -> sender.sendMessage("This server is no longer serving a pack, but content/"
+                            + folder + "/ could not be cleared: " + e.getMessage()));
+                    return;
+                }
+            }
+            Tasks.global(plugin, () -> {
+                if (!had) {
+                    sender.sendMessage("This server is no longer serving a pack.");
+                } else if (keep) {
+                    sender.sendMessage("This server is no longer bound. content/" + folder
+                            + "/ is yours now and will not be updated.");
+                } else {
+                    sender.sendMessage("This server is no longer serving a pack, and content/" + folder
+                            + "/ is gone. Anything changed in it by hand is in " + StudioPackMirror.BACKUPS + "/.");
+                }
+                Runnable rebuild = afterMirror;
+                if (had && !keep && rebuild != null) {
+                    rebuild.run();
+                }
+            });
+        });
     }
 
     /** Re-read the manifest, e.g. after a publish. */
@@ -246,7 +330,9 @@ public final class DistributionManager implements Listener {
                 Manifest fresh = Manifest.parse(client.manifest(token, protocols.serverVersion()));
                 boolean changed = !fresh.releaseId.equals(manifest.releaseId);
                 this.manifest = fresh;
-                if (!fresh.releaseId.isEmpty() && !fresh.releaseId.equals(contentRelease)) {
+                if (mirroring()) {
+                    syncMirror(fresh);
+                } else if (!fresh.releaseId.isEmpty() && !fresh.releaseId.equals(contentRelease)) {
                     fetchContent(fresh.releaseId);
                 }
                 if (changed) {
@@ -264,6 +350,140 @@ public final class DistributionManager implements Listener {
                 plugin.getLogger().warning("Couldn't refresh the distribution manifest: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Brings the mirrored folder in line with {@code current}: the live
+     * release unpacked into it, or the folder gone when nothing is served any
+     * more. Off the main thread; a failure is tried again at the next report.
+     */
+    private void syncMirror(Manifest current) {
+        StudioPackMirror into = mirror;
+        if (into == null || !isBound()) {
+            return;
+        }
+        synchronized (mirrorLock) {
+            try {
+                if (!current.enabled || current.releaseId.isEmpty()) {
+                    if (into.remove(false)) {
+                        plugin.getLogger().info("The published pack is not being served any more, "
+                                + "so its folder was taken out of content/.");
+                        mirrored();
+                    }
+                    return;
+                }
+                if (current.releaseId.equals(into.releaseId())) {
+                    return;
+                }
+                Manifest.Entry entry = mirrorEntry(current);
+                if (entry == null) {
+                    plugin.getLogger().warning("The published pack has no Java version, so nothing was put in content/.");
+                    return;
+                }
+                java.nio.file.Path zip = plugin.getDataFolder().toPath().resolve("distribution-download.zip");
+                client.download(entry.url, entry.sha1, zip);
+                String content = client.content(token);
+                StudioPackMirror.Installed done = into.install(zip, current.packId, current.releaseId, content);
+                java.nio.file.Files.deleteIfExists(zip);
+                plugin.getLogger().info("The published pack (built for Minecraft " + entry.version
+                        + ") is in content/" + done.folder() + "/.");
+                if (done.keptEdits() > 0) {
+                    plugin.getLogger().warning(done.keptEdits() + " file(s) changed by hand in content/" + done.folder()
+                            + "/ were replaced by the new version. Copies are in "
+                            + plugin.getDataFolder().toPath().relativize(done.backup()) + ".");
+                }
+                mirrored();
+            } catch (DistributionClient.DistributionException | IOException e) {
+                plugin.getLogger().warning("Couldn't put the published pack in content/: " + e.getMessage());
+            }
+        }
+    }
+
+    /** After the folder changed: the published content is the folder's now, and the engine's pack is rebuilt. */
+    private void mirrored() {
+        java.util.function.Consumer<String> listener = contentListener;
+        Runnable rebuild = afterMirror;
+        Tasks.global(plugin, () -> {
+            if (listener != null) {
+                listener.accept(null);
+            }
+            if (rebuild != null) {
+                rebuild.run();
+            }
+        });
+    }
+
+    /**
+     * Which of the release's artifacts goes in content/: the one built for
+     * this server's version, else the newest at or below it, else the oldest
+     * above. The engine's pack is what players get, so it is the server's
+     * version that decides, not any one player's.
+     */
+    private Manifest.Entry mirrorEntry(Manifest current) {
+        String server = protocols.serverVersion();
+        Manifest.Entry exact = current.byVersion(server);
+        if (exact != null) {
+            return exact;
+        }
+        int[] want = versionParts(server);
+        if (want == null) {
+            want = new int[]{Integer.MAX_VALUE};
+        }
+        Manifest.Entry below = null;
+        Manifest.Entry above = null;
+        int[] belowAt = null;
+        int[] aboveAt = null;
+        for (Manifest.Entry entry : current.entries) {
+            int[] at = versionParts(entry.version);
+            if (at == null) {
+                continue;
+            }
+            if (compareVersions(at, want) <= 0) {
+                if (below == null || compareVersions(at, belowAt) > 0) {
+                    below = entry;
+                    belowAt = at;
+                }
+            } else if (above == null || compareVersions(at, aboveAt) < 0) {
+                above = entry;
+                aboveAt = at;
+            }
+        }
+        Manifest.Entry chosen = below != null ? below : above;
+        if (chosen != null && !server.equals(warnedVersion)) {
+            warnedVersion = server;
+            plugin.getLogger().warning("The pack was not published for Minecraft " + server
+                    + ", so the version built for " + chosen.version + " is used. Tick " + server
+                    + " when publishing in Studio for an exact match.");
+        }
+        return chosen;
+    }
+
+    /** "1.21.4" as {1, 21, 4}; null for anything that is not dotted numbers ("bedrock"). */
+    static int[] versionParts(String version) {
+        if (version == null || version.isEmpty()) {
+            return null;
+        }
+        String[] parts = version.split("\\.");
+        int[] out = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try {
+                out[i] = Integer.parseInt(parts[i]);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return out;
+    }
+
+    static int compareVersions(int[] a, int[] b) {
+        for (int i = 0; i < Math.max(a.length, b.length); i++) {
+            int x = i < a.length ? a[i] : 0;
+            int y = i < b.length ? b[i] : 0;
+            if (x != y) {
+                return Integer.compare(x, y);
+            }
+        }
+        return 0;
     }
 
     /** On the refresh's own thread; a failure is tried again at the next refresh. */
@@ -301,6 +521,11 @@ public final class DistributionManager implements Listener {
     private void applyToEveryoneOnline() {
         // Each on their own thread, which on Folia is their region's.
         for (Player player : Bukkit.getOnlinePlayers()) {
+            // Mirrored, a Java player is re-sent the engine's own pack by its
+            // rebuild; only Bedrock still takes the published one.
+            if (mirroring() && !bedrock.isBedrock(player.getUniqueId())) {
+                continue;
+            }
             Tasks.now(plugin, player, () -> serve(player));
         }
     }
@@ -329,6 +554,12 @@ public final class DistributionManager implements Listener {
 
         if (isBedrock) {
             bedrock.applyPack(player, entry.url);
+            return;
+        }
+        if (mirroring()) {
+            // The pack is inside the engine's own, which the engine sends; the
+            // join is counted when that one loads. See onPackStatus.
+            awaiting.put(player.getUniqueId(), Boolean.TRUE);
             return;
         }
         try {
@@ -368,7 +599,14 @@ public final class DistributionManager implements Listener {
         // pushed overlay be drawn for them), and declining the bundle reported
         // the published one as declined to the dashboard.
         UUID pack = sending.statusId(event);
-        if (pack != null && !pack.equals(DISTRIBUTION_PACK_ID)) {
+        if (mirroring()) {
+            // Mirrored, the published pack is inside the engine's own, so
+            // that is the answer that counts.
+            java.util.function.BiPredicate<Player, UUID> own = enginePack;
+            if (pack != null && (own == null || !own.test(event.getPlayer(), pack))) {
+                return;
+            }
+        } else if (pack != null && !pack.equals(DISTRIBUTION_PACK_ID)) {
             return;
         }
         // Switched on the NAME rather than the enum constant, which looks
@@ -429,6 +667,14 @@ public final class DistributionManager implements Listener {
     }
 
     private void flushReports() {
+        // A mirror that failed (the host unreachable, a disk error) is tried
+        // again here, on the minute, rather than only on the next republish.
+        Manifest held = manifest;
+        StudioPackMirror into = mirror;
+        if (into != null && isBound() && held.enabled && !held.releaseId.isEmpty()
+                && !held.releaseId.equals(into.releaseId())) {
+            syncMirror(held);
+        }
         if (!isBound() || pending.isEmpty()) {
             return;
         }

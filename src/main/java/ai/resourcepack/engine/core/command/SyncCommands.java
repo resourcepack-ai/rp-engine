@@ -111,6 +111,9 @@ public final class SyncCommands implements Area {
         if (sub.equals("distribute")) {
             // The code comes off a web page, so only the one word can be
             // offered — but "off" is the one somebody has to guess otherwise.
+            if (args.length == 3 && args[1].equalsIgnoreCase("off")) {
+                return Completions.matching(args[2], "--keep");
+            }
             return args.length == 2 ? Completions.matching(args[1], "off") : List.of();
         }
         if (args.length == 2) {
@@ -145,10 +148,12 @@ public final class SyncCommands implements Area {
         if (args.length < 2) {
             Reply.to(sender, "/rpengine distribute <code>  serve a published pack to everybody who joins");
             Reply.to(sender, "/rpengine distribute off     stop serving it");
+            Reply.to(sender, "/rpengine distribute off --keep  stop, and keep its folder in content/ as your own");
             return true;
         }
         if (args[1].equalsIgnoreCase("off")) {
-            distribution.unbind(sender);
+            boolean keep = args.length > 2 && args[2].equalsIgnoreCase("--keep");
+            distribution.unbind(sender, keep);
             return true;
         }
         distribution.claim(sender, args[1]);

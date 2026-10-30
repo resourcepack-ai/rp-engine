@@ -61,7 +61,7 @@ public final class PlainPack {
      * character a namespace cannot hold turned into {@code _}, because pack
      * zips are called things like {@code Faithful 32x - 1.21.zip}.
      */
-    static String namespaceFor(String fileName) {
+    public static String namespaceFor(String fileName) {
         String stem = fileName.substring(0, fileName.length() - ".zip".length()).toLowerCase(Locale.ROOT);
         StringBuilder out = new StringBuilder(stem.length());
         for (int i = 0; i < stem.length(); i++) {
@@ -163,15 +163,41 @@ public final class PlainPack {
                     + "Delete that folder to replace it with the zip."));
             return false;
         }
-        // Straight into the folder rather than beside it and renamed: on
-        // Windows a folder of files just written is often still held open by
-        // a virus scanner, and renaming it fails. A failure part way removes
-        // what was written, so the next load tries again.
+        try {
+            if (!extract(zip, target)) {
+                diagnostics.add(Diagnostic.warning(name, "Not a resource pack (no " + META
+                        + " and assets/ inside), so it was left alone."));
+                return false;
+            }
+        } catch (IOException | RuntimeException e) {
+            delete(target);
+            diagnostics.add(Diagnostic.error(name, "Could not be unpacked. " + describe(e)));
+            return false;
+        }
+        try {
+            Files.createDirectories(unpackedRoot);
+            Files.move(zip, unpackedRoot.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            diagnostics.add(Diagnostic.warning(name, "Unpacked into " + namespace + "/, but the zip could not be "
+                    + "moved to " + unpackedRoot.getFileName() + "/, so delete it yourself. " + describe(e)));
+        }
+        return true;
+    }
+
+    /**
+     * Unpacks the resource pack in {@code zip} into {@code target}, from
+     * wherever in the zip the pack starts. False, with nothing written, when
+     * it is not a resource pack. A throw part way leaves what was written for
+     * the caller to remove.
+     *
+     * <p>Straight into the folder rather than beside it and renamed: on
+     * Windows a folder of files just written is often still held open by a
+     * virus scanner, and renaming it fails.
+     */
+    public static boolean extract(Path zip, Path target) throws IOException {
         try (ZipFile file = new ZipFile(zip.toFile())) {
             String prefix = packRoot(file);
             if (prefix == null) {
-                diagnostics.add(Diagnostic.warning(name, "Not a resource pack (no " + META
-                        + " and assets/ inside), so it was left alone."));
                 return false;
             }
             Files.createDirectories(target);
@@ -193,19 +219,8 @@ public final class PlainPack {
                     Files.copy(in, out, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
-        } catch (IOException | RuntimeException e) {
-            delete(target);
-            diagnostics.add(Diagnostic.error(name, "Could not be unpacked. " + describe(e)));
-            return false;
+            return true;
         }
-        try {
-            Files.createDirectories(unpackedRoot);
-            Files.move(zip, unpackedRoot.resolve(name), StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            diagnostics.add(Diagnostic.warning(name, "Unpacked into " + namespace + "/, but the zip could not be "
-                    + "moved to " + unpackedRoot.getFileName() + "/, so delete it yourself. " + describe(e)));
-        }
-        return true;
     }
 
     /** An exception as a person can read it: several only carry a path as their message. */
@@ -254,7 +269,7 @@ public final class PlainPack {
         return false;
     }
 
-    private static void delete(Path folder) {
+    public static void delete(Path folder) {
         if (!Files.exists(folder)) {
             return;
         }

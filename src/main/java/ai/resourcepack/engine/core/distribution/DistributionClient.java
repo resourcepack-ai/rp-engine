@@ -140,6 +140,46 @@ public final class DistributionClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json)));
     }
 
+    /**
+     * A published artifact, from the CDN, into {@code to}. Checked against
+     * {@code sha1} when the manifest gave one, because a truncated download is
+     * a zip that unpacks half a pack.
+     */
+    public void download(String url, String sha1, java.nio.file.Path to) throws DistributionException {
+        try {
+            java.nio.file.Files.createDirectories(to.getParent());
+            HttpResponse<java.nio.file.Path> response = http.send(HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("user-agent", "RPEngine/" + pluginVersion)
+                    .timeout(Duration.ofMinutes(5))
+                    .GET()
+                    .build(), HttpResponse.BodyHandlers.ofFile(to));
+            if (response.statusCode() >= 400) {
+                throw new DistributionException("The pack host returned " + response.statusCode() + ".");
+            }
+            if (sha1 != null && !sha1.isEmpty()) {
+                java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-1");
+                try (java.io.InputStream in = java.nio.file.Files.newInputStream(to)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    for (int read; (read = in.read(buffer)) > 0; ) {
+                        digest.update(buffer, 0, read);
+                    }
+                }
+                StringBuilder hex = new StringBuilder();
+                for (byte b : digest.digest()) {
+                    hex.append(String.format("%02x", b));
+                }
+                if (!hex.toString().equalsIgnoreCase(sha1)) {
+                    throw new DistributionException("The published pack did not download whole.");
+                }
+            }
+        } catch (DistributionException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DistributionException("Couldn't download the published pack (" + e.getClass().getSimpleName() + ").");
+        }
+    }
+
     private JsonObject send(HttpRequest.Builder builder) throws DistributionException {
         try {
             HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());

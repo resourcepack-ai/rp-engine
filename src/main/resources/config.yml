@@ -108,6 +108,14 @@ distribution:
   # staging studio.
   api-url: "https://studio.resourcepack.ai"
 
+  # content: the published pack is unpacked into content/studio-<pack>/ and
+  #   kept up to date, so you can see its files and it is built into the same
+  #   pack as the rest of your content. Players download one pack.
+  # cdn: the published pack is sent to players on its own, straight from
+  #   ResourcePack AI's pack host, and nothing is written to content/.
+  # A restart is needed after changing this.
+  mode: content
+
 # Anonymous usage counting, and the only telemetry RP Engine has. It is ON
 # unless you turn it off here.
 #
