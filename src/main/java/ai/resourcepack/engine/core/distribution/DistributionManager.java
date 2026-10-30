@@ -113,6 +113,12 @@ public final class DistributionManager implements Listener {
         return isBound() && !mirroring() && current.enabled && !current.packId.isEmpty() ? current.packId : null;
     }
 
+    /** The Studio pack this server is bound to, by its slug, whatever the mode; null when none. */
+    public String boundPackId() {
+        Manifest current = manifest;
+        return isBound() && !current.packId.isEmpty() ? current.packId : null;
+    }
+
     /**
      * Where the published pack is kept as content, or null when it is served
      * straight from the CDN ({@code distribution.mode: cdn}). See
@@ -158,8 +164,12 @@ public final class DistributionManager implements Listener {
         if (player != null) {
             awaiting.remove(player);
             loaded.remove(player);
+            earlyOutcome.remove(player);
         }
     }
+
+    /** Mirrored: the engine pack's answer for a player whose join serve() has not counted yet. */
+    private final Map<UUID, String> earlyOutcome = new ConcurrentHashMap<>();
 
     /**
      * Who is told the published pack's content manifest: the plugin, which
@@ -557,9 +567,14 @@ public final class DistributionManager implements Listener {
             return;
         }
         if (mirroring()) {
-            // The pack is inside the engine's own, which the engine sends; the
-            // join is counted when that one loads. See onPackStatus.
-            awaiting.put(player.getUniqueId(), Boolean.TRUE);
+            // The pack is inside the engine's own, which the engine sends as
+            // the player joins, so its answer has usually come in already.
+            String answered = earlyOutcome.remove(player.getUniqueId());
+            if (answered != null) {
+                outcome(player.getUniqueId(), answered);
+            } else {
+                awaiting.put(player.getUniqueId(), Boolean.TRUE);
+            }
             return;
         }
         try {
@@ -590,7 +605,9 @@ public final class DistributionManager implements Listener {
     @EventHandler
     public void onPackStatus(PlayerResourcePackStatusEvent event) {
         UUID id = event.getPlayer().getUniqueId();
-        if (awaiting.get(id) == null) {
+        // Mirrored, the engine's pack is answered before serve() runs a
+        // second after the join, so nothing can be waiting for it yet.
+        if (!isBound() || !manifest.enabled || (awaiting.get(id) == null && !mirroring())) {
             return;
         }
         // Only an answer about THIS pack. A player here is usually sent the
@@ -658,6 +675,11 @@ public final class DistributionManager implements Listener {
 
     private void outcome(UUID id, String outcome) {
         PendingReport report = pending.get(id);
+        if (report == null && mirroring()) {
+            // The join has not been counted yet; serve() takes this up.
+            earlyOutcome.put(id, outcome);
+            return;
+        }
         if (report != null) {
             // The join was already counted when the pack went out; this is the
             // same join reaching its conclusion, not a second one.
