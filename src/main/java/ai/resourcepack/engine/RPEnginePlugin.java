@@ -599,6 +599,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         distribution = new DistributionManager(this, bedrock, new ProtocolResolver(getLogger()),
                 getConfig().getString("distribution.api-url", "https://studio.resourcepack.ai"),
                 PackSending.forServer(compatibility));
+        // The published pack goes in content/ and rides in the engine's own
+        // pack, unless the owner asked for the CDN. See StudioPackMirror.
+        if (!"cdn".equalsIgnoreCase(getConfig().getString("distribution.mode", "content"))) {
+            distribution.mirrorInto(
+                    new ai.resourcepack.engine.core.distribution.StudioPackMirror(
+                            getDataFolder().toPath().resolve("content"), getDataFolder().toPath()),
+                    () -> rebuild(getServer().getConsoleSender()),
+                    (player, pack) -> delivery != null && delivery.sentHere(player, pack));
+        }
         // The published pack's content (shader objects, screens, dialogs),
         // fetched once per release, so a published pack works without anybody
         // also pressing Sync on it. See PushedPacks#publishedArrived.
