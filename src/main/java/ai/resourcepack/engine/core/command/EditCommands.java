@@ -48,14 +48,20 @@ public final class EditCommands implements Area {
     private final Items items;
     private final VehicleRuntime vehicles;
     private final boolean enabled;
+    private final String studioUrl;
+    /** The Studio pack this server publishes, by its slug, or null when it publishes none. */
+    private final java.util.function.Supplier<String> publishedPack;
 
     public EditCommands(EditSessions sessions, ContentRegistry registry, Items items,
-                        VehicleRuntime vehicles, boolean enabled) {
+                        VehicleRuntime vehicles, boolean enabled, String studioUrl,
+                        java.util.function.Supplier<String> publishedPack) {
         this.sessions = sessions;
         this.registry = registry;
         this.items = items;
         this.vehicles = vehicles;
         this.enabled = enabled;
+        this.studioUrl = studioUrl.endsWith("/") ? studioUrl.substring(0, studioUrl.length() - 1) : studioUrl;
+        this.publishedPack = publishedPack;
     }
 
     @Override
@@ -103,6 +109,9 @@ public final class EditCommands implements Area {
         if (id.isEmpty()) {
             Reply.error(sender, raw + " is not a namespace:id.");
             return true;
+        }
+        if (id.get().namespace().equals("studio")) {
+            return studio(sender, id.get());
         }
         Optional<ContentEntry> entry = registry.entry(id.get());
         if (entry.isEmpty()) {
@@ -192,6 +201,23 @@ public final class EditCommands implements Area {
         ItemInfo model = info.get().model().flatMap(items::info).orElse(null);
         sessions.editVehicle(sender, info.get(), model);
         Reply.to(sender, "Opening " + Reply.accent(id) + "...");
+        return true;
+    }
+
+    /**
+     * A {@code studio:} id came from a Studio pack, synced or published, and
+     * has no file of its own here to write back to. A published pack's folder
+     * in content/ is replaced on every release, so the place to change it is
+     * Studio, and publishing again brings the change here.
+     */
+    private boolean studio(CommandSender sender, ContentId id) {
+        String pack = publishedPack.get();
+        String url = pack == null ? studioUrl : studioUrl + "/packs/" + pack;
+        ai.resourcepack.engine.core.Chat.link(sender, ai.resourcepack.engine.core.command.EngineCommand.prefix()
+                + id + " comes from a Studio pack. Change it ", "in Studio", url);
+        Reply.to(sender, pack == null
+                ? "Then sync or publish the pack again."
+                : "Then publish the pack again; this server picks it up within a minute.");
         return true;
     }
 

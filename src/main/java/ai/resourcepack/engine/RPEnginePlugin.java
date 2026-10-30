@@ -1101,7 +1101,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 liquidCommands,
                 new VehicleCommands(vehicles),
                 new ai.resourcepack.engine.core.command.ObjectCommands(objectRuntime),
-                new EditCommands(edits, registry, items, vehicles, editing),
+                new EditCommands(edits, registry, items, vehicles, editing,
+                        getConfig().getString("edit.url", "https://studio.resourcepack.ai"),
+                        distribution::boundPackId),
                 new ai.resourcepack.engine.core.command.Armor3dCommands(armor3dSets, armor3dWardrobe,
                         wornArmour, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
                                 ? null
