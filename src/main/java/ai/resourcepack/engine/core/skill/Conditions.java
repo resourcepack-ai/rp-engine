@@ -104,6 +104,21 @@ final class Conditions {
         return text.matches(regex);
     }
 
+    /**
+     * The variable a condition names on its subject (or, with
+     * {@code var=caster.x}, on the caster): null when it is unset.
+     */
+    private static String variableOf(SkillRuntime runtime, SkillCastImpl cast) {
+        String written = cast.string("variable", "", "var", "name", "n", "key", "k").trim().toLowerCase(Locale.ROOT);
+        Entity holder = subject(cast);
+        if (written.startsWith("caster.")) {
+            holder = cast.caster();
+        } else if (written.startsWith("target.")) {
+            written = written.substring("target.".length());
+        }
+        return runtime.variable(holder, written);
+    }
+
     static void install(SkillRuntime runtime) {
         SkillRegistry r = runtime.registry;
 
@@ -279,6 +294,37 @@ final class Conditions {
         }, "mobtype", "mythicmobtype", "custommob");
         r.condition(cast -> subject(cast) != null
                 && ranged(cast, runtime.host.level(subject(cast)), "level", "l", "lvl"), "level", "moblevel");
+        r.condition(cast -> {
+            String value = variableOf(runtime, cast);
+            String wanted = cast.string("value", "", "val", "v");
+            if (value == null) {
+                return false;
+            }
+            try {
+                return Double.parseDouble(value.trim()) == Double.parseDouble(wanted.trim());
+            } catch (NumberFormatException e) {
+                return value.trim().equalsIgnoreCase(wanted.trim());
+            }
+        }, "variableequals", "varequals", "variableeq", "vareq");
+        r.condition(cast -> {
+            String value = variableOf(runtime, cast);
+            if (value == null) {
+                return false;
+            }
+            Optional<Ranged> range = Ranged.parse(cast.string("value", "", "val", "v", "range", "r"));
+            try {
+                return range.isPresent() && range.get().test(Double.parseDouble(value.trim()));
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }, "variableinrange", "varinrange", "variablerange", "varrange");
+        r.condition(cast -> variableOf(runtime, cast) != null, "variableisset", "varisset", "variableset");
+        r.condition(cast -> {
+            ThreatTable table = runtime.threatOf(cast.caster());
+            Entity subject = subject(cast);
+            return table != null && subject != null && subject != cast.caster()
+                    && ranged(cast, table.get(subject.getUniqueId()), "threat", "amount", "a", "t");
+        }, "threat", "hasthreat", "onthreattable");
         r.condition(cast -> {
             String faction = subject(cast) == null ? null : runtime.host.faction(subject(cast));
             String wanted = cast.string("faction", "", "f");

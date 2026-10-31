@@ -21,6 +21,12 @@ final class SkillMath {
         return max == null ? body.getHealth() : max.getValue();
     }
 
+    /** Its follow range attribute, or 16 when it has none. */
+    static double followRange(LivingEntity body) {
+        AttributeInstance range = Vanilla.attribute("follow_range").map(body::getAttribute).orElse(null);
+        return range == null ? 16 : range.getValue();
+    }
+
     /** {@code points} spots on a flat ring of {@code radius} round {@code centre}, starting in front of it. */
     static List<Location> ring(Location centre, double radius, int points) {
         List<Location> out = new ArrayList<>();

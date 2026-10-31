@@ -908,6 +908,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                                                              ContentId id, int level) {
                         return creatures.spawn(where, id, level);
                     }
+
+                    @Override
+                    public boolean boneVisible(org.bukkit.entity.Entity entity, String bone, boolean visible) {
+                        return creatures.boneVisible(entity, bone, visible);
+                    }
+
+                    @Override
+                    public boolean swapModel(org.bukkit.entity.Entity entity, ContentId model) {
+                        return creatures.swapModel(entity, model);
+                    }
+
+                    @Override
+                    public boolean defaultState(org.bukkit.entity.Entity entity,
+                                                ai.resourcepack.engine.api.MobState state, String animation) {
+                        return creatures.defaultState(entity, state, animation);
+                    }
                 });
         creatures.hooks(skills);
         mobSpawners = new ai.resourcepack.engine.core.entity.Spawners(this, creatures);

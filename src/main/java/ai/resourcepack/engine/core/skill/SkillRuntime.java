@@ -101,6 +101,21 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         default Optional<Entity> spawn(Location where, ContentId id, int level) {
             return mobs().spawn(where, id);
         }
+
+        /** Shows or hides a bone of the model {@code entity} wears; false when it has no such bone. */
+        default boolean boneVisible(Entity entity, String bone, boolean visible) {
+            return false;
+        }
+
+        /** Puts another model on a custom mob, keeping its size and turn. */
+        default boolean swapModel(Entity entity, ContentId model) {
+            return false;
+        }
+
+        /** Which animation a custom mob plays for {@code state} from now on; null puts its own back. */
+        default boolean defaultState(Entity entity, ai.resourcepack.engine.api.MobState state, String animation) {
+            return false;
+        }
     }
 
     final Plugin plugin;
@@ -136,6 +151,7 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         this.skillShotKey = new NamespacedKey(plugin, "skill-shot");
         this.shotKey = new NamespacedKey(plugin, "entity-shot");
         Mechanics.install(this);
+        MoreMechanics.install(this);
         Targeters.install(this);
         Conditions.install(this);
     }
@@ -164,7 +180,11 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         // safe read from any thread, Folia included.
         sweep = Tasks.globalTimer(plugin, () -> states.entrySet().removeIf(entry -> {
             Entity entity = plugin.getServer().getEntity(entry.getKey());
-            return entity == null || !entity.isValid();
+            boolean gone = entity == null || !entity.isValid();
+            if (gone) {
+                hideBars(entry.getValue());
+            }
+            return gone;
         }), 200, 200);
     }
 
@@ -174,7 +194,20 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
             sweep.cancel();
             sweep = null;
         }
+        for (SkillState state : states.values()) {
+            hideBars(state);
+        }
         states.clear();
+        Projectiles.stopAll();
+    }
+
+    /** Takes down every boss bar a mob's skills put up. */
+    static void hideBars(SkillState state) {
+        for (org.bukkit.boss.BossBar bar : state.bars.values()) {
+            bar.removeAll();
+            bar.setVisible(false);
+        }
+        state.bars.clear();
     }
 
     // --- state ----------------------------------------------------------
@@ -198,6 +231,12 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         }
         SkillDefinitions.MobSkillSet set = mobs.get(id.get());
         SkillState made = new SkillState(set == null ? null : set.stance);
+        if (set != null) {
+            made.vars.putAll(set.variables);
+            if (set.threatTable) {
+                made.threat = new ThreatTable();
+            }
+        }
         SkillState raced = states.putIfAbsent(entity.getUniqueId(), made);
         return raced == null ? made : raced;
     }
@@ -267,6 +306,9 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
                 dispatch(body, id, state, line, "timer", null, null, 0, false, null);
             }
         }
+        if (state.threat != null && body instanceof Mob) {
+            threat(body, (Mob) body, state);
+        }
         if (body instanceof Mob) {
             LivingEntity target = ((Mob) body).getTarget();
             UUID now2 = target == null ? null : target.getUniqueId();
@@ -283,6 +325,53 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
                 }
             }
         }
+    }
+
+    /**
+     * A threat-table mob's look: drop whoever is no longer a fair target, put
+     * what its own AI chose on the table, and fight the top by the 110% rule.
+     * Reads players elsewhere racily on Folia, as the boss bar does.
+     */
+    private void threat(LivingEntity body, Mob mob, SkillState state) {
+        double reach = SkillMath.followRange(body) * 2 + 8;
+        Location at = body.getLocation();
+        state.threat.prune(uuid -> {
+            Entity entity = plugin.getServer().getEntity(uuid);
+            if (!(entity instanceof LivingEntity) || !entity.isValid() || entity.isDead()
+                    || entity.getWorld() != body.getWorld()) {
+                return true;
+            }
+            if (entity instanceof Player) {
+                org.bukkit.GameMode mode = ((Player) entity).getGameMode();
+                if (mode == org.bukkit.GameMode.CREATIVE || mode == org.bukkit.GameMode.SPECTATOR) {
+                    return true;
+                }
+            }
+            return entity.getLocation().distanceSquared(at) > reach * reach;
+        });
+        LivingEntity current = mob.getTarget();
+        if (current != null && current.isValid() && state.threat.get(current.getUniqueId()) <= 0) {
+            state.threat.add(current.getUniqueId(), 1);
+        }
+        UUID chosen = state.threat.choose(current == null ? null : current.getUniqueId());
+        if (chosen == null) {
+            if (current != null) {
+                mob.setTarget(null);
+            }
+            return;
+        }
+        if (current == null || !chosen.equals(current.getUniqueId())) {
+            Entity next = plugin.getServer().getEntity(chosen);
+            if (next instanceof LivingEntity) {
+                mob.setTarget((LivingEntity) next);
+            }
+        }
+    }
+
+    /** The threat table of a custom mob that has one, else null. */
+    ThreatTable threatOf(Entity entity) {
+        SkillState state = state(entity);
+        return state == null ? null : state.threat;
     }
 
     /**
@@ -323,7 +412,8 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
      */
     @Override
     public boolean condition(LivingEntity body, Entity trigger, String text) {
-        SkillParser.Parsed parsed = SkillParser.condition(text, false);
+        boolean onKiller = text.startsWith("~");
+        SkillParser.Parsed parsed = SkillParser.condition(onKiller ? text.substring(1) : text, onKiller);
         if (!parsed.ok() || parsed.line.conditions.isEmpty()) {
             warnOnce("tablecond:" + text, "A drop table condition does not parse (" + text + "): " + parsed.error);
             return false;
@@ -336,7 +426,7 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         }
         SkillContext context = new SkillContext(body, id.get(), state, trigger, "droptable",
                 new SkillContext.Run(null, generation, true, body.getLocation(), 0));
-        Entity subject = cond.onTrigger ? trigger : body;
+        Entity subject = cond.onTrigger || onKiller ? trigger : body;
         boolean pass = subject != null && test(context, cond, subject) != cond.negate;
         return cond.action.equals("false") ? !pass : pass;
     }
@@ -355,6 +445,16 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
      * spawn and death.
      */
     void fire(LivingEntity body, ContentId id, String trigger, Entity triggerEntity,
+              org.bukkit.event.Event event, double damage) {
+        fire(body, id, trigger, null, triggerEntity, event, damage);
+    }
+
+    /**
+     * The same, for a trigger with an argument a line may name: a signal's
+     * name ({@code ~onSignal:enrage} hears only {@code enrage}; a bare
+     * {@code ~onSignal} hears every signal).
+     */
+    void fire(LivingEntity body, ContentId id, String trigger, String arg, Entity triggerEntity,
               org.bukkit.event.Event event, double damage) {
         SkillDefinitions.MobSkillSet set = mobs.get(id);
         if (set == null || set.lines.isEmpty()) {
@@ -381,6 +481,10 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
                         && (trigger.equals("attack") || trigger.equals("damaged") || trigger.equals("spawn")
                         || trigger.equals("death")));
                 if (!hears || listens.equals("timer")) {
+                    continue;
+                }
+                if (arg != null && line.trigger != null && line.trigger.arg != null && !line.trigger.arg.isBlank()
+                        && !line.trigger.arg.trim().equalsIgnoreCase(arg)) {
                     continue;
                 }
                 dispatch(body, id, state, line, trigger, triggerEntity, event, damage, death, run);
@@ -765,6 +869,11 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         }
         Optional<ContentId> victimId = victim instanceof LivingEntity ? mobOf(victim) : Optional.empty();
         if (victimId.isPresent() && mobs.containsKey(victimId.get())) {
+            SkillState hurt = state(victim);
+            if (hurt != null && hurt.threat != null && attacker instanceof LivingEntity && attacker != victim
+                    && damage > 0) {
+                hurt.threat.add(attacker.getUniqueId(), damage);
+            }
             fire((LivingEntity) victim, victimId.get(), "damaged", attacker, event, damage);
         }
         if (attacker == null || attacker == victim || skillDamage.get()[0]) {
@@ -798,6 +907,10 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         Optional<ContentId> id = mobOf(dead);
         if (id.isPresent() && mobs.containsKey(id.get())) {
             fire(dead, id.get(), "death", killer, event, 0);
+            SkillState gone = states.get(dead.getUniqueId());
+            if (gone != null) {
+                hideBars(gone);
+            }
         }
         if (killer instanceof LivingEntity && killer != dead) {
             Optional<ContentId> killerId = mobOf(killer);
@@ -829,6 +942,83 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         Optional<ContentId> id = clicked instanceof LivingEntity ? mobOf(clicked) : Optional.empty();
         if (id.isPresent() && mobs.containsKey(id.get())) {
             fire((LivingEntity) clicked, id.get(), "interact", event.getPlayer(), event, 0);
+        }
+    }
+
+    /**
+     * {@code signal{s=name}}: {@code ~onSignal:name} on {@code target}, a
+     * custom mob, with the sender as its trigger. On the target's own thread.
+     */
+    void signal(Entity target, String name, LivingEntity from) {
+        if (!(target instanceof LivingEntity)) {
+            return;
+        }
+        Optional<ContentId> id = mobOf(target);
+        if (id.isEmpty() || !mobs.containsKey(id.get())) {
+            return;
+        }
+        LivingEntity body = (LivingEntity) target;
+        Runnable act = () -> {
+            if (body.isValid() && !body.isDead()) {
+                fire(body, id.get(), "signal", name, from, null, 0);
+            }
+        };
+        if (Tasks.owns(body)) {
+            act.run();
+        } else {
+            Tasks.on(plugin, body, act);
+        }
+    }
+
+    /** {@code ~onShoot}: a custom mob launched a projectile of its own (a bow, its ranged:, not a skill shot). */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onLaunch(org.bukkit.event.entity.ProjectileLaunchEvent event) {
+        Projectile shot = event.getEntity();
+        if (!(shot.getShooter() instanceof LivingEntity)
+                || shot.getPersistentDataContainer().has(skillShotKey, PersistentDataType.BYTE)) {
+            return;
+        }
+        LivingEntity shooter = (LivingEntity) shot.getShooter();
+        Optional<ContentId> id = mobOf(shooter);
+        if (id.isEmpty() || !mobs.containsKey(id.get())) {
+            return;
+        }
+        Entity target = shooter instanceof Mob ? ((Mob) shooter).getTarget() : null;
+        Runnable act = () -> fire(shooter, id.get(), "shoot", target, null, 0);
+        if (Tasks.owns(shooter)) {
+            act.run();
+        } else {
+            Tasks.on(plugin, shooter, act);
+        }
+    }
+
+    /** {@code ~onProjectileHit}: a projectile a custom mob shot hit something. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onProjectileHit(org.bukkit.event.entity.ProjectileHitEvent event) {
+        Projectile shot = event.getEntity();
+        if (!(shot.getShooter() instanceof LivingEntity)
+                || shot.getPersistentDataContainer().has(skillShotKey, PersistentDataType.BYTE)) {
+            return;
+        }
+        LivingEntity shooter = (LivingEntity) shot.getShooter();
+        Optional<ContentId> id = mobOf(shooter);
+        if (id.isEmpty() || !mobs.containsKey(id.get())) {
+            return;
+        }
+        projectileHit(shooter, id.get(), event.getHitEntity());
+    }
+
+    /** Fires {@code ~onProjectileHit} on the shooter's thread, with what was hit (if anything) as the trigger. */
+    void projectileHit(LivingEntity shooter, ContentId id, Entity hit) {
+        Runnable act = () -> {
+            if (shooter.isValid() && !shooter.isDead()) {
+                fire(shooter, id, "projectilehit", hit, null, 0);
+            }
+        };
+        if (Tasks.owns(shooter)) {
+            act.run();
+        } else {
+            Tasks.on(plugin, shooter, act);
         }
     }
 

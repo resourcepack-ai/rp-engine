@@ -498,7 +498,7 @@ final class Mechanics {
                 }
             }
         }, true), "speak");
-        r.mechanic(entities(runtime, (cast, target) -> {
+        r.mechanic(each(runtime, (cast, target) -> {
             String command = cast.string("command", "", "c", "cmd");
             if (command.startsWith("/")) {
                 command = command.substring(1);
@@ -514,7 +514,14 @@ final class Mechanics {
                         + "player an operator, even for a moment; the command runs as the console instead.");
             }
             return Regions.console(runtime.plugin, command);
-        }), "command", "cmd", "consolecommand");
+        }, (cast, place) -> {
+            // Aimed at a place (a projectile's onEnd, a ring): run once as the console there.
+            String command = cast.string("command", "", "c", "cmd");
+            if (command.startsWith("/")) {
+                command = command.substring(1);
+            }
+            return !command.isBlank() && Regions.console(runtime.plugin, command);
+        }, false), "command", "cmd", "consolecommand");
 
         // --- flow --------------------------------------------------------
         r.mechanic(group((context, line, targets) -> {

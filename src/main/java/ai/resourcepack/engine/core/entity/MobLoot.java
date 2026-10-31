@@ -365,6 +365,15 @@ public final class MobLoot {
                 }
             }
         }
+        // TriggerConditions: tested on the killer, which the predicate is told by a leading ~.
+        Object onKiller = keys.get("triggerconditions");
+        if (onKiller instanceof List) {
+            for (Object condition : (List<?>) onKiller) {
+                if (condition != null) {
+                    conditions.add("~" + condition.toString().trim());
+                }
+            }
+        }
         return Optional.of(new Table(id, total, Math.min(min, max), Math.max(min, max), conditions, lines));
     }
 

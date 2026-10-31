@@ -288,7 +288,39 @@ final class Targeters {
             found.removeIf(t -> ((Entity) t).getLocation().distanceSquared(from) < min * min);
             return found;
         }, "playersinring", "pirr");
-        r.targeter(cast -> one(mobTarget(cast)), "threattable", "tt", "randomthreattarget", "rtt");
+        r.targeter(cast -> {
+            // Everybody on its threat table, most threatening first; without a
+            // table, what it is fighting.
+            ThreatTable table = runtime.threatOf(cast.caster());
+            if (table == null) {
+                return one(mobTarget(cast));
+            }
+            List<java.util.UUID> order = table.entries();
+            order.sort((a, b) -> Double.compare(table.get(b), table.get(a)));
+            List<Object> out = new ArrayList<>();
+            for (java.util.UUID uuid : order) {
+                Entity entity = runtime.plugin.getServer().getEntity(uuid);
+                if (entity != null && entity.isValid()) {
+                    out.add(entity);
+                }
+            }
+            return out;
+        }, "threattable", "tt", "threattableplayers", "ttp");
+        r.targeter(cast -> {
+            ThreatTable table = runtime.threatOf(cast.caster());
+            if (table == null) {
+                return one(mobTarget(cast));
+            }
+            java.util.UUID pick = table.random(java.util.concurrent.ThreadLocalRandom.current());
+            return one(pick == null ? null : runtime.plugin.getServer().getEntity(pick));
+        }, "randomthreattarget", "rtt");
+        r.targeter(cast -> {
+            ThreatTable table = runtime.threatOf(cast.caster());
+            Entity pick = table == null ? mobTarget(cast) : runtime.plugin.getServer().getEntity(
+                    java.util.Optional.ofNullable(table.random(java.util.concurrent.ThreadLocalRandom.current()))
+                            .orElse(new java.util.UUID(0, 0)));
+            return one(pick == null ? null : pick.getLocation());
+        }, "randomthreattargetlocation", "rttl");
 
         // --- places -------------------------------------------------------
         r.targeter(cast -> one(cast.context.casterLocation()), "selflocation", "casterlocation", "selfloc",
