@@ -51,8 +51,15 @@ import java.util.function.Function;
  *       it changes and again when a viewer first sees the mob.</li>
  * </ul>
  *
- * <p>Only models in the server's own Bedrock pack cross: a Studio mob's model
- * lives in Studio's pack, which defines no mob entity, and stays as it was.
+ * <p>Two packs can draw one: the server's own ({@code rpengine:mob_<slot>},
+ * slots from {@link BedrockContent}) and, for a mob Studio pushed, the
+ * {@code .mcpack} Studio built for that player ({@code rpai:mob_<slot>}, the
+ * same slot the model's placed entity {@code rpai:model_<slot>} has, read off
+ * that pack's {@code rpai_items.json}; names in {@link StudioMobNames}). Studio builds the mob entity exactly as
+ * {@link BedrockContent} does: the placed model's geometry and texture, no
+ * self-starting loops, a rest animation, and the mob's {@code turn} baked into
+ * a turned copy of the geometry. Its animations are named Studio's way,
+ * {@code animation.rpai.<model>.<animation>}.
  */
 final class BedrockMobs {
 
@@ -72,6 +79,8 @@ final class BedrockMobs {
     private final JavaPlugin plugin;
     /** The server build a session was served, by xuid. */
     private final Function<String, BedrockContent.Result> contentOf;
+    /** Model id to slot in the Studio pack a session was served, by xuid; null when none. */
+    private final Function<String, Map<String, Integer>> studioSlotsOf;
     private final NamespacedKey boundKey;
     private final NamespacedKey modelKey;
     private final NamespacedKey scaleKey;
@@ -80,14 +89,19 @@ final class BedrockMobs {
     private final Map<UUID, Worn> worn = new ConcurrentHashMap<>();
     /** viewer -> host -> the geyser id it is drawn as for them. */
     private final Map<UUID, Map<UUID, Long>> drawn = new ConcurrentHashMap<>();
+    /** viewer -> the hosts drawn for them from Studio's pack, whose animations are named Studio's way. */
+    private final Map<UUID, java.util.Set<UUID>> studioDrawn = new ConcurrentHashMap<>();
     /** The registered definitions, by slot; Geyser matches the instance it was given. */
     private final CustomEntityDefinition[] definitions = new CustomEntityDefinition[BedrockContent.MODEL_POOL + 1];
+    private final CustomEntityDefinition[] studioDefinitions = new CustomEntityDefinition[StudioMobNames.POOL + 1];
 
     private Tasks.Handle tick;
 
-    BedrockMobs(JavaPlugin plugin, Function<String, BedrockContent.Result> contentOf) {
+    BedrockMobs(JavaPlugin plugin, Function<String, BedrockContent.Result> contentOf,
+                Function<String, Map<String, Integer>> studioSlotsOf) {
         this.plugin = plugin;
         this.contentOf = contentOf;
+        this.studioSlotsOf = studioSlotsOf;
         this.boundKey = new NamespacedKey(plugin, "rig-bound");
         this.modelKey = new NamespacedKey(plugin, "model-id");
         this.scaleKey = new NamespacedKey(plugin, "rig-scale");
@@ -112,6 +126,16 @@ final class BedrockMobs {
                 count++;
             } catch (Exception | LinkageError e) {
                 plugin.getLogger().warning("Couldn't register Bedrock mob slot " + slot + ": " + e);
+            }
+        }
+        for (int slot = 1; slot <= StudioMobNames.POOL; slot++) {
+            try {
+                CustomEntityDefinition definition = CustomEntityDefinition.of(StudioMobNames.mobIdentifier(slot));
+                event.register(definition);
+                studioDefinitions[slot] = definition;
+                count++;
+            } catch (Exception | LinkageError e) {
+                plugin.getLogger().warning("Couldn't register Bedrock Studio mob slot " + slot + ": " + e);
             }
         }
         return count;
@@ -150,12 +174,14 @@ final class BedrockMobs {
         drawn.forEach((viewer, hosts) -> {
             Long geyserId = hosts.get(host.getUniqueId());
             GeyserSession session = geyserId == null ? null : sessionOf(viewer);
-            if (session != null) session.executeInEventLoop(() -> animate(session, geyserId, w));
+            boolean studio = studioDrawn.getOrDefault(viewer, java.util.Set.of()).contains(host.getUniqueId());
+            if (session != null) session.executeInEventLoop(() -> animate(session, geyserId, w, studio));
         });
     }
 
     void forget(UUID viewer) {
         drawn.remove(viewer);
+        studioDrawn.remove(viewer);
     }
 
     /**
@@ -199,12 +225,26 @@ final class BedrockMobs {
         GeyserConnection connection = event.connection();
         BedrockContent.Result content = connection.xuid() == null ? null : contentOf.apply(connection.xuid());
         Integer slot = content == null ? null : content.modelSlots().get(w.modelId);
-        if (slot == null || slot < 1 || slot >= definitions.length || definitions[slot] == null) return;
+        CustomEntityDefinition definition =
+                slot == null || slot < 1 || slot >= definitions.length ? null : definitions[slot];
+        boolean studio = false;
+        if (definition == null) {
+            // A mob Studio pushed: its model is in the Studio pack this player
+            // was served, at the slot its placed entity has there.
+            Map<String, Integer> studioSlots = connection.xuid() == null ? null : studioSlotsOf.apply(connection.xuid());
+            Integer studioSlot = studioSlots == null ? null : studioSlots.get(w.modelId);
+            if (studioSlot != null && studioSlot >= 1 && studioSlot < studioDefinitions.length) {
+                definition = studioDefinitions[studioSlot];
+                studio = definition != null;
+            }
+        }
+        if (definition == null) return;
         if (!(connection instanceof GeyserSession session)) return;
         UUID viewer = connection.javaUuid();
         UUID host = event.uuid();
+        boolean fromStudio = studio;
         try {
-            event.definition(definitions[slot]);
+            event.definition(definition);
             event.preSpawnConsumer(entity -> {
                 try {
                     // The model's size, not the body's: the body's scale
@@ -215,10 +255,16 @@ final class BedrockMobs {
                 }
                 long geyserId = entity.geyserId();
                 drawn.computeIfAbsent(viewer, k -> new ConcurrentHashMap<>()).put(host, geyserId);
+                java.util.Set<UUID> fromPack = studioDrawn.computeIfAbsent(viewer, k -> ConcurrentHashMap.newKeySet());
+                if (fromStudio) {
+                    fromPack.add(host);
+                } else {
+                    fromPack.remove(host);
+                }
                 // After the spawn and the metadata that follows it: visible, and posed.
                 session.scheduleInEventLoop(() -> {
                     show(session, geyserId);
-                    animate(session, geyserId, w);
+                    animate(session, geyserId, w, fromStudio);
                 }, 100, TimeUnit.MILLISECONDS);
             });
         } catch (Exception | LinkageError e) {
@@ -255,13 +301,18 @@ final class BedrockMobs {
     }
 
     /** Plays what the host's rig is playing, on the session's thread. */
-    private void animate(GeyserSession session, long geyserId, Worn w) {
+    private void animate(GeyserSession session, long geyserId, Worn w, boolean studio) {
         String key = BedrockContent.modelKey(w.modelId);
         String animation = w.animation;
         try {
             AnimateEntityPacket packet = new AnimateEntityPacket();
-            packet.setAnimation(animation == null ? BedrockContent.restAnimation(key)
-                    : BedrockGeometry.animationId(key, animation));
+            if (studio) {
+                packet.setAnimation(animation == null ? StudioMobNames.restAnimation(w.modelId)
+                        : StudioMobNames.animationId(w.modelId, animation));
+            } else {
+                packet.setAnimation(animation == null ? BedrockContent.restAnimation(key)
+                        : BedrockGeometry.animationId(key, animation));
+            }
             // The controller /playanimation uses, so each one replaces the
             // last. A one-shot goes back to rest when it ends, as on Java; a
             // loop runs until the next, and a held one keeps its last frame.
