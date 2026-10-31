@@ -96,6 +96,19 @@ public final class DialogLinks {
     }
 
     /**
+     * What a "Run command" click with several commands runs, as the player:
+     * {@code rp run <key>}, the commands kept beside the dialog by key as a
+     * console button's are, and run as that player. Studio's
+     * {@code DIALOG_RUN_COMMAND}, checked by its dialog check.
+     */
+    public static final String RUN = "rp run";
+
+    /** The click that runs, as the player, the commands known by {@code key}. */
+    public static String runClick(String key) {
+        return RUN + " " + key;
+    }
+
+    /**
      * The key a console command is known by: eight hex digits of its FNV-1a
      * hash, over its UTF-16 characters, as Studio's {@code dialogConsoleKey}
      * makes it. A hash rather than a position, so a click on a dialog still

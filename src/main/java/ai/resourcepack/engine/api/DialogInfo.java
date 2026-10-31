@@ -60,6 +60,9 @@ public final class DialogInfo {
     /** The longest console command a dialog may carry. */
     public static final int MAX_CONSOLE_COMMAND = 1024;
 
+    /** The most commands one click runs (Studio's {@code DIALOG_MAX_CLICK_COMMANDS}). */
+    public static final int MAX_CLICK_COMMANDS = 16;
+
     /** A permission node: dotted words. */
     private static final Pattern PERMISSION = Pattern.compile("[A-Za-z0-9_.*-]{1,96}");
 
@@ -121,7 +124,7 @@ public final class DialogInfo {
         Map<String, String> consoles = new LinkedHashMap<>();
         if (consoleCommands != null) {
             consoleCommands.forEach((key, line) -> {
-                String run = consoleCommand(line);
+                String run = clickCommands(line);
                 if (key != null && CONSOLE_KEY.matcher(key).matches() && run != null) {
                     consoles.put(key, run);
                 }
@@ -174,12 +177,38 @@ public final class DialogInfo {
     /**
      * The same dialog, with the commands its "Run as console" clicks run, each
      * by the key its click names ({@code rp click <key>}). See
-     * {@link #consoleCommands()}. A key that is not {@link #CONSOLE_KEY}, or a
-     * command that is blank, too long or holds a control character, is left out.
+     * {@link #consoleCommands()}. A key that is not {@link #CONSOLE_KEY}, or
+     * commands {@link #clickCommands} refuses, is left out.
      */
     public DialogInfo withConsoleCommands(Map<String, String> commands) {
         return new DialogInfo(id, json, name, pushed, variables, itemIcons, command, permission, clickSound, clickSounds,
                 closesAfterClick, quickAction, commands);
+    }
+
+    /**
+     * A click's commands as a dialog may carry them: one per line, each as
+     * {@link #consoleCommand} takes it, blank lines dropped, joined by
+     * {@code \n} — or null when there is none, more than
+     * {@link #MAX_CLICK_COMMANDS}, or any line no command can be. All or
+     * nothing, because a button that runs half of what it says is worse than
+     * one that runs none of it.
+     */
+    public static String clickCommands(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        List<String> lines = new java.util.ArrayList<>();
+        for (String part : raw.split("\r?\n", -1)) {
+            if (part.isBlank()) {
+                continue;
+            }
+            String line = consoleCommand(part);
+            if (line == null || lines.size() == MAX_CLICK_COMMANDS) {
+                return null;
+            }
+            lines.add(line);
+        }
+        return lines.isEmpty() ? null : String.join("\n", lines);
     }
 
     /**
@@ -369,6 +398,12 @@ public final class DialogInfo {
      * nobody can change a word of it. That is what makes it safe to let every
      * player run {@code /rp click}: a dialog is the only way to a console command,
      * which is the point. Empty when it has none.
+     *
+     * <p>A value may be several commands, one per line, run in order (0.2.51).
+     * The same keys serve {@code /rp run <key>}, Studio's "Run command" with
+     * more than one command: those lines run as the PLAYER, with their own
+     * permissions. Which it is is the click's to say, never the key's, so a
+     * key a dialog clicks only with {@code rp run} never runs as the console.
      */
     public Map<String, String> consoleCommands() {
         return consoleCommands;

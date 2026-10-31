@@ -31,10 +31,9 @@ import java.util.UUID;
  * Things standing in the world: {@code models}, {@code purge},
  * {@code entities}, {@code spawn}, {@code bind}, {@code unbind}.
  *
- * <p>Every one of them is about a place, so a console is refused unless it
- * names one: "around you" has no meaning typed from a terminal, and
- * answering with the world spawn would be answering a different question.
- * {@code spawn} takes coordinates, so it works from the console.
+ * <p>Every one of them is about a place, so every one of them refuses a
+ * console: "around you" has no meaning typed from a terminal, and answering
+ * with the world spawn would be answering a different question.
  */
 public final class ModelCommands implements Area {
 
@@ -49,13 +48,10 @@ public final class ModelCommands implements Area {
     private final Items items;
     private final CustomBlocks customBlocks;
     private final BlockStates states;
-    /** {@code spawner <verb>}, answered here so that mobs' commands sit together in the help. */
-    private final SpawnerCommands spawners;
 
     public ModelCommands(ModelPlacementListener placements, Models models, CustomEntities creatures,
                          BoundModels bound, Items items, CustomBlocks customBlocks,
-                         BlockStates states, ai.resourcepack.engine.core.entity.Spawners spawners) {
-        this.spawners = new SpawnerCommands(spawners, creatures);
+                         BlockStates states) {
         this.placements = placements;
         this.models = models;
         this.creatures = creatures;
@@ -77,32 +73,15 @@ public final class ModelCommands implements Area {
                 Help.of("blocks", "every custom block, and states left"),
                 Help.of("purge", "[radius]", "remove orphaned ones"),
                 Help.of("entities", "list the custom entities"),
-                Help.of("spawn", "<id> [x y z] [n] [lvl]", "spawn mobs"),
+                Help.of("spawn", "<id>", "spawn one where you stand"),
                 Help.of("egg", "<id> [player] [n]", "a spawn egg"),
-                Help.of("spawner", "create <name> <mob>", "a spawner here"),
-                Help.of("spawner", "set <name> <key> <value>", "tune it"),
-                Help.of("spawner", "list|info|remove [name]", "spawners"),
                 Help.of("bind", "<id>", "put a model on the mob you face"),
                 Help.of("unbind", "take it off again"));
     }
 
     @Override
-    public List<String> signatures() {
-        List<String> out = new ArrayList<>();
-        for (Help line : help()) {
-            if (!line.command().equals("spawner")) {
-                out.add(line.signature());
-            }
-        }
-        out.addAll(spawners.signatures());
-        return out.stream().distinct().toList();
-    }
-
-    @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
         switch (sub) {
-            case "spawner":
-                return spawners.run(sender, sub, args);
             case "blocks":
                 return blocks(sender);
             case "models":
@@ -124,9 +103,6 @@ public final class ModelCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
-        if (sub.equals("spawner")) {
-            return spawners.complete(sender, sub, args);
-        }
         if (sub.equals("egg") && args.length == 3) {
             return Completions.matching(args[2], Targets.names(sender, sub));
         }
@@ -422,87 +398,14 @@ public final class ModelCommands implements Area {
         return true;
     }
 
-    /**
-     * {@code /rp spawn <id> [x y z [world]] [count] [level]}, or with the world
-     * first ({@code [world x y z]}). From a player with no place it is where
-     * they stand; from the console a place is required.
-     */
     private boolean spawn(CommandSender sender, String[] args) {
-        if (args.length < 2) {
-            Reply.to(sender, "/rpengine spawn <id> [x y z [world]] [count] [level]");
+        if (args.length < 2 || !(sender instanceof Player)) {
+            Reply.to(sender, "/rpengine spawn <id>, as a player.");
             return true;
         }
-        Optional<ContentId> id = ContentId.parse(args[1]);
-        if (id.isEmpty() || creatures.info(id.get()).isEmpty()) {
-            Reply.to(sender, "No entity called " + args[1] + ".");
-            return true;
-        }
-        Location at = null;
-        int next = 2;
-        if (args.length >= 5 && org.bukkit.Bukkit.getWorld(args[2]) != null && coordinates(sender, args, 3) != null) {
-            at = coordinates(sender, args, 3);
-            at.setWorld(org.bukkit.Bukkit.getWorld(args[2]));
-            next = 6;
-        } else if (args.length >= 5 && coordinates(sender, args, 2) != null) {
-            at = coordinates(sender, args, 2);
-            next = 5;
-            if (args.length > 5 && org.bukkit.Bukkit.getWorld(args[5]) != null) {
-                at.setWorld(org.bukkit.Bukkit.getWorld(args[5]));
-                next = 6;
-            }
-        } else if (sender instanceof Entity) {
-            at = ((Entity) sender).getLocation();
-        } else if (sender instanceof org.bukkit.command.BlockCommandSender) {
-            at = ((org.bukkit.command.BlockCommandSender) sender).getBlock().getLocation().add(0.5, 1, 0.5);
-        }
-        if (at == null || at.getWorld() == null) {
-            Reply.to(sender, "From the console: /rpengine spawn <id> <x> <y> <z> [world] [count] [level].");
-            return true;
-        }
-        int count = 1;
-        int level = 0;
-        try {
-            if (args.length > next) {
-                count = Math.max(1, Math.min(64, Integer.parseInt(args[next])));
-            }
-            if (args.length > next + 1) {
-                level = Math.max(1, Math.min(1000, Integer.parseInt(args[next + 1])));
-            }
-        } catch (NumberFormatException e) {
-            Reply.to(sender, "The count and the level are whole numbers.");
-            return true;
-        }
-        String name = args[1];
-        int asked = count;
-        creatures.spawnAt(at, id.get(), level, count, made -> Reply.to(sender, made == 0
-                ? "Could not spawn " + name + " there."
-                : "Spawned " + (asked == 1 ? "" : made + " x ") + name + "."));
+        Location at = ((Player) sender).getLocation();
+        boolean spawned = ContentId.parse(args[1]).flatMap(id -> creatures.spawn(at, id)).isPresent();
+        Reply.to(sender, spawned ? "Spawned " + args[1] + "." : "No entity called " + args[1] + ".");
         return true;
-    }
-
-    /** Three numbers (or {@code ~}, {@code ~2}) from {@code args[from]}, in the sender's world; null if not. */
-    private static Location coordinates(CommandSender sender, String[] args, int from) {
-        if (args.length < from + 3) {
-            return null;
-        }
-        Location base = sender instanceof Entity ? ((Entity) sender).getLocation()
-                : sender instanceof org.bukkit.command.BlockCommandSender
-                ? ((org.bukkit.command.BlockCommandSender) sender).getBlock().getLocation()
-                : new Location(org.bukkit.Bukkit.getWorlds().isEmpty() ? null : org.bukkit.Bukkit.getWorlds().get(0), 0, 0, 0);
-        double[] out = new double[3];
-        double[] origin = {base.getX(), base.getY(), base.getZ()};
-        for (int i = 0; i < 3; i++) {
-            String word = args[from + i];
-            try {
-                if (word.startsWith("~")) {
-                    out[i] = origin[i] + (word.length() > 1 ? Double.parseDouble(word.substring(1)) : 0);
-                } else {
-                    out[i] = Double.parseDouble(word);
-                }
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return new Location(base.getWorld(), out[0], out[1], out[2]);
     }
 }

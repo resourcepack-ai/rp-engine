@@ -74,33 +74,6 @@ public interface BedrockSupport {
     default void animationStarted(UUID hitboxId, String modelId, String animation) {
     }
 
-    // --- Worn models ----------------------------------------------------------
-    //
-    // A mob wearing a model (a custom entity, /rp bind, MythicMobs) is an
-    // invisible vanilla body carrying display parts, which to a Bedrock player
-    // is nothing at all. The bridge draws the body AS the model instead; these
-    // are the moments it needs to hear about. All on the host's own thread.
-
-    /**
-     * {@code host} now wears {@code modelId} (an item id, or Studio's carrier
-     * string), drawn {@code scale} times its size and turned {@code turn}
-     * degrees from the host's heading.
-     */
-    default void worn(org.bukkit.entity.Entity host, String modelId, float scale, float turn) {
-    }
-
-    /** {@code host} took its model off and is its own vanilla self again. */
-    default void unworn(org.bukkit.entity.Entity host) {
-    }
-
-    /**
-     * What {@code host}'s model now plays: an animation by name, or null for
-     * rest. {@code ends} says it is a one-shot that goes back to rest when it
-     * finishes, rather than a loop or one that holds its last frame.
-     */
-    default void wornAnimation(org.bukkit.entity.Entity host, String animation, boolean ends) {
-    }
-
     /** A player's Bedrock session ended (a quit, or the transfer an apply causes). */
     default void forget(UUID playerId) {
     }

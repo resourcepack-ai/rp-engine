@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -54,7 +53,7 @@ public final class IconDefinitions {
     public static Result parse(LoadReport loaded, PackFiles files) {
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
-            return new Result(Map.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new Result(Map.of(), Map.of(), Map.of(), List.of());
         }
         PackFiles reader = files == null ? PackFiles.NONE : files;
         List<String> namespaces = new ArrayList<>();
@@ -77,7 +76,6 @@ public final class IconDefinitions {
         Map<ContentId, IconInfo> icons = new LinkedHashMap<>();
         Map<ContentId, RankTags.Spec> tags = new HashMap<>();
         Map<ContentId, Integer> priorities = new HashMap<>();
-        Map<ContentId, String> slots = new HashMap<>();
         for (ContentDefinition definition : loaded.definitions(ContentKind.FONT)) {
             Integer codepoint = codepoints.get(definition.id());
             if (codepoint == null) {
@@ -93,7 +91,7 @@ public final class IconDefinitions {
             }
             Optional<DefinitionNode> tag = definition.body().node("tag");
             if (tag.isPresent()) {
-                parseTag(definition, codepoint, tag.get(), tags, priorities, slots, diagnostics)
+                parseTag(definition, codepoint, tag.get(), tags, priorities, diagnostics)
                         .ifPresent(icon -> icons.put(icon.id(), icon));
                 continue;
             }
@@ -103,9 +101,7 @@ public final class IconDefinitions {
         Map<ContentId, IconInfo> kept = unshared(icons, loaded, diagnostics);
         tags.keySet().retainAll(kept.keySet());
         priorities.keySet().retainAll(tags.keySet());
-        slots.keySet().retainAll(tags.keySet());
-        return new Result(Map.copyOf(kept), Map.copyOf(tags), Map.copyOf(priorities), Map.copyOf(slots),
-                List.copyOf(diagnostics));
+        return new Result(Map.copyOf(kept), Map.copyOf(tags), Map.copyOf(priorities), List.copyOf(diagnostics));
     }
 
     /**
@@ -116,7 +112,7 @@ public final class IconDefinitions {
      */
     private static Optional<IconInfo> parseTag(ContentDefinition definition, int codepoint, DefinitionNode tag,
                                                Map<ContentId, RankTags.Spec> tags, Map<ContentId, Integer> priorities,
-                                               Map<ContentId, String> slots, List<Diagnostic> diagnostics) {
+                                               List<Diagnostic> diagnostics) {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
@@ -147,16 +143,6 @@ public final class IconDefinitions {
         tags.put(definition.id(), spec.get());
         // Which tag a player wears when they hold several (RankTagWearers).
         priorities.put(definition.id(), body.integer("priority").orElse(0));
-        // Which of the places it is printed in (RankTagWearers). A slot is the
-        // end of a placeholder's name, so it is held to what one can say.
-        body.string("slot").map(slot -> slot.trim().toLowerCase(Locale.ROOT)).ifPresent(slot -> {
-            if (!slot.matches("[a-z0-9_]+") || slot.equals("id") || slot.startsWith("id_")) {
-                diagnostics.add(Diagnostic.warning(origin, where, "slot: " + slot + " is not a slot name. Use "
-                        + "letters, digits and _, and not id, which %rpengine_tag_id% already is. Using the main slot."));
-            } else {
-                slots.put(definition.id(), slot);
-            }
-        });
         IconInfo icon = IconInfo.of(definition.id(), tagFile(definition.id()), drawn.height(), ascent, codepoint);
         if (spec.get().animated()) {
             // Its frames stacked top to bottom (RankTags#strip), cut by the font
@@ -450,22 +436,14 @@ public final class IconDefinitions {
         private final Map<ContentId, IconInfo> icons;
         private final Map<ContentId, RankTags.Spec> tags;
         private final Map<ContentId, Integer> tagPriorities;
-        private final Map<ContentId, String> tagSlots;
         private final List<Diagnostic> diagnostics;
 
         Result(Map<ContentId, IconInfo> icons, Map<ContentId, RankTags.Spec> tags,
-               Map<ContentId, Integer> tagPriorities, Map<ContentId, String> tagSlots,
-               List<Diagnostic> diagnostics) {
+               Map<ContentId, Integer> tagPriorities, List<Diagnostic> diagnostics) {
             this.icons = icons;
             this.tags = tags;
             this.tagPriorities = tagPriorities;
-            this.tagSlots = tagSlots;
             this.diagnostics = diagnostics;
-        }
-
-        /** Each rank tag's {@code slot:}, for the tags that name one; the rest are in the main slot. */
-        public Map<ContentId, String> tagSlots() {
-            return tagSlots;
         }
 
         /** Each rank tag's {@code priority:}, which decides the one a player wears. */
