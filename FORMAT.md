@@ -2885,10 +2885,14 @@ of our own would only work where a plugin can set the font of a component,
 which is far less of the game than it sounds.
 
 That makes `assets/minecraft/font/default.json` a file every pack would want to
-write, so **nothing may**: it is generated once per bundle from every
-namespace's icons at once. A pack shipping its own copy through `overrides/`
-would delete every icon in the bundle, so that is refused with an error rather
-than silently obeyed.
+write, so it is generated once per bundle from every namespace's icons at once.
+A pack that ships its own anyway (a plain resource pack or a Studio pack in
+`content/`, or a copy in `overrides/`) is **merged**: the engine's providers
+come first and the pack's after them, and the engine's codepoints are
+allocated around every character that pack's file declares, so neither hides
+the other. Only a file that is not a readable font is refused with an error.
+Until 0.2.51 every such file was refused, which with a Studio pack beside any
+content drew every icon and HUD in the bundle as boxes.
 
 **Never store the character, store the ID.** Codepoints are handed out in ID
 order, so adding an icon whose ID sorts earlier shifts the ones after it. That
