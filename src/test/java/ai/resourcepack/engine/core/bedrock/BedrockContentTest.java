@@ -166,6 +166,55 @@ class BedrockContentTest {
     }
 
     @Test
+    void aModelWithNoSpriteGetsAnIconDrawnFromIt() throws IOException {
+        ContentId chair = ContentId.of("mypack", "chair").orElseThrow();
+        ContentId crate = ContentId.of("mypack", "crate").orElseThrow();
+        Map<String, byte[]> java = new HashMap<>();
+        java.put("assets/mypack/textures/block/wood.png", png(16, 16, 0xFF8B5A2B));
+        java.put("assets/mypack/models/item/chair.json", ("{\"textures\":{\"0\":\"mypack:block/wood\"},\"elements\":["
+                + "{\"from\":[2,0,2],\"to\":[14,10,14],\"faces\":{\"north\":{\"texture\":\"#0\"},\"south\":{\"texture\":\"#0\"},"
+                + "\"east\":{\"texture\":\"#0\"},\"west\":{\"texture\":\"#0\"},\"up\":{\"texture\":\"#0\"},\"down\":{\"texture\":\"#0\"}}}]}")
+                .getBytes(StandardCharsets.UTF_8));
+        // A block item that only names the game's own cube parent.
+        java.put("assets/mypack/models/item/crate.json",
+                "{\"parent\":\"minecraft:block/cube_all\",\"textures\":{\"all\":\"mypack:block/wood\"}}".getBytes(StandardCharsets.UTF_8));
+        BedrockContent.Result result = BedrockContent.build(javaZip(java),
+                List.of(new BedrockContent.Item(chair, "PAPER", "Chair", "item/chair", chair, null, null),
+                        new BedrockContent.Item(crate, "PAPER", "Crate", "item/crate", crate, null, null)),
+                List.of(), root.resolve("out"), "main", "x");
+        assertEquals(2, result.items().size());
+        Map<String, byte[]> pack = read(result.file());
+        for (String name : List.of("mypack_chair", "mypack_crate")) {
+            BufferedImage icon = ImageIO.read(new ByteArrayInputStream(pack.get("textures/items/rpe/" + name + ".png")));
+            assertEquals(ModelIcon.SIZE, icon.getWidth());
+            // Lit three ways: the top and both visible sides differ.
+            java.util.Set<Integer> colours = new java.util.HashSet<>();
+            for (int y = 0; y < icon.getHeight(); y++) for (int x = 0; x < icon.getWidth(); x++) {
+                int argb = icon.getRGB(x, y);
+                if ((argb >>> 24) != 0) colours.add(argb);
+            }
+            assertEquals(3, colours.size(), name);
+            assertEquals(0, icon.getRGB(0, 0) >>> 24, "the corners stay clear");
+        }
+    }
+
+    @Test
+    void anItemWithNothingToDrawFallsBackToItsMaterial() throws IOException {
+        Map<String, byte[]> java = Map.of("assets/mypack/textures/entity/equipment/humanoid/ruby_helmet.png",
+                png(64, 32, 0xFFAA0000));
+        BufferedImage helmet = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        helmet.setRGB(5, 5, 0xFFFFD700);
+        BedrockContent.Result result = BedrockContent.build(javaZip(java),
+                new BedrockContent.Inputs(
+                        List.of(new BedrockContent.Item(HELMET, "GOLDEN_HELMET", "Crown", "item/ruby_helmet", HELMET, null, "head")),
+                        List.of(), List.of(), path -> path.equals("item/golden_helmet") ? helmet : null, null),
+                root.resolve("out"), "main", "x");
+        assertEquals(1, result.items().size());
+        assertEquals(1, result.armour(), "worn armour still crosses without a sprite of its own");
+        assertTrue(read(result.file()).containsKey("attachables/rpe_mypack_ruby_helmet.json"));
+    }
+
+    @Test
     void nothingToCrossBuildsNothingAndRemovesAStalePack() throws IOException {
         Path out = root.resolve("out");
         Files.createDirectories(out);

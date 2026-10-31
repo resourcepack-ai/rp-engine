@@ -35,12 +35,13 @@ import java.util.zip.ZipFile;
  *
  * <p>What crosses, and why each is a rename rather than a conversion:
  * <ul>
- *   <li><strong>Items with a flat sprite.</strong> The sprite becomes a Bedrock
- *       item icon, and the {@link Registration} tells Geyser which Java stacks
- *       are that item: the {@code item_model} on 1.21.4+, the custom model
- *       data number below it. A 3D item is registered only if it also ships a
- *       sprite at its texture path — Bedrock has no way to draw a Java block
- *       model in a hand, and an icon of nothing is worse than the base item.</li>
+ *   <li><strong>Items.</strong> A flat sprite becomes a Bedrock item icon, and
+ *       the {@link Registration} tells Geyser which Java stacks are that item:
+ *       the {@code item_model} on 1.21.4+, the custom model data number below
+ *       it. A 3D item (or a piece of furniture) with no sprite gets an icon
+ *       drawn from its model by {@link ModelIcon}, as the Java inventory shows
+ *       it, and failing that its base material's own icon: Bedrock draws every
+ *       custom item flat, and leaving one out made it plain paper there.</li>
  *   <li><strong>Armour</strong> on those items: an attachable over Bedrock's
  *       own armour geometry, textured with the item's equipment layer.</li>
  *   <li><strong>Sounds.</strong> Geyser plays a Java sound it has no mapping
@@ -177,6 +178,12 @@ public final class BedrockContent {
                 byte[] sprite = read(zip, ai.resourcepack.engine.core.item.Geometry.zipPathOf(
                         ai.resourcepack.engine.core.item.ModelSources.textureLocation(
                                 item.modelId().namespace(), item.texture())));
+                // No flat sprite: a 3D item or a piece of furniture. Its icon is
+                // drawn from its model, the way the Java inventory shows it; and
+                // failing that (a model of only vanilla textures not to hand yet)
+                // the base material's own icon, which still beats being left out.
+                if (sprite == null) sprite = modelIcon(zip, item, inputs.vanilla());
+                if (sprite == null) sprite = materialIcon(item.material(), inputs.vanilla());
                 if (sprite == null) continue;
                 String iconKey = "rpe_" + sid;
                 files.put("textures/items/rpe/" + sid + ".png", sprite);
@@ -527,6 +534,110 @@ public final class BedrockContent {
 
     private static String uuid(String seed) {
         return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** The item's model drawn as an inventory icon, as PNG bytes, or null. */
+    private static byte[] modelIcon(ZipFile zip, Item item,
+                                    java.util.function.Function<String, BufferedImage> vanilla) throws IOException {
+        JsonObject model = mergedModel(zip, item.modelId().namespace() + ":item/" + item.modelId().path(), 0);
+        if (model == null) return null;
+        BufferedImage icon = ModelIcon.render(model, ref -> texture(zip, ref, vanilla));
+        if (icon == null) return null;
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        Images.write(icon, "png", png);
+        return png.toByteArray();
+    }
+
+    /**
+     * A model with its parents folded in, the way the game reads one: the
+     * nearest {@code elements} and {@code display.gui}, and every
+     * {@code textures} entry, a child's winning. A parent the pack does not
+     * ship (the game's own {@code item/generated}) ends the chain.
+     */
+    static JsonObject mergedModel(ZipFile zip, String ref, int depth) throws IOException {
+        if (ref == null || depth > 8) return null;
+        int colon = ref.indexOf(':');
+        String namespace = colon < 0 ? "minecraft" : ref.substring(0, colon);
+        String path = colon < 0 ? ref : ref.substring(colon + 1);
+        byte[] bytes = read(zip, "assets/" + namespace + "/models/" + path + ".json");
+        if (bytes == null) return null;
+        JsonObject model;
+        try {
+            model = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
+        } catch (RuntimeException bad) {
+            return null;
+        }
+        if (!model.has("parent") || !model.get("parent").isJsonPrimitive()) return model;
+        String parentRef = model.get("parent").getAsString();
+        if (!parentRef.contains(":")) parentRef = "minecraft:" + parentRef;
+        JsonObject parent = mergedModel(zip, parentRef, depth + 1);
+        if (parent == null) parent = builtinCube(parentRef);
+        if (parent == null) return model;
+        JsonObject merged = parent.deepCopy();
+        JsonObject textures = merged.has("textures") && merged.get("textures").isJsonObject()
+                ? merged.getAsJsonObject("textures") : new JsonObject();
+        if (model.has("textures") && model.get("textures").isJsonObject()) {
+            for (Map.Entry<String, JsonElement> t : model.getAsJsonObject("textures").entrySet()) textures.add(t.getKey(), t.getValue());
+        }
+        merged.add("textures", textures);
+        if (model.has("elements")) merged.add("elements", model.get("elements"));
+        if (model.has("display")) merged.add("display", model.get("display"));
+        return merged;
+    }
+
+    /**
+     * The game's own full-cube parents, which a pack names and never ships:
+     * one element over the whole block, each face on the texture variable
+     * that parent gives it. Null for anything else.
+     */
+    static JsonObject builtinCube(String ref) {
+        String[] faces = switch (ref.replace("minecraft:", "")) {
+            // north, south, east, west, up, down
+            case "block/cube_all" -> new String[]{"all", "all", "all", "all", "all", "all"};
+            case "block/cube" -> new String[]{"north", "south", "east", "west", "up", "down"};
+            case "block/cube_column", "block/cube_column_horizontal" ->
+                    new String[]{"side", "side", "side", "side", "end", "end"};
+            case "block/cube_bottom_top" -> new String[]{"side", "side", "side", "side", "top", "bottom"};
+            case "block/cube_top" -> new String[]{"side", "side", "side", "side", "top", "side"};
+            case "block/orientable" -> new String[]{"front", "side", "side", "side", "top", "top"};
+            default -> null;
+        };
+        if (faces == null) return null;
+        String[] dirs = {"north", "south", "east", "west", "up", "down"};
+        JsonObject faceMap = new JsonObject();
+        for (int i = 0; i < 6; i++) {
+            JsonObject face = new JsonObject();
+            face.addProperty("texture", "#" + faces[i]);
+            faceMap.add(dirs[i], face);
+        }
+        JsonObject element = new JsonObject();
+        JsonArray from = new JsonArray();
+        JsonArray to = new JsonArray();
+        for (int i = 0; i < 3; i++) {
+            from.add(0);
+            to.add(16);
+        }
+        element.add("from", from);
+        element.add("to", to);
+        element.add("faces", faceMap);
+        JsonArray elements = new JsonArray();
+        elements.add(element);
+        JsonObject model = new JsonObject();
+        model.add("elements", elements);
+        model.add("textures", new JsonObject());
+        return model;
+    }
+
+    /** The base item's own vanilla icon, as PNG bytes, or null when it is not to hand. */
+    private static byte[] materialIcon(String material,
+                                       java.util.function.Function<String, BufferedImage> vanilla) throws IOException {
+        if (vanilla == null || material == null) return null;
+        String name = material.toLowerCase(Locale.ROOT);
+        BufferedImage image = vanilla.apply("item/" + name);
+        if (image == null) return null;
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        Images.write(image, "png", png);
+        return png.toByteArray();
     }
 
     /** A model's texture: the pack's own copy, else the game's, else nothing. */
