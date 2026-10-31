@@ -62,15 +62,17 @@ public final class Geometry {
 
         private final float width;
         private final float height;
+        private final float top;
         private final ModelShape shape;
 
         Bounds(float width, float height) {
-            this(width, height, ModelShape.NONE);
+            this(width, height, 0f, ModelShape.NONE);
         }
 
-        Bounds(float width, float height, ModelShape shape) {
+        Bounds(float width, float height, float top, ModelShape shape) {
             this.width = width;
             this.height = height;
+            this.top = top;
             this.shape = shape;
         }
 
@@ -82,6 +84,16 @@ public final class Geometry {
         /** Its vertical extent, in blocks. */
         public float height() {
             return height;
+        }
+
+        /**
+         * How far above the model's floor (y 0) its highest element reaches,
+         * in blocks. Not {@link #height}: a model that starts below its floor,
+         * or above it, has an extent that says nothing about where its top is,
+         * and the top is where a worn model's name goes.
+         */
+        public float top() {
+            return top;
         }
 
         /**
@@ -170,6 +182,35 @@ public final class Geometry {
                     .ifPresent(model -> measured.put(item.id(), model.bounds()));
         }
         return measured;
+    }
+
+    /**
+     * How far above its floor the model {@code item} wears reaches, in blocks,
+     * or 0 when it cannot be read. A Blockbench project counts as well as a
+     * JSON model, because that is what a mob's model usually is: the top is
+     * read off the same converted elements the pack is built from.
+     *
+     * <p>Separate from {@link #measure}, which deliberately reads JSON only:
+     * what it measures sizes a placed piece's hitbox, and teaching it about
+     * Blockbench would quietly resize every placed {@code .bbmodel}.
+     */
+    public static float topOf(Path content, ItemInfo item, Consumer<String> onProblem) {
+        String name = item == null ? null : item.model().orElse(null);
+        if (name == null) {
+            return 0f;
+        }
+        String namespace = item.id().namespace();
+        Path pack = content.resolve(namespace);
+        Optional<Model> json = ModelSources.find(namespace, name, ".json",
+                        path -> readInside(pack, path, item.id(), onProblem))
+                .flatMap(model -> read(model.bytes(), model.textureNamespace()));
+        if (json.isPresent()) {
+            return json.get().bounds().top();
+        }
+        return ModelSources.find(namespace, name, ".bbmodel", path -> readInside(pack, path, item.id(), onProblem))
+                .flatMap(found -> BbModel.convert(found.bytes(), namespace, item.id().path()))
+                .map(converted -> boundsOf(converted.model()).top())
+                .orElse(0f);
     }
 
     /** A file inside a pack folder, never outside it, or empty. */
@@ -287,7 +328,7 @@ public final class Geometry {
         // square column, so the narrow axis has to give.
         float width = Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 16f;
         float height = (hi[1] - lo[1]) / 16f;
-        return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height),
+        return new Bounds(Math.max(0.1f, width), Math.max(0.1f, height), hi[1] / 16f,
                 ModelShape.ofElements(elementList));
     }
 

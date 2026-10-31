@@ -152,4 +152,58 @@ class EntityDefinitionsTest {
                 """);
         assertTrue(says(parse(), "no model: to play them on"));
     }
+
+    @Test
+    void theNewMobFieldsReadAndDefault() throws IOException {
+        write("mypack/entities/boss.yml", """
+                golem:
+                  type: ravager
+                  hurt-flash: false
+                  follow-range: 48
+                  glowing: true
+                  fire-immune: true
+                  boss-bar: {color: green, style: segmented_6, range: 40}
+                  ranged: {projectile: small_fireball, damage: 5, cooldown: 3, range: 24}
+                  spawning:
+                    worlds: [world]
+                    biomes: [minecraft:Desert, "*badlands*", "#is_forest"]
+                    replaces: [husk, not_a_mob]
+                    chance: 0.2
+                    min-light: 0
+                    max-light: 7
+                    time: night
+                    min-group: 2
+                    max-group: 3
+                    max-per-chunk: 4
+                plain:
+                  type: zombie
+                  boss-bar: true
+                  ranged: snowball
+                """);
+        EntityDefinitions.Result result = parse();
+        EntityInfo golem = result.entities().get(ContentId.parse("mypack:golem").orElseThrow());
+        assertFalse(golem.hurtFlash());
+        assertEquals(48, golem.followRange());
+        assertTrue(golem.glowing());
+        assertTrue(golem.fireImmune());
+        assertEquals("GREEN", golem.bossBar().orElseThrow().color());
+        assertEquals("SEGMENTED_6", golem.bossBar().orElseThrow().style());
+        assertEquals("small_fireball", golem.ranged().orElseThrow().projectile());
+        assertEquals(3, golem.ranged().orElseThrow().cooldown());
+        EntityInfo.Spawning rules = golem.spawning().orElseThrow();
+        assertEquals(List.of("desert", "*badlands*", "#is_forest"), rules.biomes());
+        assertEquals(List.of("HUSK", "NOT_A_MOB"), rules.replaces());
+        assertEquals("night", rules.time());
+        assertEquals(2, rules.minGroup());
+        assertEquals(4, rules.maxPerChunk());
+        assertTrue(says(result, "is not a mob, so no natural spawn"));
+        assertTrue(says(result, "is a biome tag"));
+
+        EntityInfo plain = result.entities().get(ContentId.parse("mypack:plain").orElseThrow());
+        assertTrue(plain.hurtFlash(), "on unless turned off");
+        assertEquals("PURPLE", plain.bossBar().orElseThrow().color());
+        assertEquals(32, plain.bossBar().orElseThrow().range());
+        assertEquals("snowball", plain.ranged().orElseThrow().projectile());
+        assertTrue(plain.spawning().isEmpty());
+    }
 }

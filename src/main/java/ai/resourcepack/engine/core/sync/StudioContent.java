@@ -136,6 +136,164 @@ public final class StudioContent {
         /** Absent and empty both drop nothing: the list REPLACES vanilla loot. */
         List<MobDrop> drops;
         Integer xp;
+        /** Absent is on: a mob flashes red when hurt unless told not to. */
+        Boolean hurtFlash;
+        /** Blocks it notices a target from; absent is the type's own. */
+        Double followRange;
+        Boolean glowing;
+        Boolean fireImmune;
+        /** Absent is no boss bar. */
+        MobBossBar bossBar;
+        /** Absent is a mob that does not shoot. */
+        MobRanged ranged;
+        /** Absent is a mob that never spawns on its own. */
+        MobSpawning spawning;
+        /**
+         * Its own skill lines, MythicMobs' grammar as written
+         * ({@code skill{s=studio:golem.slam} @self ~onTimer:120 <50%}), read by
+         * the same parser as a content folder's {@code skills:}. Absent is none.
+         */
+        List<String> skills;
+        /** The stance it starts in; absent is none. */
+        String stance;
+        /** The metaskills its lines call, registered as {@code studio:<name>}. Absent is none. */
+        List<MobMetaskill> metaskills;
+    }
+
+    /**
+     * One metaskill a pushed mob's lines call: MythicMobs' file shape in
+     * camelCase, handed to the same reader as a content folder's
+     * {@code skills/} file. {@code name} is the bare id, unique in the push.
+     */
+    static final class MobMetaskill {
+        String name;
+        /** Seconds, per mob. Absent is none. */
+        Double cooldown;
+        /** Each tested on the mob, with an optional action ({@code stance{s=x} false}). */
+        List<String> conditions;
+        /** Each target must pass. */
+        List<String> targetConditions;
+        List<String> skills;
+    }
+
+    /**
+     * A pushed mob's skills, kept as they arrived: the engine's skill loader
+     * parses them beside the content folder's, and a restart writes them back
+     * unchanged. See {@link #mobSkills()}.
+     */
+    public static final class PushedMobSkills {
+        private final List<String> lines;
+        private final String stance;
+        private final Map<String, Map<String, Object>> metaskills;
+
+        PushedMobSkills(List<String> lines, String stance, Map<String, Map<String, Object>> metaskills) {
+            this.lines = List.copyOf(lines);
+            this.stance = stance;
+            this.metaskills = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(metaskills));
+        }
+
+        /** The mob's own lines, as written. */
+        public List<String> lines() {
+            return lines;
+        }
+
+        /** The stance it starts in, or null. */
+        public String stance() {
+            return stance;
+        }
+
+        /**
+         * Bare metaskill name to its body in MythicMobs' shape
+         * ({@code Cooldown}, {@code Conditions}, {@code TargetConditions},
+         * {@code Skills}), which is what the skill loader reads.
+         */
+        public Map<String, Map<String, Object>> metaskills() {
+            return metaskills;
+        }
+
+        static PushedMobSkills of(Mob mob) {
+            List<String> lines = new ArrayList<>();
+            for (String line : mob.skills == null ? List.<String>of() : mob.skills) {
+                if (line != null && !line.isBlank()) {
+                    lines.add(line);
+                }
+            }
+            Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
+            for (MobMetaskill skill : mob.metaskills == null ? List.<MobMetaskill>of() : mob.metaskills) {
+                if (skill == null || skill.name == null || skill.name.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> body = new LinkedHashMap<>();
+                if (skill.cooldown != null && skill.cooldown > 0) {
+                    body.put("Cooldown", skill.cooldown);
+                }
+                if (skill.conditions != null && !skill.conditions.isEmpty()) {
+                    body.put("Conditions", List.copyOf(skill.conditions));
+                }
+                if (skill.targetConditions != null && !skill.targetConditions.isEmpty()) {
+                    body.put("TargetConditions", List.copyOf(skill.targetConditions));
+                }
+                body.put("Skills", skill.skills == null ? List.of() : List.copyOf(skill.skills));
+                metaskills.put(skill.name.trim().toLowerCase(Locale.ROOT), body);
+            }
+            String stance = mob.stance == null || mob.stance.isBlank() ? null : mob.stance.trim();
+            if (lines.isEmpty() && metaskills.isEmpty() && stance == null) {
+                return null;
+            }
+            return new PushedMobSkills(lines, stance, metaskills);
+        }
+
+        /** Back onto a wire mob, in the shape it arrived in. */
+        @SuppressWarnings("unchecked")
+        void writeTo(Mob out) {
+            if (!lines.isEmpty()) {
+                out.skills = new ArrayList<>(lines);
+            }
+            out.stance = stance;
+            if (metaskills.isEmpty()) {
+                return;
+            }
+            out.metaskills = new ArrayList<>();
+            metaskills.forEach((name, body) -> {
+                MobMetaskill skill = new MobMetaskill();
+                skill.name = name;
+                Object cooldown = body.get("Cooldown");
+                skill.cooldown = cooldown instanceof Number ? ((Number) cooldown).doubleValue() : null;
+                skill.conditions = (List<String>) body.get("Conditions");
+                skill.targetConditions = (List<String>) body.get("TargetConditions");
+                skill.skills = new ArrayList<>((List<String>) body.get("Skills"));
+                out.metaskills.add(skill);
+            });
+        }
+    }
+
+    /** A pushed mob's boss bar: Bukkit {@code BarColor} and {@code BarStyle} names. */
+    static final class MobBossBar {
+        String color;
+        String style;
+        Double range;
+    }
+
+    /** How a pushed mob shoots; see {@code EntityInfo.Ranged}. */
+    static final class MobRanged {
+        String projectile;
+        Double damage;
+        Double cooldown;
+        Double range;
+    }
+
+    /** Where a pushed mob spawns on its own; see {@code EntityInfo.Spawning}. */
+    static final class MobSpawning {
+        List<String> worlds;
+        List<String> biomes;
+        List<String> replaces;
+        Double chance;
+        Integer minLight;
+        Integer maxLight;
+        String time;
+        Integer minGroup;
+        Integer maxGroup;
+        Integer maxPerChunk;
     }
 
     /** One line of a pushed mob's loot. */
@@ -736,6 +894,8 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
+    /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
+    private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -804,6 +964,7 @@ public final class StudioContent {
         copy.textEffects = textEffects;
         copy.vfx = vfx;
         copy.mobs = mobs;
+        copy.mobSkills = mobSkills;
         copy.packId = packId;
         return copy;
     }
@@ -829,6 +990,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
+        Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -844,7 +1006,11 @@ public final class StudioContent {
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
             vfx.putAll(pack.vfx);
+            // A mob's skills go with the mob: a later push of it with none
+            // must not keep an earlier push's.
+            pack.mobs.keySet().forEach(mobSkills::remove);
             mobs.putAll(pack.mobs);
+            mobSkills.putAll(pack.mobSkills);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -859,6 +1025,7 @@ public final class StudioContent {
         all.textEffects = Map.copyOf(effects);
         all.vfx = Map.copyOf(vfx);
         all.mobs = Map.copyOf(mobs);
+        all.mobSkills = Map.copyOf(mobSkills);
         all.packId = last;
         return all;
     }
@@ -923,6 +1090,16 @@ public final class StudioContent {
     /** The pushed custom mobs, keyed by {@code studio:<id>}. */
     public Map<ContentId, EntityInfo> mobs() {
         return mobs;
+    }
+
+    /**
+     * The pushed mobs' skills, keyed by {@code studio:<id>} like {@link #mobs()},
+     * for the mobs that have any. Lines and metaskills as Studio wrote them,
+     * MythicMobs' grammar, parsed by the skill loader beside a content
+     * folder's so there is one reader for both.
+     */
+    public Map<ContentId, PushedMobSkills> mobSkills() {
+        return mobSkills;
     }
 
     /**
@@ -1156,12 +1333,19 @@ public final class StudioContent {
         }
 
         Map<ContentId, EntityInfo> readMobs = new LinkedHashMap<>();
+        Map<ContentId, PushedMobSkills> readMobSkills = new LinkedHashMap<>();
         for (Mob mob : manifest.mobs == null ? List.<Mob>of() : manifest.mobs) {
             if (mob == null) {
                 continue;
             }
             id(mob.id, log, "mob").flatMap(id -> mob(id, mob, log))
-                    .ifPresent(info -> readMobs.put(info.id(), info));
+                    .ifPresent(info -> {
+                        readMobs.put(info.id(), info);
+                        PushedMobSkills skills = PushedMobSkills.of(mob);
+                        if (skills != null) {
+                            readMobSkills.put(info.id(), skills);
+                        }
+                    });
         }
 
         sounds = Map.copyOf(readSounds);
@@ -1176,6 +1360,7 @@ public final class StudioContent {
         textEffects = Map.copyOf(readEffects);
         vfx = Map.copyOf(readVfx);
         mobs = Map.copyOf(readMobs);
+        mobSkills = Map.copyOf(readMobSkills);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
@@ -1424,7 +1609,30 @@ public final class StudioContent {
                 .sounds(sounds)
                 .drops(drops)
                 .xp(mob.xp == null ? 0 : mob.xp)
+                .hurtFlash(!Boolean.FALSE.equals(mob.hurtFlash))
+                .followRange(mob.followRange == null ? 0 : mob.followRange)
+                .glowing(Boolean.TRUE.equals(mob.glowing))
+                .fireImmune(Boolean.TRUE.equals(mob.fireImmune))
+                .bossBar(mob.bossBar == null ? null : EntityInfo.BossBar.of(mob.bossBar.color, mob.bossBar.style,
+                        mob.bossBar.range == null ? 0 : mob.bossBar.range))
+                .ranged(mob.ranged == null ? null : EntityInfo.Ranged.of(mob.ranged.projectile,
+                        mob.ranged.damage == null ? 0 : mob.ranged.damage,
+                        mob.ranged.cooldown == null ? 0 : mob.ranged.cooldown,
+                        mob.ranged.range == null ? 0 : mob.ranged.range))
+                .spawning(spawning(mob.spawning))
                 .build());
+    }
+
+    private static EntityInfo.Spawning spawning(MobSpawning rules) {
+        if (rules == null) {
+            return null;
+        }
+        int minGroup = rules.minGroup == null ? 1 : rules.minGroup;
+        return EntityInfo.Spawning.of(rules.worlds, rules.biomes, rules.replaces,
+                rules.chance == null ? 0.1 : rules.chance,
+                rules.minLight == null ? 0 : rules.minLight, rules.maxLight == null ? 15 : rules.maxLight,
+                rules.time, minGroup, rules.maxGroup == null ? minGroup : rules.maxGroup,
+                rules.maxPerChunk == null ? 2 : rules.maxPerChunk);
     }
 
     /** A mob back out, in the shape it arrived in — a restart reads nothing else. */
@@ -1461,6 +1669,36 @@ public final class StudioContent {
             out.drops.add(written);
         }
         out.xp = info.xp();
+        out.hurtFlash = info.hurtFlash();
+        out.followRange = info.followRange();
+        out.glowing = info.glowing();
+        out.fireImmune = info.fireImmune();
+        info.bossBar().ifPresent(bar -> {
+            out.bossBar = new MobBossBar();
+            out.bossBar.color = bar.color();
+            out.bossBar.style = bar.style();
+            out.bossBar.range = bar.range();
+        });
+        info.ranged().ifPresent(shot -> {
+            out.ranged = new MobRanged();
+            out.ranged.projectile = shot.projectile();
+            out.ranged.damage = shot.damage();
+            out.ranged.cooldown = shot.cooldown();
+            out.ranged.range = shot.range();
+        });
+        info.spawning().ifPresent(rules -> {
+            out.spawning = new MobSpawning();
+            out.spawning.worlds = new ArrayList<>(rules.worlds());
+            out.spawning.biomes = new ArrayList<>(rules.biomes());
+            out.spawning.replaces = new ArrayList<>(rules.replaces());
+            out.spawning.chance = rules.chance();
+            out.spawning.minLight = rules.minLight();
+            out.spawning.maxLight = rules.maxLight();
+            out.spawning.time = rules.time();
+            out.spawning.minGroup = rules.minGroup();
+            out.spawning.maxGroup = rules.maxGroup();
+            out.spawning.maxPerChunk = rules.maxPerChunk();
+        });
         return out;
     }
 
@@ -1798,7 +2036,12 @@ public final class StudioContent {
         }
         manifest.mobs = new ArrayList<>();
         for (EntityInfo info : mobs.values()) {
-            manifest.mobs.add(mobOut(info));
+            Mob out = mobOut(info);
+            PushedMobSkills skills = mobSkills.get(info.id());
+            if (skills != null) {
+                skills.writeTo(out);
+            }
+            manifest.mobs.add(out);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

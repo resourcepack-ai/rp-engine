@@ -1,0 +1,100 @@
+{
+  "packId": "verify-mob-skills",
+  "mobs": [
+    {
+      "id": "golem_king",
+      "model": "golem_king",
+      "name": "Golem King",
+      "nameVisible": true,
+      "type": "ZOMBIE",
+      "ai": true,
+      "burns": false,
+      "health": 300,
+      "damage": 10,
+      "speed": 0.8,
+      "knockbackResistance": 0.9,
+      "scale": 1,
+      "turn": 180,
+      "drops": [],
+      "xp": 100,
+      "skills": [
+        "skill{s=studio:golem_king.ground_slam} @self ~onTimer:120 ?incombat ?targetwithin{d=6}",
+        "skill{s=studio:golem_king.call_the_horde} @self ~onDamaged =50%",
+        "skill{s=studio:golem_king.leap} @self ~onTimer:100 ?incombat ?targetnotwithin{d=6} ?targetwithin{d=20} 0.7",
+        "skill{s=studio:golem_king.poison_aura} @self ~onTimer:40 ?incombat",
+        "skill{s=studio:golem_king.fireball_volley} @self ~onTimer:160 ?incombat ?targetwithin{d=24}",
+        "skill{s=studio:golem_king.enrage} @self ~onDamaged =33%",
+        "skill{s=studio:golem_king.hand_written} @self ~onAttack ?!stance{s=calm} 0.25"
+      ],
+      "metaskills": [
+        {
+          "name": "golem_king.ground_slam",
+          "cooldown": 10,
+          "skills": [
+            "animate{a=slam} @self",
+            "delay 10",
+            "particles{p=explosion;a=6;hs=2} @selflocation",
+            "sound{s=minecraft:entity.generic.explode;v=1.5;p=0.7} @selflocation",
+            "damage{a=10} @playersinradius{r=6}",
+            "throw{velocity=6;velocityY=1.2} @playersinradius{r=6}"
+          ]
+        },
+        {
+          "name": "golem_king.call_the_horde",
+          "skills": [
+            "animate{a=summon} @self",
+            "message{m=\"&cRise, my children!\"} @playersinradius{r=32}",
+            "particles{p=large_smoke;a=40;hs=2} @selflocation",
+            "summon{type=ZOMBIE;amount=3;radius=4} @selflocation"
+          ]
+        },
+        {
+          "name": "golem_king.leap",
+          "cooldown": 8,
+          "skills": [
+            "leap{velocity=150} @target",
+            "delay 20",
+            "damage{a=6} @playersinradius{r=3}"
+          ]
+        },
+        {
+          "name": "golem_king.poison_aura",
+          "skills": [
+            "potion{type=poison;duration=60;level=1} @playersinradius{r=4}",
+            "particles{p=witch;a=25;hs=3} @selflocation"
+          ]
+        },
+        {
+          "name": "golem_king.fireball_volley",
+          "cooldown": 8,
+          "skills": [
+            "animate{a=attack} @self",
+            "shoot{type=small_fireball;velocity=1.6;damage=5} @target",
+            "delay 6",
+            "shoot{type=small_fireball;velocity=1.6;damage=5} @target",
+            "delay 6",
+            "shoot{type=small_fireball;velocity=1.6;damage=5} @target"
+          ]
+        },
+        {
+          "name": "golem_king.enrage",
+          "skills": [
+            "setstance{stance=enraged} @self",
+            "tint{color=#FF3B30;duration=30} @self",
+            "sendtitle{title=&4Enraged;subtitle=\"&cIt will not go quietly\"} @playersinradius{r=32}",
+            "speed{multiplier=1.4;duration=1200} @self",
+            "potion{type=strength;duration=1200;level=1} @self"
+          ]
+        },
+        {
+          "name": "golem_king.hand_written",
+          "cooldown": 10,
+          "skills": [
+            "potion{type=WITHER;duration=60;level=1} @trigger",
+            "effect:particles{p=smoke;a=10} @selflocation"
+          ]
+        }
+      ]
+    }
+  ]
+}

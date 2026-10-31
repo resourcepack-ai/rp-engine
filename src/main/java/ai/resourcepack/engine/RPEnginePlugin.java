@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentRegistry;
@@ -268,6 +269,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelsImpl models;
     private Seats seats;
     private CustomEntities creatures;
+    /** Custom mobs' skills: MythicMobs-style lines and metaskills. */
+    private ai.resourcepack.engine.core.skill.SkillRuntime skills;
+    /** Fixed-point mob spawners: the content folder's and /rp spawner's. */
+    private ai.resourcepack.engine.core.entity.Spawners mobSpawners;
     private VehicleRuntime vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
@@ -417,6 +422,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
     /** The content folder's mobs, kept apart so a push can lay its own over them. */
     private Map<ContentId, ai.resourcepack.engine.api.EntityInfo> authoredEntities = Map.of();
+    /** The content folder's skills, kept so a push can add its own to them without a reload. */
+    private ai.resourcepack.engine.core.skill.SkillDefinitions.Result authoredSkills;
+    /**
+     * How far above its floor each content-folder mob's model reaches, by the
+     * model's item id, measured at reload. Where a mob's name goes; see
+     * CustomEntities.nameHeight.
+     */
+    private volatile Map<ContentId, Float> mobModelTops = Map.of();
     private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
@@ -594,6 +607,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (getServer().getPluginManager().getPlugin("Geyser-Spigot") != null) {
             try {
                 bedrock = new GeyserBridge(this, reconnecting::add);
+                overlays.bedrockViewers(bedrock::isBedrock);
                 hooks.add("Geyser");
             } catch (RuntimeException | NoClassDefFoundError e) {
                 getLogger().warning("Geyser is here but the bridge would not start: " + e.getMessage());
@@ -716,6 +730,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items,
                 ai.resourcepack.engine.core.model.RigTags.forServer(compatibility, this), sounds);
+        // A hurt model's red tint and a shooter's hidden bow are 1.21.4 item
+        // calls; below it the flash is an outline and the engine shoots.
+        creatures.modernItems(compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_DEFINITIONS));
         // emotes() is a fresh facade each call and holds no state of its own —
         // it is a view of the director, which is what actually owns a session.
         // So handing one to VehicleRuntime is handing it the same director everything
@@ -836,6 +853,74 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // older servers and so cannot be an annotated method. See Seats.
         seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
+        skills = new ai.resourcepack.engine.core.skill.SkillRuntime(this,
+                new ai.resourcepack.engine.core.skill.SkillRuntime.Host() {
+                    @Override
+                    public ai.resourcepack.engine.api.Mobs mobs() {
+                        return creatures;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Vfx vfx() {
+                        return vfxRuntime;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Sounds sounds() {
+                        return sounds;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Items items() {
+                        return items;
+                    }
+
+                    @Override
+                    public boolean tint(org.bukkit.entity.Entity entity, int rgb, long ticks) {
+                        return creatures.tint(entity, rgb, ticks);
+                    }
+
+                    @Override
+                    public int level(org.bukkit.entity.Entity entity) {
+                        return creatures.level(entity);
+                    }
+
+                    @Override
+                    public double levelPower(org.bukkit.entity.Entity entity) {
+                        return creatures.idOf(entity).map(creatures::optionsOf)
+                                .map(options -> options.levelPower(creatures.level(entity))).orElse(1.0);
+                    }
+
+                    @Override
+                    public String faction(org.bukkit.entity.Entity entity) {
+                        return creatures.factionOf(entity);
+                    }
+
+                    @Override
+                    public java.util.Optional<org.bukkit.entity.Entity> spawn(org.bukkit.Location where,
+                                                                             ContentId id, int level) {
+                        return creatures.spawn(where, id, level);
+                    }
+
+                    @Override
+                    public boolean boneVisible(org.bukkit.entity.Entity entity, String bone, boolean visible) {
+                        return creatures.boneVisible(entity, bone, visible);
+                    }
+
+                    @Override
+                    public boolean swapModel(org.bukkit.entity.Entity entity, ContentId model) {
+                        return creatures.swapModel(entity, model);
+                    }
+
+                    @Override
+                    public boolean defaultState(org.bukkit.entity.Entity entity,
+                                                ai.resourcepack.engine.api.MobState state, String animation) {
+                        return creatures.defaultState(entity, state, animation);
+                    }
+                });
+        creatures.hooks(skills);
+        mobSpawners = new ai.resourcepack.engine.core.entity.Spawners(this, creatures);
+        getServer().getPluginManager().registerEvents(skills, this);
         // Smithing results and anvil recipes are decided in events; see
         // RecipeStations. Registered once, holding whatever the last load gave.
         getServer().getPluginManager().registerEvents(recipes.stations(), this);
@@ -941,8 +1026,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         studio.onPacks(pushedPacks);
         studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
+        boundModels.bedrock(bedrock);
         models.bound(boundModels);
         creatures.bound(boundModels);
+        // Where a mob's name goes: its model's top, off the content folder's
+        // files or, for a pushed mob, off the pack Studio pushed.
+        creatures.modelTops(info -> info.carrier().isPresent()
+                ? studioShapes.shapeOf(info.carrier().get()).height()
+                : info.model().map(model -> (double) mobModelTops.getOrDefault(model, 0f)).orElse(0.0));
         invites = new EmoteInvites(this, emotes());
         // Optional, and the only place PlaceholderAPI is named. A server
         // without it loads this plugin exactly as before.
@@ -951,7 +1042,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (optional("PlaceholderAPI",
                 () -> Placeholders.register(this, registry, emotes(), items, icons, seats, sessions, group,
                         (player, name) -> dialogs.variables() == null ? java.util.Optional.empty() : dialogs.variables().get(player, name),
-                        player -> rankTagWearers.tagOf(player::hasPermission),
+                        rankTagWearers,
                         () -> creatures.ids().size()))) {
             hooks.add("PlaceholderAPI");
         }
@@ -982,6 +1073,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(animator, this);
         animator.start();
         creatures.start();
+        skills.start();
+        mobSpawners.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
@@ -1106,7 +1199,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack, itemMenu::open),
-                new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates),
+                new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates,
+                        mobSpawners),
                 new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
@@ -1271,6 +1365,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         allVehicles.putAll(all.vehicles());
         vehicles.replace(allVehicles);
         creatures.replace(withPushedMobs());
+        replaceSkills();
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
         // Without this, re-syncing leaves a chassis in the world that the
@@ -1824,9 +1919,46 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return all;
     }
 
+    /**
+     * Every mob's skills: the content folder's and every push still held,
+     * read by one loader, the push winning a mob id they share as the mobs
+     * themselves do. A pushed line that cannot run is said in the console.
+     */
+    private void replaceSkills() {
+        if (skills == null || authoredSkills == null) {
+            return;
+        }
+        Map<ContentId, List<String>> lines = new LinkedHashMap<>();
+        Map<ContentId, String> stances = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
+        if (pushedAll != null) {
+            pushedAll.mobSkills().forEach((id, pushedSkills) -> {
+                lines.put(id, pushedSkills.lines());
+                if (pushedSkills.stance() != null) {
+                    stances.put(id, pushedSkills.stance());
+                }
+                metaskills.putAll(pushedSkills.metaskills());
+            });
+            // A pushed mob with no skills still replaces an authored one's.
+            pushedAll.mobs().keySet().forEach(id -> lines.putIfAbsent(id, List.of()));
+        }
+        ai.resourcepack.engine.core.skill.SkillDefinitions.Result all =
+                ai.resourcepack.engine.core.skill.SkillDefinitions.withPushed(authoredSkills, "studio", lines, stances,
+                        metaskills, "Studio push", skills.names());
+        List<ai.resourcepack.engine.api.Diagnostic> pushedProblems =
+                all.diagnostics().subList(authoredSkills.diagnostics().size(), all.diagnostics().size());
+        report(getServer().getConsoleSender(), "pushed skills", pushedProblems);
+        skills.replace(all);
+    }
+
     /** The custom mobs this server holds: spawn one, animate one, make an egg. */
     public ai.resourcepack.engine.api.Mobs mobs() {
         return creatures;
+    }
+
+    /** Custom mobs' skills: register a mechanic, a condition or a targeter; cast a metaskill. */
+    public ai.resourcepack.engine.api.MobSkills skills() {
+        return skills;
     }
 
     /** The studio models this server holds, and the rigs standing in its worlds. */
@@ -1980,6 +2112,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (creatures != null) {
             creatures.stop();
+        }
+        if (skills != null) {
+            skills.stop();
+        }
+        if (mobSpawners != null) {
+            mobSpawners.stop();
         }
         if (animator != null) {
             animator.stop();
@@ -2340,10 +2478,39 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // chunks round spawn loaded before this plugin did.
         growth.rescan();
 
-        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded, withBlocks.keySet());
+        // Templates first: the entity and skill readers each see one merged
+        // body per mob and know nothing of extends:. See MobTemplates.
+        ai.resourcepack.engine.core.entity.MobTemplates.Result templated =
+                ai.resourcepack.engine.core.entity.MobTemplates.resolve(loaded);
+        report(to, "entities", templated.diagnostics());
+        LoadReport mobsLoaded = templated.report();
+        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(mobsLoaded, withBlocks.keySet());
         report(to, "entities", parsedEntities.diagnostics());
         authoredEntities = parsedEntities.entities();
+        ai.resourcepack.engine.core.entity.MobLoot.Tables dropTables =
+                ai.resourcepack.engine.core.entity.MobLoot.tables(loaded);
+        report(to, "drop tables", dropTables.diagnostics());
+        creatures.options(parsedEntities.options(), dropTables.tables());
+        ai.resourcepack.engine.core.entity.Spawners.Result parsedSpawners =
+                ai.resourcepack.engine.core.entity.Spawners.parse(loaded);
+        report(to, "spawners", parsedSpawners.diagnostics());
+        mobSpawners.replace(parsedSpawners);
+        Map<ContentId, Float> tops = new java.util.HashMap<>();
+        for (ai.resourcepack.engine.api.EntityInfo entity : authoredEntities.values()) {
+            entity.model().filter(model -> !tops.containsKey(model)).ifPresent(model -> {
+                ai.resourcepack.engine.api.ItemInfo item = withBlocks.get(model);
+                tops.put(model, item == null ? 0f : Geometry.topOf(content, item, getLogger()::fine));
+            });
+        }
+        mobModelTops = Map.copyOf(tops);
         creatures.replace(withPushedMobs());
+        // After the mobs: a skill line names mobs (summon) and metaskills,
+        // and the names it is checked against are the live registry's.
+        ai.resourcepack.engine.core.skill.SkillDefinitions.Result parsedSkills =
+                ai.resourcepack.engine.core.skill.SkillDefinitions.parse(mobsLoaded, skills.names());
+        report(to, "skills", parsedSkills.diagnostics());
+        authoredSkills = parsedSkills;
+        replaceSkills();
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
         report(to, "vehicles", parsedVehicles.diagnostics());
@@ -2785,6 +2952,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             bedrockModels.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Model(entry.getKey(),
                     "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json",
                     entry.getValue().scale()));
+        }
+        // Models mobs wear, under the item id a worn part carries, so a
+        // Bedrock player sees the mob as its model (GeyserBridge's mob half).
+        // After the placeable ones, so a model that is both keeps its place: scale.
+        // A Studio mob's model is in Studio's pack, not this one.
+        for (EntityInfo mob : authoredEntities.values()) {
+            ContentId worn = mob.model().orElse(null);
+            ItemInfo item = worn == null ? null : items.info(worn).orElse(null);
+            if (item == null) {
+                continue;
+            }
+            ContentId shape = item.modelId();
+            bedrockModels.add(ai.resourcepack.engine.core.bedrock.BedrockContent.Model.worn(worn,
+                    "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json", mob.turn()));
         }
         List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
         for (ContentId id : icons.ids()) {

@@ -28,3 +28,4 @@ ai/resourcepack/engine/core/recipe/CrafterGuard.java
 ai/resourcepack/engine/core/object/ObjectItems.java
 ai/resourcepack/engine/core/vfx/VfxDisplays.java
 ai/resourcepack/engine/core/version/ModernSpawning.java
+ai/resourcepack/engine/core/entity/MobItems.java

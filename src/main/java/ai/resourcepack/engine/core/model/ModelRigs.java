@@ -373,7 +373,7 @@ public final class ModelRigs {
                 JsonElement one = part.anchor == null || !elements.get(index).isJsonObject()
                         ? elements.get(index)
                         : shifted(elements.get(index).getAsJsonObject(), part.anchor);
-                mine.add(untilted(one, freeAngles(elements, index) != null));
+                mine.add(tinted(untilted(one, freeAngles(elements, index) != null)));
             }
         }
 
@@ -918,6 +918,42 @@ public final class ModelRigs {
      * same turn in the file applies it twice. Anything else is returned
      * untouched.
      */
+    /**
+     * The cube with every face on tint layer 0 ({@code tintindex}), unless the
+     * face already names one.
+     *
+     * <p>What makes a worn part flash red when its mob is hurt: the part's item
+     * definition tints layer 0 with the stack's {@code custom_model_data}
+     * colour, white unless the engine says otherwise, and white leaves every
+     * pixel as drawn. A client before 1.21.4 has no such definition and draws
+     * the face untinted, exactly as before.
+     */
+    static JsonElement tinted(JsonElement element) {
+        if (!element.isJsonObject()) {
+            return element;
+        }
+        JsonObject copy = element.getAsJsonObject().deepCopy();
+        JsonElement faces = copy.get("faces");
+        if (faces != null && faces.isJsonObject()) {
+            for (Map.Entry<String, JsonElement> face : faces.getAsJsonObject().entrySet()) {
+                if (face.getValue().isJsonObject() && !face.getValue().getAsJsonObject().has("tintindex")) {
+                    face.getValue().getAsJsonObject().addProperty("tintindex", 0);
+                }
+            }
+        }
+        return copy;
+    }
+
+    /**
+     * The item definition of a rig part: its model, tinted by the stack's
+     * first {@code custom_model_data} colour, white when it carries none. See
+     * {@link #tinted}.
+     */
+    public static String partDefinition(String modelRef) {
+        return "{\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\","
+                + "\"tints\":[{\"type\":\"minecraft:custom_model_data\",\"index\":0,\"default\":16777215}]}}";
+    }
+
     private static JsonElement untilted(JsonElement element, boolean free) {
         if (!free || !element.isJsonObject()) {
             return element;

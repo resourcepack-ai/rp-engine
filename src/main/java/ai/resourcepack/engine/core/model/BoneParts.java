@@ -56,10 +56,14 @@ final class BoneParts {
      */
     private final NamespacedKey damageKey;
 
+    /** A custom mob's mark (CustomEntities' id key): its name is drawn there, not here. */
+    private final NamespacedKey mobKey;
+
     BoneParts(Host host) {
         this.ownerKey = host.key("bone-owner");
         this.roleKey = host.key("bone-role");
         this.damageKey = host.key("bone-damage");
+        this.mobKey = host.key("entity");
     }
 
     /**
@@ -103,6 +107,13 @@ final class BoneParts {
         // local shadowing it is the exact mistake that cost this project a
         // compile once already.
         Entity wearer = display.getVehicle();
+        if (wearer != null && wearer.getPersistentDataContainer().has(mobKey, PersistentDataType.STRING)) {
+            // A custom mob's name is CustomEntities' to draw: at this bone's
+            // height above the mob, kept up to date and shown the way vanilla
+            // shows a name. A tag here would stand at the display's own
+            // position (the top of the hidden body), and be a second one.
+            return;
+        }
         String name = wearer == null ? null : wearer.getCustomName();
         if (name == null || name.isEmpty()) {
             // Nothing to show. A blank tag is an invisible entity that costs a

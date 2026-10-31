@@ -946,9 +946,10 @@ public final class ItemAssets implements PackContributor {
                 ContentId.parse(part.item()).ifPresent(partId ->
                         addLegacy(item.material(), numbers.of(partId), namespace + ":item/" + path));
             }
+            // Tinted by the stack's custom_model_data colour, which is white
+            // unless a mob wearing this part has just been hurt.
             into.add("assets/" + namespace + "/items/" + path + ".json",
-                    json("{\"model\":{\"type\":\"minecraft:model\",\"model\":\""
-                            + namespace + ":item/" + path + "\"}}"));
+                    json(ModelRigs.partDefinition(namespace + ":item/" + path)));
             into.add("assets/" + namespace + "/models/item/" + path + ".json",
                     ModelRigs.partModel(model, part).toString().getBytes(StandardCharsets.UTF_8));
         }
