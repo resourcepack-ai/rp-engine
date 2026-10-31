@@ -55,6 +55,13 @@ public final class EntityInfo {
     private final String headBone;
     private final boolean ai;
     private final boolean burns;
+    private final boolean hurtFlash;
+    private final double followRange;
+    private final boolean glowing;
+    private final boolean fireImmune;
+    private final BossBar bossBar;
+    private final Ranged ranged;
+    private final Spawning spawning;
 
     private EntityInfo(Builder b) {
         this.id = b.id;
@@ -79,6 +86,13 @@ public final class EntityInfo {
         this.headBone = b.headBone;
         this.ai = b.ai;
         this.burns = b.burns;
+        this.hurtFlash = b.hurtFlash;
+        this.followRange = b.followRange;
+        this.glowing = b.glowing;
+        this.fireImmune = b.fireImmune;
+        this.bossBar = b.bossBar;
+        this.ranged = b.ranged;
+        this.spawning = b.spawning;
     }
 
     /** Engine internal; the shape before mobs animated. */
@@ -230,9 +244,322 @@ public final class EntityInfo {
         return burns;
     }
 
+    /**
+     * Whether its model flashes red for a moment when it is hurt, as a vanilla
+     * mob does. On by default.
+     *
+     * @since 0.2.51
+     */
+    public boolean hurtFlash() {
+        return hurtFlash;
+    }
+
+    /**
+     * How far away, in blocks, it notices something to chase, or 0 for the
+     * mob's own.
+     *
+     * @since 0.2.51
+     */
+    public double followRange() {
+        return followRange;
+    }
+
+    /**
+     * Whether its model is drawn with the glowing outline.
+     *
+     * @since 0.2.51
+     */
+    public boolean glowing() {
+        return glowing;
+    }
+
+    /**
+     * Whether fire, lava and burning do it no harm.
+     *
+     * @since 0.2.51
+     */
+    public boolean fireImmune() {
+        return fireImmune;
+    }
+
+    /**
+     * The boss bar shown to players near it, or empty for none.
+     *
+     * @since 0.2.51
+     */
+    public Optional<BossBar> bossBar() {
+        return Optional.ofNullable(bossBar);
+    }
+
+    /**
+     * How it shoots, or empty for a mob that only fights up close.
+     *
+     * @since 0.2.51
+     */
+    public Optional<Ranged> ranged() {
+        return Optional.ofNullable(ranged);
+    }
+
+    /**
+     * Where and how often it appears on its own, in place of a natural spawn,
+     * or empty for a mob that only ever comes from a command, an egg or a
+     * plugin.
+     *
+     * @since 0.2.51
+     */
+    public Optional<Spawning> spawning() {
+        return Optional.ofNullable(spawning);
+    }
+
     @Override
     public String toString() {
         return id + " (" + type + ")";
+    }
+
+    /**
+     * A boss bar with the mob's name and health, shown to every player within
+     * {@link #range()} blocks of it.
+     *
+     * @since 0.2.51
+     */
+    public static final class BossBar {
+
+        /** The colours a boss bar can be, by Bukkit's {@code BarColor} names. */
+        public static final List<String> COLORS = List.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE");
+        /** The styles, by Bukkit's {@code BarStyle} names. */
+        public static final List<String> STYLES = List.of("SOLID", "SEGMENTED_6", "SEGMENTED_10", "SEGMENTED_12",
+                "SEGMENTED_20");
+
+        private final String color;
+        private final String style;
+        private final double range;
+
+        private BossBar(String color, String style, double range) {
+            this.color = color;
+            this.style = style;
+            this.range = range;
+        }
+
+        /**
+         * A bar; an unknown colour is purple, an unknown style solid, and the
+         * range is held to 1 to 256 blocks (32 when not positive).
+         */
+        public static BossBar of(String color, String style, double range) {
+            String c = color == null ? "" : color.trim().toUpperCase(java.util.Locale.ROOT);
+            String s = style == null ? "" : style.trim().toUpperCase(java.util.Locale.ROOT);
+            double r = Double.isFinite(range) && range > 0 ? Math.max(1, Math.min(256, range)) : 32;
+            return new BossBar(COLORS.contains(c) ? c : "PURPLE", STYLES.contains(s) ? s : "SOLID", r);
+        }
+
+        /** One of {@link #COLORS}. */
+        public String color() {
+            return color;
+        }
+
+        /** One of {@link #STYLES}. */
+        public String style() {
+            return style;
+        }
+
+        /** Blocks. */
+        public double range() {
+            return range;
+        }
+    }
+
+    /**
+     * A mob that shoots. A skeleton (or stray, or bogged) on 1.21.4 or newer
+     * shoots with its own aim and keeps its distance as it always does, holding
+     * a bow nobody can see; anything else is fired from by the engine every
+     * {@link #cooldown()} seconds while it has a target in range and in sight.
+     *
+     * @since 0.2.51
+     */
+    public static final class Ranged {
+
+        /** What it can shoot, by the name an author writes. */
+        public static final List<String> PROJECTILES = List.of("arrow", "snowball", "small_fireball", "fireball",
+                "wither_skull", "trident");
+
+        private final String projectile;
+        private final double damage;
+        private final double cooldown;
+        private final double range;
+
+        private Ranged(String projectile, double damage, double cooldown, double range) {
+            this.projectile = projectile;
+            this.damage = damage;
+            this.cooldown = cooldown;
+            this.range = range;
+        }
+
+        /**
+         * How it shoots. An unknown projectile is an arrow; {@code damage} 0 is
+         * the projectile's own; {@code cooldown} is held to 0.25 to 60 seconds
+         * (2 when not positive) and {@code range} to 2 to 64 blocks (16).
+         */
+        public static Ranged of(String projectile, double damage, double cooldown, double range) {
+            String p = projectile == null ? "" : projectile.trim().toLowerCase(java.util.Locale.ROOT);
+            if (p.startsWith("minecraft:")) {
+                p = p.substring("minecraft:".length());
+            }
+            return new Ranged(PROJECTILES.contains(p) ? p : "arrow",
+                    Double.isFinite(damage) && damage > 0 ? Math.min(2048, damage) : 0,
+                    Double.isFinite(cooldown) && cooldown > 0 ? Math.max(0.25, Math.min(60, cooldown)) : 2,
+                    Double.isFinite(range) && range > 0 ? Math.max(2, Math.min(64, range)) : 16);
+        }
+
+        /** One of {@link #PROJECTILES}. */
+        public String projectile() {
+            return projectile;
+        }
+
+        /** Damage per hit, or 0 for the projectile's own. */
+        public double damage() {
+            return damage;
+        }
+
+        /** Seconds between shots when the engine is the one shooting. */
+        public double cooldown() {
+            return cooldown;
+        }
+
+        /** Blocks: how far away a target may be and still be shot at. */
+        public double range() {
+            return range;
+        }
+    }
+
+    /**
+     * Natural spawning: a share of the natural spawns that match these rules
+     * are this mob instead. Replacing rather than adding is what keeps the
+     * world's mob caps honest: the game only spawns as many as it would have.
+     *
+     * @since 0.2.51
+     */
+    public static final class Spawning {
+
+        /** {@code day}, {@code night} or {@code any}. */
+        public static final List<String> TIMES = List.of("any", "day", "night");
+
+        private final List<String> worlds;
+        private final List<String> biomes;
+        private final List<String> replaces;
+        private final double chance;
+        private final int minLight;
+        private final int maxLight;
+        private final String time;
+        private final int minGroup;
+        private final int maxGroup;
+        private final int maxPerChunk;
+
+        private Spawning(List<String> worlds, List<String> biomes, List<String> replaces, double chance,
+                         int minLight, int maxLight, String time, int minGroup, int maxGroup, int maxPerChunk) {
+            this.worlds = worlds;
+            this.biomes = biomes;
+            this.replaces = replaces;
+            this.chance = chance;
+            this.minLight = minLight;
+            this.maxLight = maxLight;
+            this.time = time;
+            this.minGroup = minGroup;
+            this.maxGroup = maxGroup;
+            this.maxPerChunk = maxPerChunk;
+        }
+
+        /**
+         * The rules, each cleaned: biome names lower-cased and mob types
+         * upper-cased with any {@code minecraft:} dropped, the chance held to
+         * 0 to 1, light to 0 to 15, groups to 1 to 16 and the cap to 1 to 64.
+         */
+        public static Spawning of(List<String> worlds, List<String> biomes, List<String> replaces, double chance,
+                                  int minLight, int maxLight, String time, int minGroup, int maxGroup,
+                                  int maxPerChunk) {
+            int lo = Math.max(0, Math.min(15, minLight));
+            int hi = Math.max(lo, Math.min(15, maxLight));
+            int groupLo = Math.max(1, Math.min(16, minGroup));
+            int groupHi = Math.max(groupLo, Math.min(16, maxGroup));
+            String when = time == null ? "any" : time.trim().toLowerCase(java.util.Locale.ROOT);
+            return new Spawning(clean(worlds, false, false), clean(biomes, true, false), clean(replaces, false, true),
+                    Double.isFinite(chance) ? Math.max(0, Math.min(1, chance)) : 0.1,
+                    lo, hi, TIMES.contains(when) ? when : "any", groupLo, groupHi,
+                    Math.max(1, Math.min(64, maxPerChunk)));
+        }
+
+        private static List<String> clean(List<String> names, boolean lower, boolean upper) {
+            if (names == null) {
+                return List.of();
+            }
+            java.util.List<String> out = new java.util.ArrayList<>();
+            for (String name : names) {
+                if (name == null || name.isBlank()) {
+                    continue;
+                }
+                String n = name.trim();
+                if (lower || upper) {
+                    if (n.toLowerCase(java.util.Locale.ROOT).startsWith("minecraft:")) {
+                        n = n.substring("minecraft:".length());
+                    }
+                    n = upper ? n.toUpperCase(java.util.Locale.ROOT) : n.toLowerCase(java.util.Locale.ROOT);
+                }
+                out.add(n);
+            }
+            return List.copyOf(out);
+        }
+
+        /** World names it may appear in; empty is every world. */
+        public List<String> worlds() {
+            return worlds;
+        }
+
+        /** Biome names ({@code desert}), a {@code *} matching anything; empty is every biome. */
+        public List<String> biomes() {
+            return biomes;
+        }
+
+        /**
+         * Vanilla mob types ({@code ZOMBIE}) whose natural spawns it takes the
+         * place of. Empty is any natural spawn of the same kind as its own type
+         * (a monster for a monster, an animal for an animal).
+         */
+        public List<String> replaces() {
+            return replaces;
+        }
+
+        /** 0 to 1: the share of matching natural spawns that become this mob. */
+        public double chance() {
+            return chance;
+        }
+
+        /** 0 to 15. */
+        public int minLight() {
+            return minLight;
+        }
+
+        /** 0 to 15. */
+        public int maxLight() {
+            return maxLight;
+        }
+
+        /** {@code any}, {@code day} or {@code night}. */
+        public String time() {
+            return time;
+        }
+
+        /** How many appear together, at least. */
+        public int minGroup() {
+            return minGroup;
+        }
+
+        /** How many appear together, at most. */
+        public int maxGroup() {
+            return maxGroup;
+        }
+
+        /** The most of this mob a chunk may hold before natural spawning stops adding them there. */
+        public int maxPerChunk() {
+            return maxPerChunk;
+        }
     }
 
     /** Every field, with the safe default until set. */
@@ -259,6 +586,13 @@ public final class EntityInfo {
         private String headBone = "";
         private boolean ai = true;
         private boolean burns;
+        private boolean hurtFlash = true;
+        private double followRange;
+        private boolean glowing;
+        private boolean fireImmune;
+        private BossBar bossBar;
+        private Ranged ranged;
+        private Spawning spawning;
 
         private Builder(ContentId id, String type) {
             this.id = id;
@@ -379,6 +713,48 @@ public final class EntityInfo {
 
         public Builder burns(boolean burns) {
             this.burns = burns;
+            return this;
+        }
+
+        /** @since 0.2.51 */
+        public Builder hurtFlash(boolean flash) {
+            this.hurtFlash = flash;
+            return this;
+        }
+
+        /** Blocks, 0 for the mob's own. @since 0.2.51 */
+        public Builder followRange(double blocks) {
+            this.followRange = Double.isFinite(blocks) && blocks > 0 ? Math.min(128, blocks) : 0;
+            return this;
+        }
+
+        /** @since 0.2.51 */
+        public Builder glowing(boolean glowing) {
+            this.glowing = glowing;
+            return this;
+        }
+
+        /** @since 0.2.51 */
+        public Builder fireImmune(boolean immune) {
+            this.fireImmune = immune;
+            return this;
+        }
+
+        /** Null for none. @since 0.2.51 */
+        public Builder bossBar(BossBar bar) {
+            this.bossBar = bar;
+            return this;
+        }
+
+        /** Null for a mob that does not shoot. @since 0.2.51 */
+        public Builder ranged(Ranged ranged) {
+            this.ranged = ranged;
+            return this;
+        }
+
+        /** Null for a mob that never spawns on its own. @since 0.2.51 */
+        public Builder spawning(Spawning spawning) {
+            this.spawning = spawning;
             return this;
         }
 

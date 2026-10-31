@@ -21,6 +21,7 @@ plugins/RPEngine/content/
     huds/        *.yml
     recipes/     *.yml
     entities/    *.yml
+    skills/      *.yml       mob skills, MythicMobs' metaskill shape - see Skills below
     liquids/     *.yml
     vehicles/    *.yml
     emotes/      *.json      also *.yml - see Emotes below
@@ -268,7 +269,11 @@ potion costs that line, not the command after it.
 **This is not scripting and is not going to become it.** There is no branching,
 no state and no expression here, because the moment there is an `if` it is a
 language and a bad one. Anything past these verbs is a plugin's job, and
-`ItemUseEvent` — ID, stack, action, block — is what it listens to. Cancel that
+`ItemUseEvent` — ID, stack, action, block — is what it listens to. The one
+carve-out is a mob's [skills](#skills): a boss without timed attacks, phases
+and conditions is not a boss, MythicMobs' skill lines are what thousands of
+servers already have written down, and so mobs get that language, bounded (no
+variables, no loops, no maths) and checked at load. Items do not. Cancel that
 event and the vanilla use is cancelled too, and the item's own actions do not
 run either: the event is the stronger statement of the two.
 
@@ -1086,6 +1091,11 @@ rhino:
     - {item: zoo:horn, chance: 0.25}
     - minecraft:bone
   xp: 5
+  hurt-flash: true        # red for a moment when hurt; the default
+  follow-range: 32        # blocks it notices a target from. Default: the mob's own
+  fire-immune: false      # true: fire, lava and burning do nothing
+  glowing: false          # the spectral-arrow outline on the model
+  boss-bar: {color: RED, style: SOLID, range: 32}
 ```
 
 It is genuinely a mob: its own AI and pathing, found by `@e[tag=zoo]`, seen by
@@ -1097,8 +1107,16 @@ part `type` does not decide.
 **The model is the whole rig.** An animated model is a display per moving
 part, riding the mob with the vanilla body made invisible, so the hitbox stays
 where the model looks. A still model is one display. A custom entity never
-despawns: one that vanished because a player walked away would leave its model
-standing there, because a removed mount ejects its passengers.
+despawns, except one that [spawned on its own](#spawning-on-its-own), which
+despawns like the mob it replaced. Whenever a mob wearing a model is removed
+without dying (despawned, peaceful, another plugin's `remove()`), its parts are
+taken away within a tick or two.
+
+**It flashes red when hurt**, as a vanilla mob does, for about a third of a
+second. On 1.21.4 and newer an animated model's parts are tinted red through
+their item definitions (both this engine's pack and Studio's give every rig part
+the tint); a still model, and any model on an older server, shows a red glowing
+outline instead. `hurt-flash: false` turns it off.
 
 **`animations:` maps a state to one of the model's animations by name.** The
 states, most important first:
@@ -1126,7 +1144,42 @@ vanilla sound event.
 **`drops:` replaces the vanilla loot entirely.** No `drops:` drops nothing. An
 item is a vanilla one (`minecraft:leather`) or one of a pack's (`zoo:horn`); `min`
 and `max` are a count (default 1), `chance` 0 to 1 (default 1). `xp` is the
-experience it leaves (default 0).
+experience it leaves (default 0), a number or a range (`xp: 5to10`).
+
+MythicMobs' drop lines work too, so a `Drops:` list copies across:
+
+```yaml
+  drops:
+    - minecraft:leather 1to3 0.5       # item, amount (or a range), chance
+    - exp 10to20                       # experience
+    - droptable rare_loot              # a table from drop-tables/ (also table, dt)
+    - command{c="give <trigger.name> diamond 1"} 1 0.1   # a console command; the killer is <trigger.name>
+```
+
+### Drop tables
+
+```yaml
+# drop-tables/loot.yml - MythicMobs' DropTables shape (the droptables/ folder works too)
+RareLoot:
+  TotalItems: 2            # exactly two picks, each by WEIGHT (the third number)
+  Drops:
+  - minecraft:diamond 1 1
+  - minecraft:emerald 1to3 3
+  - nothing 1 6            # a pick that gives nothing
+BossChest:
+  MinItems: 1              # or a count in a range, by weight
+  MaxItems: 3
+  Conditions: [ "night" ]           # must pass on the mob as it dies
+  TriggerConditions: [ "isplayer" ] # must pass on its killer
+  Drops:
+  - minecraft:gold_ingot 2to5 1
+  - droptable RareLoot 1 1          # tables can name tables, 8 deep
+```
+
+Without `TotalItems`, `MinItems` or `MaxItems` each line rolls its own chance,
+as a mob's own `drops:` do. A table's conditions are the skill conditions below;
+one that fails drops nothing from that table. A bare table name is the mob's
+own pack's first, then any pack's; `otherpack:Name` names another pack's.
 
 **`head-bone:`** names a bone that turns toward whatever the mob is targeting,
 as an `h_` bone does (below). The bone has to move in at least one animation: a
@@ -1145,6 +1198,13 @@ ModelEngine walks forwards here unchanged. A model built facing South (+Z) needs
 in Studio are turned for you. The same rule holds for `/rp bind` and
 MythicMobs' `rpmodel`, which have no `turn:`: draw the model facing North.
 
+**Bedrock players** (through Geyser) see the mob as its model too, sized by
+`scale:`, turned by `turn:` and playing the same animations; a model from this
+folder, that is: a mob pushed from Studio is not drawn for them yet. Two
+differences: a dying mob tips over the way a Bedrock mob does rather than
+playing `death`, and its name sits where Geyser puts a name, over the hitbox.
+If two mobs wear one model with different `turn:`s, Bedrock uses the first's.
+
 A custom mob cannot be bred, tamed, ridden, sheared, milked or traded with, and
 never turns into something else (a drowned zombie, a struck pig). A name tag and
 a lead work on it.
@@ -1156,9 +1216,203 @@ with that item, and several entities may wear one model; entities are outside
 the id space, as recipes are. One naming neither an item nor a model spawns as
 the plain mob, and the load warns.
 
-`/rp spawn zoo:rhino` puts one where you stand. `/rp egg zoo:rhino [player]
+**Its name floats over the model**, not over the hidden body: just above the
+model's top (its `tag_name` bone, if it has one), wherever the model is drawn,
+whatever the mob type and `scale:`. `name-visible: true` shows it always;
+`false` shows it only to a player whose crosshair is on the mob, within reach
+and not through a block, as vanilla does for a named mob. A name tag, `/data`
+or a plugin renaming the mob changes it within half a second, and the name goes
+the moment the mob dies. Unlike a vanilla name it is not drawn through walls,
+so it never vanishes behind a model; `&` colours and `<fx:...>` text effects
+work in it. A `tag_name` bone sets its height at rest; it does not follow the
+bone's animation.
+
+**`boss-bar:`** shows a boss bar with its name (its name tag's, else its id) and
+health to every player within `range` blocks (default 32, 1 to 256). `color` is
+one of PINK, BLUE, RED, GREEN, YELLOW, PURPLE (default) or WHITE; `style` is
+SOLID (default), SEGMENTED_6, SEGMENTED_10, SEGMENTED_12 or SEGMENTED_20.
+`boss-bar: true` is the defaults.
+
+**`follow-range:`** is how far away it notices something to chase, 1 to 128
+blocks. **`fire-immune: true`** cancels fire, lava, magma-block and burning
+damage and stops it catching fire at all. **`glowing: true`** draws the model
+with the glowing outline.
+
+### More options (MythicMobs' Options)
+
+```yaml
+knight:
+  extends: brute                 # everything brute says, then this (also template:)
+  type: ZOMBIE
+  armor: 12                      # armour points, 0 to 30
+  armor-toughness: 4             # 0 to 20
+  equipment:                     # worn for real: armour counts, a weapon hits harder
+    head: minecraft:iron_helmet
+    hand: {item: zoo:axe, drop-chance: 0.1}
+  damage-modifiers: {FIRE: 0, PROJECTILE: 0.5, MELEE: 1.5}   # per damage cause
+  invincible: false              # true: takes nothing but the void and /kill
+  collidable: true               # false: players and mobs walk through it
+  gravity: true
+  despawn: never                 # never, natural (when nobody is near) or chunk
+  faction: undead                # never targets another mob of its faction
+  level: 1to5                    # rolled per mob; or a number
+  per-level: {health: 10, damage: 1, armor: 0.5, speed: 0.02, power: 0.25}
+  prevent: [leash, rename]       # name tags and leads stop working on it
+  kill-messages: ["{player} met the knight"]
+  mount: zoo:warhorse            # rides this (a custom mob or a vanilla type), spawned under it
+  boss-bar: {color: RED, fog: true, darken-sky: true, music: true}
+```
+
+**`extends:`** (MythicMobs' `Template:`) builds a mob on another: a key the mob
+writes wins, a map (`sounds:`, `animations:`, `boss-bar:`) is merged key by key,
+a list is replaced, and **`skills:` is the template's lines followed by the
+mob's own**. A template marked `abstract: true` needs no `type:` and is never a
+mob itself. Templates can extend templates; a loop is a load warning.
+
+**`equipment:`** is `head`, `chest`, `legs`, `feet`, `hand` and `offhand`
+(MythicMobs' `- iron_helmet HEAD` list and its slot numbers work too), each a
+pack's item or a vanilla one, with an optional `drop-chance` (default 0; the
+roll happens on top of `drops:`). **A mob wearing a model shows none of it**,
+since the model is what is seen: on 1.21.4 and newer each piece is worn but
+drawn as nothing, so its armour and damage still count. Older servers cannot
+hide a worn item, so there a modelled mob wears nothing (`armor:` still
+works); a mob with no model wears it as any mob does.
+
+**`damage-modifiers:`** multiplies each kind of damage, by Bukkit's cause names
+(`FIRE`, `FIRE_TICK`, `LAVA`, `PROJECTILE`, `ENTITY_ATTACK`, `FALL`,
+`BLOCK_EXPLOSION`...) or MythicMobs' groups `MELEE`, `EXPLOSION` and `BURNING`.
+0 makes it immune to that cause: the hit is cancelled, so it does not even
+flinch. The list form `- FIRE 0` works too.
+
+**`despawn:`** is `never` for a mob that stays until killed (the default for a
+command, an egg, a spawner or a plugin), `natural` for one that despawns when no
+player is near (the default for one that [spawned on its own](#spawning-on-its-own)),
+and `chunk` for one that is never saved: it is gone when its chunk unloads or
+the server stops.
+
+**`level:`** is rolled for each mob as it spawns, unless `/rp spawn`, a spawner
+or `summon{level=3}` says which. Each level above the first adds `per-level:`'s
+amounts to `health`, `damage`, `armor` and `speed` (a multiplier added to
+`speed:`), and `power` to the multiplier its skills' amounts take (`power:
+0.25` makes a level 3 mob's skills hit 1.5 times as hard). The level shows in
+its name as `{level}` and in a skill as `<caster.level>`, and the `level{l=3to5}`
+condition tests it.
+
+**`faction:`** stops a custom mob taking another of the same faction as a
+target, whatever its type would do (an iron golem of the faction leaves its
+zombies alone). The `faction{f=undead}` and `samefaction` conditions read it.
+
+**`kill-messages:`** is the death message of a player this mob kills, one line
+at random, with `{player}` and `{mob}` (or `<target.name>` and `<caster.name>`).
+
+### Shooting
+
+```yaml
+archer:
+  type: SKELETON
+  model: zoo:mushroom
+  ranged:
+    projectile: snowball  # arrow (default), snowball, small_fireball, fireball, wither_skull, trident
+    damage: 3             # per hit; 0 (default) is the projectile's own
+    range: 18             # blocks, 2 to 64 (default 16)
+    cooldown: 2           # seconds, 0.25 to 60 (default 2)
+```
+
+`ranged: snowball` is shorthand for the projectile alone. On a `SKELETON`,
+`STRAY` or `BOGGED` with AI, on 1.21.4 and newer, the mob's own brain shoots: it
+holds a bow drawn with vanilla's empty `minecraft:air` item model, so it keeps
+its distance, strafes and aims like a skeleton with nothing floating in its
+hand, and a non-arrow projectile replaces each arrow as it is loosed. Its pace
+is the skeleton's own; `cooldown` is not used. Every other type, and those
+three below 1.21.4, is shot for by the engine every `cooldown` seconds while
+its target is within `range` and in sight; it closes in as its type would. The
+`attack` animation and sound play as each shot leaves, not when it lands. A
+`fireball` or `wither_skull` explodes without breaking blocks, and nobody can
+pick up a custom mob's arrows.
+
+### Spawning on its own
+
+```yaml
+desert_ghoul:
+  type: HUSK
+  model: zoo:ghoul
+  spawning:
+    worlds: [world]              # default: every world
+    biomes: [desert, "*badlands*"]   # default: every biome
+    replaces: [HUSK, ZOMBIE]     # default: any natural spawn of its own kind
+    chance: 0.1                  # 0 to 1 (default 0.1)
+    time: night                  # day, night or any (default)
+    min-light: 0                 # 0 to 15 (default 0)
+    max-light: 7                 # 0 to 15 (default 15)
+    min-group: 1                 # 1 to 16 (default 1)
+    max-group: 2                 # 1 to 16 (default min-group)
+    max-per-chunk: 2             # 1 to 64 (default 2)
+```
+
+A share (`chance`) of the matching **natural** spawns (`NATURAL` and
+`CHUNK_GEN`) is replaced by this mob: the vanilla one is removed a tick after it
+appears and this one stands where it stood, with up to `max-group - 1` more
+beside it. Replacing rather than adding is what keeps the server's mob caps,
+the difficulty (peaceful spawns nothing) and every spawn rule the game already
+has; a group's extra members are the one addition, and `max-per-chunk` caps
+them. Without `replaces:` it stands in for natural spawns of its own type's
+kind: a monster (anything hostile) for monsters, an animal for animals, a water
+creature for water creatures. A type nothing spawns naturally as (an iron golem,
+an allay) needs `replaces:`. Biomes are their names (`minecraft:` optional),
+with `*` matching anything: `*forest*`. Biome tags are not read and warn at
+load. Light is the block's combined light where it spawns; night is game time
+12300 to 23850. A naturally spawned custom mob despawns when no player is near,
+as the mob it replaced would have; one spawned by a command, an egg or a plugin
+never does.
+
+`/rp spawn zoo:rhino` puts one where you stand; `/rp spawn zoo:rhino <x> <y>
+<z> [world] [count] [level]` (the world may also come first) puts up to 64 at a
+place, which is how the console spawns one. `/rp egg zoo:rhino [player]
 [amount]` gives a spawn egg that hatches one where it is used (on a spawner
 too, where it does nothing to the spawner).
+
+### Spawners
+
+A spawner keeps some of one mob alive round a point, MythicMobs' Spawners:
+
+```yaml
+# spawners/arena.yml
+pit:
+  mob: zoo:ghoul
+  location: world,120.5,64,-40.5   # or {world: world, x: 120.5, y: 64, z: -40.5}
+  max-mobs: 3              # alive at once, 1 to 64 (default 1)
+  mobs-per-spawn: 1        # how many each time (default 1)
+  cooldown: 10             # seconds between spawns (default 10)
+  warmup: 0                # seconds a player must be near before the first
+  radius: 4                # spread round the point (default 0)
+  activation-range: 32     # only while a player is this near (0: anywhere in the world)
+  leash-range: 16          # one that strays further is pulled back (0: never)
+  heal-on-leash: true      # and healed
+  level: 0                 # 0 rolls the mob's own level:
+```
+
+MythicMobs' key spellings (`MobName`, `MaxMobs`, `ActivationRange`,
+`LeashRange`, `HealOnLeash`...) read the same. A spawner only spawns while its
+chunk is loaded and a player is in range, and counts its mobs again after a
+restart by the mark they carry, so it never doubles up. Its mobs never despawn.
+A content pack's spawners are ids like the rest (`arena:pit`) and change with
+`/rp reload`.
+
+Spawners can also be made in game; those are kept in
+`plugins/RPEngine/spawners.yml`:
+
+```
+/rp spawner create <name> <mob> [x y z [world]]   (where you stand without a place)
+/rp spawner set <name> <setting> <value>          (max-mobs, cooldown, warmup, radius,
+                                                   activation-range, leash-range, ...)
+/rp spawner remove <name>                          (its mobs stay)
+/rp spawner list
+/rp spawner info <name>
+```
+
+Each verb has its own permission, `rpengine.spawner.create` and so on, all
+granted by `rpengine.spawner`. A content pack's spawner is listed and described
+but changed only in its file.
 
 Mobs made in Studio arrive with a push or a published pack and are spawned as
 `studio:<id>`, exactly like these.
@@ -1177,7 +1431,7 @@ have, or bought, works here without being re-authored.
 | `ob_wing` | The same, turning with the bone. |
 | `p_seat1` | Somewhere to sit. Right-click it. |
 | `mount` | Where the driver sits. One per model. |
-| `tag_name` | Where a name floats, rather than inside the model's knee. |
+| `tag_name` | Where a name floats, rather than inside the model's knee. On a custom mob, the height its name stands at. |
 
 Anything else is an ordinary bone, which is nearly all of them. A model needs
 none of this.
@@ -1192,6 +1446,318 @@ Two honest limits:
   is, and is what you actually want from a boss.
 - **A sub-hitbox forwards damage** to the mob rather than having health of its
   own. Aiming matters; a wing is not separately killable.
+
+### Skills
+
+A mob's `skills:` are what it does besides walk and bite: timed attacks,
+phases, summons, auras. **They are MythicMobs' skill lines, as written**, so a
+`Skills:` block copied out of a MythicMobs mob file runs here, as long as it
+sticks to the mechanics below.
+
+```yaml
+# entities/bosses.yml
+golem_king:
+  type: ZOMBIE
+  model: bosses:golem
+  name: "&6Golem King &7{hp}/{max_hp}"
+  health: 300
+  boss-bar: {color: YELLOW}
+  stance: calm                    # the stance it starts in (optional)
+  skills:                         # or Skills:, as MythicMobs spells it
+  - message{m="&6<caster.name>&f: Who disturbs my rest?"} @PlayersInRadius{r=30} ~onSpawn
+  - skill{s=GroundSlam} @self ~onTimer:120 ?targetwithin{d=8}
+  - leap{velocity=150} @target ~onTimer:100 ?distance{d=6to20} 0.6
+  - skill{s=CallTheGuard} @self ~onDamaged =50%
+  - potion{type=SLOW;duration=60;level=2} @trigger ~onAttack 0.3
+  - command{c="say <caster.name> has fallen to <trigger.name>"} @self ~onDeath
+```
+
+```yaml
+# skills/bosses.yml - metaskills, MythicMobs' own file shape
+GroundSlam:
+  Cooldown: 8                     # seconds, per mob
+  Conditions:                     # tested on the caster
+  - stance{s=calm}
+  TargetConditions:               # each target must pass
+  - isplayer
+  Skills:
+  - animate{a=attack} @self
+  - delay 10                      # ticks; the rest of the list waits
+  - vfx{id=bosses:shockwave} @selflocation
+  - damage{a=6} @PlayersInRadius{r=6}
+  - throw{velocity=12;velocityY=6} @PlayersInRadius{r=6}
+```
+
+**A line is** `mechanic{option=value;...} @targeter{...} ~trigger ?condition{...} <health> chance`,
+everything after the mechanic optional and in any order:
+
+- `{...}` and `[...]` both hold options; `"quotes"` keep spaces and `;` in a value.
+- `@targeter` is who or where it aims. **None means the trigger** (whoever hit
+  it, what it hit, who clicked it), else the mob itself; inside a metaskill, the
+  targets the call aimed at. The model mechanics, `setstance` and `cancelevent`
+  default to the mob itself.
+- `~onTrigger` is when it runs, on a mob's own lines. None is `~onCombat`.
+- `?condition` must pass on the mob, `?!condition` must fail, `?~condition`
+  tests the trigger instead (`?~!` the trigger, negated).
+- `<50%`, `>200`, `=30%-50%`: the mob's health, as a share or in points. `<`
+  and `>` run every time they match. **`=` runs once per mob**: `=50%` is "the
+  first time it is at or below half", MythicMobs' phase line. It does not
+  re-arm when the mob heals (the usual phase skill heals it).
+- a number from 0 to 1 at the end is the chance it runs.
+- `delay 20` on a line of its own pauses the list for 20 ticks.
+- Every mechanic also takes `delay=` (ticks before it runs, without holding up
+  the list), `repeat=` and `repeatInterval=` (`ri`), `cooldown=` (seconds, this
+  line, this mob) and `power` scales its amounts when a condition raised it.
+- Numbers may be a range: `amount=2to5` picks one each time.
+
+Names are case-insensitive and MythicMobs' short names work (`@PIR`, `a=` for
+`amount=`). A metaskill is named in `skill{s=GroundSlam}` (also `skill:GroundSlam`,
+`metaskill`, `meta`): bare, it is the mob's own pack's first, then any pack's;
+`otherpack:GroundSlam` is another pack's. **A line that cannot run is a load
+warning naming its file and place** (`bosses/entities/bosses.yml:
+golem_king.skills[3]: There is no mechanic explode.`) and is skipped; the rest
+of the mob loads. A line with `: ` in it that YAML read as a map (a message
+like `"Boss: hi"` unquoted) is put back together.
+
+Some limits stop a mistake becoming lag: 64 lines per mob or metaskill, 64
+lines run in one go without a `delay`, 200 waiting skills per mob, metaskill
+calls 16 deep, and skills setting off other mobs' skills (two mobs hurting each
+other from `~onDamaged`) 8 deep. Each says so once in the console. A mob's
+waiting skills stop when it dies (except its `~onDeath` skills, which finish
+where it fell) and on `/rp reload`. `skills.debug: true` in config.yml logs
+every line as it runs and what it aimed at.
+
+**Text** in a skill can carry `<caster.hp>`, `<caster.mhp>`, `<caster.name>`,
+`<caster.uuid>`, `<caster.stance>`, `<caster.level>`, `<caster.var.phase>` (a
+variable), `<caster.l.x>` (`.y`, `.z`, `.w`), the same
+for `target.` and `trigger.`, `<skill.power>` and `<skill.damage>` (the hit that
+set it off). `{caster_hp}` is the same thing in the engine's spelling, and
+MythicMobs' escapes work (`<&sc>` for `;`). A mob's `name:` may hold `{hp}`,
+`{max_hp}`, `{hp%}`, `{stance}` and `{level}`, kept current until a name tag renames it.
+
+#### Triggers
+
+| Trigger | When | `@trigger` is |
+|---|---|---|
+| `~onSpawn` | it was spawned (a command, an egg, a plugin, natural spawning, `summon`) | - |
+| `~onLoad` | it was found already standing: a chunk load, a restart, a reload | - |
+| `~onSpawnOrLoad` | either | - |
+| `~onAttack` | it hit something (not with a skill's own damage or shots) | what it hit |
+| `~onDamaged` (`~onHurt`) | it was hurt; `cancelevent` and `modifydamage` work here | who hurt it |
+| `~onDeath` | it died | its killer |
+| `~onTimer:<ticks>` | every so many ticks while it is loaded | - |
+| `~onInteract` | a player right-clicked it | the player |
+| `~onCombat` | the default: attack, damaged, spawn and death | as those |
+| `~onEnterCombat` | it took a target having had none | the target |
+| `~onDropCombat` | it lost its target | - |
+| `~onChangeTarget` (`~onTarget`) | its target changed | the new target |
+| `~onKill` | it killed anything | the victim |
+| `~onPlayerKill` (`~onKillPlayer`) | it killed a player | the player |
+| `~onShoot` (`~onBowShoot`) | it fired a projectile of its own (a bow, `ranged:`), not a skill's | its target |
+| `~onProjectileHit` | something it shot hit, a skill's `projectile` or `missile` included | what was hit |
+| `~onSignal:<name>` | another mob's `signal{s=<name>}` reached it; no name hears every signal | the sender |
+
+#### Targeters
+
+Every targeter takes `limit=`, `sort=` (`NEAREST`, `FURTHEST`, `RANDOM`,
+`LOWEST_HEALTH`, `HIGHEST_HEALTH`), `ignore=` (entity types, comma-separated),
+`conditions=[ - isplayer - !stance{s=x} ]` (each target must pass), and, for
+places, `xoffset`/`yoffset`/`zoffset` (`xo`, `yo`, `zo`), `forwardoffset` (`fo`)
+and `sideoffset` (`so`). Radius ones leave out the mob itself unless
+`targetself=true`, and spectators always.
+
+| Targeter | Picks |
+|---|---|
+| `@self` (`@caster`, `@boss`, `@mob`) | the mob |
+| `@target` (`@t`) | what it is fighting |
+| `@trigger` | what set the skill off |
+| `@NearestPlayer{r}` (`@NP`) | the nearest player within `r` (32) |
+| `@parent` (`@summoner`) | the mob that summoned it |
+| `@children` (`@summons`) | what it summoned |
+| `@PlayersInRadius{r}` (`@PIR`) | players within `r` (5) |
+| `@EntitiesInRadius{r}` (`@EIR`) | any entity within `r` |
+| `@LivingInRadius{r}` (`@LIR`) | living things within `r` |
+| `@MobsInRadius{r;types}` (`@MIR`) | mobs within `r`, of `types` (custom mob ids or vanilla types) |
+| `@LivingInCone{angle;range}` (`@LIC`, `@EIC`) | living things in front of it |
+| `@EntitiesInRing{min;max}` (`@EIRR`), `@PlayersInRing` (`@PIRR`) | between two radii |
+| `@PlayersInWorld` (`@World`), `@PlayersOnServer` (`@Server`) | every player |
+| `@ThreatTable` (`@TT`) | everybody on its threat table, most threatening first; without one, its target |
+| `@RandomThreatTarget` (`@RTT`), `@RandomThreatTargetLocation` (`@RTTL`) | one of them at random; where they stand |
+| `@selflocation` (`@casterLocation`), `@selfeyelocation` | where it stands, its eyes |
+| `@forward{f;s;y}` | `f` blocks ahead of it, `s` to the right |
+| `@targetlocation` (`@TL`), `@triggerlocation` | where they stand |
+| `@location{c=x,y,z}` (`@loc`) | a fixed spot in its world |
+| `@origin`, `@spawnlocation` | where it is; where it was spawned |
+| `@Ring{r;points}`, `@Cone{angle;range;points}`, `@Sphere{r;points}` | spots round it |
+| `@RandomLocationsNearCaster{a;r;minr}` (`@RLNC`), `@RLNT` | random spots near it, near its target |
+| `@PlayerLocationsInRadius{r}` (`@PLIR`) | where the players near it stand |
+
+#### Mechanics
+
+Amounts are multiplied by the skill's power. A mechanic that needs an entity
+skips a place; one that needs a place uses an entity's.
+
+| Mechanic | Does |
+|---|---|
+| `damage{a;ignorearmor}` (`d`) | hurts the target, credited to the mob |
+| `basedamage{m}` | `m` times the mob's own attack damage |
+| `percentdamage{p}` | a share of the target's max health |
+| `heal{a;overheal}`, `healpercent{m}` | heals (overheal becomes absorption) |
+| `sethealth{a}`, `setmaxhealth{a;sethealth}` | sets health, max health |
+| `shield{a}` | absorption hearts |
+| `modifydamage{a;action=multiply/add/set}` | changes the hit, in `~onDamaged` and `~onAttack` |
+| `potion{type;duration;level;hasparticles;hasicon}` | a potion effect; old Bukkit names (`SLOW`, `INCREASE_DAMAGE`) work |
+| `potionclear{type}` (`removepotion`) | removes one, or all |
+| `ignite{ticks}`, `extinguish`, `freeze{ticks}`, `glow{duration}` | fire, frost, the glowing outline |
+| `speed{multiplier;duration}` (`setspeed`) | movement speed times `multiplier` for a while |
+| `feed{amount}` | a player's hunger |
+| `leap{velocity}` | the mob jumps to land on its target (`velocity` 100 to 200, as MythicMobs) |
+| `lunge{velocity;velocityY}`, `disengage{velocity;velocityY}` | the mob lunges at, or springs back from, its target |
+| `throw{velocity;velocityY}` | knocks the target away (MythicMobs' scale: `velocity=15` is a big throw) |
+| `pull{velocity}`, `forcepull` | drags the target to the mob; teleports it there |
+| `velocity{mode=set/add/multiply/remove;x;y;z}`, `jump{velocity}` | sets the target's motion |
+| `teleport{spreadh;spreadv}` (`tp`) | the mob to its target |
+| `teleportto{location=x,y,z}` | the target to a spot |
+| `summon{type;amount;radius}` | a custom mob (its id, or a bare name in the same pack) or a vanilla one; remembers its parent, and takes up the mob's fight |
+| `suicide`, `remove` | the mob dies; removes the target (never a player) |
+| `shoot{type;velocity;damage}` | arrow, snowball, egg, trident, small_fireball, fireball, wither_skull at the target |
+| `shootfireball{yield;incendiary}`, `shootskull`, `arrowvolley{amount;spread}` | the same, by MythicMobs' names |
+| `explosion{power;fire;breakblocks}` | an explosion; **breaks no blocks** unless `breakblocks=true` |
+| `fakeexplosion`, `lightning{damage}`, `fakelightning` (`effect:lightning`) | the look, or the real thing; `lightning` with `damage` hurts the target only |
+| `particles{p;a;hs;vs;speed;y;color;size;material}` (`effect:particles`) | particles; MythicMobs' and old Bukkit names (`reddust`, `largeexplode`, `mobspell`) work on every version |
+| `particlering{particle;radius;points}`, `particlesphere`, `particleline` | shapes |
+| `sound{s;v;p}` (`effect:sound`) | a pack's sound (`zoo:roar`) or a vanilla one, by key or old constant name |
+| `vfx{id;scale;speed;loop;follow;tag}` | a VFX of a pack or Studio (1.21.4+) |
+| `dropitem{item;amount}` | drops a pack's or a vanilla item |
+| `message{m}`, `actionmessage{m}`, `sendtitle{title;subtitle;fadein;stay;fadeout}`, `speak{m;r}` | text to player targets (`&` colours, `<fx:...>`) |
+| `command{c;astarget}` | as the console, or as the player target; **never as op** (`asop` runs it as the console) |
+| `skill{s}`, `randomskill{skills=a,b,c}` | a metaskill, at this line's targets |
+| `cancelevent` | cancels the hit or click that set it off |
+| `setstance{stance}` | the mob's stance, read by `?stance{s=...}` |
+| `settarget`, `cleartarget`, `setai{ai}` | who it fights; whether it thinks |
+| `aura{auraName;duration;interval;onStart;onTick;onEnd;charges}` | skills on the target every `interval` ticks for `duration`, damage over time; one per name per target, refreshed when cast again. `onTick=[ - damage{a=1} - particles{p=flame} ]` or a metaskill's name |
+| `animate{a;duration}` (`state`, `anim`) | plays one of its model's animations, or a state (`attack`) |
+| `tint{color;duration}` | tints its model, the way the hurt flash does |
+| `bonevisible{bone;visible}` (`partvisibility`) | hides or shows a bone of its model and everything inside it (a bone that moves in some animation; still bones are merged) |
+| `swapmodel{model}` (`model`) | wears another model, an item id as `model:` is, at its own scale and turn; hitbox and health stay |
+| `defaultstate{state;animation}` | plays `animation` for a state from now on (`defaultstate{state=walk;animation=limp}`); no animation puts its own back. Kept across a restart |
+| `projectile{v;i;md;hR;vR;g;onStart;onTick;onHit;onEnd}` (`proj`) | a projectile at the target, see below |
+| `missile{...;inertia}` | the same, turning toward its target entity as it flies |
+| `totem{md;i;hR;vR;charges;onTick;onHit;onEnd}` | stands at the target place for `md` ticks, running `onHit` on whoever comes within reach |
+| `chain{bounces;radius;bounceDelay;onBounce}` | `onBounce` on the target, then on the nearest living thing within `radius` it has not touched, `bounces` times |
+| `signal{s}` | `~onSignal:s` on the target mobs (`@children`, `@parent`, `@MIR`) |
+| `threat{amount;mode=add/set/remove/multiply/reset}` | the target's threat on this mob's table |
+| `taunt{amount}` | target mobs turn on this one: top of their threat tables, and their target now |
+| `clearthreat` | empties its threat table |
+| `barcreate{name;display;color;style;value}`, `barset{...}`, `barremove{name}` | a boss bar of its own, shown to the player targets (no targeter: players within 32); `value` 0 to 1, a percentage, or a placeholder such as `<caster.php>`; removed when the mob goes |
+| `setvariable{var;value}` (`setvar`), `variableadd{var;amount}`, `variablesubtract`, `variableunset` | the mob's variables, see below |
+
+#### Conditions
+
+In `Conditions:` lists a condition may carry an action: `true` (must pass, the
+default), `false` (must fail), `power 2` (raises the skill's power when it
+passes), `cast Other`, `castInstead Other` and `orElseCast Other`.
+
+| Condition | Passes when |
+|---|---|
+| `health{h}`, `healthpercent{h}` | health in a range: `h=<50%`, `h=0.5to1` |
+| `distance{d}` | the target is within `d` of the mob (`d=<6`, `d=4to16`) |
+| `targetwithin{d}`, `targetnotwithin{d}` | its target is within `d` |
+| `playerwithin{d}`, `playernotwithin{d}`, `playersinradius{r;amount}` | players nearby |
+| `chance{c}` | at random |
+| `stance{s}` | the mob's stance is one of `s` |
+| `day`, `night`, `dusk`, `dawn`, `worldtime{t}`, `raining`, `thundering` | the world |
+| `biome{b}`, `world{w}`, `height{h}` | where; biomes take `*` as `spawning:` does |
+| `onground`, `inblock{m}`, `inwater`, `outside`, `inside` | what it stands in |
+| `haspotioneffect{type}`, `burning`, `lineofsight` | its state; the mob can see it |
+| `entitytype{t}`, `mobtype{t}`, `isplayer`, `ismonster`, `isliving` | what it is |
+| `incombat` (`hastarget`) | it has a target |
+| `skilloncooldown{s}` | that metaskill is cooling down |
+| `hastag{tag}`, `haspermission{p}`, `holding{m}`, `gamemode{m}`, `sneaking`, `sprinting`, `flying`, `blocking`, `mounted` | a player's state |
+| `variableequals{var;value}`, `variableinrange{var;value=1to5}`, `variableisset{var}` | a variable of the mob tested (`var=caster.x` for the caster's) |
+| `level{l}`, `faction{f}`, `samefaction` | its level; its faction; whether it is of the caster's faction |
+| `threat{a}` | the subject's threat on the caster's table is in range |
+
+#### Projectiles
+
+`projectile` fires a point the engine moves (not a Minecraft entity), so it can
+carry skills: `onStart` where it leaves, `onTick` at every step, `onHit` on each
+living thing within `hR` across and `vR` up of it, `onEnd` where it stops. It
+flies at `v` blocks a second (5), steps every `i` ticks (1), goes `md` blocks
+(40) and falls with `g`; it stops at a solid block (`sb=false` goes through)
+and at its first hit (`se=false` pierces). It hits players (`hp`), and other
+mobs only with `hnp=true`, apart from whatever it was fired at. It is invisible
+unless `onTick` draws it (`particles{p=flame}`, MythicMobs' way) or it is given
+a look: `bullettype=item;item=minecraft:fire_charge` (any pack's item, with
+`bulletscale`), or `bullettype=vfx;vfx=zoo:fireball` (a looping VFX, 1.21.4+).
+`missile` turns toward the entity it was fired at, more sharply the lower its
+`inertia` (1.5). At most 256 fly at once, server-wide, and none outlives a
+minute or a reload.
+
+#### Threat tables
+
+`threat-table: true` on a mob (MythicMobs' `Modules: {ThreatTable: true}` reads
+the same) makes it fight whoever has hurt it most: damage dealt to it is
+threat, and it turns to a new top only when that one holds more than 110% of
+its current target's threat, so two players trading hits do not spin it round.
+Somebody who dies, leaves, goes into creative or out of twice its follow range
+drops off the table, and an empty table is a mob out of combat
+(`~onDropCombat`).
+
+#### Variables
+
+A mob can keep variables: `variables: {phase: 1}` on the mob sets them as it
+spawns, `setvariable`/`variableadd` change them, `<caster.var.phase>` (or
+`{caster_var_phase}`) prints one and `variableequals`/`variableinrange` test
+one. They live on the mob (`var=phase` or `var=caster.phase`), or on a target
+mob with `var=target.phase`. MythicMobs' skill, global and world scopes and its
+variable maths are not supported, on purpose; a variable is kept while the
+server runs, not across a restart.
+
+#### Porting from MythicMobs
+
+Copy the `Skills:` block into the mob's file and its metaskills into
+`skills/`. What changes:
+
+- **The mob file around them is RP Engine's** (`type`, `model`, `health`...
+  as above, not `Type`/`Display`/`Options`), and models are `model:`, so drop
+  ModelEngine's `model{mid=...}` line. `state{mid=...;s=attack}` runs as
+  `animate`.
+- **The mob's options map across** as below; `Options.MovementSpeed` and the
+  like are RP Engine's own keys rather than copied numbers, because ours are a
+  multiple of the type's speed.
+
+  | MythicMobs | RP Engine |
+  |---|---|
+  | `Type`, `Display`, `Health`, `Damage`, `Armor` | `type`, `name`, `health`, `damage`, `armor` |
+  | `Template:` | `extends:` (`template:` and `Template:` read the same) |
+  | `Equipment:` | `equipment:` (the list form copies across) |
+  | `DamageModifiers:` | `damage-modifiers:` (the list form copies across) |
+  | `Faction:` | `faction:` |
+  | `Options.Despawn` | `despawn:` |
+  | `Options.Invincible`, `Collidable`, `NoGravity` | `invincible:`, `collidable:`, `gravity:` |
+  | `Options.PreventLeashing`, `PreventRenaming` | `prevent: [leash, rename]` |
+  | `Options.MovementSpeed`, `FollowRange`, `KnockbackResistance` | `speed:` (a multiple), `follow-range:`, `knockback-resistance:` |
+  | `Level`, `LevelModifiers` | `level:`, `per-level:` (`LevelModifiers` reads the same) |
+  | `KillMessages:` | `kill-messages:` |
+  | `Mount:` | `mount:` |
+  | `BossBar:` | `boss-bar:` |
+  | `Drops:`, `DropTables/` | `drops:` (line form copies across), `drop-tables/` |
+  | `Spawners/` | `spawners/` |
+  | `Modules.ThreatTable` | `threat-table: true` (the MythicMobs spelling reads the same) |
+  | `Variables:` | `variables:` |
+  | `Skills:` | `skills:` (`Skills:` reads the same) |
+
+- **Not supported**, and a load warning says so for each line: variable maths
+  and scopes other than the mob's (`variableMath`, `skill.`/`global.`
+  variables), `switch`, `foreach`, custom AI goals (`AIGoalSelectors`: pick
+  `type` for behaviour; movement is the mechanics), `disguise`, `onHear`,
+  composite conditions (`a && b`), riding a mob as a player (`mountmodel`),
+  `ImmunityTables`, `Trades`, and `command{asop=true}` as an op player.
+- `=50%` fires once per mob as in MythicMobs; it is remembered while the
+  server runs, so a restart lets a phase fire once more.
+- Plugins add mechanics, targeters and conditions through the API (see API.md),
+  as MythicMobs' add-ons do.
 
 ## Putting a model on a mob
 
@@ -3079,6 +3645,13 @@ permissions plugin, and print `%rpengine_tag%` where the prefix goes: it is the
 character of the tag the player wears, the one with the highest `priority`
 among those they hold (an ID breaks a tie), and empty for none.
 `%rpengine_tag_id%` is which one.
+
+**Several at once.** `slot: badge` (letters, digits and `_`, not `id`) puts a
+tag in a slot of its own, with its own winner: `%rpengine_tag_badge%` and
+`%rpengine_tag_id_badge%`. A tag with no slot is in the main slot, which is
+what `%rpengine_tag%` prints, so a rank can sit before the name and a badge
+after it. `%rpengine_tags%` is every slot's winner, highest priority first,
+a space between. A slot no tag names prints the placeholder as typed.
 
 ## Screens and HUDs
 

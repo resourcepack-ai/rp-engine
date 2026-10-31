@@ -83,6 +83,64 @@ public final class Overlays {
     }
 
     /** Whether this player can see this overlay at all. See {@link #pushedView}. */
+    /** Whether a player is on Bedrock (through Geyser). Set by the plugin when Geyser is there. */
+    private volatile java.util.function.Predicate<java.util.UUID> bedrockViewer = id -> false;
+
+    public void bedrockViewers(java.util.function.Predicate<java.util.UUID> isBedrock) {
+        this.bedrockViewer = isBedrock == null ? id -> false : isBedrock;
+    }
+
+    private boolean onBedrock(Player viewer) {
+        try {
+            return bedrockViewer.test(viewer.getUniqueId());
+        } catch (RuntimeException | LinkageError e) {
+            return false;
+        }
+    }
+
+    /**
+     * What a Bedrock player is shown in place of a HUD: its words, on the
+     * action bar.
+     *
+     * <p>A HUD is a Java picture: a glyph a core shader draws, placed by
+     * characters of negative space, none of which a Bedrock client has. Sent to
+     * one as it is, the picture characters drew as boxes and the spaces (which
+     * sit at U+F900, where Bedrock keeps CJK compatibility ideographs) drew as
+     * Chinese characters across the screen. So a Bedrock player gets each
+     * run's text, its values filled, with every character only our fonts
+     * define taken out, and nothing at all when that leaves nothing. Bars are
+     * left out: they are made of such characters entirely.
+     */
+    static String plainText(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
+        StringBuilder out = new StringBuilder();
+        for (OverlayInfo.OverlayRun run : info.runs()) {
+            if (run.bar() != null) {
+                continue;
+            }
+            String words = withoutGlyphs(drawnRun(info, run, filled, viewer).text());
+            if (ChatColor.stripColor(words).isBlank()) {
+                continue;
+            }
+            if (out.length() > 0) {
+                out.append(ChatColor.RESET).append("   ");
+            }
+            out.append(words);
+        }
+        return out.toString();
+    }
+
+    /** Text with the characters only a Java pack can draw taken out, and its spaces tidied. */
+    static String withoutGlyphs(String text) {
+        StringBuilder kept = new StringBuilder(text.length());
+        text.codePoints().forEach(c -> {
+            boolean ours = (c >= 0xE000 && c <= 0xF8FF)
+                    || (c >= FontAssets.FIRST_SPACE_CODEPOINT && c < FontAssets.FIRST_SPACE_CODEPOINT + FontAssets.SPACE_STEPS)
+                    || c >= 0xF0000;
+            if (!ours) kept.appendCodePoint(c);
+        });
+        return kept.toString().replaceAll(" {2,}", " ").trim();
+    }
+
     private boolean visible(Player viewer, OverlayInfo info) {
         PushedView view = pushedView;
         return !info.fromPushedPack() || view == null || view.hud(viewer, info.id()).isPresent();
@@ -220,6 +278,10 @@ public final class Overlays {
             // success nobody can see.
             return false;
         }
+        if (onBedrock(viewer)) {
+            send(viewer, info, java.util.Map.of());
+            return true;
+        }
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
             showBossBar(viewer, info, java.util.Map.of());
         } else {
@@ -256,6 +318,18 @@ public final class Overlays {
             return;
         }
         java.util.Map<String, String> filled = values == null ? java.util.Map.of() : values;
+        if (onBedrock(viewer)) {
+            clear(viewer);
+            String plain = plainText(info, filled, viewer);
+            // Nothing to say is said by sending nothing: an empty action bar
+            // every redraw would wipe whatever else is on it, a plugin's own
+            // message included.
+            if (!plain.isEmpty()) {
+                viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(plain));
+            }
+            return;
+        }
         if (info.slot() == OverlayInfo.Slot.BOSS_BAR) {
             showBossBar(viewer, info, filled);
             return;

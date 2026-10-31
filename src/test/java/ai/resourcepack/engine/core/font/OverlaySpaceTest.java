@@ -34,4 +34,15 @@ class OverlaySpaceTest {
         assertEquals(18, TextWidth.of(icon + Overlays.space(-1)));
         assertEquals(0, TextWidth.of(icon + Overlays.space(-19)));
     }
+
+    @Test
+    void aBedrockPlayerGetsTheWordsWithoutOurGlyphs() {
+        // What Go Karts puts in a value: a chip icon, a space, the line.
+        String value = new String(Character.toChars(0xE123)) + Overlays.space(3) + "1. " + Overlays.space(-40) + "Bobby";
+        assertEquals("1. Bobby", Overlays.withoutGlyphs(value));
+        // The negative spaces are U+F900 up, which Bedrock draws as CJK.
+        assertEquals("", Overlays.withoutGlyphs(Overlays.space(-300)));
+        // Real words, colour codes and other scripts are kept.
+        assertEquals("§6Lap 2/3 été", Overlays.withoutGlyphs("§6Lap  2/3   été"));
+    }
 }
