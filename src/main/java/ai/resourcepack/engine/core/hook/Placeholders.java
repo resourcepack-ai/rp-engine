@@ -59,13 +59,13 @@ public final class Placeholders extends PlaceholderExpansion {
     private final java.util.function.BiFunction<Player, String, Optional<String>> dialogVars;
     /** Entities are outside the id space (see ContentFolderLoader), so the registry cannot count them. */
     private final java.util.function.IntSupplier entityCount;
-    /** The rank tag a player wears, by permission (core/font/RankTagWearers). */
-    private final java.util.function.Function<Player, Optional<ContentId>> rankTag;
+    /** The rank tags a player wears, by permission and slot. */
+    private final ai.resourcepack.engine.core.font.RankTagWearers rankTags;
 
     private Placeholders(Plugin plugin, ContentRegistry registry, Emotes emotes, Items items, Icons icons,
                          Seats seats, BundleSessions sessions, SyncGroup group,
                          java.util.function.BiFunction<Player, String, Optional<String>> dialogVars,
-                         java.util.function.Function<Player, Optional<ContentId>> rankTag,
+                         ai.resourcepack.engine.core.font.RankTagWearers rankTags,
                          java.util.function.IntSupplier entityCount) {
         this.plugin = plugin;
         this.registry = registry;
@@ -76,7 +76,7 @@ public final class Placeholders extends PlaceholderExpansion {
         this.sessions = sessions;
         this.group = group;
         this.dialogVars = dialogVars;
-        this.rankTag = rankTag;
+        this.rankTags = rankTags;
         this.entityCount = entityCount;
     }
 
@@ -95,7 +95,7 @@ public final class Placeholders extends PlaceholderExpansion {
     public static boolean register(Plugin plugin, ContentRegistry registry, Emotes emotes,
                                    Items items, Icons icons, Seats seats, BundleSessions sessions, SyncGroup group,
                                    java.util.function.BiFunction<Player, String, Optional<String>> dialogVars,
-                                   java.util.function.Function<Player, Optional<ContentId>> rankTag,
+                                   ai.resourcepack.engine.core.font.RankTagWearers rankTags,
                                    java.util.function.IntSupplier entityCount) {
         if (plugin.getServer().getPluginManager().getPlugin("PlaceholderAPI") == null) {
             return false;
@@ -107,7 +107,7 @@ public final class Placeholders extends PlaceholderExpansion {
             // rather than our problem to solve.
             return false;
         }
-        return new Placeholders(plugin, registry, emotes, items, icons, seats, sessions, group, dialogVars, rankTag, entityCount).register();
+        return new Placeholders(plugin, registry, emotes, items, icons, seats, sessions, group, dialogVars, rankTags, entityCount).register();
     }
 
     @Override
@@ -197,11 +197,23 @@ public final class Placeholders extends PlaceholderExpansion {
             // %rpengine_tag%: the character of the rank tag this player wears,
             // the one with the highest priority among the tags whose
             // permission they hold; empty for none. %rpengine_tag_id% is which
-            // one, for a plugin that branches on it.
+            // one, for a plugin that branches on it. Both are the main slot;
+            // the named slots are below.
             case "tag":
-                return icons == null ? "" : rankTag.apply(player).flatMap(icons::character).orElse("");
+                return tagCharacter(rankTags.tagOf(player::hasPermission));
             case "tag_id":
-                return rankTag.apply(player).map(ContentId::toString).orElse("");
+                return rankTags.tagOf(player::hasPermission).map(ContentId::toString).orElse("");
+            case "tags": {
+                // One per slot, highest priority first, a space between.
+                StringBuilder out = new StringBuilder();
+                for (ContentId tag : rankTags.tagsOf(player::hasPermission)) {
+                    String character = tagCharacter(Optional.of(tag));
+                    if (!character.isEmpty()) {
+                        out.append(out.length() == 0 ? "" : " ").append(character);
+                    }
+                }
+                return out.toString();
+            }
             case "emoting":
                 return yesNo(emotes.isEmoting(player.getUniqueId()));
             case "can_emote":
@@ -230,6 +242,19 @@ public final class Placeholders extends PlaceholderExpansion {
                         .orElse("0");
             default:
                 break;
+        }
+
+        // %rpengine_tag_<slot>% and %rpengine_tag_id_<slot>%: the same answers
+        // for a named slot:. A slot no tag names is null, so a typo shows.
+        if (name.startsWith("tag_id_")) {
+            String slot = name.substring("tag_id_".length());
+            return rankTags.hasSlot(slot)
+                    ? rankTags.tagOf(slot, player::hasPermission).map(ContentId::toString).orElse("")
+                    : null;
+        }
+        if (name.startsWith("tag_")) {
+            String slot = name.substring("tag_".length());
+            return rankTags.hasSlot(slot) ? tagCharacter(rankTags.tagOf(slot, player::hasPermission)) : null;
         }
 
         // Parameterised: %rpengine_holds_<bundle>% and %rpengine_has_<id>%.
@@ -268,6 +293,11 @@ public final class Placeholders extends PlaceholderExpansion {
     private String topBundle(Player player) {
         List<BundleSessions.Held> held = sessions.held(player.getUniqueId());
         return held.isEmpty() ? "" : held.get(held.size() - 1).bundle();
+    }
+
+    /** A rank tag's character to print, or empty for none. */
+    private String tagCharacter(Optional<ContentId> tag) {
+        return icons == null ? "" : tag.flatMap(icons::character).orElse("");
     }
 
     private static String yesNo(boolean value) {
