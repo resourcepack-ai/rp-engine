@@ -83,9 +83,24 @@ public final class BedrockContent {
 
     /**
      * One placeable model: the id its hitbox carries, and where the block
-     * model it is drawn with sits in the Java pack.
+     * model it is drawn with sits in the Java pack. Also a model a mob wears
+     * (a custom entity's {@code model:}, or one a bind can name), under its
+     * item id, which is what a worn part carries.
      */
-    public record Model(ContentId id, String modelZipPath, float scale) {
+    public record Model(ContentId id, String modelZipPath, float scale, Float wornTurn) {
+        /** A placeable model. */
+        public Model(ContentId id, String modelZipPath, float scale) {
+            this(id, modelZipPath, scale, null);
+        }
+
+        /**
+         * A model a mob wears, turned {@code turn} degrees from the mob's
+         * heading as the mob's {@code turn:} says. Its {@code scale} is unused:
+         * a mob's size is the mob's.
+         */
+        public static Model worn(ContentId id, String modelZipPath, float turn) {
+            return new Model(id, modelZipPath, 1f, turn);
+        }
     }
 
     /**
@@ -108,6 +123,22 @@ public final class BedrockContent {
     /** The entity a model in slot {@code slot} is spawned as. */
     public static String modelIdentifier(int slot) {
         return "rpengine:model_" + slot;
+    }
+
+    /**
+     * The entity a mob WEARING the model in slot {@code slot} is drawn as: the
+     * same geometry, texture and animations as {@link #modelIdentifier}, minus
+     * the loops a placed model starts on its own. A mob's loops are the
+     * engine's to choose (idle or walk, never both at once), so the bridge
+     * plays each one as the Java rig does.
+     */
+    public static String mobIdentifier(int slot) {
+        return "rpengine:mob_" + slot;
+    }
+
+    /** The empty animation a worn model is put back to rest with. */
+    public static String restAnimation(String key) {
+        return "animation.rpe." + key + ".rest";
     }
 
     /** The Bedrock-safe name a model's geometry, texture and animations are filed under. */
@@ -306,8 +337,15 @@ public final class BedrockContent {
             // that reshuffles them is still drawn right for everybody.
             List<Model> models = new ArrayList<>(inputs.models());
             models.sort(java.util.Comparator.comparing(m -> m.id().toString()));
+            // The turn a worn copy is drawn with: the first mob's that wears it.
+            Map<String, Float> wornTurns = new TreeMap<>();
+            for (Model model : models) {
+                if (model.wornTurn() != null) wornTurns.putIfAbsent(model.id().toString(), model.wornTurn());
+            }
             for (Model model : models) {
                 if (modelSlots.size() >= MODEL_POOL) break;
+                // A model both placeable and worn by a mob is listed twice; one slot serves both.
+                if (modelSlots.containsKey(model.id().toString())) continue;
                 byte[] source = read(zip, model.modelZipPath());
                 if (source == null) continue;
                 JsonObject json;
@@ -329,6 +367,17 @@ public final class BedrockContent {
                 if (converted.get().animations() != null) {
                     files.put("animations/rpe_" + key + ".animation.json", json(converted.get().animations()));
                 }
+                float turn = wornTurns.getOrDefault(model.id().toString(), 0f);
+                JsonObject mob = mobEntity(converted.get().entity(), mobIdentifier(slot), key);
+                if (turn % 360f != 0f) {
+                    String turned = "geometry.rpe." + key + ".worn";
+                    files.put("models/entity/rpe_" + key + ".worn.geo.json",
+                            json(turnedGeometry(converted.get().geometry(), turned, turn)));
+                    mob.getAsJsonObject("minecraft:client_entity").getAsJsonObject("description")
+                            .getAsJsonObject("geometry").addProperty("default", turned);
+                }
+                files.put("entity/rpe_" + key + ".mob.entity.json", json(mob));
+                files.put("animations/rpe_" + key + ".rest.animation.json", json(restAnimationFile(key)));
                 modelSlots.put(model.id().toString(), slot);
                 modelScales.put(model.id().toString(), model.scale());
             }
@@ -362,6 +411,73 @@ public final class BedrockContent {
     }
 
     // --- Pieces ---------------------------------------------------------------
+
+    /**
+     * A placed model's client entity, re-identified for a mob to wear: no
+     * {@code scripts.animate}, since a placed model loops every loop it has at
+     * once and a mob plays one at a time, and the rest animation added to its
+     * list. Everything else (geometry, texture, material) is the placed one's.
+     */
+    static JsonObject mobEntity(JsonObject placed, String identifier, String key) {
+        JsonObject entity = placed.deepCopy();
+        JsonObject desc = entity.getAsJsonObject("minecraft:client_entity").getAsJsonObject("description");
+        desc.addProperty("identifier", identifier);
+        desc.remove("scripts");
+        JsonObject animations = desc.has("animations") ? desc.getAsJsonObject("animations") : new JsonObject();
+        animations.addProperty("rpe_rest", restAnimation(key));
+        desc.add("animations", animations);
+        return entity;
+    }
+
+    /**
+     * A model's geometry under another id, every top-level bone hung from one
+     * more that turns it {@code turn} degrees about the feet: a mob's
+     * {@code turn:}, which Java adds to the heading and Geyser, which sends the
+     * mob's own heading, cannot.
+     */
+    static JsonObject turnedGeometry(JsonObject geometry, String identifier, float turn) {
+        JsonObject copy = geometry.deepCopy();
+        JsonObject geo = copy.getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
+        geo.getAsJsonObject("description").addProperty("identifier", identifier);
+        JsonArray bones = geo.getAsJsonArray("bones");
+        String root = "rpe_turn";
+        for (JsonElement bone : bones) {
+            JsonObject b = bone.getAsJsonObject();
+            if (!b.has("parent")) b.addProperty("parent", root);
+        }
+        JsonObject wrapper = new JsonObject();
+        wrapper.addProperty("name", root);
+        JsonArray zero = new JsonArray();
+        zero.add(0);
+        zero.add(0);
+        zero.add(0);
+        wrapper.add("pivot", zero);
+        JsonArray rotation = new JsonArray();
+        rotation.add(0);
+        // Negative, as the converter turns every Java y angle. Checked in
+        // game: at turn: 90 the model's North side faces West when the mob
+        // faces North, so a model built facing East walks forwards.
+        rotation.add(-turn);
+        rotation.add(0);
+        wrapper.add("rotation", rotation);
+        JsonArray out = new JsonArray();
+        out.add(wrapper);
+        out.addAll(bones);
+        geo.add("bones", out);
+        return copy;
+    }
+
+    private static JsonObject restAnimationFile(String key) {
+        JsonObject rest = new JsonObject();
+        rest.addProperty("animation_length", 0.05);
+        rest.add("bones", new JsonObject());
+        JsonObject animations = new JsonObject();
+        animations.add(restAnimation(key), rest);
+        JsonObject file = new JsonObject();
+        file.addProperty("format_version", "1.8.0");
+        file.add("animations", animations);
+        return file;
+    }
 
     private record Glyph(int codepoint, BufferedImage image) {
     }

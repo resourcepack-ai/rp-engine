@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.BuildReport;
 import ai.resourcepack.engine.api.BuiltPack;
 import ai.resourcepack.engine.api.BlockInfo;
 import ai.resourcepack.engine.api.ItemInfo;
+import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentRegistry;
@@ -951,6 +952,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         studio.onPacks(pushedPacks);
         studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
+        boundModels.bedrock(bedrock);
         models.bound(boundModels);
         creatures.bound(boundModels);
         // Where a mob's name goes: its model's top, off the content folder's
@@ -2808,6 +2810,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             bedrockModels.add(new ai.resourcepack.engine.core.bedrock.BedrockContent.Model(entry.getKey(),
                     "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json",
                     entry.getValue().scale()));
+        }
+        // Models mobs wear, under the item id a worn part carries, so a
+        // Bedrock player sees the mob as its model (GeyserBridge's mob half).
+        // After the placeable ones, so a model that is both keeps its place: scale.
+        // A Studio mob's model is in Studio's pack, not this one.
+        for (EntityInfo mob : authoredEntities.values()) {
+            ContentId worn = mob.model().orElse(null);
+            ItemInfo item = worn == null ? null : items.info(worn).orElse(null);
+            if (item == null) {
+                continue;
+            }
+            ContentId shape = item.modelId();
+            bedrockModels.add(ai.resourcepack.engine.core.bedrock.BedrockContent.Model.worn(worn,
+                    "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json", mob.turn()));
         }
         List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
         for (ContentId id : icons.ids()) {

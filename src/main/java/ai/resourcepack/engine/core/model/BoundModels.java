@@ -96,6 +96,15 @@ public final class BoundModels {
      */
     private volatile java.util.function.BiPredicate<Entity, ContentId> remember = (host, id) -> false;
 
+    /** Who draws a worn model for Bedrock players, who cannot see the parts. */
+    private volatile ai.resourcepack.engine.core.distribution.BedrockSupport bedrock =
+            ai.resourcepack.engine.core.distribution.BedrockSupport.NONE;
+
+    /** Wires the Bedrock half. Called once at startup; nothing on a server without Geyser. */
+    public void bedrock(ai.resourcepack.engine.core.distribution.BedrockSupport bedrock) {
+        this.bedrock = bedrock == null ? ai.resourcepack.engine.core.distribution.BedrockSupport.NONE : bedrock;
+    }
+
     /** Wires the place a bind is remembered. Called once at startup. */
     public void remembersWith(java.util.function.BiPredicate<Entity, ContentId> remember) {
         this.remember = remember == null ? (host, id) -> false : remember;
@@ -230,6 +239,7 @@ public final class BoundModels {
         }
 
         conceal(host, true);
+        bedrock.worn(host, rigId, size, turn);
         return true;
     }
 
@@ -319,6 +329,7 @@ public final class BoundModels {
         }
         if (had) {
             conceal(host, false);
+            bedrock.unworn(host);
         }
         // Cleared whether or not anything was on: an NPC asked to take its
         // model off must not put it back on when it next respawns.
@@ -343,9 +354,22 @@ public final class BoundModels {
     /** Plays a named animation on what {@code host} is wearing. */
     public boolean play(Entity host, String animation, boolean restart) {
         List<ItemDisplay> parts = partsOf(host);
-        return !parts.isEmpty() && animator.playOn(parts,
-                parts.get(0).getPersistentDataContainer().get(modelKey, PersistentDataType.STRING),
-                animation, restart);
+        if (parts.isEmpty()) {
+            return false;
+        }
+        String rigId = parts.get(0).getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        boolean started = animator.playOn(parts, rigId, animation, restart);
+        if (started) {
+            RigStore.Rig rig = rigs.get(rigId);
+            RigStore.Animation found = RigAnimations.animationAt(rig,
+                    RigAnimations.findAnimationIndexByName(rig, animation));
+            // An overlay plays over the base on Java; Bedrock has one stage, so it is left out.
+            if (found != null && found.layer <= 0) {
+                bedrock.wornAnimation(host, found.name,
+                        !RigAnimations.loops(found) && !RigAnimations.holds(found));
+            }
+        }
+        return started;
     }
 
     /** Stops it, back to rest or to its idle loop. */
@@ -355,6 +379,7 @@ public final class BoundModels {
             return false;
         }
         animator.stopOn(parts);
+        bedrock.wornAnimation(host, null, false);
         return true;
     }
 
