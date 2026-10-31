@@ -59,7 +59,8 @@ public final class SkillDefinitions {
     private static Map<String, String> triggers() {
         Map<String, String> map = new HashMap<>();
         for (String name : List.of("spawn", "load", "spawnorload", "death", "attack", "damaged", "timer",
-                "interact", "combat", "entercombat", "dropcombat", "changetarget", "playerkill", "kill")) {
+                "interact", "combat", "entercombat", "dropcombat", "changetarget", "playerkill", "kill",
+                "shoot", "projectilehit", "signal")) {
             map.put(name, name);
         }
         map.put("hurt", "damaged");
@@ -71,6 +72,11 @@ public final class SkillDefinitions {
         map.put("use", "interact");
         map.put("killed", "death");
         map.put("tick", "timer");
+        map.put("bowshoot", "shoot");
+        map.put("shootbow", "shoot");
+        map.put("projectileland", "projectilehit");
+        map.put("hit", "projectilehit");
+        map.put("projectile", "projectilehit");
         return Map.copyOf(map);
     }
 
@@ -112,14 +118,17 @@ public final class SkillDefinitions {
         for (ContentDefinition definition : loaded.definitions(ContentKind.ENTITY)) {
             DefinitionNode body = definition.body();
             Object raw = body.has("skills") ? body.raw("skills") : body.raw("Skills");
-            if (raw == null) {
+            boolean threat = threatTable(body);
+            Map<String, String> variables = variables(body, definition.origin(), definition.id().path(), diagnostics);
+            if (raw == null && !threat && variables.isEmpty()) {
                 continue;
             }
             String where = definition.id().path() + ".skills";
-            List<SkillLine> lines = lines(raw, definition.origin(), where, names, true, diagnostics);
+            List<SkillLine> lines = raw == null ? List.of()
+                    : lines(raw, definition.origin(), where, names, true, diagnostics);
             String stance = body.string("stance").orElse(null);
-            if (!lines.isEmpty() || stance != null) {
-                mobs.put(definition.id(), new MobSkillSet(lines, stance));
+            if (!lines.isEmpty() || stance != null || threat || !variables.isEmpty()) {
+                mobs.put(definition.id(), new MobSkillSet(lines, stance, threat, variables));
             }
         }
         for (ContentDefinition definition : loaded.definitions(ContentKind.SKILL)) {
@@ -164,6 +173,43 @@ public final class SkillDefinitions {
                 .flatMap(id -> metaskill(id, body, origin, names, diagnostics))
                 .ifPresent(skill -> skills.put(skill.id, skill)));
         return new Result(mobs, skills, diagnostics);
+    }
+
+    /**
+     * {@code threat-table: true}, MythicMobs' {@code ThreatTable: true} or its
+     * {@code Modules: {ThreatTable: true}}.
+     */
+    static boolean threatTable(DefinitionNode body) {
+        for (String key : List.of("threat-table", "ThreatTable", "threat")) {
+            if (body.bool(key).orElse(false)) {
+                return true;
+            }
+        }
+        Object modules = body.has("modules") ? body.raw("modules") : body.raw("Modules");
+        if (modules instanceof Map) {
+            DefinitionNode node = DefinitionNode.of((Map<?, ?>) modules);
+            return node.bool("ThreatTable").orElse(node.bool("threat-table").orElse(false));
+        }
+        return false;
+    }
+
+    /** {@code variables: {phase: 1, mood: calm}}: a mob's variables as it spawns. */
+    static Map<String, String> variables(DefinitionNode body, String origin, String where, List<Diagnostic> diagnostics) {
+        Object raw = body.has("variables") ? body.raw("variables") : body.raw("Variables");
+        if (raw == null) {
+            return Map.of();
+        }
+        if (!(raw instanceof Map)) {
+            diagnostics.add(Diagnostic.warning(origin, where, "variables: is not a map. Try variables: {phase: 1}."));
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        ((Map<?, ?>) raw).forEach((key, value) -> {
+            if (key != null && value != null && !(value instanceof Map) && !(value instanceof List)) {
+                out.put(SkillState.varName(key.toString()), value.toString());
+            }
+        });
+        return out;
     }
 
     /** One metaskill from its MythicMobs-shaped body; keys are case-insensitive. */
@@ -353,9 +399,20 @@ public final class SkillDefinitions {
         final List<SkillLine> lines;
         final String stance;
 
+        /** {@code threat-table: true}: it fights whoever has hurt it most. */
+        final boolean threatTable;
+        /** Its variables as it spawns. */
+        final Map<String, String> variables;
+
         MobSkillSet(List<SkillLine> lines, String stance) {
+            this(lines, stance, false, Map.of());
+        }
+
+        MobSkillSet(List<SkillLine> lines, String stance, boolean threatTable, Map<String, String> variables) {
             this.lines = List.copyOf(lines);
             this.stance = stance;
+            this.threatTable = threatTable;
+            this.variables = Map.copyOf(variables);
         }
 
         /** The canonical trigger of a line: {@code combat} when none was written. */

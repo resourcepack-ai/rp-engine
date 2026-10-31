@@ -466,6 +466,26 @@ public final class BoundModels {
     }
 
     /**
+     * The parts of {@code host}'s model that are bone {@code bone} or inside
+     * it (its lineage names it), case-insensitively. A still model has no
+     * bones, so nothing.
+     */
+    public List<ItemDisplay> boneParts(Entity host, String bone) {
+        List<ItemDisplay> out = new ArrayList<>();
+        if (bone == null || bone.isBlank()) {
+            return out;
+        }
+        for (ItemDisplay part : partsOf(host)) {
+            String modelId = part.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+            RigStore.Rig rig = modelId == null ? null : rigs.get(modelId);
+            if (inLineage(rig, part.getPersistentDataContainer().get(partKey, PersistentDataType.INTEGER), bone.trim())) {
+                out.add(part);
+            }
+        }
+        return out;
+    }
+
+    /**
      * Whether {@code part} is a piece of an animated rig, rather than the one
      * display a still model is drawn as. A rig's parts are drawn through
      * item definitions this engine and Studio write (and tint); a still model

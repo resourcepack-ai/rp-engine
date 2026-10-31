@@ -156,6 +156,8 @@ public final class CustomEntities implements Listener, Mobs {
     private volatile Map<ContentId, MobLoot.Table> tables = Map.of();
     /** A mob's level, when it has one above 1. */
     private final NamespacedKey levelKey;
+    /** A mob's {@code defaultstate} remaps, as {@code state=animation;...}, so they survive a restart. */
+    private final NamespacedKey statesKey;
 
     /** The mobs standing in loaded chunks, by uuid. Concurrent: regions add their own. */
     private final Map<UUID, Living> living = new ConcurrentHashMap<>();
@@ -205,6 +207,8 @@ public final class CustomEntities implements Listener, Mobs {
         long nextBarViewers;
         /** Its name over the model. */
         final MobNameTag tag;
+        /** {@code defaultstate}: animations a skill put in place of its own, by state. Null for none. */
+        java.util.EnumMap<MobState, String> remapped;
 
         Living(LivingEntity entity, ContentId id, MobNameTag tag) {
             this.entity = entity;
@@ -223,6 +227,7 @@ public final class CustomEntities implements Listener, Mobs {
         this.shotKey = new NamespacedKey(plugin, "entity-shot");
         this.nameTagKey = new NamespacedKey(plugin, "entity-name-tag");
         this.levelKey = new NamespacedKey(plugin, "entity-level");
+        this.statesKey = new NamespacedKey(plugin, "entity-states");
     }
 
     /** Replaces the content folder's mob options and drop tables, beside {@link #replace}. */
@@ -424,9 +429,8 @@ public final class CustomEntities implements Listener, Mobs {
             LivingEntity body = (LivingEntity) mob;
             unjockey(body);
             applyHeight(body, info);
-            double health = extra.scaled("health", info.health(), level);
-            if (health > 0) {
-                body.setHealth(Math.min(health, maxHealth(body)));
+            if (info.health() > 0 || extra.perLevel("health") != 0) {
+                body.setHealth(maxHealth(body));
             }
             arm(body, info);
             equip(body, info, extra);
@@ -482,11 +486,14 @@ public final class CustomEntities implements Listener, Mobs {
         // Through keys rather than constants: the fields are GENERIC_* before
         // 1.21.3 on a type that is an enum there and an interface now, so a
         // constant would not compile against both. See Vanilla.
-        double health = extra.scaled("health", info.health(), level);
+        // A level adds to the mob's own value when the file sets none.
+        double health = extra.scaled("health", info.health() > 0 ? info.health()
+                : extra.perLevel("health") != 0 ? baseOf(body, Vanilla.maxHealth()) : 0, level);
         if (health > 0) {
             setBase(body, Vanilla.maxHealth(), Math.min(1024, health));
         }
-        double damage = extra.scaled("damage", info.damage(), level);
+        double damage = extra.scaled("damage", info.damage() > 0 ? info.damage()
+                : extra.perLevel("damage") != 0 ? baseOf(body, Vanilla.attribute("attack_damage")) : 0, level);
         if (damage > 0) {
             setBase(body, Vanilla.attribute("attack_damage"), damage);
         }
@@ -672,6 +679,12 @@ public final class CustomEntities implements Listener, Mobs {
         setBase(body, Vanilla.attribute("scale"), scale);
     }
 
+    private static double baseOf(LivingEntity body, Optional<Attribute> attribute) {
+        Attribute found = attribute.orElse(null);
+        AttributeInstance instance = found == null ? null : body.getAttribute(found);
+        return instance == null ? 0 : instance.getBaseValue();
+    }
+
     private static void setBase(LivingEntity body, Optional<Attribute> attribute, double value) {
         Attribute found = attribute.orElse(null);
         AttributeInstance instance = found == null ? null : body.getAttribute(found);
@@ -703,20 +716,8 @@ public final class CustomEntities implements Listener, Mobs {
             whole = carrierStack(rigId);
             partItem = this::carrierStack;
         } else if (info.model().isPresent()) {
-            ContentId model = info.model().get();
-            whole = items.create(model).orElse(null);
-            rigId = model.toString();
-            ItemStack base = whole;
-            partItem = part -> {
-                if (base == null) {
-                    return null;
-                }
-                ItemStack stack = base.clone();
-                stack.setAmount(1);
-                // See Items.wearModel: below 1.21.4 a model is a number, not a name.
-                ContentId.parse(part).ifPresent(id -> items.wearModel(stack, id));
-                return stack;
-            };
+            dressAs(body, info, info.model().get());
+            return;
         } else {
             return;
         }
@@ -729,6 +730,31 @@ public final class CustomEntities implements Listener, Mobs {
                 part.setGlowing(true);
             }
         }
+    }
+
+    /** Dresses {@code body} in the model of item {@code model}, as a content-folder mob is. */
+    private boolean dressAs(LivingEntity body, EntityInfo info, ContentId model) {
+        ItemStack whole = items.create(model).orElse(null);
+        if (whole == null) {
+            return false;
+        }
+        String rigId = model.toString();
+        ItemStack base = whole;
+        java.util.function.Function<String, ItemStack> partItem = part -> {
+            ItemStack stack = base.clone();
+            stack.setAmount(1);
+            // See Items.wearModel: below 1.21.4 a model is a number, not a name.
+            ContentId.parse(part).ifPresent(id -> items.wearModel(stack, id));
+            return stack;
+        };
+        boolean dressed = bound.dress(body, rigId, whole, partItem, info.scale(), info.turn(),
+                info.headBone().orElse(null));
+        if (dressed && info.glowing()) {
+            for (ItemDisplay part : bound.parts(body)) {
+                part.setGlowing(true);
+            }
+        }
+        return dressed;
     }
 
     /** Paper wearing a Studio string: how a pushed pack's models are drawn. */
@@ -784,7 +810,7 @@ public final class CustomEntities implements Listener, Mobs {
         EntityInfo info = entities.get(mob.id);
         long now = body.getWorld().getGameTime();
         if (info != null) {
-            MobState desired = MobState.loop(running, moving, info.animations()).orElse(null);
+            MobState desired = MobState.loop(running, moving, animations(mob, info)).orElse(null);
             if (now >= mob.heldUntil && (mob.brain.tick(now, desired) || mob.heldUntil != 0)) {
                 mob.heldUntil = 0;
                 show(mob, info, mob.brain.showing(), false);
@@ -1106,7 +1132,7 @@ public final class CustomEntities implements Listener, Mobs {
 
     /** Plays what the brain says, and tells anybody listening when it changed. */
     private void show(Living mob, EntityInfo info, MobState state, boolean restart) {
-        String animation = state == null ? null : info.animations().get(state);
+        String animation = state == null ? null : animations(mob, info).get(state);
         if (animation == null) {
             bound.stop(mob.entity);
         } else {
@@ -1131,7 +1157,7 @@ public final class CustomEntities implements Listener, Mobs {
         if (info == null) {
             return false;
         }
-        String animation = info.animations().get(state);
+        String animation = animations(mob, info).get(state);
         if (animation == null) {
             return false;
         }
@@ -1216,7 +1242,9 @@ public final class CustomEntities implements Listener, Mobs {
             // Dressed again, so it animates like one spawned today.
             dress(body, info);
         }
-        living.put(entity.getUniqueId(), living(body, id.get()));
+        Living adopted = living(body, id.get());
+        readRemaps(adopted);
+        living.put(entity.getUniqueId(), adopted);
     }
 
     /** Removes the single display an older jar put on a mob, and says whether there was one. */
@@ -1502,7 +1530,7 @@ public final class CustomEntities implements Listener, Mobs {
             bound.discard(parts);
             return;
         }
-        double seconds = bound.animationSeconds(body, info.animations().get(MobState.DEATH));
+        double seconds = bound.animationSeconds(body, animations(mob, info).get(MobState.DEATH));
         long ticks = Math.max(1, Math.min(DEATH_CAP, Math.round(seconds * 20)));
         UUID key = body.getUniqueId();
         dying.put(key, parts);
@@ -1905,11 +1933,107 @@ public final class CustomEntities implements Listener, Mobs {
         // A loop asked for by name: shown until the mob's movement says
         // otherwise, which is the next change of loop.
         EntityInfo info = entities.get(mob.id);
-        if (info == null || !info.animations().containsKey(state)) {
+        if (info == null || !animations(mob, info).containsKey(state)) {
             return false;
         }
         show(mob, info, state, true);
         return true;
+    }
+
+    /** Its animations by state: the definition's, with any {@code defaultstate} remap over them. */
+    private static Map<MobState, String> animations(Living mob, EntityInfo info) {
+        if (mob == null || mob.remapped == null || mob.remapped.isEmpty()) {
+            return info.animations();
+        }
+        Map<MobState, String> out = new java.util.EnumMap<>(MobState.class);
+        out.putAll(info.animations());
+        out.putAll(mob.remapped);
+        return out;
+    }
+
+    /**
+     * {@code defaultstate{state=walk;animation=limp}}: the mob plays
+     * {@code animation} for {@code state} from now on (null puts its own
+     * back). Kept on the mob, so a restart keeps it.
+     */
+    public boolean defaultState(Entity entity, MobState state, String animation) {
+        Living mob = entity == null ? null : living.get(entity.getUniqueId());
+        if (mob == null || state == null) {
+            return false;
+        }
+        if (mob.remapped == null) {
+            mob.remapped = new java.util.EnumMap<>(MobState.class);
+        }
+        if (animation == null) {
+            mob.remapped.remove(state);
+        } else {
+            mob.remapped.put(state, animation.trim());
+        }
+        StringBuilder written = new StringBuilder();
+        mob.remapped.forEach((key, value) -> written.append(written.length() == 0 ? "" : ";")
+                .append(key.key()).append('=').append(value));
+        if (written.length() == 0) {
+            entity.getPersistentDataContainer().remove(statesKey);
+        } else {
+            entity.getPersistentDataContainer().set(statesKey, PersistentDataType.STRING, written.toString());
+        }
+        EntityInfo info = entities.get(mob.id);
+        if (info != null && mob.shown == state && !state.oneShot()) {
+            show(mob, info, state, true);
+        }
+        return true;
+    }
+
+    /** Reads back what {@link #defaultState} kept on a mob. */
+    private void readRemaps(Living mob) {
+        String written = mob.entity.getPersistentDataContainer().get(statesKey, PersistentDataType.STRING);
+        if (written == null || written.isEmpty()) {
+            return;
+        }
+        mob.remapped = new java.util.EnumMap<>(MobState.class);
+        for (String pair : written.split(";")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0) {
+                MobState.parse(pair.substring(0, eq)).ifPresent(state -> mob.remapped.put(state, pair.substring(eq + 1)));
+            }
+        }
+    }
+
+    /**
+     * {@code bonevisible{bone=sword;visible=false}}: hides or shows a bone of
+     * the model the mob wears, and everything inside it. A hidden part is
+     * drawn at view range 0, which the client never draws and the entity
+     * keeps across a restart. False when the model has no such bone.
+     */
+    public boolean boneVisible(Entity entity, String bone, boolean visible) {
+        if (bound == null) {
+            return false;
+        }
+        List<ItemDisplay> parts = bound.boneParts(entity, bone);
+        for (ItemDisplay part : parts) {
+            part.setViewRange(visible ? 1f : 0f);
+        }
+        return !parts.isEmpty();
+    }
+
+    /**
+     * {@code swapmodel{model=bosses:golem_phase2}}: the mob wears another
+     * model (an item id, as {@code model:} is), at its own scale, turn and
+     * head bone. Its hitbox, health and everything else stay; the new model
+     * keeps playing the states' animations by name.
+     */
+    public boolean swapModel(Entity entity, ContentId model) {
+        Living mob = entity == null ? null : living.get(entity.getUniqueId());
+        EntityInfo info = mob == null ? null : entities.get(mob.id);
+        if (info == null || model == null || items.create(model).isEmpty()) {
+            return false;
+        }
+        boolean dressed = dressAs(mob.entity, info, model);
+        if (dressed) {
+            mob.showing = false;
+            show(mob, info, mob.brain.showing(), true);
+        }
+        return dressed;
     }
 
     @Override

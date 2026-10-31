@@ -43,6 +43,10 @@ final class SkillState {
     boolean warnedBudget;
     /** Mob-scoped variables, by lowercase name: {@code setvariable}, {@code variableadd}. */
     final Map<String, String> vars = new HashMap<>();
+    /** Who it fights, when it has {@code threat-table: true}; null otherwise. */
+    ThreatTable threat;
+    /** Boss bars its skills made, by name ({@code barcreate}). Removed with the mob. */
+    final Map<String, org.bukkit.boss.BossBar> bars = new HashMap<>();
 
     /** A variable's name as stored: lowercase, and without MythicMobs' {@code caster.} scope. */
     static String varName(String written) {
