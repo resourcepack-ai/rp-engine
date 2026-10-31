@@ -544,7 +544,10 @@ public final class ContentFolderLoader {
         }
         Set<ContentId> seen = new HashSet<>();
         for (ContentId model : wanted) {
-            if (items.contains(model) || seen.contains(model)) {
+            // Added here rather than left to define(), which only records
+            // unregistered kinds: two mobs wearing one model asked for its
+            // item twice, and the second was reported as a clash.
+            if (items.contains(model) || !seen.add(model)) {
                 continue;
             }
             Path models = folder.resolve("assets").resolve("models");

@@ -99,7 +99,7 @@ final class RigSpawn {
                 where.setYaw(yaw);
             }
 
-            ItemDisplay display = world.spawn(where, ItemDisplay.class, d -> {
+            ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(world, where, ItemDisplay.class, d -> {
                 d.setItemStack(stack);
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
                 d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);

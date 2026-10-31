@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|egg|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -68,6 +68,7 @@ permissions:
       rpengine.emotes: true
       rpengine.entities: true
       rpengine.spawn: true
+      rpengine.egg: true
       rpengine.bind: true
       rpengine.unbind: true
       rpengine.liquid: true
@@ -101,6 +102,7 @@ permissions:
       rpengine.var.others: true
       rpengine.armor.others: true
       rpengine.bind.others: true
+      rpengine.egg.others: true
       rpengine.unbind.others: true
       rpengine.cast.others: true
       rpengine.cast.at: true
@@ -282,6 +284,12 @@ permissions:
     default: op
   rpengine.spawn:
     description: Spawn a custom entity.
+    default: op
+  rpengine.egg:
+    description: Give yourself a spawn egg for a custom entity.
+    default: op
+  rpengine.egg.others:
+    description: Give a custom entity's spawn egg to somebody else.
     default: op
   rpengine.chat.icons:
     # Quoted, and it has to stay quoted: a plain YAML scalar ends at the first

@@ -415,6 +415,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, SoundInfo> authoredSounds = Map.of();
     /** The content folder's own vehicles, kept so a push can be merged over them. */
     private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
+    /** The content folder's mobs, kept apart so a push can lay its own over them. */
+    private Map<ContentId, ai.resourcepack.engine.api.EntityInfo> authoredEntities = Map.of();
     private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
@@ -711,7 +713,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return stack;
         });
         seats = new Seats(this, compatibility);
-        creatures = new CustomEntities(this, items);
+        creatures = new CustomEntities(this, items,
+                ai.resourcepack.engine.core.model.RigTags.forServer(compatibility, this), sounds);
         // emotes() is a fresh facade each call and holds no state of its own —
         // it is a view of the director, which is what actually owns a session.
         // So handing one to VehicleRuntime is handing it the same director everything
@@ -937,6 +940,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         studio.onBedrock(bedrock);
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
+        creatures.bound(boundModels);
         invites = new EmoteInvites(this, emotes());
         // Optional, and the only place PlaceholderAPI is named. A server
         // without it loads this plugin exactly as before.
@@ -968,7 +972,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(rigPlacement, this);
         getServer().getPluginManager().registerEvents(
                 new BoneListener(animator.bones(), seats, models::at), this);
+        // Its EntitiesLoadEvent handler is what tracks a rig whose chunk loads
+        // after startup and reaps orphaned parts as they load. It was
+        // registered by user-plugin and the registration did not survive the
+        // move to a standalone jar, so until 0.2.51 a rig out of a chunk loaded
+        // later stood still and orphans were only ever reaped at startup.
+        getServer().getPluginManager().registerEvents(animator, this);
         animator.start();
+        creatures.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
@@ -1257,6 +1268,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new LinkedHashMap<>(authoredVehicles);
         allVehicles.putAll(all.vehicles());
         vehicles.replace(allVehicles);
+        creatures.replace(withPushedMobs());
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
         // Without this, re-syncing leaves a chassis in the world that the
@@ -1797,6 +1809,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 + (delivery.apply(player, desiredFor(player)) ? "Sent." : "Nothing to send."));
     }
 
+    /**
+     * Every custom mob: the content folder's and every push still held, the
+     * push winning an id they share, exactly as vehicles are merged.
+     */
+    private Map<ContentId, ai.resourcepack.engine.api.EntityInfo> withPushedMobs() {
+        Map<ContentId, ai.resourcepack.engine.api.EntityInfo> all = new LinkedHashMap<>(authoredEntities);
+        if (pushedAll != null) {
+            all.putAll(pushedAll.mobs());
+        }
+        return all;
+    }
+
+    /** The custom mobs this server holds: spawn one, animate one, make an egg. */
+    public ai.resourcepack.engine.api.Mobs mobs() {
+        return creatures;
+    }
+
     /** The studio models this server holds, and the rigs standing in its worlds. */
     public Models models() {
         return models;
@@ -1944,6 +1973,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // Unsubscribes from Geyser's event bus. Without it a reload leaves
             // a dead listener wired to a live bus.
             ((GeyserBridge) bedrock).shutdown();
+        }
+        if (creatures != null) {
+            creatures.stop();
         }
         if (animator != null) {
             animator.stop();
@@ -2306,7 +2338,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded, withBlocks.keySet());
         report(to, "entities", parsedEntities.diagnostics());
-        creatures.replace(parsedEntities.entities());
+        authoredEntities = parsedEntities.entities();
+        creatures.replace(withPushedMobs());
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
         report(to, "vehicles", parsedVehicles.diagnostics());

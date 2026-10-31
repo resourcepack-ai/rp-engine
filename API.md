@@ -14,6 +14,7 @@ engine.items();     // custom items
 engine.models();    // studio models, and the rigs standing in your worlds
 engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
+engine.mobs();      // custom mobs: spawn one, animate one, give an egg
 engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
@@ -1063,6 +1064,40 @@ it ends. At most `vfx.max-sprites` sprites (config.yml, 4,000 by default) are al
 once across every effect; past it the oldest effects end, never the newest.
 Main thread only.
 
+## Custom mobs
+
+The mobs a content folder's `entities/` declares and the ones a Studio push
+carries (`studio:<id>`) are one catalogue.
+
+```java
+Mobs mobs = engine.mobs();
+ContentId rhino = ContentId.parse("zoo:rhino").orElseThrow();
+
+mobs.info(rhino).ifPresent(info -> info.animations());   // state -> animation name
+Entity spawned = mobs.spawn(location, rhino).orElseThrow();
+mobs.idOf(entity);                       // which custom mob this is, if any
+mobs.state(entity);                      // what it is showing: MobState.WALK, ...
+mobs.play(entity, MobState.ATTACK);      // as if it had happened: a one-shot, then back
+mobs.play(entity, "roar", 0);            // any animation of its model, for its own length
+ItemStack egg = mobs.egg(rhino, 1).orElseThrow();   // hatches that mob where used
+```
+
+**The states are `MobState`, and their order is their precedence**: `DEATH`,
+`SPAWN`, `ATTACK`, `HURT` play once and only a higher one cuts them short;
+`RUN`, `WALK` and `IDLE` loop and fall through to the next when the mob has no
+animation for them. `play(entity, state)` is refused (false) when a higher
+one-shot is playing or the mob has nothing mapped. `play(entity, name, seconds)`
+holds the stage for that long (0 for the animation's own length), then the mob
+goes back to what it is doing.
+
+Listen for `MobStateChangeEvent` to follow it: it fires when what is PLAYING
+changes, so a state the mob has no animation for never appears.
+`EntityDeathEvent` (ours) still hands you the drops list, after the mob's own
+`drops:` have replaced the vanilla loot.
+
+Everything here touches an entity, so it is main thread only, or on Folia the
+thread owning the mob or the place.
+
 ## Events
 
 All cancellable unless the row says otherwise.
@@ -1085,6 +1120,7 @@ All cancellable unless the row says otherwise.
 | `VehicleMoveEvent` | A vehicle is about to move — once per tick, only while it is going somewhere. Cancelling stops it dead, like a wall. The event for a region it may not enter; **not** the event for fuel, which is `Vehicle.setEnabled` |
 | `VehicleStateEvent` | What a vehicle is doing changed — set off, stopped, took off, went under. The same set that drives its animation, on the change rather than every tick. Not cancellable |
 | `ModelBindEvent` | A model is going on an entity, or coming off one — a boss, an NPC, anything that is not ours |
+| `MobStateChangeEvent` | A custom mob's animation state changed: `previous()` and `state()`, null for its rest pose. Not cancellable |
 | `EntityDeathEvent` | A custom entity died. Says what it was, `killer()`, and `drops()`, Bukkit's own live list, so changing it changes the loot. Not cancellable |
 | `PlayerLiquidEvent` | Somebody went into one of your liquids, or came out. Fires on the crossing, not every second. Not cancellable |
 | `EmoteStartEvent` | An emote is about to start |
