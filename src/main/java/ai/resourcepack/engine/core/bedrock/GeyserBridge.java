@@ -124,6 +124,17 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     /** Concurrent, inside and out: on Folia each viewer is refreshed on their region's thread and a rig placed on its own. */
     private final Map<UUID, Map<UUID, Long>> spawned = new ConcurrentHashMap<>();
 
+    // xuid -> a digest of the staged pack that player's session was handed as
+    // it joined. A pack they already hold is not worth a reconnect, and that
+    // is not an optimisation: distribution applies the published pack on every
+    // join, so reconnecting regardless sent a Bedrock player round in a loop,
+    // each rejoin asking for the reconnect that caused it.
+    // Digests are of the bytes as DOWNLOADED, kept per xuid as each is staged:
+    // the staged file itself is rewritten after (aliasVanillaSounds), so it is
+    // never the thing compared.
+    private final Map<String, String> servedDigest = new ConcurrentHashMap<>();
+    private final Map<String, String> stagedDigest = new ConcurrentHashMap<>();
+
     public GeyserBridge(JavaPlugin plugin, java.util.function.Consumer<UUID> expectReconnect) {
         this.plugin = plugin;
         this.expectReconnect = expectReconnect == null ? id -> { } : expectReconnect;
@@ -236,9 +247,16 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         if (!file.isFile()) return;
         try {
             event.register(ResourcePack.create(PackCodec.path(file.toPath())));
+            String staged = stagedDigest.get(xuid);
+            if (staged != null) servedDigest.put(xuid, staged);
+            else servedDigest.remove(xuid);
         } catch (Exception e) {
             plugin.getLogger().warning("Couldn't serve Bedrock pack to " + event.connection().bedrockUsername() + ": " + e.getMessage());
         }
+    }
+
+    private static String digest(byte[] bytes) throws java.security.NoSuchAlgorithmException {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 
     // --- Vanilla sound names --------------------------------------------------
@@ -396,24 +414,36 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         UUID id = target.getUniqueId();
         Tasks.async(plugin, () -> {
             File written = null;
+            boolean alreadyHeld = false;
             try {
                 GeyserConnection connection = GeyserApi.api().connectionByUuid(id);
                 String xuid = connection != null ? connection.xuid() : xuidFromUuid(id);
                 if (xuid != null) {
                     byte[] bytes = fetch(bedrockUrl);
+                    String fetched = digest(bytes);
+                    alreadyHeld = fetched.equals(servedDigest.get(xuid));
+                    stagedDigest.put(xuid, fetched);
                     File file = packFile(xuid);
-                    Files.write(file.toPath(), bytes);
-                    aliasVanillaSounds(file);
+                    if (!alreadyHeld || !file.isFile()) {
+                        Files.write(file.toPath(), bytes);
+                        aliasVanillaSounds(file);
+                    }
                     written = file;
                 }
             } catch (Exception e) {
                 plugin.getLogger().warning("Couldn't download Bedrock pack: " + e.getMessage());
             }
             File packFile = written;
+            boolean held = alreadyHeld;
             // On the player's own thread: a kick is theirs. One who left meanwhile was not reached.
             Tasks.onLater(plugin, target, () -> {
                 if (packFile == null) {
                     done.accept(false);
+                    return;
+                }
+                if (held) {
+                    // This session joined with exactly these bytes: nothing to reload.
+                    done.accept(true);
                     return;
                 }
                 // New models render as entities only once their identifiers
