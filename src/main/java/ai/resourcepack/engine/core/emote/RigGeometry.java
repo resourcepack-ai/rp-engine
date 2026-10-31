@@ -361,6 +361,9 @@ final class RigGeometry {
         model.addProperty("render_type", "cutout");
         JsonObject textures = new JsonObject();
         textures.addProperty(SKIN_TEXTURE_REF, textureRef);
+        // Never drawn (a display entity breaks no block), but a model with no
+        // particle texture is a warning in the client log for every bone.
+        textures.addProperty("particle", textureRef);
         model.add("textures", textures);
         model.add("elements", elements);
         return model;
@@ -462,6 +465,7 @@ final class RigGeometry {
         model.addProperty("render_type", "cutout");
         JsonObject textures = new JsonObject();
         textures.addProperty(CAPE_TEXTURE_REF, textureRef);
+        textures.addProperty("particle", textureRef);
         model.add("textures", textures);
         model.add("elements", capeElements());
         return model;
