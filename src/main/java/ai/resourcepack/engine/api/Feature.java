@@ -240,6 +240,20 @@ public enum Feature {
                     + "its live words included, works as usual."),
 
     /**
+     * Emote rigs baked on this server, from the skins of the players who join.
+     *
+     * <p>A baked rig is addressed by item model name, which below 1.21.4 would
+     * cost an allocated number per bone per player, renumbered as players come
+     * and go. So below it nothing is baked, and a hand-authored emote has no
+     * body to play on: only rigs a Studio push carries work there.
+     */
+    BAKED_EMOTE_RIGS(
+            McVersion.of(1, 21, 4),
+            "Emotes from the content folder",
+            "No emote rigs are baked from players' skins, so a hand-authored emote plays on "
+                    + "nobody and /rp emote says so. Rigs pushed from Studio still work."),
+
+    /**
      * VFX: spell effects drawn in the world out of sprites on item displays.
      *
      * <p>A sprite picks its picture by a {@code custom_model_data} float through

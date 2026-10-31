@@ -552,6 +552,38 @@ public final class PackBuilder {
             }
             copyTree(resourcePack.resolve(directory), directory, namespace, bundle, zip, writtenBy, diagnostics);
             overlays.add(entry);
+            int[] range = overlayRange(entry);
+            if (packFormat < FIRST_OVERLAY_FORMAT && range != null
+                    && range[0] <= packFormat && packFormat <= range[1]) {
+                promote(resourcePack.resolve(directory).resolve(ASSETS), namespace, zip, writtenBy, diagnostics);
+            }
+        }
+    }
+
+    /**
+     * The first resource pack format whose clients read overlays at all
+     * (1.20.2). An older client ignores the {@code overlays} section entirely.
+     */
+    public static final int FIRST_OVERLAY_FORMAT = 18;
+
+    /**
+     * Copies an overlay meant for this server's own version into the base.
+     *
+     * <p>Below 1.20.2 a client never reads an overlay, so a file that a pack
+     * ships only in the overlay for its format (Studio's core shaders do: the
+     * HUD shader for 1.19.4 - 1.20.1 is {@code rpe_shader_v13}) would never
+     * reach anybody playing on the server's own version. The base is that
+     * version's, so the overlay's files belong in it, over whatever the base
+     * had at the same path, exactly as a client with overlays would see them.
+     * The overlay stays too, for newer clients the range also covers.
+     */
+    private void promote(Path overlayAssets, String namespace, DeterministicZip zip,
+                         Map<String, String> writtenBy, List<Diagnostic> diagnostics) {
+        if (!Files.isDirectory(overlayAssets)) {
+            return;
+        }
+        for (Path file : sortedFiles(overlayAssets, namespace, diagnostics)) {
+            readInto(file, ASSETS + "/" + relative(overlayAssets, file), namespace, zip, writtenBy, diagnostics);
         }
     }
 

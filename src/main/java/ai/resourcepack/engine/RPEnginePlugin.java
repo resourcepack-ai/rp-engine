@@ -764,7 +764,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         pools = new LiquidPools(getDataFolder());
         pools.load(getLogger());
         liquids = new Liquids(this, pools);
-        liquidBiomes = new LiquidBiomes(getLogger());
+        liquidBiomes = new LiquidBiomes(getLogger(),
+                compatibility.has(ai.resourcepack.engine.api.Feature.LIQUID_TINTING));
         placements = new ModelPlacementListener(this, items, seats, library, rigs, animator);
         // Models.place(Location, ContentId, ...) puts these down for a plugin.
         models.authored(placements);
@@ -1628,7 +1629,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private RigAssets bakeRigs() {
         RigAssets rigAssets = RigAssets.bake(skinCache,
-                getConfig().getBoolean("emotes.rigs", true) && !compatibility.itemEra().needsNumbers());
+                getConfig().getBoolean("emotes.rigs", true)
+                        && compatibility.has(ai.resourcepack.engine.api.Feature.BAKED_EMOTE_RIGS));
         emoteStore.setNativeRigs(rigAssets.players());
         currentRigs = rigAssets;
         // Somebody whose own rig pack was keeping them company until now

@@ -2366,7 +2366,9 @@ brings three things with it:
 - **A colour needs a restart.** The engine writes one biome per tinted liquid
   into a datapack in your world folder (`datapacks/rpengine_liquids`) on every
   load, and biomes are registered when the server starts. Until you restart,
-  the pool works and is the wrong colour.
+  the pool works and is the wrong colour. **Below Minecraft 1.21.6 there is no
+  colour at all**: the biome format is not the older game's, so nothing is
+  written and the pool keeps vanilla water's colour.
 - **It lands on a 4×4×4 grid.** Painting one block paints its neighbours, so a
   tinted pool has a rim of tinted water around it.
 - **It fades at the edges.** The client blends biome colours over several
