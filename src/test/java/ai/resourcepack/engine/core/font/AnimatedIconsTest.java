@@ -174,8 +174,8 @@ class AnimatedIconsTest {
         clock.set(100);
 
         // A message sent once is the first frame, so saved text stays as it was.
-        assertEquals("a " + new String(Character.toChars(0xE000)), icons.format("a :mypack:spin:"));
-        assertEquals("a " + new String(Character.toChars(0xE001)), icons.formatNow("a :mypack:spin:"));
+        assertEquals("a §f" + new String(Character.toChars(0xE000)), icons.format("a :mypack:spin:"));
+        assertEquals("a §f" + new String(Character.toChars(0xE001)), icons.formatNow("a :mypack:spin:"));
         assertEquals("a :mypack:nope:", icons.formatNow("a :mypack:nope:"));
     }
 

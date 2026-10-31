@@ -974,6 +974,14 @@ String line = engine.icons().format(config.getString("welcome"));
 Every `:namespace:id:` becomes its picture. An ID that names nothing is left
 exactly as written, so text never silently loses a chunk of itself.
 
+**An icon comes out in its own colours.** The game tints a glyph with the colour
+of the text it sits in, so an icon in item lore with no colour of its own is
+lore's purple, and one after `§7` is grey. `format` writes each icon in white
+and puts the text's colour back after it (`§r` when it had none), and does the
+same to icon characters already in the text. `character(id)` is the bare
+character: give it white yourself (`ChatColor.WHITE + c`, or a component of its
+own coloured white).
+
 **An animated icon is animated by you redrawing it.** Each frame is a character
 of its own, and the engine does not run a shader that flips between them, so
 `format` and `character` give the FIRST frame — right for anything you send

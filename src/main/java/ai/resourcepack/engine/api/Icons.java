@@ -34,6 +34,13 @@ public interface Icons {
      * stable one: the same id gives the same character however long the server
      * has been up. Something you redraw yourself wants
      * {@link #characterNow(ContentId)}.
+     *
+     * <p>The bare character, with no colour. The game multiplies a glyph by
+     * the colour of the text it sits in, so an icon in grey text is a grey
+     * picture, and one in an item's lore with no colour of its own is lore's
+     * default purple. Give it white yourself ({@code ChatColor.WHITE + c}, or a
+     * component of its own coloured white), or build the line with
+     * {@link #format(String)}, which does.
      */
     Optional<String> character(ContentId id);
 
@@ -65,6 +72,13 @@ public interface Icons {
      * rather than removed. Text that silently loses a chunk of itself is far
      * harder to diagnose than text that visibly still says
      * {@code :mypack:sword:}, and the second tells somebody what to search for.
+     *
+     * <p>Every icon comes out in its own colours: it is written in white
+     * ({@code §f}) and followed by the colour and formatting the text had
+     * before it, or {@code §r} if it had none. Without that the game tints the
+     * picture with the text around it, which in an item's lore is purple. An
+     * icon character already in the text (one from
+     * {@link #character(ContentId)}) is given the same treatment.
      *
      * <p>Animated icons come out as their first frame, as
      * {@link #character(ContentId)} does.
