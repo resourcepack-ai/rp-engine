@@ -1169,6 +1169,17 @@ with that item, and several entities may wear one model; entities are outside
 the id space, as recipes are. One naming neither an item nor a model spawns as
 the plain mob, and the load warns.
 
+**Its name floats over the model**, not over the hidden body: just above the
+model's top (its `tag_name` bone, if it has one), wherever the model is drawn,
+whatever the mob type and `scale:`. `name-visible: true` shows it always;
+`false` shows it only to a player whose crosshair is on the mob, within reach
+and not through a block, as vanilla does for a named mob. A name tag, `/data`
+or a plugin renaming the mob changes it within half a second, and the name goes
+the moment the mob dies. Unlike a vanilla name it is not drawn through walls,
+so it never vanishes behind a model; `&` colours and `<fx:...>` text effects
+work in it. A `tag_name` bone sets its height at rest; it does not follow the
+bone's animation.
+
 **`boss-bar:`** shows a boss bar with its name (its name tag's, else its id) and
 health to every player within `range` blocks (default 32, 1 to 256). `color` is
 one of PINK, BLUE, RED, GREEN, YELLOW, PURPLE (default) or WHITE; `style` is
@@ -1261,7 +1272,7 @@ have, or bought, works here without being re-authored.
 | `ob_wing` | The same, turning with the bone. |
 | `p_seat1` | Somewhere to sit. Right-click it. |
 | `mount` | Where the driver sits. One per model. |
-| `tag_name` | Where a name floats, rather than inside the model's knee. |
+| `tag_name` | Where a name floats, rather than inside the model's knee. On a custom mob, the height its name stands at. |
 
 Anything else is an ordinary bone, which is nearly all of them. A model needs
 none of this.

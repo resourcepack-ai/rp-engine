@@ -416,6 +416,25 @@ public final class BoundModels {
         }
     }
 
+    /**
+     * How high a rig's {@code tag_name} bone stands above the model's floor at
+     * rest, in model blocks (before any scale), or NaN when it has none. Its
+     * pivot, which is the point the bone is placed by.
+     */
+    public double nameBone(String rigId) {
+        RigStore.Rig rig = rigId == null ? null : rigs.get(rigId);
+        if (rig == null || rig.parts == null) {
+            return Double.NaN;
+        }
+        for (RigStore.Part part : rig.parts) {
+            if (HeadLook.behaviourOf(part) == ai.resourcepack.engine.api.BoneBehaviour.NAMETAG
+                    && part.pivot != null && part.pivot.length == 3) {
+                return part.pivot[1] / 16.0;
+            }
+        }
+        return Double.NaN;
+    }
+
     /** The displays {@code host} wears, if it wears one of our models. */
     public List<ItemDisplay> parts(Entity host) {
         return partsOf(host);

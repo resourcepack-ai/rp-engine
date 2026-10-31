@@ -163,6 +163,16 @@ public final class CustomEntities implements Listener, Mobs {
     private final NamespacedKey shotKey;
     /** The mobs that spawn on their own, refreshed with the catalogue. */
     private volatile List<EntityInfo> natural = List.of();
+    /** Marks a mob's name tag, with the session that made it. See {@link MobNameTag}. */
+    private final NamespacedKey nameTagKey;
+    /** This run's mark on the name tags it makes, so one an earlier run left is told apart. */
+    private final String session = UUID.randomUUID().toString();
+    /**
+     * How far above its floor a mob's model reaches, in blocks before
+     * {@code scale:}, or 0 when it could not be measured. Wired by the plugin,
+     * which has the content folder and the pushed pack to measure in.
+     */
+    private volatile java.util.function.ToDoubleFunction<EntityInfo> modelTops = info -> 0;
 
     /** One mob's bookkeeping. Touched only on the mob's thread. */
     private static final class Living {
@@ -185,10 +195,13 @@ public final class CustomEntities implements Listener, Mobs {
         /** Shows its health to the players near it, when it has one. */
         BossBar bar;
         long nextBarViewers;
+        /** Its name over the model. */
+        final MobNameTag tag;
 
-        Living(LivingEntity entity, ContentId id) {
+        Living(LivingEntity entity, ContentId id, MobNameTag tag) {
             this.entity = entity;
             this.id = id;
+            this.tag = tag;
         }
     }
 
@@ -200,6 +213,16 @@ public final class CustomEntities implements Listener, Mobs {
         this.idKey = new NamespacedKey(plugin, "entity");
         this.eggKey = new NamespacedKey(plugin, "entity-egg");
         this.shotKey = new NamespacedKey(plugin, "entity-shot");
+        this.nameTagKey = new NamespacedKey(plugin, "entity-name-tag");
+    }
+
+    /** Wires how a mob's model is measured, for where its name goes. See {@link #modelTops}. */
+    public void modelTops(java.util.function.ToDoubleFunction<EntityInfo> tops) {
+        this.modelTops = tops == null ? info -> 0 : tops;
+    }
+
+    private Living living(LivingEntity body, ContentId id) {
+        return new Living(body, id, new MobNameTag(plugin, nameTagKey, session));
     }
 
     /**
@@ -238,6 +261,9 @@ public final class CustomEntities implements Listener, Mobs {
         looking = new Regions.Fanout<>(plugin);
         task = Tasks.globalTimer(plugin, this::tick, PERIOD, PERIOD);
         Regions.loaded(plugin, LivingEntity.class, this::adopt);
+        // A plugin reload leaves the last run's name tags riding their mobs;
+        // they are never saved, so this is the only place they are found.
+        Regions.loaded(plugin, org.bukkit.entity.TextDisplay.class, this::reapNameTag);
     }
 
     /**
@@ -261,6 +287,9 @@ public final class CustomEntities implements Listener, Mobs {
         dying.clear();
         for (Living mob : living.values()) {
             hideBar(mob);
+            if (!Regions.folia()) {
+                mob.tag.remove();
+            }
         }
         living.clear();
     }
@@ -333,7 +362,7 @@ public final class CustomEntities implements Listener, Mobs {
             }
             arm(body, info);
             dress(body, info);
-            Living tracked = new Living(body, id);
+            Living tracked = living(body, id);
             living.put(mob.getUniqueId(), tracked);
             // Its first look picks the loop; a spawn animation goes first.
             oneShot(tracked, MobState.SPAWN);
@@ -539,6 +568,11 @@ public final class CustomEntities implements Listener, Mobs {
                 // second kind back.
                 living.remove(mob.entity.getUniqueId());
                 hideBar(mob);
+                // Dead, despawned or removed under it: a passenger is EJECTED
+                // when its mount goes, so this is the tick that would
+                // otherwise leave a name standing in the air. One unloaded with
+                // its chunk was never saved, and is gone already.
+                mob.tag.remove();
                 continue;
             }
             looking.on(mob, mob.entity, this::look);
@@ -578,6 +612,34 @@ public final class CustomEntities implements Listener, Mobs {
                 aimAndShoot(mob, info, info.ranged().get(), now);
             }
         }
+        List<ItemDisplay> parts = bound.parts(body);
+        double guess = parts.isEmpty() ? body.getHeight()
+                : parts.get(0).getLocation().getY() - at.getY();
+        mob.tag.look(body, !parts.isEmpty(), () -> nameHeight(body, info), guess, now);
+    }
+
+    /**
+     * Where the bottom of a mob's name goes, in blocks above its feet: at its
+     * model's {@code tag_name} bone when it has one, else a vanilla nameplate's
+     * gap above the top of its model, else above its hitbox.
+     *
+     * <p>The bone is placed at rest, not followed through its animation: that
+     * would mean posing the bone every look, which is the animator's work and
+     * not worth repeating for a name.
+     */
+    private double nameHeight(LivingEntity body, EntityInfo info) {
+        if (info != null) {
+            String rig = info.carrier().orElse(info.model().map(ContentId::toString).orElse(null));
+            double bone = bound.nameBone(rig);
+            if (!Double.isNaN(bone)) {
+                return bone * info.scale();
+            }
+            double top = modelTops.applyAsDouble(info);
+            if (top > 0) {
+                return top * info.scale() + MobNameTag.GAP;
+            }
+        }
+        return body.getHeight() + MobNameTag.GAP;
     }
 
     // --- boss bar --------------------------------------------------------
@@ -937,7 +999,7 @@ public final class CustomEntities implements Listener, Mobs {
             // Dressed again, so it animates like one spawned today.
             dress(body, info);
         }
-        living.put(entity.getUniqueId(), new Living(body, id.get()));
+        living.put(entity.getUniqueId(), living(body, id.get()));
     }
 
     /** Removes the single display an older jar put on a mob, and says whether there was one. */
@@ -956,8 +1018,24 @@ public final class CustomEntities implements Listener, Mobs {
     @EventHandler
     public void onEntitiesLoad(EntitiesLoadEvent event) {
         for (Entity entity : event.getEntities()) {
-            adopt(entity);
+            if (!reapNameTag(entity)) {
+                adopt(entity);
+            }
         }
+    }
+
+    /**
+     * Removes a mob name tag this run did not make, and says whether it did.
+     * Name tags are never saved, so one that loads, or that a previous run of
+     * the plugin left in the world, belongs to nothing; the mob's next look
+     * makes its own.
+     */
+    boolean reapNameTag(Entity entity) {
+        if (!MobNameTag.isTag(entity, nameTagKey) || MobNameTag.ours(entity, nameTagKey, session)) {
+            return false;
+        }
+        entity.remove();
+        return true;
     }
 
     // --- what happens to it ---------------------------------------------
@@ -1069,6 +1147,14 @@ public final class CustomEntities implements Listener, Mobs {
         Living mob = living.remove(body.getUniqueId());
         if (mob != null) {
             hideBar(mob);
+            // Vanilla stops drawing a name the moment its mob dies, death
+            // animation or not.
+            mob.tag.remove();
+        }
+        for (Entity passenger : List.copyOf(body.getPassengers())) {
+            if (MobNameTag.isTag(passenger, nameTagKey)) {
+                passenger.remove();
+            }
         }
         boolean animating = mob != null && oneShot(mob, MobState.DEATH);
         List<ItemDisplay> parts = bound.release(body);
