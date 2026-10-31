@@ -41,6 +41,19 @@ final class SkillState {
     Object[] spawnedAt;
     /** Warned already, so a broken line says so once per mob rather than every tick. */
     boolean warnedBudget;
+    /** Mob-scoped variables, by lowercase name: {@code setvariable}, {@code variableadd}. */
+    final Map<String, String> vars = new HashMap<>();
+
+    /** A variable's name as stored: lowercase, and without MythicMobs' {@code caster.} scope. */
+    static String varName(String written) {
+        String name = written == null ? "" : written.trim().toLowerCase(java.util.Locale.ROOT);
+        for (String scope : new String[]{"caster.", "self.", "mob."}) {
+            if (name.startsWith(scope)) {
+                return name.substring(scope.length());
+            }
+        }
+        return name;
+    }
 
     SkillState(String stance) {
         this.stance = stance;

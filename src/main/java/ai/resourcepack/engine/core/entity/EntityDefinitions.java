@@ -45,18 +45,24 @@ public final class EntityDefinitions {
      */
     public static Result parse(LoadReport loaded, Set<ContentId> items) {
         Map<ContentId, EntityInfo> entities = new LinkedHashMap<>();
+        Map<ContentId, MobOptions> options = new LinkedHashMap<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
         if (loaded == null) {
-            return new Result(Map.of(), List.of());
+            return new Result(Map.of(), Map.of(), List.of());
         }
         for (ContentDefinition definition : loaded.definitions(ContentKind.ENTITY)) {
-            parseOne(definition, items, diagnostics).ifPresent(entity -> entities.put(entity.id(), entity));
+            MobOptions extra = MobOptions.parse(definition.body(), definition.origin(), definition.id().path(),
+                    diagnostics);
+            parseOne(definition, items, extra, diagnostics).ifPresent(entity -> {
+                entities.put(entity.id(), entity);
+                options.put(entity.id(), extra);
+            });
         }
-        return new Result(Map.copyOf(entities), List.copyOf(diagnostics));
+        return new Result(Map.copyOf(entities), Map.copyOf(options), List.copyOf(diagnostics));
     }
 
     private static Optional<EntityInfo> parseOne(ContentDefinition definition, Set<ContentId> items,
-                                                 List<Diagnostic> diagnostics) {
+                                                 MobOptions extra, List<Diagnostic> diagnostics) {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
@@ -131,8 +137,8 @@ public final class EntityDefinitions {
                 .tags(body.strings("tags"))
                 .animations(animations(body, origin, where, diagnostics))
                 .sounds(sounds(body, origin, where, diagnostics))
-                .drops(drops(body, origin, where, diagnostics))
-                .xp((int) Math.round(number(body, "xp", 0, 0, 10000, origin, where, diagnostics)))
+                .drops(drops(body, extra, origin, where, diagnostics))
+                .xp(MobOptions.xp(body, extra, origin, where, diagnostics))
                 .damage(number(body, "damage", 0, 0, 2048, origin, where, diagnostics))
                 .speed(number(body, "speed", 1, 0.1, 4, origin, where, diagnostics))
                 .knockbackResistance(number(body, "knockback-resistance", 0, 0, 1, origin, where, diagnostics))
@@ -211,37 +217,42 @@ public final class EntityDefinitions {
     }
 
     /**
-     * {@code drops:} as a list, each either an item on its own or
-     * {@code {item, min, max, chance}}. What a mob drops INSTEAD of its
-     * vanilla loot, so absent and empty are the same: nothing.
+     * {@code drops:} as a list, each either an item on its own, MythicMobs'
+     * line ({@code item amount chance}, {@code exp 10to20}, {@code droptable
+     * name}, {@code command{c=...}}) or {@code {item, min, max, chance}}. What
+     * a mob drops INSTEAD of its vanilla loot, so absent and empty are the
+     * same: nothing. The whole list goes into {@code extra}; the plain item
+     * lines are also what {@link EntityInfo#drops()} hands the API.
      */
-    private static List<EntityDrop> drops(DefinitionNode body, String origin, String where,
+    private static List<EntityDrop> drops(DefinitionNode body, MobOptions extra, String origin, String where,
                                           List<Diagnostic> diagnostics) {
-        Object raw = body.raw("drops");
+        Object raw = body.has("drops") ? body.raw("drops") : body.raw("Drops");
         if (raw == null) {
             return List.of();
         }
         if (!(raw instanceof List)) {
             diagnostics.add(Diagnostic.warning(origin, where,
-                    "drops: is not a list. Try drops: [{item: minecraft:leather, min: 1, max: 3}]."));
+                    "drops: is not a list. Try drops: [minecraft:leather 1to3 0.5]."));
             return List.of();
         }
         List<EntityDrop> out = new ArrayList<>();
-        for (Object entry : (List<?>) raw) {
-            if (entry instanceof Map) {
-                DefinitionNode drop = DefinitionNode.of((Map<?, ?>) entry);
-                Optional<String> item = drop.string("item");
-                if (item.isEmpty() || item.get().isBlank()) {
-                    diagnostics.add(Diagnostic.warning(origin, where, "A drop has no item:, so it drops nothing."));
-                    continue;
-                }
-                int min = drop.integer("min").orElse(drop.integer("amount").orElse(1));
-                int max = drop.integer("max").orElse(min);
-                out.add(EntityDrop.of(item.get(), min, max, drop.decimal("chance").orElse(1.0)));
-            } else if (entry != null && !(entry instanceof List)) {
-                out.add(EntityDrop.of(entry.toString(), 1, 1, 1));
+        List<MobLoot.Line> lines = new ArrayList<>();
+        List<?> list = (List<?>) raw;
+        for (int i = 0; i < list.size(); i++) {
+            List<String> problems = new ArrayList<>();
+            Optional<MobLoot.Line> line = MobLoot.line(list.get(i), problems);
+            for (String problem : problems) {
+                diagnostics.add(Diagnostic.warning(origin, where + ".drops[" + (i + 1) + "]", problem));
+            }
+            if (line.isEmpty()) {
+                continue;
+            }
+            lines.add(line.get());
+            if (line.get().kind == MobLoot.Kind.ITEM) {
+                out.add(EntityDrop.of(line.get().what, line.get().min, line.get().max, line.get().third));
             }
         }
+        extra.loot = List.copyOf(lines);
         return out;
     }
 
@@ -410,11 +421,18 @@ public final class EntityDefinitions {
     public static final class Result {
 
         private final Map<ContentId, EntityInfo> entities;
+        private final Map<ContentId, MobOptions> options;
         private final List<Diagnostic> diagnostics;
 
-        Result(Map<ContentId, EntityInfo> entities, List<Diagnostic> diagnostics) {
+        Result(Map<ContentId, EntityInfo> entities, Map<ContentId, MobOptions> options, List<Diagnostic> diagnostics) {
             this.entities = entities;
+            this.options = options;
             this.diagnostics = diagnostics;
+        }
+
+        /** Each mob's options beyond EntityInfo: armour, equipment, levels, loot lines... */
+        public Map<ContentId, MobOptions> options() {
+            return options;
         }
 
         /** Every entity that parsed, keyed by id. */

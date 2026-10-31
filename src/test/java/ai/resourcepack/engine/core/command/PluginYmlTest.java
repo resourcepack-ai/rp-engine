@@ -104,6 +104,9 @@ class PluginYmlTest {
             if (sub.startsWith("music.")) {
                 sub = "music";
             }
+            if (sub.startsWith("spawner.")) {
+                sub = "spawner";
+            }
             // Or a cast at a place rather than on somebody (rpengine.cast.at).
             if (sub.equals("cast.at")) {
                 assertEquals("rpengine.cast.at", VfxCommands.AT_PERMISSION);

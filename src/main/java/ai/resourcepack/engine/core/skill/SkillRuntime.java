@@ -81,6 +81,26 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
 
         /** Tints a custom mob's model {@code rgb} for {@code ticks}, as its hurt flash does. */
         boolean tint(Entity entity, int rgb, long ticks);
+
+        /** A custom mob's level; 1 for anything without one. */
+        default int level(Entity entity) {
+            return 1;
+        }
+
+        /** What a mob's level multiplies its skills' amounts by ({@code per-level: {power: ...}}). */
+        default double levelPower(Entity entity) {
+            return 1;
+        }
+
+        /** A custom mob's faction, or null. */
+        default String faction(Entity entity) {
+            return null;
+        }
+
+        /** Spawns a custom mob at a level (0: rolled from its own {@code level:}). */
+        default Optional<Entity> spawn(Location where, ContentId id, int level) {
+            return mobs().spawn(where, id);
+        }
     }
 
     final Plugin plugin;
@@ -285,13 +305,46 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
                 .replace("{hp}", SkillText.number(Math.ceil(body.getHealth())))
                 .replace("{max_hp}", SkillText.number(max))
                 .replace("{hp%}", SkillText.number(max <= 0 ? 0 : Math.round(body.getHealth() / max * 100)))
-                .replace("{stance}", state.stance == null ? "" : state.stance);
+                .replace("{stance}", state.stance == null ? "" : state.stance)
+                .replace("{level}", String.valueOf(host.level(body)));
         String name = ChatColor.translateAlternateColorCodes('&',
                 ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(filled));
         if (!name.equals(current)) {
             body.setCustomName(name);
         }
         state.nameSet = name;
+    }
+
+    /**
+     * A condition as written in a drop table's {@code Conditions:}, tested on
+     * {@code body} ({@code ?~} or a trigger-scoped one on {@code trigger}).
+     * One that does not parse, or names no condition, fails: a table that
+     * cannot be checked drops nothing rather than everything.
+     */
+    @Override
+    public boolean condition(LivingEntity body, Entity trigger, String text) {
+        SkillParser.Parsed parsed = SkillParser.condition(text, false);
+        if (!parsed.ok() || parsed.line.conditions.isEmpty()) {
+            warnOnce("tablecond:" + text, "A drop table condition does not parse (" + text + "): " + parsed.error);
+            return false;
+        }
+        SkillLine.Cond cond = parsed.line.conditions.get(0);
+        SkillState state = state(body);
+        Optional<ContentId> id = mobOf(body);
+        if (state == null || id.isEmpty()) {
+            return true;
+        }
+        SkillContext context = new SkillContext(body, id.get(), state, trigger, "droptable",
+                new SkillContext.Run(null, generation, true, body.getLocation(), 0));
+        Entity subject = cond.onTrigger ? trigger : body;
+        boolean pass = subject != null && test(context, cond, subject) != cond.negate;
+        return cond.action.equals("false") ? !pass : pass;
+    }
+
+    /** A mob-scoped variable, or null when it has none of that name. */
+    String variable(Entity entity, String name) {
+        SkillState state = entity == null ? null : states.get(entity.getUniqueId());
+        return state == null ? null : state.vars.get(SkillState.varName(name));
     }
 
     // --- triggers -------------------------------------------------------
@@ -356,6 +409,7 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         SkillContext.Run run = shared != null ? shared
                 : new SkillContext.Run(event, generation, death, death ? body.getLocation() : null, damage);
         SkillContext context = new SkillContext(body, id, state, triggerEntity, trigger, run);
+        context.power = host.levelPower(body);
         context.top = true;
         runLine(context, line);
         if (shared == null) {
@@ -831,6 +885,7 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
         }
         SkillContext.Run run = new SkillContext.Run(null, generation, false, null, 0);
         SkillContext context = new SkillContext((LivingEntity) caster, id.get(), state, target, "api", run);
+        context.power = host.levelPower(caster);
         context.depth = -1;
         return cast(context, skill, List.of(target != null ? target : caster));
     }

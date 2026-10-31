@@ -101,5 +101,19 @@ public enum ContentKind {
      * from a mob's {@code skills:} with {@code skill{s=Name}}. See
      * {@link MobSkills}.
      */
-    SKILL
+    SKILL,
+
+    /**
+     * A drop table (MythicMobs' DropTable): weighted or chanced loot lines a
+     * mob's {@code drops:} names with {@code droptable <name>}. Engine data,
+     * read in {@code drop-tables/}.
+     */
+    DROP_TABLE,
+
+    /**
+     * A fixed-point mob spawner: which mob, where, how many and how often.
+     * Read in {@code spawners/}; {@code /rp spawner create} keeps its own in
+     * the plugin's data folder.
+     */
+    SPAWNER
 }

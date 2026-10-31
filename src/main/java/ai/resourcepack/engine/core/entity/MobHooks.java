@@ -26,4 +26,13 @@ public interface MobHooks {
 
     /** One of its looks, every {@link CustomEntities#PERIOD} ticks while it is alive and loaded. */
     void looked(LivingEntity body, ContentId id, EntityInfo info, long now);
+
+    /**
+     * Whether a condition as a skill line writes it ({@code playerwithin{d=10}},
+     * {@code ?~isplayer}) passes for {@code body}, with {@code trigger} as its
+     * trigger: a drop table's {@code Conditions:}. True when nothing can say.
+     */
+    default boolean condition(LivingEntity body, org.bukkit.entity.Entity trigger, String condition) {
+        return true;
+    }
 }
