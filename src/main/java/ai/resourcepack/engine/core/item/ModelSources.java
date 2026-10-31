@@ -10,7 +10,8 @@ import java.util.function.Function;
  *
  * <p>A plain name ({@code model: chair}) is a file under the pack's own
  * {@code assets/models/}, or the root {@code models/} and {@code blueprints/}
- * folders other plugins' layouts use. A <strong>namespaced</strong> name
+ * folders other plugins' layouts use, or {@code resourcepack/assets/<namespace>/models/},
+ * where ItemsAdder 4 keeps them. A <strong>namespaced</strong> name
  * ({@code model: minecraft:item/custom/chair}) is a resource location: the
  * model the built pack will have at {@code assets/minecraft/models/item/custom/chair.json}.
  * That is how CraftEngine names art, and its packs keep a whole resource pack
@@ -117,6 +118,14 @@ public final class ModelSources {
             // ModelEngine's keeps blueprints/; both are read where they lie.
             out.add(new String[] {"models/" + name + extension, namespace, "true"});
             out.add(new String[] {"blueprints/" + name + extension, namespace, "true"});
+            // ItemsAdder 4's layout keeps them in a resource pack folder
+            // instead, and its model_path is relative to the pack's own
+            // namespace there. That file is a real resource pack's, so a bare
+            // texture in it means minecraft:, and other files may name it.
+            if (extension.equals(".json")) {
+                out.add(new String[] {RESOURCE_PACK + "/assets/" + namespace + "/models/" + name + extension,
+                        "minecraft", "false"});
+            }
             return out;
         }
         int colon = name.indexOf(':');

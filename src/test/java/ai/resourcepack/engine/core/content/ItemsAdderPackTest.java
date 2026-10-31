@@ -177,6 +177,37 @@ class ItemsAdderPackTest {
     }
 
     @Test
+    void aModelPathIsFoundInTheirResourcePackFolder() throws IOException {
+        // ItemsAdder 4's layout, as a marketplace pack ships it: model_path is
+        // relative to resourcepack/assets/<namespace>/models/.
+        write("shop/configs/shop/wings.yml", """
+                info:
+                  namespace: shop
+                items:
+                  wing:
+                    display_name: Wing
+                    resource:
+                      material: paper
+                      generate: false
+                      model_path: set_v1/wing
+                """);
+        write("shop/resourcepack/assets/shop/models/set_v1/wing.json", """
+                {"textures": {"0": "shop:set_v1/tex"},
+                 "elements": [{"from": [0, 0, 0], "to": [16, 16, 16],
+                   "faces": {"north": {"uv": [0, 0, 16, 16], "texture": "#0"}}}]}
+                """);
+        bytes("shop/resourcepack/assets/shop/textures/set_v1/tex.png", new byte[] {7});
+
+        LoadReport report = load();
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        assertFalse(built.diagnostics().stream().anyMatch(d -> d.message().contains("No model")),
+                built.diagnostics().toString());
+        String model = new String(build(report).get("assets/shop/models/item/wing.json"), StandardCharsets.UTF_8);
+        assertTrue(model.contains("\"elements\""), model);
+        assertFalse(model.contains("item/generated"), model);
+    }
+
+    @Test
     void furnitureIsAPlacedModel() throws IOException {
         theirPack();
 
