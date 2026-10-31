@@ -162,8 +162,6 @@ public final class ContentFolderLoader {
         // 3D armour: a set names a .bbmodel with MythicArmors' bone names in
         // it; see Armor3dDefinitions.
         map.put("armor3d", ContentKind.ARMOR3D);
-        // Capes, a PNG in vanilla's cape layout each; see CapeDefinitions.
-        map.put("capes", ContentKind.CAPE);
         // 3D shader objects and their sequences; see ObjectDefinitions.
         map.put("objects", ContentKind.OBJECT);
         // Text effects, a preset or GLSL each; see TextEffectDefinitions.
