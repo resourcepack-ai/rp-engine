@@ -121,6 +121,21 @@ public final class RigAnimator implements Listener {
      * saved one anyway — and then it is garbage on sight (see {@link #reaped}).
      */
     static final String DYING_KEY = "rig-dying";
+
+    /**
+     * On a released part (see {@code BoundModels.release}): the ground lift it
+     * had while its host was alive, in blocks, so a death animation that
+     * outlives the body stays standing where the body stood. See
+     * {@link #applyGroundLift}.
+     */
+    static final String LIFT_KEY = "rig-lift";
+
+    /**
+     * How far above a model's floor an item display draws its entity
+     * position: a display renders its model centred, so pixel 8 is the
+     * entity and pixel 0 is half a block below it.
+     */
+    private static final float HALF_BLOCK = 0.5f;
     private static final int RANGE_SCAN_INTERVAL = 5;
 
     private final Host host;
@@ -141,6 +156,8 @@ public final class RigAnimator implements Listener {
     private final NamespacedKey turnKey;
     private final NamespacedKey headPivotKey;
     private final NamespacedKey dyingKey;
+    private final NamespacedKey liftKey;
+    private final StandingHosts standing = new StandingHosts();
 
     private final Map<UUID, ItemDisplay> tracked = new ConcurrentHashMap<>();
     private final Map<UUID, Interaction> hitboxes = new ConcurrentHashMap<>();
@@ -351,6 +368,7 @@ public final class RigAnimator implements Listener {
         this.turnKey = host.key(TURN_KEY);
         this.headPivotKey = host.key(HEAD_PIVOT_KEY);
         this.dyingKey = host.key(DYING_KEY);
+        this.liftKey = host.key(LIFT_KEY);
     }
 
     public void placements(java.util.function.Function<Interaction, Placement> placements) {
@@ -503,10 +521,18 @@ public final class RigAnimator implements Listener {
             bones.attach((ItemDisplay) entity, part);
         }
 
-        if (part != null && !RigAnimations.hasAnimationProgram(part)) {
+        boolean worn = pdc.has(boundKey, PersistentDataType.STRING);
+        if (part != null && !RigAnimations.hasAnimationProgram(part) && !worn) {
             // Static remainder parts keep their entity yaw and never need
-            // transformation metadata resent by the animation task.
+            // transformation metadata resent by the animation task. A WORN
+            // one does: its host turns and walks over uneven ground, and both
+            // reach the part only through its matrix (see poseWornStill).
             return;
+        }
+        if (worn && (entity.getLocation().getYaw() != 0f || entity.getLocation().getPitch() != 0f)) {
+            // A worn part's heading is all in its matrix. One spawned by a jar
+            // that left its host's yaw on the entity would turn twice.
+            entity.setRotation(0f, 0f);
         }
         // In world game ticks, so parts placed in the same tick stay in phase
         // across chunk loads and restarts. Older rigs start when first tracked.
@@ -782,11 +808,21 @@ public final class RigAnimator implements Listener {
             // usually a re-push that renumbered parts. Returning here left a
             // part caught mid-animation hidden or displaced forever, so put it
             // back to rest; it stays tracked and resumes if the rig returns.
-            applyRestPose(display, pdc);
+            // A worn one is a still model on a mob (it has no rig at all) and
+            // goes on following its host.
+            if (pdc.has(boundKey, PersistentDataType.STRING)) {
+                poseWornStill(display, pdc);
+            } else {
+                applyRestPose(display, pdc);
+            }
             return;
         }
         RigStore.Part part = rig.parts.get(partIndex);
         if (!RigAnimations.hasAnimationProgram(part)) {
+            if (pdc.has(boundKey, PersistentDataType.STRING)) {
+                poseWornStill(display, pdc);
+                return;
+            }
             // Covers a part tracked before its rig manifest became available.
             tracked.remove(display.getUniqueId());
             return;
@@ -969,6 +1005,7 @@ public final class RigAnimator implements Listener {
                 : new Matrix4f(carrierPose).mul(animationTransform);
         m.mul(RigMath.toItemDisplaySpace(posedTransform));
         applyRigScale(m, pdc);
+        applyGroundLift(m, display, pdc);
 
         Transformation next = RigMath.toTransformation(m);
         // Keyframe holds sample to an identical transform - nothing to send,
@@ -1081,12 +1118,107 @@ public final class RigAnimator implements Listener {
                 : null;
         m.mul(RigMath.toItemDisplaySpace(carrierPose == null ? new Matrix4f() : carrierPose));
         applyRigScale(m, pdc);
+        applyGroundLift(m, display, pdc);
 
         Transformation next = RigMath.toTransformation(m);
         if (next.equals(display.getTransformation())) return;
         display.setInterpolationDelay(0);
         display.setInterpolationDuration(0);
         display.setTransformation(next);
+    }
+
+    /**
+     * A part of a worn model that has no animation of its own: a still model
+     * on a mob, or the still remainder of an animated one. It still has to
+     * turn with its host and stand on the ground the host stands on, and both
+     * of those live in its matrix (its entity yaw is kept at zero), so it is
+     * posed every pass like a moving part, glided over the same window.
+     */
+    private void poseWornStill(ItemDisplay display, PersistentDataContainer pdc) {
+        Float yaw = yawOf(display, pdc);
+        Matrix4f m = new Matrix4f();
+        if (yaw != null && yaw != 0f) m.rotateY((float) Math.toRadians(-yaw));
+        applyRigScale(m, pdc);
+        applyGroundLift(m, display, pdc);
+        Transformation next = RigMath.toTransformation(m);
+        if (next.equals(display.getTransformation())) return;
+        display.setInterpolationDelay(1);
+        display.setInterpolationDelay(0);
+        display.setInterpolationDuration(PERIOD_TICKS);
+        display.setTransformation(next);
+    }
+
+    /**
+     * Puts a WORN model's floor on the ground under its host.
+     *
+     * <p>A worn part is a passenger, and vanilla draws a passenger at its
+     * vehicle's passenger attachment point: about the top of the hitbox, a
+     * different height for every mob type, for every value of the
+     * {@code scale} attribute, for a baby, and by a different rule before
+     * 1.20.2 (a riding offset rather than an attachment point, see
+     * {@link MountOffset}). Nothing took it back off, so every model on a
+     * mob floated by about the height of the body it was hiding: a zombie's
+     * two blocks, a ravager's two and a quarter.
+     *
+     * <p>{@link MountOffset}'s constants cannot answer this. They are the
+     * offset for a rider on a MARKER stand or a display, whose attachment is
+     * zero, and they are right because that vehicle is always the same kind of
+     * thing; a worn model's vehicle is any mob at all. So the offset is not
+     * predicted but MEASURED: the server positions every passenger after its
+     * vehicle each tick by the same arithmetic the client uses, so the part's
+     * height above its host is exactly where the client draws it, on every
+     * version, at any scale, in any pose. Half a block comes back off it,
+     * because a display draws its model centred on itself.
+     *
+     * <p>A part released for a death animation reads the lift it was given
+     * when it was let go, since its host may be gone by the time it is posed.
+     */
+    private void applyGroundLift(Matrix4f m, ItemDisplay display, PersistentDataContainer pdc) {
+        keepLevel(display, pdc);
+        float lift = groundLift(display, pdc);
+        if (lift != 0f) m.translateLocal(0f, lift, 0f);
+    }
+
+    /**
+     * Keeps a worn part's own entity facing nowhere: yaw and pitch zero.
+     *
+     * <p>Everything about which way a worn part points is in its matrix (see
+     * {@link #yawOf}), so a part entity that has a rotation of its own draws
+     * the model turned by it as well. One does not stay at zero by itself:
+     * in the first real-client test every part of one mob had a pitch of
+     * forty degrees (its host's, from where it was spawned) and it stood nose
+     * down for the rest of its life. Cheap: a write only when something is
+     * off.
+     */
+    private void keepLevel(ItemDisplay display, PersistentDataContainer pdc) {
+        if (!pdc.has(boundKey, PersistentDataType.STRING)) return;
+        org.bukkit.Location at = display.getLocation();
+        if (at.getYaw() != 0f || at.getPitch() != 0f) {
+            display.setRotation(0f, 0f);
+        }
+    }
+
+    /** See {@link #applyGroundLift}: blocks to move a worn part up by. Zero for anything not worn. */
+    float groundLift(ItemDisplay display, PersistentDataContainer pdc) {
+        if (!pdc.has(boundKey, PersistentDataType.STRING)) return 0f;
+        Entity host = display.getVehicle();
+        if (host == null) {
+            Float stored = pdc.get(liftKey, PersistentDataType.FLOAT);
+            return stored == null ? 0f : stored;
+        }
+        // Less whatever the client has grown the host by that the server has
+        // not: a polar bear rearing up. See StandingHosts.
+        return groundLift(display.getLocation().getY() - host.getLocation().getY()) - standing.rise(host);
+    }
+
+    /**
+     * The lift for a part drawn {@code above} blocks over its host's feet,
+     * to the thousandth of a block: the difference of two large world
+     * coordinates jitters in its last digits, and a matrix that differs only
+     * there is re-sent for nothing.
+     */
+    static float groundLift(double above) {
+        return Math.round((HALF_BLOCK - above) * 1000) / 1000f;
     }
 
     /**

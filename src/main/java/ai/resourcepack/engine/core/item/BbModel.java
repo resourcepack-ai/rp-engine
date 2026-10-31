@@ -203,8 +203,25 @@ public final class BbModel {
                 indexOfCube.put(uuid, i);
             }
         }
+        // Blockbench 5.0 moved the bone data out of the outliner: the outliner
+        // now holds only the tree, as {uuid, children}, and the name, pivot
+        // and the rest live in a top-level `groups` array keyed by the same
+        // uuid. Reading only the outliner saw a 5.0 project as nameless nodes
+        // and dropped every bone, and with them every animation, so a model
+        // saved by any current Blockbench (or exported by Studio for Model
+        // Engine) came in as one still lump. The inline form is still read, for
+        // a project saved before 5.0.
+        Map<String, JsonObject> boneData = new LinkedHashMap<>();
+        for (JsonElement raw : array(project, "groups")) {
+            if (raw.isJsonObject()) {
+                String uuid = string(raw.getAsJsonObject(), "uuid");
+                if (uuid != null) {
+                    boneData.put(uuid, raw.getAsJsonObject());
+                }
+            }
+        }
         Groups out = new Groups();
-        walk(array(project, "outliner"), indexOfCube, out, -1);
+        walk(array(project, "outliner"), indexOfCube, boneData, out, -1);
         return out;
     }
 
@@ -214,7 +231,8 @@ public final class BbModel {
         final Map<String, Integer> indexOfNode = new LinkedHashMap<>();
     }
 
-    private static void walk(JsonArray nodes, Map<String, Integer> indexOfCube, Groups out, int parent) {
+    private static void walk(JsonArray nodes, Map<String, Integer> indexOfCube,
+                             Map<String, JsonObject> boneData, Groups out, int parent) {
         for (JsonElement raw : nodes) {
             if (!raw.isJsonObject()) {
                 // A bare string in the outliner is a loose cube, which is
@@ -235,7 +253,9 @@ public final class BbModel {
             }
 
             String uuid = string(node, "uuid");
-            String name = string(node, "name");
+            // A 5.0 node is only a reference; its data is in `groups`.
+            JsonObject data = uuid == null || node.has("name") ? node : boneData.getOrDefault(uuid, node);
+            String name = string(data, "name");
             int mine = parent;
             if (name != null) {
                 // EVERY named node, whether or not it holds cubes of its own.
@@ -247,7 +267,7 @@ public final class BbModel {
                 if (uuid != null) {
                     out.indexOfNode.put(uuid, mine);
                 }
-                float[] origin = vec3(node, "origin");
+                float[] origin = vec3(data, "origin");
                 JsonObject group = new JsonObject();
                 group.addProperty("name", name);
                 group.add("origin", numbers(origin == null ? new float[]{8f, 0f, 8f} : origin));
@@ -264,7 +284,7 @@ public final class BbModel {
                 // bone came next.
                 out.indexOfNode.put(uuid, -1);
             }
-            walk(childNodes, indexOfCube, out, mine);
+            walk(childNodes, indexOfCube, boneData, out, mine);
         }
     }
 
@@ -447,6 +467,7 @@ public final class BbModel {
      */
     private static List<JsonObject> cubesOf(JsonObject project) {
         List<JsonObject> cubes = new ArrayList<>();
+        Set<String> hitbox = hitboxCubes(project);
         for (JsonElement raw : array(project, "elements")) {
             if (!raw.isJsonObject()) {
                 continue;
@@ -456,11 +477,56 @@ public final class BbModel {
             if (type != null && !type.equals("cube")) {
                 continue;
             }
+            if (hitbox.contains(string(element, "uuid"))) {
+                continue;
+            }
             if (vec3(element, "from") != null && vec3(element, "to") != null) {
                 cubes.add(element);
             }
         }
         return cubes;
+    }
+
+    /**
+     * The cubes inside a bone called {@code hitbox}: Model Engine's volume
+     * marker, which it measures and never draws. A rig made for Model Engine
+     * always has one (Studio's export included), usually textured with
+     * nothing, and drawn here it was a ghostly box round the whole mob.
+     */
+    private static Set<String> hitboxCubes(JsonObject project) {
+        Map<String, String> names = new java.util.HashMap<>();
+        for (JsonElement raw : array(project, "groups")) {
+            if (raw.isJsonObject()) {
+                String uuid = string(raw.getAsJsonObject(), "uuid");
+                String name = string(raw.getAsJsonObject(), "name");
+                if (uuid != null && name != null) {
+                    names.put(uuid, name);
+                }
+            }
+        }
+        Set<String> out = new java.util.HashSet<>();
+        collectHitbox(array(project, "outliner"), names, false, out);
+        return out;
+    }
+
+    private static void collectHitbox(JsonArray nodes, Map<String, String> names, boolean inside, Set<String> out) {
+        for (JsonElement raw : nodes) {
+            if (raw.isJsonPrimitive()) {
+                if (inside) {
+                    out.add(raw.getAsString());
+                }
+                continue;
+            }
+            if (!raw.isJsonObject()) {
+                continue;
+            }
+            JsonObject node = raw.getAsJsonObject();
+            String name = string(node, "name");
+            if (name == null) {
+                name = names.get(string(node, "uuid"));
+            }
+            collectHitbox(array(node, "children"), names, inside || "hitbox".equalsIgnoreCase(name), out);
+        }
     }
 
     private static JsonObject element(JsonObject cube, JsonArray textures, int resWidth, int resHeight) {

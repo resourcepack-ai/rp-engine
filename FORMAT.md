@@ -1061,7 +1061,7 @@ rhino:
   knockback-resistance: 0.5   # 0 to 1
   scale: 1.0              # how big the MODEL is drawn
   height: 1.4             # how tall the HITBOX is, in blocks (1.20.5 and newer)
-  turn: 180               # degrees, for a model built facing the other way
+  turn: 180               # degrees; 0 walks with the model's North (-Z) side in front
   head-bone: head         # turns toward whatever it is fighting
   ai: true                # false stands it still for ever
   burns: false            # true lets daylight set it alight, like a zombie
@@ -1135,6 +1135,15 @@ own to turn.
 
 **`height:`** sizes the hitbox through the `scale` attribute, which arrived in
 1.20.5; older servers keep the mob's own box. `scale:` sizes only the model.
+Either way the model stands on the ground the mob stands on: its bottom (pixel
+0 in Blockbench) is at the mob's feet, whatever the mob's type and size.
+
+**`turn:`** is which way the model faces. **At `turn: 0` the side Blockbench
+calls North (-Z) is the front**, which is ModelEngine's rule, so a rig made for
+ModelEngine walks forwards here unchanged. A model built facing South (+Z) needs
+`turn: 180`; one facing East (+X), `turn: 90`; West (-X), `turn: 270`. Mobs made
+in Studio are turned for you. The same rule holds for `/rp bind` and
+MythicMobs' `rpmodel`, which have no `turn:`: draw the model facing North.
 
 A custom mob cannot be bred, tamed, ridden, sheared, milked or traded with, and
 never turns into something else (a drowned zombie, a struck pig). A name tag and
@@ -1214,7 +1223,8 @@ From a plugin, `Models.bind(entity, id)`, `unbind`, `animate` and
 The model is an **item ID** — the same ID a `place:` block names — so one model
 can be stood in a world and worn by a mob without being written twice. If it
 animates, the bound copy animates: it faces wherever its host is facing, and
-`rpanimate` plays an animation by name.
+`rpanimate` plays an animation by name. Draw the model facing North (-Z) in
+Blockbench, as for ModelEngine; its bottom stands on the ground under the mob.
 
 The difference from `entities:` above is who spawns the thing. That defines a
 mob **we** spawn, with a model, from a content file. This puts a model on a mob

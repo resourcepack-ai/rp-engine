@@ -4,7 +4,6 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.event.ModelBindEvent;
 import ai.resourcepack.engine.core.Host;
-import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Entity;
@@ -47,6 +46,27 @@ import java.util.Optional;
  */
 public final class BoundModels {
 
+    /**
+     * Which way a worn model faces its host's heading at {@code turn: 0}: the
+     * model's {@code -z}, the side Blockbench calls North, so this is -1.
+     *
+     * <p><strong>ModelEngine's convention, and kept for that reason.</strong>
+     * A rig somebody already has, made for ModelEngine and worn through
+     * {@code /rp bind} or MythicMobs' {@code rpmodel}, faces North in
+     * Blockbench and has to walk forwards here without being re-authored. A
+     * model drawn the other way round (Studio draws every model facing
+     * {@code +z}) takes {@code turn: 180}, which Studio adds to the turn it
+     * pushes. Vehicles differ, deliberately and for their own reasons: see
+     * {@code VehicleRuntime.MODEL_YAW_OFFSET}.
+     *
+     * <p>Not read by anything at runtime: it is what the animator's arithmetic
+     * (the heading as {@code rotateY(-yaw)}, then {@code RigMath.toItemDisplaySpace})
+     * and the client drawing an item display's model half a turn round add up
+     * to. {@code BoundFacingTest} holds the arithmetic to it, and Studio
+     * reads this constant to check its half turn against it.
+     */
+    public static final int FRONT_Z = -1;
+
     private final Items items;
     private final RigStore rigs;
     private final RigAnimator animator;
@@ -59,6 +79,7 @@ public final class BoundModels {
     private final NamespacedKey turnKey;
     private final NamespacedKey headPivotKey;
     private final NamespacedKey dyingKey;
+    private final NamespacedKey liftKey;
 
     /**
      * Somewhere a bind can be WRITTEN DOWN, for a host that outlives its own
@@ -93,6 +114,7 @@ public final class BoundModels {
         this.turnKey = host.key(RigAnimator.TURN_KEY);
         this.headPivotKey = host.key(RigAnimator.HEAD_PIVOT_KEY);
         this.dyingKey = host.key(RigAnimator.DYING_KEY);
+        this.liftKey = host.key(RigAnimator.LIFT_KEY);
     }
 
     /**
@@ -189,13 +211,12 @@ public final class BoundModels {
             pdc.set(boundKey, PersistentDataType.STRING, host.getUniqueId().toString());
             if (turn != 0f) {
                 pdc.set(turnKey, PersistentDataType.FLOAT, turn);
-                if (!animator.animates(part)) {
-                    // A still part is never posed by the animator, so its
-                    // turn is baked in here, ahead of the size, the same way
-                    // the animator puts a moving part's heading ahead of it.
-                    part.setTransformation(turned(turn, size));
-                }
             }
+            // Every heading a worn part has is in its matrix, still parts
+            // included (the animator poses those too, see poseWornStill), so
+            // the entity itself faces nowhere in particular. RigSpawn leaves a
+            // still part its spawn yaw, which here would turn it twice.
+            part.setRotation(0f, 0f);
             if (headPivot != null && inLineage(rig, pdc.get(partKey, PersistentDataType.INTEGER), headBone)) {
                 pdc.set(headPivotKey, PersistentDataType.STRING,
                         headPivot[0] + "," + headPivot[1] + "," + headPivot[2]);
@@ -210,16 +231,6 @@ public final class BoundModels {
 
         conceal(host, true);
         return true;
-    }
-
-    /** The still pose of a part turned by {@code turn} degrees and grown by {@code size}. */
-    private static org.bukkit.util.Transformation turned(float turn, float size) {
-        org.joml.Matrix4f m = new org.joml.Matrix4f().rotateY((float) Math.toRadians(-turn));
-        if (size != 1f) {
-            m.scaleLocal(size);
-            m.translateLocal(0f, 0.5f * (size - 1f), 0f);
-        }
-        return RigMath.toTransformation(m);
     }
 
     /**
@@ -385,6 +396,10 @@ public final class BoundModels {
             PersistentDataContainer pdc = part.getPersistentDataContainer();
             Float turn = pdc.get(turnKey, PersistentDataType.FLOAT);
             pdc.set(yawKey, PersistentDataType.FLOAT, yaw + (turn == null ? 0f : turn));
+            // And its height, for the same reason: once the body is removed
+            // the part rides nothing, and the lift is measured off what it
+            // rides. See RigAnimator.applyGroundLift.
+            pdc.set(liftKey, PersistentDataType.FLOAT, animator.groundLift(part, pdc));
             pdc.set(dyingKey, PersistentDataType.BYTE, (byte) 1);
             part.setPersistent(false);
         }
