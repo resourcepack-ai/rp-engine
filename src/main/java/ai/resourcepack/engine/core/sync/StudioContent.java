@@ -89,20 +89,6 @@ public final class StudioContent {
         List<TextEffect> textEffects;
         List<Vfx> vfx;
         List<Mob> mobs;
-        List<Cape> capes;
-    }
-
-    /**
-     * A cape: a texture in vanilla's cape layout, which the zip carries with
-     * its model and the {@code items/paper.json} case naming it. What a zip
-     * cannot say is that this model IS a cape, worn on a back; this is that.
-     * Registered as {@code studio:<id>}, worn with {@code /rp cape wear}.
-     */
-    static final class Cape {
-        String id;
-        String name;
-        /** The display's {@code custom_model_data} string: {@code cape:<id>}. */
-        String model;
     }
 
     /**
@@ -910,7 +896,6 @@ public final class StudioContent {
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
     /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
     private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
-    private volatile Map<String, ai.resourcepack.engine.core.cape.Cape> capes = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -980,7 +965,6 @@ public final class StudioContent {
         copy.vfx = vfx;
         copy.mobs = mobs;
         copy.mobSkills = mobSkills;
-        copy.capes = capes;
         copy.packId = packId;
         return copy;
     }
@@ -1007,7 +991,6 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
-        Map<String, ai.resourcepack.engine.core.cape.Cape> capes = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -1028,7 +1011,6 @@ public final class StudioContent {
             pack.mobs.keySet().forEach(mobSkills::remove);
             mobs.putAll(pack.mobs);
             mobSkills.putAll(pack.mobSkills);
-            capes.putAll(pack.capes);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -1044,7 +1026,6 @@ public final class StudioContent {
         all.vfx = Map.copyOf(vfx);
         all.mobs = Map.copyOf(mobs);
         all.mobSkills = Map.copyOf(mobSkills);
-        all.capes = Map.copyOf(capes);
         all.packId = last;
         return all;
     }
@@ -1106,16 +1087,6 @@ public final class StudioContent {
         return vfx;
     }
 
-    /**
-     * The pushed capes, keyed by their bare Studio id (named {@code studio:<id>}
-     * to a person). Half of the server's capes: a content folder's
-     * {@code capes/} is the other, and {@code CapeCatalogue} is where the two
-     * are one list.
-     */
-    public Map<String, ai.resourcepack.engine.core.cape.Cape> capes() {
-        return capes;
-    }
-
     /** The pushed custom mobs, keyed by {@code studio:<id>}. */
     public Map<ContentId, EntityInfo> mobs() {
         return mobs;
@@ -1149,7 +1120,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && vfx.isEmpty() && mobs.isEmpty() && capes.isEmpty();
+                && textEffects.isEmpty() && vfx.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -1377,18 +1348,6 @@ public final class StudioContent {
                     });
         }
 
-        Map<String, ai.resourcepack.engine.core.cape.Cape> readCapes = new LinkedHashMap<>();
-        for (Cape cape : manifest.capes == null ? List.<Cape>of() : manifest.capes) {
-            // The id becomes part of a stored label and the model a string on
-            // an item: anything that is not plainly an id is not worth a cape.
-            if (cape == null || cape.id == null || !cape.id.matches("[a-z0-9_.-]+")
-                    || cape.model == null || !cape.model.startsWith("cape:")) {
-                if (log != null && cape != null) log.warning("Pushed cape " + cape.id + " has no usable id or model, skipped.");
-                continue;
-            }
-            readCapes.put(cape.id, new ai.resourcepack.engine.core.cape.Cape(cape.id, cape.name, cape.model, null, null));
-        }
-
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -1402,12 +1361,10 @@ public final class StudioContent {
         vfx = Map.copyOf(readVfx);
         mobs = Map.copyOf(readMobs);
         mobSkills = Map.copyOf(readMobSkills);
-        capes = Map.copyOf(readCapes);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + mobs.size()
-                        + capes.size());
+                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + mobs.size());
     }
 
     /**
@@ -2085,14 +2042,6 @@ public final class StudioContent {
                 skills.writeTo(out);
             }
             manifest.mobs.add(out);
-        }
-        manifest.capes = new ArrayList<>();
-        for (ai.resourcepack.engine.core.cape.Cape info : capes.values()) {
-            Cape cape = new Cape();
-            cape.id = info.id();
-            cape.name = info.name();
-            cape.model = info.model();
-            manifest.capes.add(cape);
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

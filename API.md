@@ -18,7 +18,6 @@ engine.mobs();      // custom mobs: spawn one, animate one, give an egg
 engine.skills();    // mob skills: add a mechanic, condition or targeter; cast one
 engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
-engine.capes();     // capes, and putting them on people
 engine.sounds();    // custom sounds
 engine.music();     // background music
 engine.icons();     // icons, and putting one into a piece of text
@@ -270,23 +269,6 @@ pushed from Studio has its art in that push's pack, so only somebody holding
 that pack sees it drawn; a content folder's set is in the server's own pack.
 
 Main thread only, except `available`, `ids` and `info`.
-
-## Capes
-
-```java
-ContentId founder = ContentId.parse("myserver:founder").orElseThrow();
-
-engine.capes().ids();                 // every cape: content folders' and Studio pushes'
-engine.capes().name(founder);         // its display name
-engine.capes().wear(player, founder); // put it on; false if there is no such cape
-engine.capes().worn(player);          // the cape they have on, if any
-engine.capes().remove(player);        // take it off
-```
-
-A cape is kept on the player, so it is still on after a relog or a restart.
-`wear` checks no permission, including a cape's own `permission:`: whether a
-player may have it is the calling plugin's decision. `available()` is false
-below Minecraft 1.21.4, where a cape cannot be drawn.
 
 ## Sounds
 
