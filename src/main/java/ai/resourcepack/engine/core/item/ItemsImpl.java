@@ -232,9 +232,11 @@ public final class ItemsImpl implements Items {
             // one item do not overwrite each other and a modifier from this
             // pack is distinguishable from anybody else's. Both arms key off
             // it — the older one derives its UUID from this same string.
+            // Keyed, not Attribute: an enum before 1.21.3, an interface after, and a
+            // call on either links only against that one (IncompatibleClassChangeError).
             NamespacedKey id = new NamespacedKey(plugin,
                     item.id().namespace() + "." + item.id().path()
-                            + "." + attribute.getKey().getKey());
+                            + "." + ((org.bukkit.Keyed) attribute).getKey().getKey());
             if (!components.modifier(meta, attribute, id, modifier.amount(), operation,
                     modifier.slot())) {
                 warn(item, modifier.slot() + " is not a slot");

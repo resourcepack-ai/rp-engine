@@ -167,7 +167,7 @@ public final class Seats implements Listener {
 
         Location at = where.clone().add(0, mountOffset - SEATED_POSE + calibration, 0);
         at.setYaw(where.getYaw());
-        ArmorStand stand = where.getWorld().spawn(at, ArmorStand.class, s -> {
+        ArmorStand stand = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), at, ArmorStand.class, s -> {
             // A marker has no hitbox and no collision, which is what makes it
             // invisible in every sense rather than just unrendered.
             s.setMarker(true);

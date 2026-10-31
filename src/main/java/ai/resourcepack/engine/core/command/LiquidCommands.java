@@ -109,9 +109,11 @@ public final class LiquidCommands implements Area {
             return true;
         }
         LiquidPools.Pool pool = pools.add(id.get(), standing.getWorld().getName(), from, here);
+        // Through Keyed: Biome is an enum before 1.21.3 and an interface after, so
+        // was.getKey() links as IncompatibleClassChangeError on the older side.
         biomes.paint(standing.getWorld(), pool.min()[0], pool.min()[1], pool.min()[2],
                         pool.max()[0], pool.max()[1], pool.max()[2], id.get())
-                .ifPresent(was -> pool.remember(was.getKey().toString()));
+                .ifPresent(was -> pool.remember(((org.bukkit.Keyed) was).getKey().toString()));
         pools.save(log);
         corners.remove(player.getUniqueId());
         Reply.to(player, pool + ".");

@@ -94,9 +94,11 @@ public final class LiquidBuckets {
 
         LiquidPools.Pool pool = pools.addBlock(id.get(), target.getWorld().getName(),
                 target.getX(), target.getY(), target.getZ());
+        // Through Keyed: Biome is an enum before 1.21.3 and an interface after, so
+        // was.getKey() links as IncompatibleClassChangeError on the older side.
         biomes.paint(target.getWorld(), pool.min()[0], pool.min()[1], pool.min()[2],
                         pool.max()[0], pool.max()[1], pool.max()[2], id.get())
-                .ifPresent(was -> pool.remember(was.getKey().toString()));
+                .ifPresent(was -> pool.remember(((org.bukkit.Keyed) was).getKey().toString()));
         pools.save(log);
 
         if (liquid.get().color().isPresent() && biomes.biomeOf(id.get()).isEmpty()) {

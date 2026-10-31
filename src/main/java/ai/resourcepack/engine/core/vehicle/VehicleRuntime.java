@@ -924,7 +924,7 @@ public final class VehicleRuntime implements Listener {
         if (where == null || where.getWorld() == null || found.isEmpty()) {
             return Optional.empty();
         }
-        ArmorStand chassis = where.getWorld().spawn(where, ArmorStand.class, stand -> {
+        ArmorStand chassis = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), where, ArmorStand.class, stand -> {
             stand.setMarker(true);
             stand.setVisible(false);
             stand.setGravity(false);
@@ -1720,7 +1720,7 @@ public final class VehicleRuntime implements Listener {
         if (display == null || !display.isValid()) return;
         Location at = display.getLocation();
         Location feet = at.clone().subtract(0, MODEL_LIFT, 0);
-        ArmorStand host = feet.getWorld().spawn(feet, ArmorStand.class, stand -> {
+        ArmorStand host = ai.resourcepack.engine.core.version.Spawning.spawn(feet.getWorld(), feet, ArmorStand.class, stand -> {
             stand.setVisible(false);
             stand.setSmall(true);
             stand.setBasePlate(false);
@@ -2318,7 +2318,7 @@ public final class VehicleRuntime implements Listener {
                 mounts.set(i, mount.getUniqueId());
                 parts.put(mount.getUniqueId(), chassisId);
 
-                Interaction hitbox = world.spawn(seat, Interaction.class, box -> {
+                Interaction hitbox = ai.resourcepack.engine.core.version.Spawning.spawn(world, seat, Interaction.class, box -> {
                     box.setInteractionWidth(0.6f);
                     box.setInteractionHeight(0.8f);
                     box.setResponsive(true);
@@ -2330,7 +2330,7 @@ public final class VehicleRuntime implements Listener {
 
             VehicleHitbox box = info.hitbox();
             for (int tile = 0; tile < box.tiles(); tile++) {
-                Interaction part = world.spawn(bodyLocation(tile), Interaction.class, b -> {
+                Interaction part = ai.resourcepack.engine.core.version.Spawning.spawn(world, bodyLocation(tile), Interaction.class, b -> {
                     b.setInteractionWidth((float) box.width());
                     b.setInteractionHeight((float) box.height());
                     b.setResponsive(true);
@@ -2475,11 +2475,11 @@ public final class VehicleRuntime implements Listener {
             boolean stand = !seatMover.exact();
             Location where = mountLocation(index, stand);
             if (!stand) {
-                ItemDisplay mount = world.spawn(where, ItemDisplay.class, d -> d.setPersistent(false));
+                ItemDisplay mount = ai.resourcepack.engine.core.version.Spawning.spawn(world, where, ItemDisplay.class, d -> d.setPersistent(false));
                 carry.carry(mount);
                 return mount;
             }
-            return world.spawn(where, ArmorStand.class, s -> {
+            return ai.resourcepack.engine.core.version.Spawning.spawn(world, where, ArmorStand.class, s -> {
                 s.setMarker(false);
                 s.setSmall(true);
                 s.setVisible(false);
@@ -2605,7 +2605,7 @@ public final class VehicleRuntime implements Listener {
         }
 
         private void spawnModel(ItemStack item) {
-            ItemDisplay display = world.spawn(at.clone().add(0, MODEL_LIFT, 0), ItemDisplay.class, d -> {
+            ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(world, at.clone().add(0, MODEL_LIFT, 0), ItemDisplay.class, d -> {
                 d.setItemStack(item);
                 // NONE for the same reason a placed model uses it: every other
                 // transform applies the model's own display block, and a

@@ -387,7 +387,7 @@ public final class ModelPlacementListener implements Listener {
         // on the block floor.
         Location centre = target.getLocation().add(0.5, 0.5, 0.5);
         centre.setYaw(yaw);
-        ItemDisplay display = partIds != null ? null : world.spawn(centre, ItemDisplay.class, d -> {
+        ItemDisplay display = partIds != null ? null : ai.resourcepack.engine.core.version.Spawning.spawn(world, centre, ItemDisplay.class, d -> {
             d.setItemStack(shown);
             // NONE, and this is load-bearing. Every other transform applies the
             // model's own `display` block, and the vanilla block/block parent
@@ -417,7 +417,7 @@ public final class ModelPlacementListener implements Listener {
         // An Interaction anchors at its feet rather than its centre, so this
         // one sits on the block floor and grows upward.
         Location base = target.getLocation().add(0.5, 0.0, 0.5);
-        Interaction hitbox = world.spawn(base, Interaction.class, i -> {
+        Interaction hitbox = ai.resourcepack.engine.core.version.Spawning.spawn(world, base, Interaction.class, i -> {
             i.setInteractionWidth(info.width() * scale);
             i.setInteractionHeight(info.height() * scale);
             i.setResponsive(true);

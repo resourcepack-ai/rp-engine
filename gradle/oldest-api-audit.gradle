@@ -28,6 +28,8 @@ dependencies {
 tasks.register('auditOldestApi') {
     description = 'Compiles against the oldest supported Minecraft API and fails on unguarded calls.'
     group = 'verification'
+    // The second half reads the jar that ships, so it has to exist.
+    dependsOn 'shadowJar'
 
     doLast {
         def exempt = file('version-arms.txt').readLines()
@@ -72,9 +74,15 @@ tasks.register('auditOldestApi') {
                     .add('line ' + d.lineNumber + ': ' + d.getMessage(null).readLines()[0])
         }
 
+        // The second half: the SHIPPED bytecode, linked against the oldest API.
+        linkageOffenders(exempt).each { source, messages ->
+            offenders.computeIfAbsent(source, { [] }).addAll(messages)
+        }
+
         if (offenders.isEmpty()) {
             logger.lifecycle('Oldest-API audit clean against ' + oldestSupportedApi + ': ' +
-                    exempt.size() + ' version arms exempt, nothing else names a newer API.')
+                    exempt.size() + ' version arms exempt, nothing else names a newer API, ' +
+                    'and every call in the shipped jar links against it.')
             return
         }
 
@@ -92,4 +100,193 @@ tasks.register('auditOldestApi') {
                 .append('without asking Compatibility first - add it to version-arms.txt.')
         throw new GradleException(report.toString())
     }
+}
+
+// ---------------------------------------------------------------------------
+// The linkage half.
+//
+// Compiling the sources against the oldest API answers "would this SOURCE
+// compile there?", which is not the question a server asks. A server loads the
+// BYTECODE, and that was compiled against the newest API, so wherever the two
+// APIs offer different overloads or shapes for the same source, the source
+// audit passes and the jar still dies. The case that proved it:
+// `world.spawn(loc, ItemDisplay.class, d -> ...)`. Against 1.19.4 the lambda
+// binds to spawn(Location, Class, org.bukkit.util.Consumer); against 1.21.4 to
+// spawn(Location, Class, java.util.function.Consumer), which 1.19.4 does not
+// have. Both compile, the shipped one throws NoSuchMethodError, and the audit
+// was green over twenty call sites of it. The same blindness covers a return
+// type that changed, and a type that went from enum (a class) to interface,
+// which links as IncompatibleClassChangeError.
+//
+// So this reads every class in the shaded jar (ours and plugin-common's) and
+// resolves every method, field and class it names that belongs to the oldest
+// API's jars against those jars, the way the JVM would: name AND descriptor,
+// through superclasses and interfaces, with the right kind of invoke.
+// References to anything the oldest API does not ship (the JDK, Geyser,
+// PlaceholderAPI, netty...) are not its business and are skipped. Classes in
+// version-arms.txt (and their nested classes) are exempt, as above.
+//
+// ASM comes from the shadow plugin's classloader, which already carries it, so
+// the build needs no new dependency (and nothing new to fetch offline).
+// ---------------------------------------------------------------------------
+ext.linkageOffenders = { List<String> exempt ->
+    def loader = shadowJar.getClass().classLoader
+    def ClassReader = loader.loadClass('org.objectweb.asm.ClassReader')
+    def ClassNode = loader.loadClass('org.objectweb.asm.tree.ClassNode')
+    def Type = loader.loadClass('org.objectweb.asm.Type')
+    def Handle = loader.loadClass('org.objectweb.asm.Handle')
+    final int ACC_INTERFACE = 0x0200
+    final int INVOKEVIRTUAL = 182, INVOKESPECIAL = 183, INVOKESTATIC = 184, INVOKEINTERFACE = 185
+    final int SKIP = 1 | 2 | 4 // SKIP_CODE | SKIP_DEBUG | SKIP_FRAMES
+
+    // name -> super, interfaces, whether it is an interface, members by name+descriptor
+    def summarise = { byte[] bytes ->
+        def node = ClassNode.newInstance()
+        ClassReader.newInstance(bytes).accept(node, SKIP)
+        [name: node.name, superName: node.superName, interfaces: (node.interfaces ?: []) as List,
+         itf: (node.access & ACC_INTERFACE) != 0,
+         methods: node.methods.collect { it.name + it.desc } as Set,
+         fields: node.fields.collect { it.name + ':' + it.desc } as Set]
+    }
+
+    def oldApi = [:]
+    def oldPackages = [] as Set
+    configurations.oldestApi.files.each { f ->
+        def zip = new java.util.zip.ZipFile(f)
+        try {
+            zip.entries().each { e ->
+                if (e.name.endsWith('.class') && !e.name.startsWith('META-INF/') && !e.name.endsWith('module-info.class')) {
+                    def info = summarise(zip.getInputStream(e).bytes)
+                    oldApi[info.name] = info
+                    def slash = info.name.lastIndexOf('/')
+                    if (slash > 0) oldPackages << info.name.substring(0, slash)
+                }
+            }
+        } finally {
+            zip.close()
+        }
+    }
+
+    def jdkCache = [:]
+    def jdk = { String name ->
+        if (jdkCache.containsKey(name)) return jdkCache[name]
+        def stream = ClassLoader.getSystemClassLoader().getResourceAsStream(name + '.class')
+        def info = null
+        if (stream != null) {
+            try { info = summarise(stream.bytes) } finally { stream.close() }
+        }
+        jdkCache[name] = info
+        info
+    }
+
+    def ours = [:]
+    def ourNodes = []
+    def jar = new java.util.zip.ZipFile(shadowJar.archiveFile.get().asFile)
+    try {
+        jar.entries().each { e ->
+            if (e.name.startsWith('ai/resourcepack/') && e.name.endsWith('.class')) {
+                def bytes = jar.getInputStream(e).bytes
+                def node = ClassNode.newInstance()
+                ClassReader.newInstance(bytes).accept(node, 0)
+                ourNodes << node
+                ours[node.name] = summarise(bytes)
+            }
+        }
+    } finally {
+        jar.close()
+    }
+
+    def lookup = { String name -> ours[name] ?: oldApi[name] ?: jdk(name) }
+    def inOldApiPackage = { String name ->
+        def slash = name.lastIndexOf('/')
+        slash > 0 && oldPackages.contains(name.substring(0, slash))
+    }
+
+    // Walks the type and every supertype: 'found', 'missing' (the whole
+    // hierarchy is known and the old API is part of it), or 'unknown'.
+    def resolve = { String owner, String key, boolean field ->
+        def seen = [] as Set
+        def queue = [owner]
+        boolean touchesOld = false
+        boolean unknown = false
+        while (!queue.isEmpty()) {
+            def name = queue.remove(0)
+            if (!seen.add(name)) continue
+            def info = lookup(name)
+            if (info == null) { unknown = true; continue }
+            if (oldApi.containsKey(name)) touchesOld = true
+            if ((field ? info.fields : info.methods).contains(key)) return 'found'
+            if (info.superName) queue << info.superName
+            queue.addAll(info.interfaces)
+        }
+        (!touchesOld || unknown) ? 'unknown' : 'missing'
+    }
+
+    def exemptNames = exempt.collect { it.replace(File.separator, '/').replaceAll(/\.java$/, '') }
+    def isExempt = { String name -> exemptNames.any { name == it || name.startsWith(it + '$') } }
+
+    def found = new LinkedHashMap<String, List<String>>()
+    def report = { node, String message ->
+        def top = node.name.contains('$') ? node.name.substring(0, node.name.indexOf('$')) : node.name
+        found.computeIfAbsent(top + '.class (bytecode)', { [] }) << message
+    }
+    def missingClass = { String name ->
+        def element = name
+        while (element.startsWith('[')) element = element.substring(1)
+        if (element.startsWith('L') && element.endsWith(';')) element = element.substring(1, element.length() - 1)
+        (!ours.containsKey(element) && !oldApi.containsKey(element) && inOldApiPackage(element)) ? element : null
+    }
+    def checkMember = { node, String where, int opcode, String owner, String name, String desc, boolean itf, boolean field ->
+        if (owner.startsWith('[')) return
+        def gone = missingClass(owner)
+        if (gone != null) { report(node, where + ': class ' + gone.replace('/', '.') + ' does not exist'); return }
+        def info = oldApi[owner]
+        if (info == null && !ours.containsKey(owner)) return
+        if (info != null && !field) {
+            if (opcode == INVOKEINTERFACE && !info.itf)
+                report(node, where + ': ' + owner.replace('/', '.') + '#' + name + ' is invoked as an interface method, but is a class there')
+            if (opcode != INVOKEINTERFACE && info.itf && !itf)
+                report(node, where + ': ' + owner.replace('/', '.') + '#' + name + ' is invoked as a class method, but is an interface there')
+        }
+        if (resolve(owner, field ? name + ':' + desc : name + desc, field) == 'missing')
+            report(node, where + ': ' + owner.replace('/', '.') + (field ? '.' : '#') + name + ' ' + desc + ' does not exist')
+    }
+
+    ourNodes.each { node ->
+        if (isExempt(node.name)) return
+        node.methods.each { m ->
+            def where = 'in ' + m.name
+            m.instructions.toArray().each { insn ->
+                def kind = insn.getClass().simpleName
+                if (kind == 'MethodInsnNode') {
+                    checkMember(node, where, insn.opcode, insn.owner, insn.name, insn.desc, insn.itf, false)
+                } else if (kind == 'FieldInsnNode') {
+                    checkMember(node, where, insn.opcode, insn.owner, insn.name, insn.desc, false, true)
+                } else if (kind == 'TypeInsnNode') {
+                    def gone = missingClass(insn.desc)
+                    if (gone != null) report(node, where + ': class ' + gone.replace('/', '.') + ' does not exist')
+                } else if (kind == 'LdcInsnNode' && Type.isInstance(insn.cst)) {
+                    def gone = missingClass(insn.cst.descriptor)
+                    if (gone != null) report(node, where + ': class ' + gone.replace('/', '.') + ' does not exist')
+                } else if (kind == 'InvokeDynamicInsnNode') {
+                    insn.bsmArgs.each { arg ->
+                        if (Handle.isInstance(arg)) {
+                            int tag = arg.tag
+                            checkMember(node, where, tag == 9 ? INVOKEINTERFACE : INVOKEVIRTUAL,
+                                    arg.owner, arg.name, arg.desc, arg.isInterface(), tag <= 4)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    found.keySet().each { k -> found[k] = found[k].unique() }
+    found
+}
+
+// Part of every `build`, not a thing to remember: the twenty spawn calls above
+// shipped because the audit was a separate command and passed anyway, and a
+// check that has to be remembered is one that is skipped the week it matters.
+tasks.named('check') {
+    dependsOn 'auditOldestApi'
 }

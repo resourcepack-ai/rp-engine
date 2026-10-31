@@ -334,7 +334,7 @@ final class VehicleScuffs {
     }
 
     private BlockDisplay spawn(Location at, DisplayCarry carry) {
-        BlockDisplay display = at.getWorld().spawn(at, BlockDisplay.class, d -> {
+        BlockDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(at.getWorld(), at, BlockDisplay.class, d -> {
             d.setBlock(Material.GRAY_CONCRETE.createBlockData());
             d.setPersistent(false);
             d.setGravity(false);

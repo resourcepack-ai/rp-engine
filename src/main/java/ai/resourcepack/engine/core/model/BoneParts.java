@@ -109,7 +109,7 @@ final class BoneParts {
             // packet per player per tick for ever.
             return;
         }
-        TextDisplay tag = display.getWorld().spawn(display.getLocation(), TextDisplay.class, text -> {
+        TextDisplay tag = ai.resourcepack.engine.core.version.Spawning.spawn(display.getWorld(), display.getLocation(), TextDisplay.class, text -> {
             text.setText(name);
             text.setBillboard(Display.Billboard.CENTER);
             text.setDefaultBackground(false);
@@ -129,7 +129,7 @@ final class BoneParts {
     private void spawnHitbox(ItemDisplay display, RigStore.Part part, BoneBehaviour behaviour) {
         float size = Math.max(0.25f, sizeOf(part));
         Location at = display.getLocation();
-        Interaction hitbox = display.getWorld().spawn(at, Interaction.class, box -> {
+        Interaction hitbox = ai.resourcepack.engine.core.version.Spawning.spawn(display.getWorld(), at, Interaction.class, box -> {
             box.setInteractionWidth(size);
             box.setInteractionHeight(size);
             box.setResponsive(true);

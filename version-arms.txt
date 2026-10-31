@@ -27,3 +27,4 @@ ai/resourcepack/engine/core/armor3d/ArmourItemModels.java
 ai/resourcepack/engine/core/recipe/CrafterGuard.java
 ai/resourcepack/engine/core/object/ObjectItems.java
 ai/resourcepack/engine/core/vfx/VfxDisplays.java
+ai/resourcepack/engine/core/version/ModernSpawning.java

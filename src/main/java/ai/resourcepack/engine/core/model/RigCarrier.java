@@ -189,7 +189,7 @@ public final class RigCarrier {
 
         // Spawned BEFORE the parts, because every part has to be told which
         // entity to read its yaw off and that means having its id in hand.
-        Interaction yawHost = anchor.getWorld().spawn(facing, Interaction.class, box -> {
+        Interaction yawHost = ai.resourcepack.engine.core.version.Spawning.spawn(anchor.getWorld(), facing, Interaction.class, box -> {
             // See the class note: zero-sized so nothing can click it, and
             // never saved, because it is derived from the vehicle exactly as
             // the parts are.

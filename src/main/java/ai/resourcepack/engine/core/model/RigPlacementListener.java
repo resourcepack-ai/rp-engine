@@ -239,7 +239,7 @@ public final class RigPlacementListener implements Listener {
         World world = target.getWorld();
         // Interaction hitboxes anchor at their feet, not their center.
         Location base = target.getLocation().add(0.5, 0.0, 0.5);
-        Interaction hitbox = world.spawn(base, Interaction.class, i -> {
+        Interaction hitbox = ai.resourcepack.engine.core.version.Spawning.spawn(world, base, Interaction.class, i -> {
             // The hitbox grows with the rig. Without this a 4x statue is only
             // punchable in the one block it was placed in, so most of what you
             // can see cannot be broken or right-clicked — and the part you can
@@ -306,7 +306,7 @@ public final class RigPlacementListener implements Listener {
         // so block-center puts a 16px cube exactly in the block space.
         Location center = target.getLocation().add(0.5, 0.5, 0.5);
         center.setYaw(yaw);
-        return target.getWorld().spawn(center, ItemDisplay.class, d -> {
+        return ai.resourcepack.engine.core.version.Spawning.spawn(target.getWorld(), center, ItemDisplay.class, d -> {
             d.setItemStack(displayItem);
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, modelId);
