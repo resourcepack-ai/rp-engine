@@ -108,6 +108,11 @@ public final class GiveCommands {
             if (!CONTENT_ID.matcher(words[2]).matches()) return Optional.of("bad content id");
             return target(words[3], player);
         }
+        if (sub.equals("cape")) {
+            if (words.length != 5 || !words[2].equalsIgnoreCase("wear")) return Optional.of("only rp cape wear is allowed");
+            if (!CONTENT_ID.matcher(words[3]).matches()) return Optional.of("bad content id");
+            return target(words[4], player);
+        }
         if (sub.equals("armor")) {
             if (words.length != 5 || !words[2].equalsIgnoreCase("wear")) return Optional.of("only rp armor wear is allowed");
             if (!CONTENT_ID.matcher(words[3]).matches()) return Optional.of("bad content id");

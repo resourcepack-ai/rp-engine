@@ -106,6 +106,13 @@ public final class WornArmour implements Listener {
     /** How long the own copy glides over a move. Short: it is led, not trailed. */
     private static final int OWN_GLIDE_TICKS = 2;
 
+    /**
+     * Past this pitch, looking down, a wearer's own cape is hidden from them.
+     * At the default field of view the cape behind them comes into the
+     * first-person frame at about 62 degrees; this leaves room for a wider one.
+     */
+    private static final float OWN_CAPE_MAX_PITCH = 50f;
+
     /** The most the own copy is ever placed ahead of the body, in blocks. */
     private static final double MAX_LEAD = 1.5;
 
@@ -138,6 +145,14 @@ public final class WornArmour implements Listener {
     private final Map<UUID, Integer> protocols = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final Map<UUID, Wearer> wearers = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Capes ride this loop too (see {@code core/cape}): one more display on
+     * the body bone, turned about its hinge by vanilla's cape physics. Null
+     * until {@link #capes} wires them.
+     */
+    private volatile java.util.function.Function<Player, ai.resourcepack.engine.core.cape.Cape> capeOf;
+    private volatile java.util.function.Predicate<Player> seesOwnCape = player -> true;
     /** Who asked to see their own. Session-only, and kept when they take it off and put it back on. */
     private final Set<UUID> showingSelf = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile long tick;
@@ -188,6 +203,17 @@ public final class WornArmour implements Listener {
     public boolean toggleSelf(Player player) {
         UUID id = player.getUniqueId();
         return showingSelf.add(id) || !showingSelf.remove(id);
+    }
+
+    /**
+     * Wires capes in: {@code capeOf} says which one a player has on (or
+     * null), {@code seesOwn} whether they see their own. Unlike 3D armour a
+     * cape is shown to its wearer by default, as the game shows its own in F5.
+     */
+    public void capes(java.util.function.Function<Player, ai.resourcepack.engine.core.cape.Cape> capeOf,
+                      java.util.function.Predicate<Player> seesOwn) {
+        this.capeOf = capeOf;
+        this.seesOwnCape = seesOwn == null ? player -> true : seesOwn;
     }
 
     public boolean showsSelf(Player player) {
@@ -253,15 +279,19 @@ public final class WornArmour implements Listener {
             wearer.shared.sync(player, wearer.wanted, feet(player), false);
             // Their own copy is only the parts their client does not already
             // draw: a set their shaders draw is on their body with no lag at
-            // all, and nothing here could improve on that.
+            // all, and nothing here could improve on that. Armour only when
+            // they asked to see it; a cape unless they asked not to.
             Map<String, Placed> ownWanted = new LinkedHashMap<>();
             int ownProtocol = protocol(player);
+            boolean selfArmour = showingSelf.contains(player.getUniqueId());
+            boolean selfCape = seesOwnCape.test(player);
             for (Map.Entry<String, Placed> entry : wearer.wanted.entrySet()) {
-                if (!entry.getValue().set().drawnBy(ownProtocol)) {
-                    ownWanted.put(entry.getKey(), entry.getValue());
+                Placed placed = entry.getValue();
+                if (placed.cape() ? selfCape : selfArmour && !placed.set().drawnBy(ownProtocol)) {
+                    ownWanted.put(entry.getKey(), placed);
                 }
             }
-            boolean own = showingSelf.contains(player.getUniqueId()) && !ownWanted.isEmpty();
+            boolean own = !ownWanted.isEmpty();
             if (own) {
                 if (wearer.own == null) {
                     wearer.own = new Copy(true);
@@ -295,7 +325,7 @@ public final class WornArmour implements Listener {
      * with armour on.
      */
     private Map<String, Placed> wanted(Player player, Map<String, Armor3dSet> known) {
-        if (known.isEmpty() || player.isDead() || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
+        if (player.isDead() || player.getGameMode() == org.bukkit.GameMode.SPECTATOR) {
             return Map.of();
         }
         EntityEquipment equipment = player.getEquipment();
@@ -303,6 +333,10 @@ public final class WornArmour implements Listener {
             return Map.of();
         }
         Map<String, Placed> wanted = new LinkedHashMap<>();
+        cape(player, equipment, wanted);
+        if (known.isEmpty()) {
+            return wanted;
+        }
         for (Armor3dSet.Piece piece : Armor3dSet.Piece.values()) {
             ItemStack stack = equipment.getItem(piece.slot());
             if (stack == null || stack.getType() == Material.AIR) {
@@ -318,11 +352,46 @@ public final class WornArmour implements Listener {
                         List<Armor3dSet.Part> parts = entry.getValue().parts();
                         for (int i = 0; i < parts.size(); i++) {
                             wanted.put(entry.getKey().id() + "/" + piece.wire() + "/" + i,
-                                    new Placed(entry.getKey(), parts.get(i)));
+                                    new Placed(entry.getKey(), parts.get(i), false));
                         }
                     });
         }
         return wanted;
+    }
+
+    /**
+     * Where a cape hangs: from the middle of the top of the back, in the
+     * wearer's frame: {@code PlayerCapeModel}'s offset of two pixels behind
+     * the body's centre. A chestplate pushes it out and up, by
+     * {@code CapeLayer}'s own translate (0.85 px up, 1.1 px further back), so
+     * it hangs off the armour rather than through it.
+     */
+    static final float[] CAPE_HINGE = {0f, 24f, -2f};
+    static final float[] CAPE_HINGE_ARMOURED = {0f, 24.85f, -3.1f};
+
+    /**
+     * The player's cape, if they have one on and the game would draw a cape:
+     * not under an elytra (which the game draws instead) and not while
+     * invisible.
+     */
+    private void cape(Player player, EntityEquipment equipment, Map<String, Placed> wanted) {
+        java.util.function.Function<Player, ai.resourcepack.engine.core.cape.Cape> source = capeOf;
+        if (source == null || player.isInvisible()) {
+            return;
+        }
+        ai.resourcepack.engine.core.cape.Cape cape = source.apply(player);
+        if (cape == null) {
+            return;
+        }
+        ItemStack chest = equipment.getChestplate();
+        Material worn = chest == null ? Material.AIR : chest.getType();
+        if (worn == Material.ELYTRA) {
+            return;
+        }
+        boolean armoured = worn != Material.AIR;
+        Armor3dSet.Part part = new Armor3dSet.Part("body", cape.model(),
+                armoured ? CAPE_HINGE_ARMOURED : CAPE_HINGE, null, 1f);
+        wanted.put("cape:" + cape.id(), new Placed(cape.art(), part, true));
     }
 
     // ---- events ---------------------------------------------------------------
@@ -414,6 +483,11 @@ public final class WornArmour implements Listener {
         /** "viewer|display" for every shared display currently hidden from a viewer. */
         final Set<String> hidden = new HashSet<>();
 
+        /**
+         * Their cape, a tick behind them. Stepped whether or not they wear
+         * one: it is cheap, and a cape put on mid-sprint starts out moving.
+         */
+        final ai.resourcepack.engine.core.emote.CapeSway sway = new ai.resourcepack.engine.core.emote.CapeSway();
         /** {@code {position, speed}} — see {@link WornPose#walk}. */
         final float[] walk = new float[2];
         float bodyYaw;
@@ -450,6 +524,9 @@ public final class WornArmour implements Listener {
                 lead = new Vector();
             }
             Entity vehicle = player.getVehicle();
+            // A carried body's cape trails what carries it; see CapeSway.step.
+            sway.step(player, vehicle instanceof Boat || vehicle instanceof LivingEntity
+                    ? Float.valueOf(vehicle.getLocation().getYaw()) : null);
             if (vehicle != null) {
                 // A rider's legs belong to the seat and their body to what they
                 // sit in: a boat or a horse sets both on the client.
@@ -501,7 +578,7 @@ public final class WornArmour implements Listener {
             // riptide spin. Chasing them is a second model of the renderer for
             // moments nobody stands still in.
             boolean hidden = stance != Pose.STANDING && stance != Pose.SNEAKING;
-            shared.pose(player, state(player, stance, 0, SWING_LEAD), bodyYaw, hidden);
+            shared.pose(player, state(player, stance, 0, SWING_LEAD), bodyYaw, hidden, sway, false);
             if (own != null) {
                 double ahead = Math.min(MAX_PING_TICKS, Math.max(0, player.getPing()) / 50.0) + POSE_PERIOD;
                 // The body turn, run forward on the movement it is making now:
@@ -512,7 +589,11 @@ public final class WornArmour implements Listener {
                         yaw = WornPose.bodyYaw(yaw, player.getLocation().getYaw(), dx, dz, swinging(i));
                     }
                 }
-                own.pose(player, state(player, stance, (float) ahead, (float) ahead), yaw, hidden);
+                // Their own cape is put away while they look steeply down: in
+                // first person the game draws none of their body, and a cape
+                // hanging behind legs that are not there would come into view.
+                own.pose(player, state(player, stance, (float) ahead, (float) ahead), yaw, hidden, sway,
+                        player.getLocation().getPitch() > OWN_CAPE_MAX_PITCH);
             }
         }
 
@@ -651,6 +732,9 @@ public final class WornArmour implements Listener {
             }
             for (Map.Entry<String, Placed> entry : wanted.entrySet()) {
                 if (displays.containsKey(entry.getKey())) {
+                    // Same art, perhaps a new hinge: a cape moves when a
+                    // chestplate goes on or comes off.
+                    shown.put(entry.getKey(), entry.getValue());
                     continue;
                 }
                 displays.put(entry.getKey(), spawn(player, at, entry.getValue()));
@@ -708,7 +792,8 @@ public final class WornArmour implements Listener {
             return display;
         }
 
-        void pose(Player player, WornPose.State state, float bodyYaw, boolean hidden) {
+        void pose(Player player, WornPose.State state, float bodyYaw, boolean hidden,
+                  ai.resourcepack.engine.core.emote.CapeSway sway, boolean hideCape) {
             if (displays.isEmpty()) {
                 return;
             }
@@ -718,12 +803,16 @@ public final class WornArmour implements Listener {
                 Armor3dSet.Part part = placed == null ? null : placed.part();
                 WornPose.Limb limb = part == null ? null : WornPose.limbOf(part.bone());
                 Transformation next;
-                if (limb == null || hidden) {
+                boolean cape = placed != null && placed.cape();
+                if (limb == null || hidden || (cape && hideCape)) {
                     next = collapsed();
                 } else {
                     Vector3f translation = new Vector3f();
-                    Quaternionf rotation = WornPose.place(pose, limb, part.anchor(), part.rotation(), bodyYaw,
-                            state.crouching, translation);
+                    Quaternionf rotation = cape
+                            ? WornPose.placeTurned(pose, limb, part.anchor(), sway.wearerTurn(), bodyYaw,
+                                    state.crouching, translation)
+                            : WornPose.place(pose, limb, part.anchor(), part.rotation(), bodyYaw,
+                                    state.crouching, translation);
                     float size = WornPose.PLAYER_SCALE / (part.scale() > 0 ? part.scale() : 1f);
                     next = new Transformation(translation, rotation, new Vector3f(size, size, size), new Quaternionf());
                 }
@@ -766,8 +855,8 @@ public final class WornArmour implements Listener {
                 new Vector3f(tiny, tiny, tiny), new Quaternionf());
     }
 
-    /** One display's part, and the set it is a part of. */
-    private record Placed(Armor3dSet set, Armor3dSet.Part part) {
+    /** One display's part, and the set it is a part of; {@code cape} for a cape's one part. */
+    private record Placed(Armor3dSet set, Armor3dSet.Part part, boolean cape) {
     }
 
     /** {@code player}'s protocol, cached for the session. */

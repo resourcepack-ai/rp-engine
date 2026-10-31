@@ -217,6 +217,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ai.resourcepack.engine.core.armor3d.Armor3dCatalogue armor3dSets =
             new ai.resourcepack.engine.core.armor3d.Armor3dCatalogue(() -> pushedAll.armor3d());
     /**
+     * Every cape: the content folder's, replaced on each load, and every live
+     * push's. Worn through {@link #wornArmour}; see core/cape.
+     */
+    private final ai.resourcepack.engine.core.cape.CapeCatalogue capes =
+            new ai.resourcepack.engine.core.cape.CapeCatalogue(() -> pushedAll.capes());
+    private ai.resourcepack.engine.core.cape.CapeWardrobe capeWardrobe;
+    /**
      * 3D shader objects: the pushes' and the content folder's, and the
      * runtime that places and drives them. See core/object.
      */
@@ -938,6 +945,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 armor3dSets::all, compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS),
                 ai.resourcepack.engine.core.armor3d.ClientProtocols.forServer(new ProtocolResolver(getLogger())));
         getServer().getPluginManager().registerEvents(wornArmour, this);
+        capeWardrobe = new ai.resourcepack.engine.core.cape.CapeWardrobe(this, capes);
+        wornArmour.capes(capeWardrobe::worn, capeWardrobe::seesOwn);
         if (compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)) {
             ai.resourcepack.engine.core.armor3d.Armor3dItems dresser = armor3dItems;
             items.armor3d((meta, item, typed, slot) -> {
@@ -1200,7 +1209,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                         + "custom_model_data, which older servers cannot carry."),
                 new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
                 new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime),
-                new ai.resourcepack.engine.core.command.MusicCommands(music));
+                new ai.resourcepack.engine.core.command.MusicCommands(music),
+                new ai.resourcepack.engine.core.command.CapeCommands(capes, capeWardrobe,
+                        compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS)
+                                ? null
+                                : "Capes need Minecraft 1.21.4 or newer: a cape is drawn by a display whose art is "
+                                        + "named by a string custom_model_data, which older servers cannot carry."));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -1940,6 +1954,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);
     }
 
+    /** The capes this server holds, and putting them on people. */
+    public ai.resourcepack.engine.api.Capes capes() {
+        return new ai.resourcepack.engine.core.cape.CapesImpl(capes, capeWardrobe,
+                compatibility != null && capeWardrobe != null
+                        && compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_STRING_TAGS));
+    }
+
     /** The 3D armour sets this server holds, and putting them on people. */
     public ai.resourcepack.engine.api.Armor armor() {
         return new ai.resourcepack.engine.core.armor3d.ArmorImpl(armor3dSets, armor3dItems, armor3dWardrobe,
@@ -2545,6 +2566,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "armor3d", parsedArmour.diagnostics());
         armor3dSets.replaceAuthored(parsedArmour.sets());
+        ai.resourcepack.engine.core.cape.CapeDefinitions.Result parsedCapes =
+                ai.resourcepack.engine.core.cape.CapeDefinitions.parse(loaded,
+                        ai.resourcepack.engine.core.pack.PackFiles.folder(content));
+        report(to, "capes", parsedCapes.diagnostics());
+        capes.replaceAuthored(parsedCapes.capes());
 
         // 3D shader objects and their sequences. Nothing to build: the art is
         // the pack's, and this only names it.
@@ -2589,6 +2615,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         BuildReport builtReport = builder
                 .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
+                .with(new ai.resourcepack.engine.core.cape.CapeAssets(parsedCapes, armourDrawn))
                 .with(new ai.resourcepack.engine.core.textfx.TextEffectAssets(parsedEffects.effects(), effectIndices,
                         compatibility.packFormat()))
                 .with(new ai.resourcepack.engine.core.vfx.VfxAssets(parsedVfx.effects(),
