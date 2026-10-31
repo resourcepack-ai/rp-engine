@@ -530,7 +530,12 @@ class StudioContentTest {
                           "animations":{"idle":"idle","walk":"walk","attack":"bite","fly":"nope"},
                           "sounds":{"ambient":"grunt","step":null},
                           "drops":[{"item":"minecraft:leather","min":1,"max":3,"chance":1.0}],
-                          "xp":5},
+                          "xp":5,"hurtFlash":false,"followRange":40,"glowing":true,"fireImmune":true,
+                          "bossBar":{"color":"red","style":"SEGMENTED_10","range":48},
+                          "ranged":{"projectile":"snowball","damage":3,"cooldown":1.5,"range":20},
+                          "spawning":{"biomes":["desert","*badlands*"],"replaces":["zombie"],"chance":0.25,
+                                      "minLight":0,"maxLight":7,"time":"night","minGroup":1,"maxGroup":3,
+                                      "maxPerChunk":2}},
                          {"id":"unicorn","model":"u","type":"NOT_A_MOB"},
                          {"id":"plain","model":"p","type":"ZOMBIE"}]}
                 """;
@@ -553,6 +558,14 @@ class StudioContentTest {
         assertEquals(1, plain.speed());
         assertEquals(1f, plain.scale());
         assertTrue(plain.drops().isEmpty());
+        assertTrue(plain.hurtFlash(), "a mob flashes when hurt unless told not to");
+        assertTrue(plain.bossBar().isEmpty());
+        assertTrue(plain.ranged().isEmpty());
+        assertTrue(plain.spawning().isEmpty());
+        assertFalse(rhino.hurtFlash());
+        assertEquals("RED", rhino.bossBar().orElseThrow().color());
+        assertEquals("snowball", rhino.ranged().orElseThrow().projectile());
+        assertEquals("ZOMBIE", rhino.spawning().orElseThrow().replaces().get(0));
 
         content.save(LOG);
         StudioContent reloaded = new StudioContent(dir.toFile());
@@ -565,5 +578,19 @@ class StudioContentTest {
         assertEquals(5, back.xp());
         assertEquals(3, back.drops().get(0).max());
         assertFalse(back.nameVisible());
+        assertFalse(back.hurtFlash());
+        assertEquals(40, back.followRange());
+        assertTrue(back.glowing());
+        assertTrue(back.fireImmune());
+        assertEquals("SEGMENTED_10", back.bossBar().orElseThrow().style());
+        assertEquals(48, back.bossBar().orElseThrow().range());
+        assertEquals(1.5, back.ranged().orElseThrow().cooldown());
+        assertEquals(3, back.ranged().orElseThrow().damage());
+        ai.resourcepack.engine.api.EntityInfo.Spawning rules = back.spawning().orElseThrow();
+        assertEquals(java.util.List.of("desert", "*badlands*"), rules.biomes());
+        assertEquals("night", rules.time());
+        assertEquals(7, rules.maxLight());
+        assertEquals(3, rules.maxGroup());
+        assertEquals(0.25, rules.chance());
     }
 }

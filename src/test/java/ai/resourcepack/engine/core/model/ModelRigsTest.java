@@ -180,6 +180,31 @@ class ModelRigsTest {
         assertFalse(part.has("groups"));
     }
 
+    @Test
+    void everyFaceOfAPartIsOnTintLayerZeroAndTheDefinitionTintsIt() {
+        // How a hurt mob's model flashes red: the part's definition tints layer
+        // 0 by the stack's custom_model_data colour, white unless set.
+        JsonObject source = model("{\"elements\":[{\"from\":[0,0,0],\"to\":[4,4,4],"
+                + "\"faces\":{\"north\":{\"uv\":[0,0,4,4],\"texture\":\"#0\"},"
+                + "\"up\":{\"uv\":[0,0,4,4],\"texture\":\"#0\",\"tintindex\":3}}}],"
+                + "\"groups\":[" + bone("arm", 6, "0") + "],"
+                + "\"animations\":[" + animation(rotate("g:0")) + "]}");
+        ModelRigs.Rig rig = ModelRigs.compute("mypack:golem", source).orElseThrow();
+        JsonObject faces = ModelRigs.partModel(source, rig.parts().get(0)).getAsJsonArray("elements").get(0)
+                .getAsJsonObject().getAsJsonObject("faces");
+        assertEquals(0, faces.getAsJsonObject("north").get("tintindex").getAsInt());
+        assertEquals(3, faces.getAsJsonObject("up").get("tintindex").getAsInt(), "an author's own layer is kept");
+        assertFalse(source.getAsJsonArray("elements").get(0).getAsJsonObject().getAsJsonObject("faces")
+                .getAsJsonObject("north").has("tintindex"), "the source model is not edited");
+
+        JsonObject definition = JsonParser.parseString(ModelRigs.partDefinition("mypack:item/golem__part0"))
+                .getAsJsonObject().getAsJsonObject("model");
+        assertEquals("mypack:item/golem__part0", definition.get("model").getAsString());
+        JsonObject tint = definition.getAsJsonArray("tints").get(0).getAsJsonObject();
+        assertEquals("minecraft:custom_model_data", tint.get("type").getAsString());
+        assertEquals(0xFFFFFF, tint.get("default").getAsInt(), "white: an unhurt part draws as it always did");
+    }
+
     // ---- re-centring, which is what keeps a wheel on its axle -------------
 
     @Test

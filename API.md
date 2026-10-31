@@ -1098,6 +1098,15 @@ one-shot is playing or the mob has nothing mapped. `play(entity, name, seconds)`
 holds the stage for that long (0 for the animation's own length), then the mob
 goes back to what it is doing.
 
+`EntityInfo` also says how a mob looks after itself (0.2.51): `hurtFlash()`,
+`followRange()`, `glowing()`, `fireImmune()`, and three optional blocks:
+`bossBar()` (`color()`, `style()`, `range()`), `ranged()` (`projectile()`,
+`damage()`, `cooldown()`, `range()`) and `spawning()` (`worlds()`, `biomes()`,
+`replaces()`, `chance()`, light, time, group and `maxPerChunk()`). The builder
+takes each, so a mob registered from code can have them too. A projectile a
+custom mob fired carries the damage it was given; setting a different damage
+on it in your own `EntityDamageByEntityEvent` at a priority above NORMAL wins.
+
 Listen for `MobStateChangeEvent` to follow it: it fires when what is PLAYING
 changes, so a state the mob has no animation for never appears.
 `EntityDeathEvent` (ours) still hands you the drops list, after the mob's own

@@ -594,6 +594,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (getServer().getPluginManager().getPlugin("Geyser-Spigot") != null) {
             try {
                 bedrock = new GeyserBridge(this, reconnecting::add);
+                overlays.bedrockViewers(bedrock::isBedrock);
                 hooks.add("Geyser");
             } catch (RuntimeException | NoClassDefFoundError e) {
                 getLogger().warning("Geyser is here but the bridge would not start: " + e.getMessage());
@@ -716,6 +717,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         seats = new Seats(this, compatibility);
         creatures = new CustomEntities(this, items,
                 ai.resourcepack.engine.core.model.RigTags.forServer(compatibility, this), sounds);
+        // A hurt model's red tint and a shooter's hidden bow are 1.21.4 item
+        // calls; below it the flash is an outline and the engine shoots.
+        creatures.modernItems(compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_DEFINITIONS));
         // emotes() is a fresh facade each call and holds no state of its own —
         // it is a view of the director, which is what actually owns a session.
         // So handing one to VehicleRuntime is handing it the same director everything

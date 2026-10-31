@@ -1086,6 +1086,11 @@ rhino:
     - {item: zoo:horn, chance: 0.25}
     - minecraft:bone
   xp: 5
+  hurt-flash: true        # red for a moment when hurt; the default
+  follow-range: 32        # blocks it notices a target from. Default: the mob's own
+  fire-immune: false      # true: fire, lava and burning do nothing
+  glowing: false          # the spectral-arrow outline on the model
+  boss-bar: {color: RED, style: SOLID, range: 32}
 ```
 
 It is genuinely a mob: its own AI and pathing, found by `@e[tag=zoo]`, seen by
@@ -1097,8 +1102,16 @@ part `type` does not decide.
 **The model is the whole rig.** An animated model is a display per moving
 part, riding the mob with the vanilla body made invisible, so the hitbox stays
 where the model looks. A still model is one display. A custom entity never
-despawns: one that vanished because a player walked away would leave its model
-standing there, because a removed mount ejects its passengers.
+despawns, except one that [spawned on its own](#spawning-on-its-own), which
+despawns like the mob it replaced. Whenever a mob wearing a model is removed
+without dying (despawned, peaceful, another plugin's `remove()`), its parts are
+taken away within a tick or two.
+
+**It flashes red when hurt**, as a vanilla mob does, for about a third of a
+second. On 1.21.4 and newer an animated model's parts are tinted red through
+their item definitions (both this engine's pack and Studio's give every rig part
+the tint); a still model, and any model on an older server, shows a red glowing
+outline instead. `hurt-flash: false` turns it off.
 
 **`animations:` maps a state to one of the model's animations by name.** The
 states, most important first:
@@ -1155,6 +1168,77 @@ item wears gets a plain one, as a blueprint does. An entity may share its id
 with that item, and several entities may wear one model; entities are outside
 the id space, as recipes are. One naming neither an item nor a model spawns as
 the plain mob, and the load warns.
+
+**`boss-bar:`** shows a boss bar with its name (its name tag's, else its id) and
+health to every player within `range` blocks (default 32, 1 to 256). `color` is
+one of PINK, BLUE, RED, GREEN, YELLOW, PURPLE (default) or WHITE; `style` is
+SOLID (default), SEGMENTED_6, SEGMENTED_10, SEGMENTED_12 or SEGMENTED_20.
+`boss-bar: true` is the defaults.
+
+**`follow-range:`** is how far away it notices something to chase, 1 to 128
+blocks. **`fire-immune: true`** cancels fire, lava, magma-block and burning
+damage and stops it catching fire at all. **`glowing: true`** draws the model
+with the glowing outline.
+
+### Shooting
+
+```yaml
+archer:
+  type: SKELETON
+  model: zoo:mushroom
+  ranged:
+    projectile: snowball  # arrow (default), snowball, small_fireball, fireball, wither_skull, trident
+    damage: 3             # per hit; 0 (default) is the projectile's own
+    range: 18             # blocks, 2 to 64 (default 16)
+    cooldown: 2           # seconds, 0.25 to 60 (default 2)
+```
+
+`ranged: snowball` is shorthand for the projectile alone. On a `SKELETON`,
+`STRAY` or `BOGGED` with AI, on 1.21.4 and newer, the mob's own brain shoots: it
+holds a bow drawn with vanilla's empty `minecraft:air` item model, so it keeps
+its distance, strafes and aims like a skeleton with nothing floating in its
+hand, and a non-arrow projectile replaces each arrow as it is loosed. Its pace
+is the skeleton's own; `cooldown` is not used. Every other type, and those
+three below 1.21.4, is shot for by the engine every `cooldown` seconds while
+its target is within `range` and in sight; it closes in as its type would. The
+`attack` animation and sound play as each shot leaves, not when it lands. A
+`fireball` or `wither_skull` explodes without breaking blocks, and nobody can
+pick up a custom mob's arrows.
+
+### Spawning on its own
+
+```yaml
+desert_ghoul:
+  type: HUSK
+  model: zoo:ghoul
+  spawning:
+    worlds: [world]              # default: every world
+    biomes: [desert, "*badlands*"]   # default: every biome
+    replaces: [HUSK, ZOMBIE]     # default: any natural spawn of its own kind
+    chance: 0.1                  # 0 to 1 (default 0.1)
+    time: night                  # day, night or any (default)
+    min-light: 0                 # 0 to 15 (default 0)
+    max-light: 7                 # 0 to 15 (default 15)
+    min-group: 1                 # 1 to 16 (default 1)
+    max-group: 2                 # 1 to 16 (default min-group)
+    max-per-chunk: 2             # 1 to 64 (default 2)
+```
+
+A share (`chance`) of the matching **natural** spawns (`NATURAL` and
+`CHUNK_GEN`) is replaced by this mob: the vanilla one is removed a tick after it
+appears and this one stands where it stood, with up to `max-group - 1` more
+beside it. Replacing rather than adding is what keeps the server's mob caps,
+the difficulty (peaceful spawns nothing) and every spawn rule the game already
+has; a group's extra members are the one addition, and `max-per-chunk` caps
+them. Without `replaces:` it stands in for natural spawns of its own type's
+kind: a monster (anything hostile) for monsters, an animal for animals, a water
+creature for water creatures. A type nothing spawns naturally as (an iron golem,
+an allay) needs `replaces:`. Biomes are their names (`minecraft:` optional),
+with `*` matching anything: `*forest*`. Biome tags are not read and warn at
+load. Light is the block's combined light where it spawns; night is game time
+12300 to 23850. A naturally spawned custom mob despawns when no player is near,
+as the mob it replaced would have; one spawned by a command, an egg or a plugin
+never does.
 
 `/rp spawn zoo:rhino` puts one where you stand. `/rp egg zoo:rhino [player]
 [amount]` gives a spawn egg that hatches one where it is used (on a spawner

@@ -13,7 +13,10 @@ import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.core.model.BoundModels;
 import ai.resourcepack.engine.core.model.RigTags;
 import ai.resourcepack.engine.core.version.Vanilla;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Color;
+import org.bukkit.Keyed;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -22,6 +25,11 @@ import org.bukkit.SoundCategory;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
+import org.bukkit.entity.AbstractArrow;
+import org.bukkit.entity.Fireball;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.ItemDisplay;
@@ -37,11 +45,14 @@ import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.entity.EntityBreedEvent;
 import org.bukkit.event.entity.EntityCombustByBlockEvent;
 import org.bukkit.event.entity.EntityCombustByEntityEvent;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityTameEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
@@ -52,6 +63,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -109,6 +121,22 @@ public final class CustomEntities implements Listener, Mobs {
     /** Blocks per tick: anything over this is running. A zombie walks at about 0.1. */
     static final double RUNNING = 0.18;
 
+    /** How long a hurt mob's model stays red, in ticks: vanilla's red lasts most of its ten hurt ticks. */
+    static final int FLASH_TICKS = 6;
+
+    /**
+     * The red a hurt model is tinted. A tint MULTIPLIES, where vanilla's hurt
+     * overlay mixes about a third of the way to red; keeping red whole and
+     * taking green and blue down is the nearest a multiply comes.
+     */
+    static final int FLASH_RGB = 0xFF6464;
+
+    /** Ticks between boss bar viewer checks (its health is set every look). */
+    static final int BAR_VIEWERS_EVERY = 10;
+
+    /** The mob types whose own brain shoots a bow, and keeps its distance doing it. */
+    static final java.util.Set<String> BOW_TYPES = java.util.Set.of("SKELETON", "STRAY", "BOGGED");
+
     private final Plugin plugin;
     private final Items items;
     /** Set once at startup, after the models it wears exist. See {@link #bound(BoundModels)}. */
@@ -129,6 +157,12 @@ public final class CustomEntities implements Listener, Mobs {
     private final Map<UUID, List<ItemDisplay>> dying = new ConcurrentHashMap<>();
     private Regions.Fanout<Living> looking;
     private Tasks.Handle task;
+    /** 1.21.4 item calls (a tinted part, a bow nobody sees), or null below it. */
+    private MobItems modern;
+    /** Marks a projectile a custom mob fired, with the damage it does (0 for its own). */
+    private final NamespacedKey shotKey;
+    /** The mobs that spawn on their own, refreshed with the catalogue. */
+    private volatile List<EntityInfo> natural = List.of();
 
     /** One mob's bookkeeping. Touched only on the mob's thread. */
     private static final class Living {
@@ -144,6 +178,13 @@ public final class CustomEntities implements Listener, Mobs {
         long nextStep;
         /** An animation played by name through the API holds the stage until this tick. */
         long heldUntil;
+        /** Red until this tick. */
+        long flashUntil;
+        /** The next tick the engine may shoot for it. */
+        long nextShot;
+        /** Shows its health to the players near it, when it has one. */
+        BossBar bar;
+        long nextBarViewers;
 
         Living(LivingEntity entity, ContentId id) {
             this.entity = entity;
@@ -158,6 +199,17 @@ public final class CustomEntities implements Listener, Mobs {
         this.sounds = sounds;
         this.idKey = new NamespacedKey(plugin, "entity");
         this.eggKey = new NamespacedKey(plugin, "entity-egg");
+        this.shotKey = new NamespacedKey(plugin, "entity-shot");
+    }
+
+    /**
+     * Whether the server has 1.21.4's item API. With it a hurt model is
+     * tinted red and a skeleton-brained shooter holds a bow nobody can see;
+     * without it the model flashes a red outline instead, and the engine does
+     * a shooter's shooting.
+     */
+    public void modernItems(boolean available) {
+        this.modern = available ? new MobItems() : null;
     }
 
     /**
@@ -172,6 +224,13 @@ public final class CustomEntities implements Listener, Mobs {
     /** Replaces the catalogue, as a reload or a push does. */
     public void replace(Map<ContentId, EntityInfo> loaded) {
         this.entities = loaded == null ? Map.of() : Map.copyOf(loaded);
+        List<EntityInfo> spawning = new ArrayList<>();
+        for (EntityInfo info : entities.values()) {
+            if (info.spawning().isPresent() && info.spawning().get().chance() > 0) {
+                spawning.add(info);
+            }
+        }
+        this.natural = List.copyOf(spawning);
     }
 
     /** Starts looking at the mobs, and adopts the ones already standing. */
@@ -200,6 +259,9 @@ public final class CustomEntities implements Listener, Mobs {
             }
         }
         dying.clear();
+        for (Living mob : living.values()) {
+            hideBar(mob);
+        }
         living.clear();
     }
 
@@ -231,6 +293,15 @@ public final class CustomEntities implements Listener, Mobs {
      */
     @Override
     public Optional<Entity> spawn(Location where, ContentId id) {
+        return spawn(where, id, false);
+    }
+
+    /**
+     * Spawns one, kept for ever unless {@code natural}, which despawns the way
+     * a vanilla mob does when nobody is near (its model goes with it: see
+     * {@code RigAnimator.orphaned}).
+     */
+    private Optional<Entity> spawn(Location where, ContentId id, boolean natural) {
         Optional<EntityInfo> found = info(id);
         if (where == null || where.getWorld() == null || found.isEmpty()) {
             return Optional.empty();
@@ -252,7 +323,7 @@ public final class CustomEntities implements Listener, Mobs {
         // listener already sees the mark and the name, and nobody ever sees a
         // bare zombie for a tick.
         Entity mob = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), where, kind,
-                spawned -> configure(spawned, id, info));
+                spawned -> configure(spawned, id, info, natural));
         if (mob instanceof LivingEntity) {
             LivingEntity body = (LivingEntity) mob;
             unjockey(body);
@@ -260,6 +331,7 @@ public final class CustomEntities implements Listener, Mobs {
             if (info.health() > 0) {
                 body.setHealth(Math.min(info.health(), maxHealth(body)));
             }
+            arm(body, info);
             dress(body, info);
             Living tracked = new Living(body, id);
             living.put(mob.getUniqueId(), tracked);
@@ -269,7 +341,7 @@ public final class CustomEntities implements Listener, Mobs {
         return Optional.of(mob);
     }
 
-    private void configure(Entity mob, ContentId id, EntityInfo info) {
+    private void configure(Entity mob, ContentId id, EntityInfo info, boolean natural) {
         mob.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
         for (String tag : info.tags()) {
             mob.addScoreboardTag(tag);
@@ -281,9 +353,11 @@ public final class CustomEntities implements Listener, Mobs {
         // Kept, both ways. A custom entity that despawned because a player
         // walked far enough away would take somebody's boss with it, and
         // leave the model behind: a removed mount ejects its passengers.
+        // A natural one despawns as the mob it replaced would have, which is
+        // what keeps the world's population what the game meant it to be.
         mob.setPersistent(true);
         if (mob instanceof Mob) {
-            ((Mob) mob).setRemoveWhenFarAway(false);
+            ((Mob) mob).setRemoveWhenFarAway(natural);
         }
         if (!(mob instanceof LivingEntity)) {
             return;
@@ -318,7 +392,33 @@ public final class CustomEntities implements Listener, Mobs {
         if (info.knockbackResistance() > 0) {
             setBase(body, Vanilla.attribute("knockback_resistance"), info.knockbackResistance());
         }
+        if (info.followRange() > 0) {
+            setBase(body, Vanilla.attribute("follow_range"), info.followRange());
+        }
     }
+
+    /**
+     * A skeleton-brained shooter's bow, after the spawn emptied its hands. Its
+     * AI aims, strafes and backs off only while it holds one, so it gets one
+     * that draws as nothing (1.21.4+). Without that, or for any other type,
+     * it holds nothing and the engine does the shooting (see {@link #aimAndShoot}).
+     */
+    private void arm(LivingEntity body, EntityInfo info) {
+        if (!bowShooter(info)) {
+            return;
+        }
+        EntityEquipment equipment = body.getEquipment();
+        if (equipment != null) {
+            equipment.setItemInMainHand(modern.hiddenBow());
+            equipment.setItemInMainHandDropChance(0f);
+        }
+    }
+
+    /** Whether this mob's own brain does its shooting. */
+    private boolean bowShooter(EntityInfo info) {
+        return modern != null && info.ranged().isPresent() && info.ai() && BOW_TYPES.contains(info.type());
+    }
+
 
     /**
      * Undoes the extras vanilla rolls for a freshly spawned mob: a baby, a
@@ -412,6 +512,11 @@ public final class CustomEntities implements Listener, Mobs {
             return;
         }
         bound.dress(body, rigId, whole, partItem, info.scale(), info.turn(), info.headBone().orElse(null));
+        if (info.glowing()) {
+            for (ItemDisplay part : bound.parts(body)) {
+                part.setGlowing(true);
+            }
+        }
     }
 
     /** Paper wearing a Studio string: how a pushed pack's models are drawn. */
@@ -433,6 +538,7 @@ public final class CustomEntities implements Listener, Mobs {
                 // Dead, or its chunk unloaded: EntitiesLoadEvent brings the
                 // second kind back.
                 living.remove(mob.entity.getUniqueId());
+                hideBar(mob);
                 continue;
             }
             looking.on(mob, mob.entity, this::look);
@@ -467,8 +573,257 @@ public final class CustomEntities implements Listener, Mobs {
                 show(mob, info, mob.brain.showing(), false);
             }
             sounds(mob, info, now, moving, running);
+            info.bossBar().ifPresent(bar -> showBar(mob, bar, now));
+            if (info.ranged().isPresent() && info.ai() && !bowShooter(info) && now >= mob.nextShot) {
+                aimAndShoot(mob, info, info.ranged().get(), now);
+            }
         }
     }
+
+    // --- boss bar --------------------------------------------------------
+
+    /** Its health on its bar, and the bar to whoever is near. */
+    private void showBar(Living mob, EntityInfo.BossBar spec, long now) {
+        LivingEntity body = mob.entity;
+        if (mob.bar == null) {
+            mob.bar = Bukkit.createBossBar(barTitle(body, mob.id),
+                    BarColor.valueOf(spec.color()), BarStyle.valueOf(spec.style()));
+        }
+        double max = maxHealth(body);
+        mob.bar.setProgress(Math.max(0, Math.min(1, max <= 0 ? 0 : body.getHealth() / max)));
+        if (now < mob.nextBarViewers) {
+            return;
+        }
+        mob.nextBarViewers = now + BAR_VIEWERS_EVERY;
+        mob.bar.setTitle(barTitle(body, mob.id));
+        double range = spec.range() * spec.range();
+        Location at = body.getLocation();
+        for (Player player : body.getWorld().getPlayers()) {
+            // A racy read of somebody else's region on Folia, as anybodyNear's.
+            boolean near = player.getLocation().distanceSquared(at) <= range;
+            boolean showing = mob.bar.getPlayers().contains(player);
+            if (near && !showing) {
+                mob.bar.addPlayer(player);
+            } else if (!near && showing) {
+                mob.bar.removePlayer(player);
+            }
+        }
+        // Somebody who left the world, or the server, since the last look.
+        for (Player shown : List.copyOf(mob.bar.getPlayers())) {
+            if (!shown.isOnline() || shown.getWorld() != body.getWorld()) {
+                mob.bar.removePlayer(shown);
+            }
+        }
+    }
+
+    /** Its name tag's words, or its id's; a name tag renames the bar with it. */
+    private static String barTitle(LivingEntity body, ContentId id) {
+        String name = body.getCustomName();
+        if (name != null && !name.isEmpty()) {
+            return name;
+        }
+        String path = id.path().replace('_', ' ').replace('-', ' ');
+        return path.isEmpty() ? id.toString() : Character.toUpperCase(path.charAt(0)) + path.substring(1);
+    }
+
+    private static void hideBar(Living mob) {
+        if (mob.bar != null) {
+            mob.bar.removeAll();
+            mob.bar.setVisible(false);
+            mob.bar = null;
+        }
+    }
+
+    // --- shooting --------------------------------------------------------
+
+    /**
+     * The engine's own shooting, for a shooter whose brain does not shoot:
+     * anything but a skeleton-like holding its hidden bow. Fires at what it is
+     * after when that is in range and in sight, every {@code cooldown} seconds.
+     */
+    private void aimAndShoot(Living mob, EntityInfo info, EntityInfo.Ranged shot, long now) {
+        if (!(mob.entity instanceof Mob)) {
+            return;
+        }
+        LivingEntity target = ((Mob) mob.entity).getTarget();
+        if (target == null || !target.isValid() || target.isDead() || target.getWorld() != mob.entity.getWorld()) {
+            return;
+        }
+        if (target instanceof Player && ((Player) target).getGameMode() != GameMode.SURVIVAL
+                && ((Player) target).getGameMode() != GameMode.ADVENTURE) {
+            return;
+        }
+        double distance = target.getLocation().distance(mob.entity.getLocation());
+        if (distance > shot.range() || !mob.entity.hasLineOfSight(target)) {
+            return;
+        }
+        Location eye = mob.entity.getEyeLocation();
+        Vector to = target.getEyeLocation().toVector().subtract(eye.toVector());
+        if (to.lengthSquared() < 1.0E-6) {
+            return;
+        }
+        mob.nextShot = now + Math.max(5, Math.round(shot.cooldown() * 20));
+        shoot(mob, info, shot, to, false, null);
+    }
+
+    /**
+     * Fires {@code shot}'s projectile along {@code toward}, plays its attack,
+     * and marks the projectile with its damage. {@code arced} is a direction
+     * that already allows for the drop (a bow's); {@code replacing} is the
+     * arrow a skeleton just loosed, when it is to be kept as the shot, or null.
+     *
+     * @return the projectile, or null when it could not be launched
+     */
+    private Projectile shoot(Living mob, EntityInfo info, EntityInfo.Ranged shot, Vector toward, boolean arced,
+                             Projectile replacing) {
+        LivingEntity body = mob.entity;
+        String kind = shot.projectile();
+        boolean thrown = kind.equals("arrow") || kind.equals("trident") || kind.equals("snowball");
+        Vector direction = toward.clone();
+        if (thrown && !arced) {
+            // A skeleton's lift: a fifth of the flat distance, so the arc lands.
+            double flat = Math.sqrt(direction.getX() * direction.getX() + direction.getZ() * direction.getZ());
+            direction.setY(direction.getY() + flat * 0.2);
+        }
+        direction.normalize();
+        Projectile fired;
+        try {
+            switch (kind) {
+                case "snowball":
+                    fired = body.launchProjectile(org.bukkit.entity.Snowball.class, direction.multiply(1.5));
+                    break;
+                case "trident":
+                    fired = body.launchProjectile(org.bukkit.entity.Trident.class, direction.multiply(1.6));
+                    break;
+                case "small_fireball":
+                    fired = body.launchProjectile(org.bukkit.entity.SmallFireball.class);
+                    ((Fireball) fired).setDirection(direction);
+                    break;
+                case "fireball":
+                    fired = body.launchProjectile(org.bukkit.entity.LargeFireball.class);
+                    ((Fireball) fired).setDirection(direction);
+                    ((Fireball) fired).setIsIncendiary(false);
+                    break;
+                case "wither_skull":
+                    fired = body.launchProjectile(org.bukkit.entity.WitherSkull.class);
+                    ((Fireball) fired).setDirection(direction);
+                    break;
+                default:
+                    fired = replacing != null ? replacing
+                            : body.launchProjectile(org.bukkit.entity.Arrow.class, direction.multiply(1.6));
+                    break;
+            }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        if (fired instanceof AbstractArrow) {
+            // Nobody picks up a custom mob's arrows, as nobody picks up a skeleton's.
+            ((AbstractArrow) fired).setPickupStatus(AbstractArrow.PickupStatus.DISALLOWED);
+        }
+        fired.getPersistentDataContainer().set(shotKey, PersistentDataType.DOUBLE, shot.damage());
+        oneShot(mob, MobState.ATTACK);
+        if (info.sounds().containsKey("attack")) {
+            play(body, info.sounds().get("attack"));
+        }
+        return fired;
+    }
+
+    /**
+     * A skeleton-brained shooter loosed its hidden bow: the shot becomes
+     * whatever it was told to fire, and its attack plays now rather than when
+     * the shot lands.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onShootBow(EntityShootBowEvent event) {
+        Living mob = living.get(event.getEntity().getUniqueId());
+        EntityInfo info = mob == null ? null : entities.get(mob.id);
+        if (info == null || info.ranged().isEmpty() || !(event.getProjectile() instanceof Projectile)) {
+            return;
+        }
+        Projectile arrow = (Projectile) event.getProjectile();
+        boolean keep = info.ranged().get().projectile().equals("arrow");
+        Projectile fired = shoot(mob, info, info.ranged().get(), arrow.getVelocity(), true,
+                keep ? arrow : null);
+        if (fired != null && fired != arrow) {
+            // The arrow the bow made is then never added to the world.
+            event.setProjectile(fired);
+        }
+    }
+
+    /** What a custom mob's shot does to whatever it hits, when it was told. */
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onShotHit(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Projectile)) {
+            return;
+        }
+        Double damage = event.getDamager().getPersistentDataContainer().get(shotKey, PersistentDataType.DOUBLE);
+        if (damage != null && damage > 0) {
+            event.setDamage(damage);
+        }
+    }
+
+    /** A custom mob's fireball or skull hurts what it hits and breaks no blocks. */
+    @EventHandler(ignoreCancelled = true)
+    public void onShotExplode(EntityExplodeEvent event) {
+        if (event.getEntity().getPersistentDataContainer().has(shotKey, PersistentDataType.DOUBLE)) {
+            event.blockList().clear();
+        }
+    }
+
+    // --- hurt flash ------------------------------------------------------
+
+    /**
+     * The model goes red for {@link #FLASH_TICKS}, as a vanilla mob's body
+     * does. On 1.21.4+ each rig part is tinted through its item definition,
+     * which both this engine's pack and Studio's write for parts; a still
+     * model (the author's own item) and older servers get a red glowing
+     * outline instead, the nearest thing a display can show there. A second
+     * hit while red keeps it red; a killing blow leaves the falling model red,
+     * as vanilla's is.
+     */
+    private void flash(Living mob, EntityInfo info) {
+        if (!info.hurtFlash()) {
+            return;
+        }
+        long now = mob.entity.getWorld().getGameTime();
+        boolean red = mob.flashUntil > now;
+        mob.flashUntil = now + FLASH_TICKS;
+        if (red) {
+            return;
+        }
+        for (ItemDisplay part : bound.parts(mob.entity)) {
+            paint(part, true, info);
+        }
+        unflashLater(mob, info, FLASH_TICKS);
+    }
+
+    private void unflashLater(Living mob, EntityInfo info, long delay) {
+        Tasks.onLater(plugin, mob.entity, () -> {
+            long now = mob.entity.getWorld().getGameTime();
+            if (mob.flashUntil > now) {
+                unflashLater(mob, info, mob.flashUntil - now);
+                return;
+            }
+            for (ItemDisplay part : bound.parts(mob.entity)) {
+                paint(part, false, info);
+            }
+        }, () -> { }, Math.max(1, delay));
+    }
+
+    private void paint(ItemDisplay part, boolean red, EntityInfo info) {
+        if (modern != null && bound.rigPart(part)) {
+            part.setItemStack(modern.tint(part.getItemStack(), red ? FLASH_RGB : -1));
+            return;
+        }
+        if (red) {
+            part.setGlowColorOverride(Color.fromRGB(FLASH_RGB));
+            part.setGlowing(true);
+        } else {
+            part.setGlowColorOverride(null);
+            part.setGlowing(info.glowing());
+        }
+    }
+
 
     /** Plays what the brain says, and tells anybody listening when it changed. */
     private void show(Living mob, EntityInfo info, MobState state, boolean restart) {
@@ -607,24 +962,54 @@ public final class CustomEntities implements Listener, Mobs {
 
     // --- what happens to it ---------------------------------------------
 
-    /** Hurt, unless the blow kills it, which is the death's to show. */
+    /** Hurt, unless the blow kills it, which is the death's to show. Red either way. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
         Living mob = living.get(event.getEntity().getUniqueId());
-        if (mob == null || mob.entity.getHealth() - event.getFinalDamage() <= 0) {
+        if (mob == null || event.getFinalDamage() <= 0) {
+            return;
+        }
+        EntityInfo info = entities.get(mob.id);
+        if (info != null) {
+            flash(mob, info);
+        }
+        if (mob.entity.getHealth() - event.getFinalDamage() <= 0) {
             return;
         }
         oneShot(mob, MobState.HURT);
-        EntityInfo info = entities.get(mob.id);
         if (info != null && info.sounds().containsKey("hurt")) {
             play(mob.entity, info.sounds().get("hurt"));
         }
     }
 
+    /** {@code fire-immune: true}: fire, lava, a magma block and burning do nothing. */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onFireDamage(EntityDamageEvent event) {
+        switch (event.getCause()) {
+            case FIRE:
+            case FIRE_TICK:
+            case LAVA:
+            case HOT_FLOOR:
+                break;
+            default:
+                return;
+        }
+        Optional<ContentId> id = idOf(event.getEntity());
+        if (id.isPresent() && info(id.get()).map(EntityInfo::fireImmune).orElse(false)) {
+            event.setCancelled(true);
+            event.getEntity().setFireTicks(0);
+        }
+    }
+
+
     /** It hit something, with its own body or something it fired. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onAttack(EntityDamageByEntityEvent event) {
         Entity damager = event.getDamager();
+        if (damager.getPersistentDataContainer().has(shotKey, PersistentDataType.DOUBLE)) {
+            // A shot it fired: its attack played as it was loosed.
+            return;
+        }
         if (damager instanceof Projectile && ((Projectile) damager).getShooter() instanceof Entity) {
             damager = (Entity) ((Projectile) damager).getShooter();
         }
@@ -682,6 +1067,9 @@ public final class CustomEntities implements Listener, Mobs {
                         body.getKiller(), event.getDrops()));
 
         Living mob = living.remove(body.getUniqueId());
+        if (mob != null) {
+            hideBar(mob);
+        }
         boolean animating = mob != null && oneShot(mob, MobState.DEATH);
         List<ItemDisplay> parts = bound.release(body);
         // A display an older jar put on, which is no part of a rig.
@@ -810,11 +1198,147 @@ public final class CustomEntities implements Listener, Mobs {
     @EventHandler(ignoreCancelled = true)
     public void onCombust(EntityCombustEvent event) {
         if (event instanceof EntityCombustByEntityEvent || event instanceof EntityCombustByBlockEvent) {
+            Optional<ContentId> burning = idOf(event.getEntity());
+            if (burning.isPresent() && info(burning.get()).map(EntityInfo::fireImmune).orElse(false)) {
+                event.setCancelled(true);
+            }
             return;
         }
         Optional<ContentId> id = idOf(event.getEntity());
-        if (id.isPresent() && !info(id.get()).map(EntityInfo::burns).orElse(false)) {
+        if (id.isPresent() && info(id.get()).map(e -> !e.burns() || e.fireImmune()).orElse(false)) {
             event.setCancelled(true);
+        }
+    }
+
+    // --- natural spawning -----------------------------------------------
+
+    /**
+     * A natural spawn that one of the {@code spawning:} mobs could take the
+     * place of. Looked at a tick later, on the new mob's own thread, rather
+     * than in the event: a chunk-generation spawn's event can be raised while
+     * the chunk is still being built, where reading its blocks is not safe,
+     * and by the next tick it is an ordinary mob in an ordinary chunk.
+     *
+     * <p>Replaced, never added to: the vanilla mob goes and ours stands where
+     * it stood, so the world holds the number of mobs the game decided on,
+     * mob caps and peaceful difficulty included. A group's extra members are
+     * the one addition, and {@code max-per-chunk} caps them.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onNaturalSpawn(CreatureSpawnEvent event) {
+        CreatureSpawnEvent.SpawnReason reason = event.getSpawnReason();
+        if (reason != CreatureSpawnEvent.SpawnReason.NATURAL && reason != CreatureSpawnEvent.SpawnReason.CHUNK_GEN) {
+            return;
+        }
+        List<EntityInfo> rules = natural;
+        if (rules.isEmpty()) {
+            return;
+        }
+        LivingEntity spawned = event.getEntity();
+        String type = spawned.getType().name();
+        String kind = SpawnRules.kind(spawned.getClass());
+        List<EntityInfo> could = new ArrayList<>();
+        for (EntityInfo info : rules) {
+            if (SpawnRules.replaces(info.spawning().get(), type, kind, kindOf(info.type()))) {
+                could.add(info);
+            }
+        }
+        if (could.isEmpty()) {
+            return;
+        }
+        Tasks.onLater(plugin, spawned, () -> replaceNatural(spawned, could), () -> { }, 1);
+    }
+
+    private void replaceNatural(LivingEntity vanilla, List<EntityInfo> could) {
+        if (!vanilla.isValid() || vanilla.isDead() || idOf(vanilla).isPresent()
+                || vanilla.getCustomName() != null) {
+            return;
+        }
+        Location at = vanilla.getLocation();
+        Block block = at.getBlock();
+        String biome;
+        try {
+            // Through Keyed: Biome is an enum on the oldest servers and an
+            // interface on the newest, and only Keyed.getKey links on both.
+            biome = ((Keyed) (Object) block.getBiome()).getKey().getKey();
+        } catch (RuntimeException e) {
+            biome = "";
+        }
+        int light = block.getLightLevel();
+        long time = at.getWorld().getTime();
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        List<EntityInfo> shuffled = new ArrayList<>(could);
+        java.util.Collections.shuffle(shuffled, random);
+        for (EntityInfo info : shuffled) {
+            EntityInfo.Spawning rules = info.spawning().get();
+            if (!SpawnRules.where(rules, at.getWorld().getName(), biome, light, time)) {
+                continue;
+            }
+            if (random.nextDouble() >= rules.chance()) {
+                continue;
+            }
+            int already = countInChunk(at, info.id());
+            if (already >= rules.maxPerChunk()) {
+                continue;
+            }
+            int group = rules.minGroup() + (rules.maxGroup() > rules.minGroup()
+                    ? random.nextInt(rules.maxGroup() - rules.minGroup() + 1) : 0);
+            group = Math.max(1, Math.min(group, rules.maxPerChunk() - already));
+            // A jockey's rider goes with it: it was part of the spawn replaced.
+            for (Entity rider : List.copyOf(vanilla.getPassengers())) {
+                rider.remove();
+            }
+            vanilla.remove();
+            spawn(at.clone(), info.id(), true);
+            for (int i = 1; i < group; i++) {
+                Location beside = besides(at, random);
+                if (beside != null) {
+                    spawn(beside, info.id(), true);
+                }
+            }
+            return;
+        }
+    }
+
+    /** How many of {@code id} stand in the chunk at {@code at}. */
+    private int countInChunk(Location at, ContentId id) {
+        int count = 0;
+        String wanted = id.toString();
+        for (Entity entity : at.getChunk().getEntities()) {
+            if (wanted.equals(entity.getPersistentDataContainer().get(idKey, PersistentDataType.STRING))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** Somewhere a group member can stand within two blocks of {@code at}, in its chunk, or null. */
+    private static Location besides(Location at, ThreadLocalRandom random) {
+        for (int attempt = 0; attempt < 4; attempt++) {
+            Location tried = at.clone().add(random.nextInt(-2, 3), 0, random.nextInt(-2, 3));
+            if (tried.getBlockX() >> 4 != at.getBlockX() >> 4 || tried.getBlockZ() >> 4 != at.getBlockZ() >> 4) {
+                continue;
+            }
+            for (int dy = 0; dy <= 1; dy++) {
+                Block feet = tried.getBlock().getRelative(0, dy, 0);
+                if (feet.isPassable() && feet.getRelative(0, 1, 0).isPassable()
+                        && feet.getRelative(0, -1, 0).getType().isSolid()) {
+                    Location out = feet.getLocation().add(0.5, 0, 0.5);
+                    out.setYaw(random.nextFloat() * 360f);
+                    return out;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** What kind of natural spawn a custom mob's own type is, by its class. */
+    private static String kindOf(String type) {
+        try {
+            Class<? extends Entity> kind = EntityType.valueOf(type).getEntityClass();
+            return kind == null ? SpawnRules.OTHER : SpawnRules.kind(kind);
+        } catch (IllegalArgumentException e) {
+            return SpawnRules.OTHER;
         }
     }
 

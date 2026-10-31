@@ -482,6 +482,45 @@ public final class RigAnimator implements Listener {
         return true;
     }
 
+    /**
+     * A worn part whose host has gone, removed now rather than when its chunk
+     * next loads.
+     *
+     * <p>A removed mount EJECTS its passengers, so a mob that vanished under
+     * its model (a peaceful despawn, a natural mob walked away from, another
+     * plugin's {@code remove()}, {@code /kill} of the mob alone) left every
+     * part standing where it was until {@link #reaped} saw it on the next
+     * load. Every worn part is posed every pass anyway, so this is one
+     * vehicle check there: riding nothing, not let go for a death animation,
+     * and its host no longer in the world. The last is what keeps a part that
+     * is only briefly unmounted (its host being teleported) where it is. A
+     * host unloaded with its chunk takes the part with it, so it never gets
+     * here.
+     */
+    private boolean orphaned(ItemDisplay display, PersistentDataContainer pdc) {
+        if (display.getVehicle() != null || pdc.has(dyingKey, PersistentDataType.BYTE)) {
+            return false;
+        }
+        String bound = pdc.get(boundKey, PersistentDataType.STRING);
+        if (bound == null) {
+            return false;
+        }
+        Entity host;
+        try {
+            host = Bukkit.getEntity(UUID.fromString(bound));
+        } catch (IllegalArgumentException e) {
+            host = null;
+        }
+        if (host != null && host.isValid()) {
+            return false;
+        }
+        tracked.remove(display.getUniqueId());
+        fades.remove(display.getUniqueId());
+        posed.remove(display.getUniqueId());
+        display.remove();
+        return true;
+    }
+
     /** Says what {@link #reaped} took out, once per sweep rather than once per part. */
     private void reportReaped(int orphans) {
         if (orphans > 0) {
@@ -799,6 +838,9 @@ public final class RigAnimator implements Listener {
 
     private void pose(ItemDisplay display, boolean forceRestPose) {
         PersistentDataContainer pdc = display.getPersistentDataContainer();
+        if (orphaned(display, pdc)) {
+            return;
+        }
         String modelId = pdc.get(modelKey, PersistentDataType.STRING);
         Integer partIndex = pdc.get(partKey, PersistentDataType.INTEGER);
         if (modelId == null || partIndex == null) return;
