@@ -2131,6 +2131,9 @@ public final class VehicleRuntime implements Listener {
          */
         private VehiclePhysics.Demand lastDemand = VehiclePhysics.Demand.idle(0);
 
+        /** Keys a plugin is holding for this vehicle; see {@link Vehicle#drive}. Null for none. */
+        private VehicleInput pilot;
+
         /**
          * The step this tick took, waiting for {@link #settle} — or null for a
          * vehicle that has not taken one this tick, which is every parked one
@@ -3085,13 +3088,43 @@ public final class VehicleRuntime implements Listener {
 
         /** {@link Vehicle#input}: the last demand, as the keys a plugin can read. */
         VehicleInput input() {
-            if (driver() == null) {
+            if (driver() == null && pilot == null) {
                 return VehicleInput.NONE;
             }
             VehiclePhysics.Demand d = lastDemand;
             return new VehicleInput(d.steersByKeys(), d.throttle(), d.steer(),
                     d.throttle() > 0, d.throttle() < 0, d.steer() < 0, d.steer() > 0,
                     d.braking() || d.lift() > 0, d.sprint(), d.sneak());
+        }
+
+        /** {@link Vehicle#drive}. */
+        void drive(VehicleInput keys) {
+            pilot = keys;
+            parked = false;
+        }
+
+        /**
+         * A plugin's keys as the physics takes them: exactly what
+         * {@link VehicleControls} makes of a player's, the space key meaning
+         * what this vehicle says it means.
+         */
+        private VehiclePhysics.Demand piloted(VehicleInput keys) {
+            boolean air = info.medium() == VehicleMedium.AIR;
+            boolean jumps = !air && info.jumps();
+            double lift = (air || jumps) && keys.jump() ? 1 : 0;
+            boolean braking = !air && !jumps && keys.jump();
+            return VehiclePhysics.Demand.steering(state.yaw(), 0, keys.steer(), keys.throttle(), lift, braking,
+                    keys.sprint(), keys.sneak());
+        }
+
+        /** {@link Vehicle#carry}. */
+        boolean carry(Entity figure, int index) {
+            if (figure == null || figure instanceof Player || index < 0 || index >= mounts.size()
+                    || occupants.get(index) != null) {
+                return false;
+            }
+            Entity mount = plugin.getServer().getEntity(mounts.get(index));
+            return mount != null && (mount.getPassengers().contains(figure) || mount.addPassenger(figure));
         }
 
         /** {@link Vehicle#nudge}. */
@@ -3403,8 +3436,10 @@ public final class VehicleRuntime implements Listener {
             // A disabled vehicle is driven by nobody, whoever is in the seat:
             // idle keeps the heading and coasts to a stop, which is what
             // running out of fuel looks like. See Vehicle.setEnabled.
-            VehiclePhysics.Demand demand = driver == null || !enabled
+            VehiclePhysics.Demand demand = !enabled
                     ? VehiclePhysics.Demand.idle(state.yaw())
+                    : pilot != null ? piloted(pilot)
+                    : driver == null ? VehiclePhysics.Demand.idle(state.yaw())
                     : controls.read(driver, info);
             lastDemand = demand;
 
@@ -3511,7 +3546,7 @@ public final class VehicleRuntime implements Listener {
             // speed to roll away from where it was pushed, and latching it as
             // parked on the strength of a step taken BEFORE the impact is a
             // vehicle that takes the shove and then declines to move.
-            parked = !step.moves() && !bumped && empty();
+            parked = !step.moves() && !bumped && empty() && pilot == null;
             parkedStates = step.states();
         }
 
@@ -5469,6 +5504,20 @@ public final class VehicleRuntime implements Listener {
             if (ride != null) {
                 ride.spin(degreesPerSecond);
             }
+        }
+
+        @Override
+        public void drive(VehicleInput keys) {
+            Ride ride = ride();
+            if (ride != null) {
+                ride.drive(keys);
+            }
+        }
+
+        @Override
+        public boolean carry(Entity figure, int seat) {
+            Ride ride = ride();
+            return ride != null && ride.carry(figure, seat);
         }
 
         @Override

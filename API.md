@@ -405,7 +405,13 @@ Use `applyImpulse(worldDeltaVelocity, spinDelta)` when an addon needs to alter
 the physical reaction. It accepts world blocks/second and degrees/second and
 passes through the engine's finite-value and magnitude bounds. An upward part
 lifts a land vehicle off the ground (since 0.2.45; before, a grounded vehicle
-dropped it), so a jump pad is one call. `velocity()` is the matching read side. `showStatus(text)` uses the vehicle's action-bar status
+dropped it), so a jump pad is one call. `velocity()` is the matching read side.
+
+`drive(keys)` (0.2.50) drives a vehicle as though its driver held those keys,
+with nobody in it: a computer racer, a demo lap. Same handling as a player,
+`setEnabled` still applies, and `input()` reports the keys; `drive(null)` hands
+it back. `carry(entity, seat)` sits a non-player figure, a mannequin, in a seat
+for show; it is no occupant, and a rebuilt seat drops it. `showStatus(text)` uses the vehicle's action-bar status
 surface and yields the built-in speedometer briefly.
 
 `scuff(area, contact, amount)` adds a persistent scrape to the bodywork, in
