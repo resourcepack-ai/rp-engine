@@ -417,6 +417,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
     /** The content folder's mobs, kept apart so a push can lay its own over them. */
     private Map<ContentId, ai.resourcepack.engine.api.EntityInfo> authoredEntities = Map.of();
+    /**
+     * How far above its floor each content-folder mob's model reaches, by the
+     * model's item id, measured at reload. Where a mob's name goes; see
+     * CustomEntities.nameHeight.
+     */
+    private volatile Map<ContentId, Float> mobModelTops = Map.of();
     private Map<ContentId, OverlayInfo> authoredScreens = Map.of();
     private Map<ContentId, OverlayInfo> authoredHuds = Map.of();
     private final IconsImpl icons = new IconsImpl();
@@ -947,6 +953,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         boundModels = new BoundModels(library, items, rigs, animator);
         models.bound(boundModels);
         creatures.bound(boundModels);
+        // Where a mob's name goes: its model's top, off the content folder's
+        // files or, for a pushed mob, off the pack Studio pushed.
+        creatures.modelTops(info -> info.carrier().isPresent()
+                ? studioShapes.shapeOf(info.carrier().get()).height()
+                : info.model().map(model -> (double) mobModelTops.getOrDefault(model, 0f)).orElse(0.0));
         invites = new EmoteInvites(this, emotes());
         // Optional, and the only place PlaceholderAPI is named. A server
         // without it loads this plugin exactly as before.
@@ -2347,6 +2358,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded, withBlocks.keySet());
         report(to, "entities", parsedEntities.diagnostics());
         authoredEntities = parsedEntities.entities();
+        Map<ContentId, Float> tops = new java.util.HashMap<>();
+        for (ai.resourcepack.engine.api.EntityInfo entity : authoredEntities.values()) {
+            entity.model().filter(model -> !tops.containsKey(model)).ifPresent(model -> {
+                ai.resourcepack.engine.api.ItemInfo item = withBlocks.get(model);
+                tops.put(model, item == null ? 0f : Geometry.topOf(content, item, getLogger()::fine));
+            });
+        }
+        mobModelTops = Map.copyOf(tops);
         creatures.replace(withPushedMobs());
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
