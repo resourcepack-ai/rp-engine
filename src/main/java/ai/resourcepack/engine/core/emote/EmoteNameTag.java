@@ -169,7 +169,7 @@ final class EmoteNameTag {
         at.setPitch(0);
         // Carried by a following emote as well as by a stance, for the reason
         // spawnShadow states: carryFollowers moves this every accepted step.
-        TextDisplay tag = at.getWorld().spawn(at, TextDisplay.class, d -> {
+        TextDisplay tag = ai.resourcepack.engine.core.version.Spawning.spawn(at.getWorld(), at, TextDisplay.class, d -> {
             d.setText(label);
             // Turns to face whoever is reading it, which is what a nametag
             // does — a fixed one is unreadable from three quarters of the

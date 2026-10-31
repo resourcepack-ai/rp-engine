@@ -148,7 +148,7 @@ public final class ObjectRuntime implements Listener {
         Location at = where.clone();
         at.setYaw(0);
         at.setPitch(0);
-        ItemDisplay display = where.getWorld().spawn(at, ItemDisplay.class, d -> {
+        ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), at, ItemDisplay.class, d -> {
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.setBillboard(Display.Billboard.FIXED);
             // A big object is seen from far off; the range is a multiple of 64 blocks.

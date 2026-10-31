@@ -2184,7 +2184,7 @@ public final class EmoteDirector implements Listener {
             final int index = i;
             ItemStack item = boneItem(EmoteStore.boneItemId(rig, bone.key, variant, jointed));
             final boolean carried = session.stance();
-            ItemDisplay display = base.getWorld().spawn(base, ItemDisplay.class, d -> {
+            ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(base.getWorld(), base, ItemDisplay.class, d -> {
                 d.setItemStack(item);
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
                 // Never chunk-saved: an emote is a moment, and a rig that
@@ -2338,7 +2338,7 @@ public final class EmoteDirector implements Listener {
             }
             ItemStack item = propItem(prop.modelId);
             final boolean carried = session.stance();
-            ItemDisplay display = base.getWorld().spawn(base, ItemDisplay.class, d -> {
+            ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(base.getWorld(), base, ItemDisplay.class, d -> {
                 d.setItemStack(item);
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
                 d.setPersistent(false);
@@ -2393,7 +2393,7 @@ public final class EmoteDirector implements Listener {
 
     private ItemDisplay spawnHand(Player player, Session session, Location base, boolean offHand) {
         final boolean carried = session.stance();
-        ItemDisplay display = base.getWorld().spawn(base, ItemDisplay.class, d -> {
+        ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(base.getWorld(), base, ItemDisplay.class, d -> {
             d.setItemStack(new ItemStack(Material.AIR));
             d.setItemDisplayTransform(offHand
                 ? ItemDisplay.ItemDisplayTransform.THIRDPERSON_LEFTHAND
@@ -2451,7 +2451,7 @@ public final class EmoteDirector implements Listener {
         // so it needs the interpolation window as much as a stance does, or a
         // walked shadow steps twenty times a second instead of sliding.
         final boolean carried = session.stance() || session.following;
-        return feet.getWorld().spawn(feet, ItemDisplay.class, d -> {
+        return ai.resourcepack.engine.core.version.Spawning.spawn(feet.getWorld(), feet, ItemDisplay.class, d -> {
             d.setItemStack(item);
             d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
             d.setTransformation(new Transformation(

@@ -671,7 +671,7 @@ public final class WornArmour implements Listener {
 
         private ItemDisplay spawn(Player player, Location at, Placed placed) {
             Armor3dSet.Part part = placed.part();
-            ItemDisplay display = at.getWorld().spawn(at, ItemDisplay.class, d -> {
+            ItemDisplay display = ai.resourcepack.engine.core.version.Spawning.spawn(at.getWorld(), at, ItemDisplay.class, d -> {
                 d.setItemStack(items.art(placed.set(), part.model()));
                 // NONE: the model is built in its own frame, not an item's.
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);

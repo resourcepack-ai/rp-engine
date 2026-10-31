@@ -618,7 +618,7 @@ public final class VfxRuntime implements Vfx {
                 spawn.setYaw(0);
                 spawn.setPitch(0);
                 Transformation first = transformation(inst);
-                this.display = world.spawn(spawn, ItemDisplay.class, d -> {
+                this.display = ai.resourcepack.engine.core.version.Spawning.spawn(world, spawn, ItemDisplay.class, d -> {
                     d.setItemStack(item(model, inst.level()));
                     d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
                     d.setBillboard(billboard ? Display.Billboard.CENTER : Display.Billboard.FIXED);
