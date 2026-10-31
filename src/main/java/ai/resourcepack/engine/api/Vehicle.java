@@ -406,7 +406,7 @@ public interface Vehicle {
      * {@link VehicleInput#throttle} -1 to 1, and {@link VehicleInput#jump} the
      * handbrake, a jump or a climb, as the vehicle takes the space key.
      *
-     * @since 0.2.50
+     * @since 0.2.51
      */
     void drive(VehicleInput keys);
 
@@ -421,7 +421,7 @@ public interface Vehicle {
      * riding it, so a plugin keeping a figure in one checks
      * {@code figure.getVehicle()} and carries it again when it has come off.
      *
-     * @since 0.2.50
+     * @since 0.2.51
      */
     boolean carry(Entity figure, int seat);
 
