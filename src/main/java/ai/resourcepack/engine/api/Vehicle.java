@@ -392,6 +392,40 @@ public interface Vehicle {
     void spin(double degreesPerSecond);
 
     /**
+     * Drives this vehicle as though somebody in the driver's seat were holding
+     * these keys, from the next tick until it is called again; null hands it
+     * back to its driver, or to nobody.
+     *
+     * <p>For a driver that is not a player: a computer racer, a demo lap, a
+     * ghost. Nobody has to be in it, and while it holds a real driver's own
+     * keys are ignored. Everything else is as it would be for a player: the
+     * same handling, the same {@link #setEnabled} (a disabled vehicle still
+     * goes nowhere), and {@link #input} reports these keys, so a plugin that
+     * builds on what the driver pressed works for this driver too. The keys
+     * are read as a player's would be: {@link VehicleInput#steer} -1 to 1,
+     * {@link VehicleInput#throttle} -1 to 1, and {@link VehicleInput#jump} the
+     * handbrake, a jump or a climb, as the vehicle takes the space key.
+     *
+     * @since 0.2.50
+     */
+    void drive(VehicleInput keys);
+
+    /**
+     * Sits a figure that is not a player in a seat, to be seen there: a
+     * mannequin or an NPC driving under {@link #drive}. It is no occupant: it
+     * does not drive, it is not in {@link #occupants}, and the seat still
+     * counts as free. False when the seat does not exist, has a player in it,
+     * or would not take it; a player is seated with {@link #seat} instead.
+     *
+     * <p>A seat is rebuilt when its chunk loads again, which drops whatever was
+     * riding it, so a plugin keeping a figure in one checks
+     * {@code figure.getVehicle()} and carries it again when it has come off.
+     *
+     * @since 0.2.50
+     */
+    boolean carry(Entity figure, int seat);
+
+    /**
      * Dresses an occupant in {@code emoteId} instead of whatever their seat's
      * state says, until {@link #undress} or they get out.
      *
