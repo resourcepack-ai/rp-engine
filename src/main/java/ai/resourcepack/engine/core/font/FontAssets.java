@@ -103,24 +103,136 @@ public final class FontAssets implements PackContributor {
         if (providers.isEmpty()) {
             return;
         }
-        if (into.has(DEFAULT_FONT)) {
+
+        providers.add(space());
+        if (into.has(DEFAULT_FONT) && !mergeInto(providers, bundle, into)) {
             // Loud, because the failure is total and silent: every glyph in
             // the bundle would stop existing, and the pack that caused it
             // would look fine.
             into.error("overrides/font/default.json", "",
-                    "A pack in the bundle " + bundle.name() + " overrides the default font, which would "
-                            + "replace the glyphs of every pack beside it. Remove it; icons, screens and "
-                            + "HUDs are declared in their own folders and merged automatically.");
+                    "A pack in the bundle " + bundle.name() + " ships a default font that is not one RP Engine "
+                            + "can read, so it would replace the glyphs of every pack beside it. Fix or remove "
+                            + "it; icons, screens and HUDs are declared in their own folders.");
             return;
         }
-
-        providers.add(space());
         into.add(DEFAULT_FONT, ("{\n  \"providers\": [\n" + String.join(",\n", providers)
                 + "\n  ]\n}\n").getBytes(StandardCharsets.UTF_8));
 
         if (anyScreen) {
             hideInventoryLabel(bundle, into);
         }
+    }
+
+    /**
+     * A resource pack in the bundle has its own {@code font/default.json} (a
+     * Studio pack in content/ always has, for its icons and shader objects):
+     * its providers go after ours in the one file, so both draw. Ours come
+     * first because the game draws a character with the first provider that
+     * declares it, and every glyph of ours is something a plugin is printing
+     * by that character. The loader allocated ours around theirs
+     * ({@link LoadReport#takenCodepoints()}), so the two only meet where a
+     * pack declares one of the space characters, which is warned about.
+     *
+     * <p>This used to be refused outright, which with a Studio pack beside
+     * any content drew every icon and HUD in the bundle as a box.
+     *
+     * @return false when theirs cannot be read as a font
+     */
+    private static boolean mergeInto(List<String> providers, Bundle bundle, Contribution into) {
+        com.google.gson.JsonArray theirs;
+        try {
+            com.google.gson.JsonElement file = com.google.gson.JsonParser.parseString(
+                    new String(into.read(DEFAULT_FONT).orElseThrow(), StandardCharsets.UTF_8));
+            theirs = file.getAsJsonObject().getAsJsonArray("providers");
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (theirs == null) {
+            return false;
+        }
+        java.util.Set<com.google.gson.JsonElement> ours = new java.util.HashSet<>();
+        java.util.Set<Integer> ourCodepoints = new java.util.HashSet<>();
+        for (String provider : providers) {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(provider);
+            ours.add(parsed);
+            codepointsOf(parsed, ourCodepoints);
+        }
+        java.util.Set<Integer> hidden = new java.util.TreeSet<>();
+        com.google.gson.Gson gson = new com.google.gson.GsonBuilder().disableHtmlEscaping().create();
+        for (com.google.gson.JsonElement provider : theirs) {
+            if (ours.contains(provider)) {
+                continue;
+            }
+            java.util.Set<Integer> declared = new java.util.HashSet<>();
+            codepointsOf(provider, declared);
+            for (int codepoint : declared) {
+                if (ourCodepoints.contains(codepoint)) {
+                    hidden.add(codepoint);
+                }
+            }
+            providers.add("    " + ascii(gson.toJson(provider)));
+        }
+        if (!hidden.isEmpty()) {
+            into.warn(DEFAULT_FONT, "",
+                    "A pack in the bundle " + bundle.name() + " draws " + hidden.size() + " character(s) in the "
+                            + "default font that RP Engine uses itself (from U+"
+                            + Integer.toHexString(hidden.iterator().next()).toUpperCase(java.util.Locale.ROOT)
+                            + "), so RP Engine's are drawn there instead.");
+        }
+        return true;
+    }
+
+    /**
+     * Every character a font file declares: its bitmap providers' {@code chars}
+     * and its space providers' {@code advances}. Anything that is not a font,
+     * or a provider of another kind, adds nothing.
+     */
+    public static void codepointsOf(byte[] fontJson, java.util.Set<Integer> into) {
+        try {
+            com.google.gson.JsonElement file = com.google.gson.JsonParser.parseString(
+                    new String(fontJson, StandardCharsets.UTF_8));
+            com.google.gson.JsonArray providers = file.getAsJsonObject().getAsJsonArray("providers");
+            if (providers != null) {
+                for (com.google.gson.JsonElement provider : providers) {
+                    codepointsOf(provider, into);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Not a font this can read; the build says so when it meets it.
+        }
+    }
+
+    private static void codepointsOf(com.google.gson.JsonElement provider, java.util.Set<Integer> into) {
+        if (!provider.isJsonObject()) {
+            return;
+        }
+        com.google.gson.JsonObject object = provider.getAsJsonObject();
+        if (object.get("chars") instanceof com.google.gson.JsonArray rows) {
+            for (com.google.gson.JsonElement row : rows) {
+                if (row.isJsonPrimitive()) {
+                    row.getAsString().codePoints().forEach(into::add);
+                }
+            }
+        }
+        if (object.get("advances") instanceof com.google.gson.JsonObject advances) {
+            for (String key : advances.keySet()) {
+                key.codePoints().forEach(into::add);
+            }
+        }
+    }
+
+    /** JSON with every non-ASCII character escaped, as the rest of this file is written. */
+    private static String ascii(String json) {
+        StringBuilder out = new StringBuilder(json.length());
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c < 0x80) {
+                out.append(c);
+            } else {
+                out.append(String.format("\\u%04x", (int) c));
+            }
+        }
+        return out.toString();
     }
 
     /**

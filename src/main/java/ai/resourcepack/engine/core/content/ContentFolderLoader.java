@@ -203,7 +203,36 @@ public final class ContentFolderLoader {
                 loadPack(root, folder, source, packs, definitions, diagnostics, craftEngine);
             }
         }
-        return LoadReport.of(packs, definitions, diagnostics);
+        return LoadReport.of(packs, definitions, diagnostics, defaultFontCodepoints(root, packs));
+    }
+
+    /**
+     * The characters the packs' own {@code font/default.json} files draw,
+     * wherever a pack can put that file: a plain resource pack's
+     * {@code assets/minecraft/}, a content pack's {@code resourcepack/assets/minecraft/}
+     * and its {@code overrides/}. The engine's glyphs share that file and are
+     * allocated around these. See {@link LoadReport#takenCodepoints()}.
+     */
+    private static Set<Integer> defaultFontCodepoints(Path root, List<PackMeta> packs) {
+        Set<Integer> taken = new java.util.TreeSet<>();
+        for (PackMeta pack : packs) {
+            Path folder = root.resolve(pack.namespace());
+            List<Path> fonts = PlainPack.is(folder)
+                    ? List.of(folder.resolve("assets/minecraft/font/default.json"))
+                    : List.of(folder.resolve("resourcepack/assets/minecraft/font/default.json"),
+                    folder.resolve("overrides/font/default.json"));
+            for (Path font : fonts) {
+                if (!Files.isRegularFile(font)) {
+                    continue;
+                }
+                try {
+                    ai.resourcepack.engine.core.font.FontAssets.codepointsOf(Files.readAllBytes(font), taken);
+                } catch (IOException ignored) {
+                    // Unreadable now is unreadable to the build too, which says so.
+                }
+            }
+        }
+        return taken;
     }
 
     /** Every CraftEngine file in every enabled pack, read and gathered; see {@link CraftEngine.Library}. */

@@ -81,6 +81,10 @@ public final class GlyphAllocator {
             return Map.of();
         }
         Map<ContentId, Integer> allocated = new LinkedHashMap<>();
+        // Characters a resource pack beside ours already draws in the default
+        // font (a Studio pack's icons start at U+E000 too): one font holds
+        // both, so a glyph of ours there would hide one of theirs.
+        java.util.Set<Integer> taken = loaded.takenCodepoints();
         int next = FIRST_CODEPOINT;
         for (ContentKind kind : GLYPH_KINDS) {
             Map<ContentId, ContentDefinition> sorted = new TreeMap<>();
@@ -89,6 +93,7 @@ public final class GlyphAllocator {
             }
             for (ContentDefinition definition : sorted.values()) {
                 int wanted = kind == ContentKind.FONT ? Math.max(1, glyphs.applyAsInt(definition)) : 1;
+                next = free(next, wanted, taken);
                 if (next + wanted - 1 > LAST_CODEPOINT) {
                     return Map.copyOf(allocated);
                 }
@@ -99,6 +104,18 @@ public final class GlyphAllocator {
         return Map.copyOf(allocated);
     }
 
+    /** The first codepoint from {@code from} with {@code wanted} free ones in a row: an animation's frames are consecutive. */
+    private static int free(int from, int wanted, java.util.Set<Integer> taken) {
+        int start = from;
+        for (int i = 0; i < wanted && start + i <= LAST_CODEPOINT; i++) {
+            if (taken.contains(start + i)) {
+                start += i + 1;
+                i = -1;
+            }
+        }
+        return start;
+    }
+
     /** Whether {@code loaded} asks for more glyphs than there is room for, one each. */
     public static boolean overflows(LoadReport loaded) {
         if (loaded == null) {
@@ -107,6 +124,11 @@ public final class GlyphAllocator {
         int wanted = 0;
         for (ContentKind kind : GLYPH_KINDS) {
             wanted += loaded.definitions(kind).size();
+        }
+        for (int codepoint : loaded.takenCodepoints()) {
+            if (codepoint >= FIRST_CODEPOINT && codepoint <= LAST_CODEPOINT) {
+                wanted++;
+            }
         }
         return wanted > LAST_CODEPOINT - FIRST_CODEPOINT + 1;
     }

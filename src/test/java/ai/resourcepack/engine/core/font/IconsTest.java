@@ -261,10 +261,34 @@ class IconsTest {
     }
 
     @Test
-    void aPackOverridingTheDefaultFontIsRefusedLoudly() throws IOException {
+    void aPacksOwnDefaultFontIsMergedAndAllocatedAround() throws IOException {
         write("mypack/fonts/a.yml", "sword: {}\n");
         write("mypack/assets/textures/font/sword.png", "PNG");
-        write("mypack/overrides/font/default.json", "{\"providers\":[]}");
+        // What a Studio pack in content/ carries: its own icon at U+E000.
+        write("studio-x/pack.mcmeta", "{\"pack\":{\"pack_format\":46,\"description\":\"\"}}");
+        write("studio-x/assets/minecraft/font/default.json",
+                "{\"providers\":[{\"type\":\"bitmap\",\"file\":\"minecraft:font/heart.png\",\"ascent\":7,\"height\":8,\"chars\":[\"\\ue000\"]}]}");
+        write("studio-x/assets/minecraft/textures/font/heart.png", "PNG");
+
+        // Ours is moved past theirs, so neither hides the other.
+        assertEquals(0xE001, one(parse(), "mypack:sword").codepoint());
+
+        BuildReport report = new PackBuilder().with(new FontAssets()).build(content, out, load());
+        assertFalse(report.hasErrors(), () -> report.diagnostics().toString());
+        String font = zip().get("assets/minecraft/font/default.json");
+        // Both survive: ours (which used to be dropped whole, every glyph in
+        // the bundle a box) and theirs after it.
+        assertTrue(font.contains("mypack:font/sword.png"), font);
+        assertTrue(font.contains("minecraft:font/heart.png"), font);
+        assertTrue(font.indexOf("mypack:font/sword.png") < font.indexOf("minecraft:font/heart.png"), font);
+        assertTrue(font.chars().allMatch(c -> c < 0x80), "the font file must be plain ASCII");
+    }
+
+    @Test
+    void anUnreadableDefaultFontIsRefusedLoudly() throws IOException {
+        write("mypack/fonts/a.yml", "sword: {}\n");
+        write("mypack/assets/textures/font/sword.png", "PNG");
+        write("mypack/overrides/font/default.json", "not json");
 
         BuildReport report = new PackBuilder().with(new FontAssets()).build(content, out, load());
 
@@ -272,7 +296,7 @@ class IconsTest {
         // pack that did it looked fine.
         assertTrue(report.hasErrors());
         assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).get(0).message()
-                .contains("overrides the default font"));
+                .contains("default font that is not one RP Engine can read"));
     }
 
     @Test

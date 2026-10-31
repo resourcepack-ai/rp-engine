@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Everything a load produced: what was registered, what was skipped, and why.
@@ -20,28 +21,54 @@ public final class LoadReport {
     private final List<PackMeta> packs;
     private final List<ContentDefinition> definitions;
     private final List<Diagnostic> diagnostics;
+    private final Set<Integer> takenCodepoints;
 
     private LoadReport(List<PackMeta> packs,
                        List<ContentDefinition> definitions,
-                       List<Diagnostic> diagnostics) {
+                       List<Diagnostic> diagnostics,
+                       Set<Integer> takenCodepoints) {
         this.packs = packs;
         this.definitions = definitions;
         this.diagnostics = diagnostics;
+        this.takenCodepoints = takenCodepoints;
     }
 
     /** An empty report, for a content folder that does not exist yet. */
     public static LoadReport empty() {
-        return new LoadReport(List.of(), List.of(), List.of());
+        return new LoadReport(List.of(), List.of(), List.of(), Set.of());
     }
 
     /** Builds a report. Engine internal; the host reads one rather than making one. */
     public static LoadReport of(List<PackMeta> packs,
                                 List<ContentDefinition> definitions,
                                 List<Diagnostic> diagnostics) {
+        return of(packs, definitions, diagnostics, Set.of());
+    }
+
+    /**
+     * Builds a report that also says which characters a resource pack in the
+     * content folder already draws in the game's default font. Engine
+     * internal, like {@link #of(List, List, List)}.
+     */
+    public static LoadReport of(List<PackMeta> packs,
+                                List<ContentDefinition> definitions,
+                                List<Diagnostic> diagnostics,
+                                Set<Integer> takenCodepoints) {
         return new LoadReport(
                 packs == null ? List.of() : List.copyOf(packs),
                 definitions == null ? List.of() : List.copyOf(definitions),
-                diagnostics == null ? List.of() : List.copyOf(diagnostics));
+                diagnostics == null ? List.of() : List.copyOf(diagnostics),
+                takenCodepoints == null ? Set.of() : Set.copyOf(takenCodepoints));
+    }
+
+    /**
+     * The characters some pack's own {@code font/default.json} already draws
+     * (a Studio pack's icons, say). The engine's icons, screens and HUDs are
+     * given other codepoints, because both end up in one default font and the
+     * game draws a character with whichever provider declares it first.
+     */
+    public Set<Integer> takenCodepoints() {
+        return takenCodepoints;
     }
 
     /** The packs that loaded, in the order they were found. */
