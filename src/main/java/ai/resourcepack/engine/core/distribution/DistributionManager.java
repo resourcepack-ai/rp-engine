@@ -68,6 +68,16 @@ public final class DistributionManager implements Listener {
 
     private static final long REPORT_INTERVAL_TICKS = 20L * 60;
 
+    /**
+     * How stale the manifest may get when there is no report to carry the
+     * answer: a minute with somebody online, five with nobody. See flushReports.
+     */
+    private static final long IDLE_REFRESH_ONLINE_MS = 60_000L;
+    private static final long IDLE_REFRESH_EMPTY_MS = 5 * 60_000L;
+
+    /** When the manifest was last asked for, so an idle server still notices a publish. */
+    private volatile long lastRefresh;
+
     private final JavaPlugin plugin;
     private final BedrockSupport bedrock;
     private final ProtocolResolver protocols;
@@ -335,6 +345,7 @@ public final class DistributionManager implements Listener {
         if (!isBound()) {
             return;
         }
+        lastRefresh = System.currentTimeMillis();
         Tasks.async(plugin, () -> {
             try {
                 Manifest fresh = Manifest.parse(client.manifest(token, protocols.serverVersion()));
@@ -697,7 +708,20 @@ public final class DistributionManager implements Listener {
                 && !held.releaseId.equals(into.releaseId())) {
             syncMirror(held);
         }
-        if (!isBound() || pending.isEmpty()) {
+        if (!isBound()) {
+            return;
+        }
+        if (pending.isEmpty()) {
+            // The report's answer is how a publish usually reaches us, and a
+            // minute with no join sends no report. Without this a server bound
+            // before its first publish (the studio's own order) never heard of
+            // it: it records nobody while nothing is enabled, so nothing was
+            // ever reported, until a restart. Likewise a republish with nobody
+            // joining reached nobody standing here.
+            long idle = Bukkit.getOnlinePlayers().isEmpty() ? IDLE_REFRESH_EMPTY_MS : IDLE_REFRESH_ONLINE_MS;
+            if (System.currentTimeMillis() - lastRefresh >= idle) {
+                refreshAsync(null);
+            }
             return;
         }
 
