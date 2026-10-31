@@ -115,7 +115,8 @@ public final class ContentFolderLoader {
      * their own kind, so two recipes cannot quietly share a name either.
      */
     private static final Set<ContentKind> UNREGISTERED =
-            Set.of(ContentKind.RECIPE, ContentKind.ENTITY, ContentKind.SKILL);
+            Set.of(ContentKind.RECIPE, ContentKind.ENTITY, ContentKind.SKILL, ContentKind.DROP_TABLE,
+                    ContentKind.SPAWNER);
 
     private static final String PACK_FILE = "pack.yml";
 
@@ -171,6 +172,11 @@ public final class ContentFolderLoader {
         map.put("music", ContentKind.MUSIC);
         // Mob skills, in MythicMobs' own metaskill shape; see SkillDefinitions.
         map.put("skills", ContentKind.SKILL);
+        // Drop tables, MythicMobs' shape (and its folder's spelling too); see MobLoot.
+        map.put("drop-tables", ContentKind.DROP_TABLE);
+        map.put("droptables", ContentKind.DROP_TABLE);
+        // Fixed-point mob spawners; see Spawners.
+        map.put("spawners", ContentKind.SPAWNER);
         return Map.copyOf(map);
     }
 
@@ -831,7 +837,7 @@ public final class ContentFolderLoader {
                 }
                 continue;
             }
-            if (kind == ContentKind.SKILL) {
+            if (kind == ContentKind.SKILL || kind == ContentKind.DROP_TABLE) {
                 // MythicMobs names its skills in CamelCase (GroundSlam) and
                 // looks them up ignoring case, so the id is the name lowercased.
                 Map<String, Object> lowered = new LinkedHashMap<>();

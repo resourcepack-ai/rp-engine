@@ -770,7 +770,8 @@ final class Mechanics {
         for (int i = 0; i < amount; i++) {
             Location at = radius > 0 ? SkillMath.scatter(place, 0, radius, ThreadLocalRandom.current()) : place.clone();
             at.setY(place.getY() + cast.number("yoffset", 0, "y"));
-            Entity spawned = mob.isPresent() ? runtime.host.mobs().spawn(at, mob.get()).orElse(null)
+            Entity spawned = mob.isPresent()
+                    ? runtime.host.spawn(at, mob.get(), Math.max(0, cast.integer("level", 0, "l", "lvl"))).orElse(null)
                     : place.getWorld().spawnEntity(at, vanilla);
             if (spawned == null) {
                 continue;

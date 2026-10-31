@@ -115,12 +115,12 @@ final class SkillCastImpl implements SkillCast {
         return SkillText.fill(text, (scope, field) -> {
             switch (scope) {
                 case "caster":
-                    return SkillText.field(context.caster, field, context.state.stance);
+                    return field(context.caster, field, context.state.stance);
                 case "trigger":
-                    return SkillText.field(context.trigger, field, runtime.stanceOf(context.trigger));
+                    return field(context.trigger, field, runtime.stanceOf(context.trigger));
                 case "target":
                     if (target instanceof Entity) {
-                        return SkillText.field((Entity) target, field, runtime.stanceOf((Entity) target));
+                        return field((Entity) target, field, runtime.stanceOf((Entity) target));
                     }
                     if (target instanceof Location) {
                         Location at = (Location) target;
@@ -138,7 +138,7 @@ final class SkillCastImpl implements SkillCast {
                                 return null;
                         }
                     }
-                    return SkillText.field(context.caster, field, context.state.stance);
+                    return field(context.caster, field, context.state.stance);
                 case "skill":
                     switch (field) {
                         case "power":
@@ -156,5 +156,20 @@ final class SkillCastImpl implements SkillCast {
                     return null;
             }
         });
+    }
+
+    /** One field of an entity: the runtime's own (a level, a variable), else {@link SkillText#field}. */
+    private String field(Entity entity, String field, String stance) {
+        if (entity == null) {
+            return null;
+        }
+        if (field.equals("level") || field.equals("lvl")) {
+            return String.valueOf(runtime.host.level(entity));
+        }
+        if (field.startsWith("var.")) {
+            String value = runtime.variable(entity, field.substring(4));
+            return value == null ? "" : value;
+        }
+        return SkillText.field(entity, field, stance);
     }
 }

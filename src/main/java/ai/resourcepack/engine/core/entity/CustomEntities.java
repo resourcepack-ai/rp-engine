@@ -150,6 +150,12 @@ public final class CustomEntities implements Listener, Mobs {
     private final NamespacedKey eggKey;
 
     private volatile Map<ContentId, EntityInfo> entities = Map.of();
+    /** The content folder's options beyond EntityInfo (armour, equipment, levels, loot...), by id. */
+    private volatile Map<ContentId, MobOptions> options = Map.of();
+    /** The loaded drop tables. */
+    private volatile Map<ContentId, MobLoot.Table> tables = Map.of();
+    /** A mob's level, when it has one above 1. */
+    private final NamespacedKey levelKey;
 
     /** The mobs standing in loaded chunks, by uuid. Concurrent: regions add their own. */
     private final Map<UUID, Living> living = new ConcurrentHashMap<>();
@@ -216,6 +222,26 @@ public final class CustomEntities implements Listener, Mobs {
         this.eggKey = new NamespacedKey(plugin, "entity-egg");
         this.shotKey = new NamespacedKey(plugin, "entity-shot");
         this.nameTagKey = new NamespacedKey(plugin, "entity-name-tag");
+        this.levelKey = new NamespacedKey(plugin, "entity-level");
+    }
+
+    /** Replaces the content folder's mob options and drop tables, beside {@link #replace}. */
+    public void options(Map<ContentId, MobOptions> loaded, Map<ContentId, MobLoot.Table> dropTables) {
+        this.options = loaded == null ? Map.of() : Map.copyOf(loaded);
+        this.tables = dropTables == null ? Map.of() : Map.copyOf(dropTables);
+    }
+
+    /** A mob's options; {@link MobOptions#NONE} for a pushed mob or anything else. */
+    public MobOptions optionsOf(ContentId id) {
+        MobOptions found = id == null ? null : options.get(id);
+        return found == null ? MobOptions.NONE : found;
+    }
+
+    /** A custom mob's level: 1 unless it was spawned at another. */
+    public int level(Entity entity) {
+        Integer level = entity == null ? null
+                : entity.getPersistentDataContainer().get(levelKey, PersistentDataType.INTEGER);
+        return level == null ? 1 : level;
     }
 
     /** Wires what else hears a mob spawn and look (the skill runtime). */
@@ -329,7 +355,38 @@ public final class CustomEntities implements Listener, Mobs {
      */
     @Override
     public Optional<Entity> spawn(Location where, ContentId id) {
-        return spawn(where, id, false);
+        return spawn(where, id, false, 0);
+    }
+
+    /**
+     * Spawns one at {@code level} (1 and up), or at a level rolled from its
+     * {@code level:} range when {@code level} is 0. On the thread that owns
+     * {@code where}.
+     */
+    public Optional<Entity> spawn(Location where, ContentId id, int level) {
+        return spawn(where, id, false, level);
+    }
+
+    /**
+     * Spawns {@code count} on the thread that owns {@code where} (at once when
+     * this is it), a little apart when there are several, and tells
+     * {@code done} how many came. For commands, which may be typed anywhere.
+     */
+    public void spawnAt(Location where, ContentId id, int level, int count, java.util.function.IntConsumer done) {
+        Tasks.nowAt(plugin, where, () -> {
+            int made = 0;
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            for (int i = 0; i < count; i++) {
+                Location at = where.clone();
+                if (i > 0) {
+                    at.add(random.nextDouble(-1.5, 1.5), 0, random.nextDouble(-1.5, 1.5));
+                }
+                if (spawn(at, id, false, level).isPresent()) {
+                    made++;
+                }
+            }
+            done.accept(made);
+        });
     }
 
     /**
@@ -337,7 +394,7 @@ public final class CustomEntities implements Listener, Mobs {
      * a vanilla mob does when nobody is near (its model goes with it: see
      * {@code RigAnimator.orphaned}).
      */
-    private Optional<Entity> spawn(Location where, ContentId id, boolean natural) {
+    private Optional<Entity> spawn(Location where, ContentId id, boolean natural, int asked) {
         Optional<EntityInfo> found = info(id);
         if (where == null || where.getWorld() == null || found.isEmpty()) {
             return Optional.empty();
@@ -358,17 +415,23 @@ public final class CustomEntities implements Listener, Mobs {
         // Configured BEFORE it is added to the world, so a CreatureSpawnEvent
         // listener already sees the mark and the name, and nobody ever sees a
         // bare zombie for a tick.
+        MobOptions extra = optionsOf(id);
+        int level = asked > 0 ? Math.min(1000, asked) : extra.levelMin() + (extra.levelMax() > extra.levelMin()
+                ? ThreadLocalRandom.current().nextInt(extra.levelMax() - extra.levelMin() + 1) : 0);
         Entity mob = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), where, kind,
-                spawned -> configure(spawned, id, info, natural));
+                spawned -> configure(spawned, id, info, natural, extra, level));
         if (mob instanceof LivingEntity) {
             LivingEntity body = (LivingEntity) mob;
             unjockey(body);
             applyHeight(body, info);
-            if (info.health() > 0) {
-                body.setHealth(Math.min(info.health(), maxHealth(body)));
+            double health = extra.scaled("health", info.health(), level);
+            if (health > 0) {
+                body.setHealth(Math.min(health, maxHealth(body)));
             }
             arm(body, info);
+            equip(body, info, extra);
             dress(body, info);
+            mount(body, id, extra);
             Living tracked = living(body, id);
             living.put(mob.getUniqueId(), tracked);
             // Its first look picks the loop; a spawn animation goes first.
@@ -378,8 +441,11 @@ public final class CustomEntities implements Listener, Mobs {
         return Optional.of(mob);
     }
 
-    private void configure(Entity mob, ContentId id, EntityInfo info, boolean natural) {
+    private void configure(Entity mob, ContentId id, EntityInfo info, boolean natural, MobOptions extra, int level) {
         mob.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
+        if (level > 1) {
+            mob.getPersistentDataContainer().set(levelKey, PersistentDataType.INTEGER, level);
+        }
         for (String tag : info.tags()) {
             mob.addScoreboardTag(tag);
         }
@@ -392,9 +458,12 @@ public final class CustomEntities implements Listener, Mobs {
         // leave the model behind: a removed mount ejects its passengers.
         // A natural one despawns as the mob it replaced would have, which is
         // what keeps the world's population what the game meant it to be.
-        mob.setPersistent(true);
+        String despawn = extra.despawn().orElse(natural ? "natural" : "never");
+        // chunk: never saved, so it goes when its chunk unloads, and is never
+        // removed for being far from players while the chunk is loaded.
+        mob.setPersistent(!despawn.equals("chunk"));
         if (mob instanceof Mob) {
-            ((Mob) mob).setRemoveWhenFarAway(natural);
+            ((Mob) mob).setRemoveWhenFarAway(despawn.equals("natural"));
         }
         if (!(mob instanceof LivingEntity)) {
             return;
@@ -413,18 +482,35 @@ public final class CustomEntities implements Listener, Mobs {
         // Through keys rather than constants: the fields are GENERIC_* before
         // 1.21.3 on a type that is an enum there and an interface now, so a
         // constant would not compile against both. See Vanilla.
-        if (info.health() > 0) {
-            setBase(body, Vanilla.maxHealth(), info.health());
+        double health = extra.scaled("health", info.health(), level);
+        if (health > 0) {
+            setBase(body, Vanilla.maxHealth(), Math.min(1024, health));
         }
-        if (info.damage() > 0) {
-            setBase(body, Vanilla.attribute("attack_damage"), info.damage());
+        double damage = extra.scaled("damage", info.damage(), level);
+        if (damage > 0) {
+            setBase(body, Vanilla.attribute("attack_damage"), damage);
         }
-        if (info.speed() != 1) {
+        double speedFactor = info.speed() + Math.max(0, level - 1) * extra.perLevel("speed");
+        if (speedFactor != 1 && speedFactor > 0) {
             Attribute speed = Vanilla.attribute("movement_speed").orElse(null);
             AttributeInstance instance = speed == null ? null : body.getAttribute(speed);
             if (instance != null) {
-                instance.setBaseValue(instance.getBaseValue() * info.speed());
+                instance.setBaseValue(instance.getBaseValue() * speedFactor);
             }
+        }
+        double armor = extra.armor() >= 0 || extra.perLevel("armor") != 0
+                ? extra.scaled("armor", Math.max(0, extra.armor()), level) : -1;
+        if (armor >= 0) {
+            setBase(body, Vanilla.attribute("armor"), Math.min(30, armor));
+        }
+        if (extra.armorToughness() >= 0) {
+            setBase(body, Vanilla.attribute("armor_toughness"), extra.armorToughness());
+        }
+        if (extra.collidable != null) {
+            body.setCollidable(extra.collidable);
+        }
+        if (extra.gravity != null) {
+            body.setGravity(extra.gravity);
         }
         if (info.knockbackResistance() > 0) {
             setBase(body, Vanilla.attribute("knockback_resistance"), info.knockbackResistance());
@@ -448,6 +534,95 @@ public final class CustomEntities implements Listener, Mobs {
         if (equipment != null) {
             equipment.setItemInMainHand(modern.hiddenBow());
             equipment.setItemInMainHandDropChance(0f);
+        }
+    }
+
+    /**
+     * {@code equipment:}, after the spawn emptied its hands. Worn for real, so
+     * armour counts and a held weapon's damage does; a mob wearing a model
+     * shows none of it, since the model is what is seen (1.21.4+ draws each
+     * piece as nothing, the hidden bow's trick). Older servers cannot hide a
+     * worn item, so a modelled mob wears nothing there; one with no model
+     * wears it as any mob does.
+     */
+    private void equip(LivingEntity body, EntityInfo info, MobOptions extra) {
+        EntityEquipment equipment = body.getEquipment();
+        if (equipment == null || extra.equipment().isEmpty()) {
+            return;
+        }
+        boolean modelled = info.model().isPresent() || info.carrier().isPresent();
+        if (modelled && modern == null) {
+            return;
+        }
+        for (Map.Entry<String, MobOptions.Equip> worn : extra.equipment().entrySet()) {
+            if (worn.getKey().equals("hand") && bowShooter(info)) {
+                continue;
+            }
+            ItemStack stack = dropStack(worn.getValue().item, 1);
+            if (stack == null) {
+                plugin.getLogger().warning("equipment: " + worn.getValue().item + " is no item.");
+                continue;
+            }
+            if (modelled) {
+                stack = modern.hidden(stack);
+            }
+            switch (worn.getKey()) {
+                case "head":
+                    equipment.setHelmet(stack);
+                    equipment.setHelmetDropChance(0f);
+                    break;
+                case "chest":
+                    equipment.setChestplate(stack);
+                    equipment.setChestplateDropChance(0f);
+                    break;
+                case "legs":
+                    equipment.setLeggings(stack);
+                    equipment.setLeggingsDropChance(0f);
+                    break;
+                case "feet":
+                    equipment.setBoots(stack);
+                    equipment.setBootsDropChance(0f);
+                    break;
+                case "offhand":
+                    equipment.setItemInOffHand(stack);
+                    equipment.setItemInOffHandDropChance(0f);
+                    break;
+                default:
+                    equipment.setItemInMainHand(stack);
+                    equipment.setItemInMainHandDropChance(0f);
+                    break;
+            }
+        }
+    }
+
+    /**
+     * {@code mount:}: what it rides, spawned under it. A custom mob by id (a
+     * bare name in the same pack) or a vanilla type. The mount is kept as the
+     * rider is, and a custom one is a whole custom mob of its own.
+     */
+    private void mount(LivingEntity body, ContentId id, MobOptions extra) {
+        if (extra.mount().isEmpty()) {
+            return;
+        }
+        String written = extra.mount().get().toLowerCase(Locale.ROOT);
+        Entity mount = null;
+        Optional<ContentId> custom = written.startsWith("minecraft:") ? Optional.empty()
+                : written.indexOf(':') > 0 ? ContentId.parse(written) : ContentId.of(id.namespace(), written);
+        if (custom.isPresent() && entities.containsKey(custom.get()) && !custom.get().equals(id)) {
+            mount = spawn(body.getLocation(), custom.get(), false, 0).orElse(null);
+        } else {
+            try {
+                EntityType type = EntityType.valueOf(written.toUpperCase(Locale.ROOT).replace("MINECRAFT:", ""));
+                if (type.isSpawnable()) {
+                    mount = body.getWorld().spawnEntity(body.getLocation(), type);
+                    mount.setPersistent(true);
+                }
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("mount: " + written + " (" + id + ") is no custom mob and no vanilla mob.");
+            }
+        }
+        if (mount != null) {
+            mount.addPassenger(body);
         }
     }
 
@@ -657,8 +832,20 @@ public final class CustomEntities implements Listener, Mobs {
     private void showBar(Living mob, EntityInfo.BossBar spec, long now) {
         LivingEntity body = mob.entity;
         if (mob.bar == null) {
+            MobOptions extra = optionsOf(mob.id);
+            List<org.bukkit.boss.BarFlag> flags = new ArrayList<>();
+            if (extra.barFog) {
+                flags.add(org.bukkit.boss.BarFlag.CREATE_FOG);
+            }
+            if (extra.barDarken) {
+                flags.add(org.bukkit.boss.BarFlag.DARKEN_SKY);
+            }
+            if (extra.barMusic) {
+                flags.add(org.bukkit.boss.BarFlag.PLAY_BOSS_MUSIC);
+            }
             mob.bar = Bukkit.createBossBar(barTitle(body, mob.id),
-                    BarColor.valueOf(spec.color()), BarStyle.valueOf(spec.style()));
+                    BarColor.valueOf(spec.color()), BarStyle.valueOf(spec.style()),
+                    flags.toArray(new org.bukkit.boss.BarFlag[0]));
         }
         double max = maxHealth(body);
         mob.bar.setProgress(Math.max(0, Math.min(1, max <= 0 ? 0 : body.getHealth() / max)));
@@ -1090,6 +1277,88 @@ public final class CustomEntities implements Listener, Mobs {
         }
     }
 
+    /**
+     * {@code invincible: true} and {@code damage-modifiers:}. Invincible takes
+     * nothing but the void and {@code /kill}; a modifier multiplies a cause's
+     * damage, and 0 cancels the hit, so it does not even flinch.
+     */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onModifiedDamage(EntityDamageEvent event) {
+        if (options.isEmpty()) {
+            return;
+        }
+        Optional<ContentId> id = idOf(event.getEntity());
+        if (id.isEmpty()) {
+            return;
+        }
+        MobOptions extra = optionsOf(id.get());
+        String cause = event.getCause().name();
+        if (extra.invincible() && !cause.equals("VOID") && !cause.equals("KILL") && !cause.equals("SUICIDE")) {
+            event.setCancelled(true);
+            return;
+        }
+        double factor = extra.modifier(cause);
+        if (factor == 1) {
+            return;
+        }
+        if (factor <= 0) {
+            event.setCancelled(true);
+            if (cause.startsWith("FIRE") || cause.equals("LAVA")) {
+                event.getEntity().setFireTicks(0);
+            }
+            return;
+        }
+        event.setDamage(event.getDamage() * factor);
+    }
+
+    /**
+     * {@code faction:}: a custom mob never takes another of its own faction as
+     * a target, whatever its type's instincts.
+     */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onTarget(org.bukkit.event.entity.EntityTargetLivingEntityEvent event) {
+        if (options.isEmpty() || event.getTarget() == null) {
+            return;
+        }
+        String mine = factionOf(event.getEntity());
+        if (mine != null && mine.equals(factionOf(event.getTarget()))) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** A custom mob's faction, or null. */
+    public String factionOf(Entity entity) {
+        Optional<ContentId> id = idOf(entity);
+        return id.isEmpty() ? null : optionsOf(id.get()).faction().orElse(null);
+    }
+
+    /**
+     * {@code kill-messages:}: one of them, at random, is the death message of
+     * a player this mob killed. {@code <target.name>}, {@code <caster.name>},
+     * {@code {player}} and {@code {mob}} are filled in.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPlayerDeath(org.bukkit.event.entity.PlayerDeathEvent event) {
+        if (options.isEmpty()) {
+            return;
+        }
+        Player dead = event.getEntity();
+        Entity killer = killerOf(dead);
+        Optional<ContentId> id = idOf(killer);
+        if (id.isEmpty() || !(killer instanceof LivingEntity)) {
+            return;
+        }
+        List<String> lines = optionsOf(id.get()).killMessages();
+        if (lines.isEmpty()) {
+            return;
+        }
+        String mob = killer.getCustomName() != null ? killer.getCustomName() : barTitle((LivingEntity) killer, id.get());
+        String line = lines.get(ThreadLocalRandom.current().nextInt(lines.size()))
+                .replace("<target.name>", dead.getName()).replace("{player}", dead.getName())
+                .replace("<caster.name>", mob).replace("{mob}", mob);
+        event.setDeathMessage(ChatColor.translateAlternateColorCodes('&', line));
+    }
+
     /** {@code fire-immune: true}: fire, lava, a magma block and burning do nothing. */
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onFireDamage(EntityDamageEvent event) {
@@ -1161,8 +1430,40 @@ public final class CustomEntities implements Listener, Mobs {
             // Replaced, never added to: a rhino that also drops a polar bear's
             // fish is two animals again.
             event.getDrops().clear();
-            event.getDrops().addAll(roll(info.drops()));
-            event.setDroppedExp(info.xp());
+            MobOptions extra = optionsOf(id.get());
+            if (extra.loot != null) {
+                Entity killer = killerOf(body);
+                MobLoot.Loot loot = MobLoot.roll(extra.loot, tables, id.get(),
+                        condition -> hooks.condition(body, killer, condition), ThreadLocalRandom.current());
+                for (Map.Entry<String, Integer> item : loot.items) {
+                    int left = item.getValue();
+                    while (left > 0) {
+                        ItemStack stack = dropStack(item.getKey(), 1);
+                        if (stack == null) {
+                            break;
+                        }
+                        int count = Math.min(left, stack.getMaxStackSize());
+                        stack.setAmount(count);
+                        event.getDrops().add(stack);
+                        left -= count;
+                    }
+                }
+                event.setDroppedExp(loot.xp + xpRoll(extra, info));
+                for (String command : loot.commands) {
+                    Regions.console(plugin, lootCommand(command, body, killer));
+                }
+            } else {
+                event.getDrops().addAll(roll(info.drops()));
+                event.setDroppedExp(xpRoll(extra, info));
+            }
+            for (MobOptions.Equip worn : extra.equipment().values()) {
+                if (worn.dropChance > 0 && ThreadLocalRandom.current().nextDouble() < worn.dropChance) {
+                    ItemStack stack = dropStack(worn.item, 1);
+                    if (stack != null) {
+                        event.getDrops().add(stack);
+                    }
+                }
+            }
             if (info.sounds().containsKey("death")) {
                 play(body, info.sounds().get("death"));
             }
@@ -1211,6 +1512,45 @@ public final class CustomEntities implements Listener, Mobs {
                 bound.discard(left);
             }
         }, ticks);
+    }
+
+    /** {@code xp:}, a number or a range. */
+    private static int xpRoll(MobOptions extra, EntityInfo info) {
+        if (extra.xpMax > extra.xpMin) {
+            return extra.xpMin + ThreadLocalRandom.current().nextInt(extra.xpMax - extra.xpMin + 1);
+        }
+        return info.xp();
+    }
+
+    /** The player or mob whose blow killed it, through a projectile to its shooter; null for none. */
+    static Entity killerOf(LivingEntity body) {
+        if (body.getKiller() != null) {
+            return body.getKiller();
+        }
+        EntityDamageEvent last = body.getLastDamageCause();
+        if (last instanceof EntityDamageByEntityEvent) {
+            Entity damager = ((EntityDamageByEntityEvent) last).getDamager();
+            if (damager instanceof Projectile && ((Projectile) damager).getShooter() instanceof Entity) {
+                return (Entity) ((Projectile) damager).getShooter();
+            }
+            return damager;
+        }
+        return null;
+    }
+
+    /** A loot command with its placeholders: the killer is the trigger, the mob the caster. */
+    private static String lootCommand(String command, LivingEntity body, Entity killer) {
+        Location at = body.getLocation();
+        String killerName = killer == null ? "" : killer.getName();
+        String out = command.replace("<trigger.name>", killerName).replace("{killer}", killerName)
+                .replace("<trigger.uuid>", killer == null ? "" : killer.getUniqueId().toString())
+                .replace("<caster.name>", body.getName()).replace("<caster.uuid>", body.getUniqueId().toString())
+                .replace("<caster.l.w>", at.getWorld() == null ? "" : at.getWorld().getName())
+                .replace("<caster.l.x>", String.valueOf(at.getBlockX()))
+                .replace("<caster.l.y>", String.valueOf(at.getBlockY()))
+                .replace("<caster.l.z>", String.valueOf(at.getBlockZ()))
+                .replace("<&sc>", ";");
+        return out.startsWith("/") ? out.substring(1) : out;
     }
 
     private List<ItemStack> roll(List<EntityDrop> drops) {
@@ -1272,7 +1612,10 @@ public final class CustomEntities implements Listener, Mobs {
                 ? event.getPlayer().getInventory().getItemInOffHand()
                 : event.getPlayer().getInventory().getItemInMainHand();
         Material type = held == null ? Material.AIR : held.getType();
-        if (type != Material.NAME_TAG && type != Material.LEAD) {
+        MobOptions extra = idOf(event.getRightClicked()).map(this::optionsOf).orElse(MobOptions.NONE);
+        boolean allowed = (type == Material.NAME_TAG && !extra.prevents("rename"))
+                || (type == Material.LEAD && !extra.prevents("leash"));
+        if (!allowed) {
             event.setCancelled(true);
         }
     }
@@ -1405,11 +1748,11 @@ public final class CustomEntities implements Listener, Mobs {
                 rider.remove();
             }
             vanilla.remove();
-            spawn(at.clone(), info.id(), true);
+            spawn(at.clone(), info.id(), true, 0);
             for (int i = 1; i < group; i++) {
                 Location beside = besides(at, random);
                 if (beside != null) {
-                    spawn(beside, info.id(), true);
+                    spawn(beside, info.id(), true, 0);
                 }
             }
             return;

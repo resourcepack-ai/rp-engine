@@ -271,6 +271,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private CustomEntities creatures;
     /** Custom mobs' skills: MythicMobs-style lines and metaskills. */
     private ai.resourcepack.engine.core.skill.SkillRuntime skills;
+    /** Fixed-point mob spawners: the content folder's and /rp spawner's. */
+    private ai.resourcepack.engine.core.entity.Spawners mobSpawners;
     private VehicleRuntime vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
@@ -875,8 +877,31 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     public boolean tint(org.bukkit.entity.Entity entity, int rgb, long ticks) {
                         return creatures.tint(entity, rgb, ticks);
                     }
+
+                    @Override
+                    public int level(org.bukkit.entity.Entity entity) {
+                        return creatures.level(entity);
+                    }
+
+                    @Override
+                    public double levelPower(org.bukkit.entity.Entity entity) {
+                        return creatures.idOf(entity).map(creatures::optionsOf)
+                                .map(options -> options.levelPower(creatures.level(entity))).orElse(1.0);
+                    }
+
+                    @Override
+                    public String faction(org.bukkit.entity.Entity entity) {
+                        return creatures.factionOf(entity);
+                    }
+
+                    @Override
+                    public java.util.Optional<org.bukkit.entity.Entity> spawn(org.bukkit.Location where,
+                                                                             ContentId id, int level) {
+                        return creatures.spawn(where, id, level);
+                    }
                 });
         creatures.hooks(skills);
+        mobSpawners = new ai.resourcepack.engine.core.entity.Spawners(this, creatures);
         getServer().getPluginManager().registerEvents(skills, this);
         // Smithing results and anvil recipes are decided in events; see
         // RecipeStations. Registered once, holding whatever the last load gave.
@@ -1031,6 +1056,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         animator.start();
         creatures.start();
         skills.start();
+        mobSpawners.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
@@ -1155,7 +1181,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineCommand commands = new EngineCommand(registry, () -> built,
                 new ContentCommands(items, () -> built, packHost, recipes, () -> recipeIds,
                         this::reloadContent, this::sendPack, itemMenu::open),
-                new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates),
+                new ModelCommands(placements, models, creatures, boundModels, items, blocks, blockStates,
+                        mobSpawners),
                 new InterfaceCommands(sounds, icons, overlays, overlayRuntime, dialogs),
                 new EmoteCommands(emotes, invites),
                 new SyncCommands(getServer(), sync, group, distribution,
@@ -2038,6 +2065,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (skills != null) {
             skills.stop();
         }
+        if (mobSpawners != null) {
+            mobSpawners.stop();
+        }
         if (animator != null) {
             animator.stop();
         }
@@ -2397,9 +2427,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // chunks round spawn loaded before this plugin did.
         growth.rescan();
 
-        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(loaded, withBlocks.keySet());
+        // Templates first: the entity and skill readers each see one merged
+        // body per mob and know nothing of extends:. See MobTemplates.
+        ai.resourcepack.engine.core.entity.MobTemplates.Result templated =
+                ai.resourcepack.engine.core.entity.MobTemplates.resolve(loaded);
+        report(to, "entities", templated.diagnostics());
+        LoadReport mobsLoaded = templated.report();
+        EntityDefinitions.Result parsedEntities = EntityDefinitions.parse(mobsLoaded, withBlocks.keySet());
         report(to, "entities", parsedEntities.diagnostics());
         authoredEntities = parsedEntities.entities();
+        ai.resourcepack.engine.core.entity.MobLoot.Tables dropTables =
+                ai.resourcepack.engine.core.entity.MobLoot.tables(loaded);
+        report(to, "drop tables", dropTables.diagnostics());
+        creatures.options(parsedEntities.options(), dropTables.tables());
+        ai.resourcepack.engine.core.entity.Spawners.Result parsedSpawners =
+                ai.resourcepack.engine.core.entity.Spawners.parse(loaded);
+        report(to, "spawners", parsedSpawners.diagnostics());
+        mobSpawners.replace(parsedSpawners);
         Map<ContentId, Float> tops = new java.util.HashMap<>();
         for (ai.resourcepack.engine.api.EntityInfo entity : authoredEntities.values()) {
             entity.model().filter(model -> !tops.containsKey(model)).ifPresent(model -> {
@@ -2412,7 +2456,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // After the mobs: a skill line names mobs (summon) and metaskills,
         // and the names it is checked against are the live registry's.
         ai.resourcepack.engine.core.skill.SkillDefinitions.Result parsedSkills =
-                ai.resourcepack.engine.core.skill.SkillDefinitions.parse(loaded, skills.names());
+                ai.resourcepack.engine.core.skill.SkillDefinitions.parse(mobsLoaded, skills.names());
         report(to, "skills", parsedSkills.diagnostics());
         skills.replace(parsedSkills);
 

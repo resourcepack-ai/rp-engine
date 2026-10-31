@@ -57,4 +57,40 @@ final class MobItems {
         }
         return bow;
     }
+
+    /**
+     * {@code stack} worn but not seen, for a mob whose model is what is seen:
+     * drawn with vanilla's empty {@code minecraft:air} model in a hand or on a
+     * head, and with no armour asset when it is a piece of armour. Its
+     * attributes (armour, a weapon's damage) still count.
+     */
+    ItemStack hidden(ItemStack stack) {
+        ItemStack out = stack.clone();
+        ItemMeta meta = out.getItemMeta();
+        if (meta == null) {
+            return out;
+        }
+        meta.setItemModel(NamespacedKey.minecraft("air"));
+        if (meta.hasEquippable() || isArmour(out.getType())) {
+            org.bukkit.inventory.meta.components.EquippableComponent equippable = meta.getEquippable();
+            // setModel on 1.21.4, renamed setAssetId after it: by reflection, either.
+            for (String name : new String[]{"setAssetId", "setModel"}) {
+                try {
+                    equippable.getClass().getMethod(name, NamespacedKey.class).invoke(equippable, (Object) null);
+                    break;
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // The other name.
+                }
+            }
+            meta.setEquippable(equippable);
+        }
+        out.setItemMeta(meta);
+        return out;
+    }
+
+    private static boolean isArmour(Material type) {
+        String name = type.name();
+        return name.endsWith("_HELMET") || name.endsWith("_CHESTPLATE") || name.endsWith("_LEGGINGS")
+                || name.endsWith("_BOOTS") || name.equals("ELYTRA");
+    }
 }

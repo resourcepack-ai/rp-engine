@@ -277,6 +277,26 @@ final class Conditions {
             }
             return false;
         }, "mobtype", "mythicmobtype", "custommob");
+        r.condition(cast -> subject(cast) != null
+                && ranged(cast, runtime.host.level(subject(cast)), "level", "l", "lvl"), "level", "moblevel");
+        r.condition(cast -> {
+            String faction = subject(cast) == null ? null : runtime.host.faction(subject(cast));
+            String wanted = cast.string("faction", "", "f");
+            if (wanted.isBlank()) {
+                return faction != null;
+            }
+            for (String one : wanted.split(",")) {
+                if (one.trim().equalsIgnoreCase(faction == null ? "" : faction)) {
+                    return true;
+                }
+            }
+            return false;
+        }, "faction", "hasfaction");
+        r.condition(cast -> {
+            Entity subject = subject(cast);
+            String mine = runtime.host.faction(cast.caster());
+            return subject != null && mine != null && mine.equals(runtime.host.faction(subject));
+        }, "samefaction", "ally");
         r.condition(cast -> subject(cast) instanceof Player, "isplayer", "player");
         r.condition(cast -> subject(cast) instanceof org.bukkit.entity.Enemy, "ismonster", "monster");
         r.condition(cast -> subject(cast) instanceof LivingEntity, "isliving", "living");
