@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|cape|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -93,6 +93,7 @@ permissions:
       rpengine.object.seed: true
       rpengine.object.remove: true
       rpengine.armor: true
+      rpengine.cape: true
       rpengine.edit: true
       rpengine.sync: true
       rpengine.distribute: true
@@ -107,6 +108,7 @@ permissions:
       rpengine.dialog.others: true
       rpengine.var.others: true
       rpengine.armor.others: true
+      rpengine.cape.others: true
       rpengine.bind.others: true
       rpengine.egg.others: true
       rpengine.unbind.others: true
@@ -401,6 +403,14 @@ permissions:
     default: op
   rpengine.armor.others:
     description: Dress somebody else in 3D armour, or hand them a set.
+    default: op
+  rpengine.cape:
+    description: >
+      Choose your own cape. A content folder cape that names a permission of
+      its own also needs that one.
+    default: op
+  rpengine.cape.others:
+    description: Put a cape on somebody else, or take theirs off.
     default: op
   rpengine.edit:
     description: >

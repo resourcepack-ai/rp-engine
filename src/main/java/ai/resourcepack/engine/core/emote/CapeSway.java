@@ -3,6 +3,7 @@ package ai.resourcepack.engine.core.emote;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 
 /**
  * Vanilla's cape physics, on a rig that has replaced the player.
@@ -57,7 +58,7 @@ import org.joml.Matrix4f;
  * and turned into a rotation in this space, rather than lifted as a signed
  * degree count. See {@link #applyTo}.
  */
-final class CapeSway {
+public final class CapeSway {
 
     /** How much of the gap the cloak closes each tick — Mojang's 0.25. */
     private static final double CHASE = 0.25;
@@ -171,7 +172,7 @@ final class CapeSway {
     // flag on the same client, so reading anything else would be a different
     // animation that happened to be better informed. A spoofed flag costs a bob.
     @SuppressWarnings("deprecation")
-    void step(Player player, Float bodyYaw) {
+    public void step(Player player, Float bodyYaw) {
         if (player == null) return;
         Location now = player.getLocation();
 
@@ -307,6 +308,20 @@ final class CapeSway {
      * <p>{@code pivot} is in block-model px, exactly as it arrives from the
      * manifest.
      */
+    /**
+     * The same turn as {@link #applyTo}, for a cape worn on a live player
+     * rather than on a rig: about the hinge, in the WEARER's frame (+Z their
+     * front, their right hand at -X), which is the rig's frame turned half
+     * round. That half turn negates the x and z angles and keeps y, so lifting
+     * the hem away from the back is a POSITIVE x here, and a lag to their right
+     * is a NEGATIVE z. See {@code core/cape} and {@code WornPose.place}.
+     */
+    public Quaternionf wearerTurn() {
+        float outward = (float) Math.toRadians(REST_LEAN + lean / 2.0 + rise);
+        float sideways = (float) Math.toRadians(sway / 2.0);
+        return new Quaternionf().rotateX(outward).rotateZ(-sideways).rotateY(-sideways);
+    }
+
     void applyTo(Matrix4f m, float[] pivot) {
         applyTo(m, pivot, lean, rise, sway);
     }

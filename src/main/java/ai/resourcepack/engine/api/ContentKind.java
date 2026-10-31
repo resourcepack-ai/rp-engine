@@ -71,6 +71,12 @@ public enum ContentKind {
     ARMOR3D,
 
     /**
+     * A cape: a texture in vanilla's cape layout, hung off a player's back
+     * with vanilla's cape physics. See {@link Capes}.
+     */
+    CAPE,
+
+    /**
      * A 3D shader object (a picture a core shader draws in the world), or
      * sequences for one. See {@link ShaderObjects}.
      */

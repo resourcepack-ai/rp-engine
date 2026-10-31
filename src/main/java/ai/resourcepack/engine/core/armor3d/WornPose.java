@@ -417,6 +417,19 @@ public final class WornPose {
         return rotation.rotateY(PI).normalize();
     }
 
+    /**
+     * {@link #place}, with the part's own turn given as a rotation rather than
+     * as three angles: a cape's, which changes every pose and is composed in
+     * the order vanilla's {@code CapeLayer} applies it. In the wearer's frame,
+     * about the anchor, after the limb's turn.
+     */
+    public static Quaternionf placeTurned(Pose pose, Limb limb, float[] anchor, Quaternionf turn, float bodyYaw,
+                                    boolean crouched, Vector3f outTranslation) {
+        Quaternionf rotation = place(pose, limb, anchor, null, bodyYaw, crouched, outTranslation);
+        // Undo the closing half turn, add this one, put it back.
+        return rotation.rotateY(-PI).mul(turn).rotateY(PI).normalize();
+    }
+
     // ---- float maths, spelled the way Mojang spells it --------------------
 
     static final float PI = (float) Math.PI;

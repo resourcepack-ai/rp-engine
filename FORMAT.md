@@ -1049,6 +1049,45 @@ this is the switch.
 older server the sets still load (and are checked, so the warnings are worth
 reading), nothing is built into the pack, and `/rp armor` says why.
 
+## Capes
+
+A cape hung off a player's back, swung by the game's own cape physics, and
+seen by everybody on the server. One PNG each:
+
+```yaml
+# capes/capes.yml
+founder:
+  name: "Founder Cape"           # optional; the id when absent
+  texture: capes/founder         # assets/textures/capes/founder.png; capes/<id> when absent
+  permission: myserver.founder   # optional; needed to pick it for yourself
+```
+
+That is the cape `mypack:founder`. **The texture is vanilla's cape file**:
+64x32 in Mojang's own layout (the design at x 1-10, y 1-16, seen from behind;
+the lining at x 12-21), or a whole multiple of it, such as an HD 128x64. A cape
+somebody already has drops straight in, and so does one made in Studio.
+
+`/rp cape` lists the capes a player may wear, `/rp cape wear <cape> [player]`
+puts one on and `/rp cape off [player]` takes it off. What a player wears is
+kept on the player, so it survives a relog and a restart. `/rp cape self`
+hides a player's own cape from them (they see it in F5 by default, as the game
+shows its own). Plugins reach the same capes through `engine.capes()` (see
+API.md).
+
+Permissions: `rpengine.cape` to choose your own, `rpengine.cape.others` to put
+one on somebody else. A cape that names a `permission:` also needs that node to
+be picked for yourself; putting it on somebody else is a staff decision and
+checks none.
+
+**How it is drawn.** A display entity per wearer, posed on the body exactly as
+3D armour's pieces are, and turned about its hinge by vanilla's own cape
+physics (the lag behind the body, the lift of a sprint, the bob of a walk, the
+lift while crouching). It hangs a little proud of a vanilla cape, so a player
+who also owns a Mojang cape has theirs covered rather than flickering through.
+It is put away under an elytra, while invisible, and in poses the game turns
+the whole body for (swimming, gliding, sleeping). Needs Minecraft 1.21.4 or
+newer; on Bedrock, through Geyser, it is not drawn.
+
 ## Entities
 
 A real mob wearing a model, animated by what it is doing.
