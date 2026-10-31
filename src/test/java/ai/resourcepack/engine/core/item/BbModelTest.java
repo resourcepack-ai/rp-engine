@@ -353,6 +353,32 @@ class BbModelTest {
     }
 
     @Test
+    void aBoneWithNoKeyframesOfItsOwnRidesItsAnimatedParent() {
+        // Generated creatures hang a jaw off a head, a foot off a leg, and an
+        // animation often keys only the parent. The child must move with it,
+        // not be merged into the still remainder. Studio's ModelEngine export
+        // wrote every bone at the outliner root until 0.2.51, which is exactly
+        // the shape where this cannot hold: the nesting IS the inheritance.
+        String nodTorso = "\"bone-0\": {\"keyframes\": ["
+                + "{\"channel\": \"rotation\", \"time\": 0, \"data_points\": [{\"x\": 0, \"y\": 0, \"z\": 0}]},"
+                + "{\"channel\": \"rotation\", \"time\": 1, \"data_points\": [{\"x\": 20, \"y\": 0, \"z\": 0}]}]}";
+        String five = project(","
+                + "\"groups\": [{\"uuid\": \"bone-0\", \"name\": \"torso\", \"origin\": [8, 12, 8]},"
+                + " {\"uuid\": \"bone-1\", \"name\": \"arm\", \"origin\": [8, 6, 8]}],"
+                + "\"outliner\": [{\"uuid\": \"bone-0\", \"children\": ["
+                + " {\"uuid\": \"bone-1\", \"children\": [\"cube-1\"]}]}],"
+                + "\"animations\": [{\"name\": \"nod\", \"length\": 1, \"loop\": \"loop\","
+                + " \"animators\": {" + nodTorso + "}}]");
+        JsonObject model = BbModel.convert(five.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+
+        var rig = ai.resourcepack.engine.core.model.ModelRigs.compute("golem", model).orElseThrow();
+        var part = rig.parts().stream().filter(p -> p.elements().contains(0)).findFirst().orElseThrow();
+        assertEquals(1, part.program().size(), "the arm's cube is carried by the torso it hangs off");
+        assertEquals("g:0", part.program().get(0).target());
+    }
+
+    @Test
     void aModelEngineHitboxBoneIsMeasuredNotDrawn() {
         // Model Engine's `hitbox` bone is a volume, usually textured with
         // nothing; drawn, it was a ghostly box round the whole mob.
