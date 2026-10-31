@@ -173,6 +173,8 @@ public final class CustomEntities implements Listener, Mobs {
      * which has the content folder and the pushed pack to measure in.
      */
     private volatile java.util.function.ToDoubleFunction<EntityInfo> modelTops = info -> 0;
+    /** Told when a mob spawns and at each look: the skill runtime. */
+    private volatile MobHooks hooks = MobHooks.NONE;
 
     /** One mob's bookkeeping. Touched only on the mob's thread. */
     private static final class Living {
@@ -214,6 +216,11 @@ public final class CustomEntities implements Listener, Mobs {
         this.eggKey = new NamespacedKey(plugin, "entity-egg");
         this.shotKey = new NamespacedKey(plugin, "entity-shot");
         this.nameTagKey = new NamespacedKey(plugin, "entity-name-tag");
+    }
+
+    /** Wires what else hears a mob spawn and look (the skill runtime). */
+    public void hooks(MobHooks hooks) {
+        this.hooks = hooks == null ? MobHooks.NONE : hooks;
     }
 
     /** Wires how a mob's model is measured, for where its name goes. See {@link #modelTops}. */
@@ -366,6 +373,7 @@ public final class CustomEntities implements Listener, Mobs {
             living.put(mob.getUniqueId(), tracked);
             // Its first look picks the loop; a spawn animation goes first.
             oneShot(tracked, MobState.SPAWN);
+            hooks.spawned(body, id);
         }
         return Optional.of(mob);
     }
@@ -612,6 +620,7 @@ public final class CustomEntities implements Listener, Mobs {
                 aimAndShoot(mob, info, info.ranged().get(), now);
             }
         }
+        hooks.looked(body, mob.id, info, now);
         List<ItemDisplay> parts = bound.parts(body);
         double guess = parts.isEmpty() ? body.getHeight()
                 : parts.get(0).getLocation().getY() - at.getY();
@@ -854,7 +863,7 @@ public final class CustomEntities implements Listener, Mobs {
             return;
         }
         for (ItemDisplay part : bound.parts(mob.entity)) {
-            paint(part, true, info);
+            paint(part, FLASH_RGB, info);
         }
         unflashLater(mob, info, FLASH_TICKS);
     }
@@ -867,18 +876,39 @@ public final class CustomEntities implements Listener, Mobs {
                 return;
             }
             for (ItemDisplay part : bound.parts(mob.entity)) {
-                paint(part, false, info);
+                paint(part, -1, info);
             }
         }, () -> { }, Math.max(1, delay));
     }
 
-    private void paint(ItemDisplay part, boolean red, EntityInfo info) {
+    /**
+     * Tints a custom mob's model {@code rgb} for {@code ticks}, the way its
+     * hurt flash does (a skill's {@code tint}). False for anything else.
+     */
+    public boolean tint(Entity entity, int rgb, long ticks) {
+        Living mob = entity == null ? null : living.get(entity.getUniqueId());
+        EntityInfo info = mob == null ? null : entities.get(mob.id);
+        if (info == null) {
+            return false;
+        }
+        long now = mob.entity.getWorld().getGameTime();
+        mob.flashUntil = Math.max(mob.flashUntil, now + Math.max(1, ticks));
+        for (ItemDisplay part : bound.parts(mob.entity)) {
+            paint(part, rgb & 0xFFFFFF, info);
+        }
+        unflashLater(mob, info, Math.max(1, ticks));
+        return true;
+    }
+
+    /** {@code rgb} on every part, or -1 for none. */
+    private void paint(ItemDisplay part, int rgb, EntityInfo info) {
+        boolean red = rgb >= 0;
         if (modern != null && bound.rigPart(part)) {
-            part.setItemStack(modern.tint(part.getItemStack(), red ? FLASH_RGB : -1));
+            part.setItemStack(modern.tint(part.getItemStack(), rgb));
             return;
         }
         if (red) {
-            part.setGlowColorOverride(Color.fromRGB(FLASH_RGB));
+            part.setGlowColorOverride(Color.fromRGB(rgb));
             part.setGlowing(true);
         } else {
             part.setGlowColorOverride(null);

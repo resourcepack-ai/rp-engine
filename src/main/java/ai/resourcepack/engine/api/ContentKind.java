@@ -94,5 +94,12 @@ public enum ContentKind {
      * are somewhere it belongs, or when a command or plugin starts it. See
      * {@link Music}.
      */
-    MUSIC
+    MUSIC,
+
+    /**
+     * A mob skill: a named list of skill lines (MythicMobs' metaskill), cast
+     * from a mob's {@code skills:} with {@code skill{s=Name}}. See
+     * {@link MobSkills}.
+     */
+    SKILL
 }

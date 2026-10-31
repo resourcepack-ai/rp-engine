@@ -375,6 +375,12 @@ overlays:
 vfx:
   max-sprites: 4000
 
+# Custom mobs' skills (the skills: of an entity, and skills/).
+skills:
+  # Logs every skill line a mob runs, with what it aimed at, to the console.
+  # For finding out why a skill did not fire; noisy, so leave it off.
+  debug: false
+
 # Dialogs (Minecraft 1.21.6+).
 dialogs:
   # A click on a dialog's picture makes no sound in the game: only its own

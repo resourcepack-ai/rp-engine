@@ -15,6 +15,7 @@ engine.models();    // studio models, and the rigs standing in your worlds
 engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.mobs();      // custom mobs: spawn one, animate one, give an egg
+engine.skills();    // mob skills: add a mechanic, condition or targeter; cast one
 engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
@@ -1115,6 +1116,60 @@ changes, so a state the mob has no animation for never appears.
 Everything here touches an entity, so it is main thread only, or on Folia the
 thread owning the mob or the place.
 
+### Skills
+
+A custom mob's `skills:` are MythicMobs' skill lines (FORMAT.md, Skills), and
+the language is extended the way MythicMobs' is: register a mechanic, a
+condition or a targeter by name and every mob file can use it.
+
+```java
+MobSkills skills = engine.skills();
+
+// - myplugin:smite{damage=6} @target ~onAttack 0.2
+skills.registerMechanic("myplugin:smite", cast -> {
+    cast.target().ifPresent(target -> {
+        target.getWorld().strikeLightningEffect(target.getLocation());
+        if (target instanceof LivingEntity living) {
+            living.damage(cast.number("damage", 4, "d") * cast.power(), cast.caster());
+        }
+    });
+    return true;
+}, "smite");
+
+// ?myplugin:inarena{name=pit}
+skills.registerCondition("myplugin:inarena", cast ->
+        arenas.contains(cast.string("name", ""), cast.location()));
+
+// @myplugin:team{team=red}
+skills.registerTargeter("myplugin:team", new SkillTargeter() {
+    @Override
+    public Collection<Entity> entities(SkillCast cast) {
+        return new ArrayList<>(teams.members(cast.string("team", "red")));
+    }
+});
+
+skills.cast(boss, "bosses:GroundSlam", player);   // a metaskill, cooldown and conditions applying
+skills.stance(boss);                             // Optional<String>
+skills.stance(boss, "enraged");
+```
+
+**`SkillCast` is what each one is handed**: `caster()`, `mob()`, `trigger()`,
+`target()` (the entity, when the target is one) and `location()` (always),
+`power()`, `stance()`, and the line's options by any of their names, with
+placeholders such as `<caster.hp>` filled and a range like `2to5` picked:
+`string`, `number`, `integer`, `bool`, plus `fill(text)` for your own text. A
+mechanic is called once per target, on the caster's thread. A targeter's own
+options are read the same way; the shared ones (`limit`, `sort`, offsets,
+`conditions`) are applied to what it returns.
+
+**Names are looked up when a line runs**, so registering in `onEnable`, after
+RP Engine has loaded its content, is in time. **Give yours a prefix**
+(`myplugin:smite`): a prefixed name nobody has registered yet is kept at load
+with a note ("is not registered yet") and runs from the moment you register
+it, with no reload, where an unknown bare name is a typo and its line is
+skipped. Registering a name that exists replaces it, the engine's own
+included. Names are case-insensitive.
+
 ## Events
 
 All cancellable unless the row says otherwise.
@@ -1138,6 +1193,7 @@ All cancellable unless the row says otherwise.
 | `VehicleStateEvent` | What a vehicle is doing changed — set off, stopped, took off, went under. The same set that drives its animation, on the change rather than every tick. Not cancellable |
 | `ModelBindEvent` | A model is going on an entity, or coming off one — a boss, an NPC, anything that is not ours |
 | `MobStateChangeEvent` | A custom mob's animation state changed: `previous()` and `state()`, null for its rest pose. Not cancellable |
+| `MobSkillEvent` | A custom mob is about to cast a skill: one of its own `skills:` lines its trigger set off (`skill()` is the line as written) or a metaskill (`skill()` is its id), with `trigger()` (`attack`, `timer`, `api`...) and `triggerEntity()`. Fires after the line's chance, health and conditions passed. Cancelling skips it and spends no cooldown |
 | `EntityDeathEvent` | A custom entity died. Says what it was, `killer()`, and `drops()`, Bukkit's own live list, so changing it changes the loot. Not cancellable |
 | `PlayerLiquidEvent` | Somebody went into one of your liquids, or came out. Fires on the crossing, not every second. Not cancellable |
 | `EmoteStartEvent` | An emote is about to start |

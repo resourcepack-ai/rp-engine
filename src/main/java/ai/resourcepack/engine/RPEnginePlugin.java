@@ -269,6 +269,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private ModelsImpl models;
     private Seats seats;
     private CustomEntities creatures;
+    /** Custom mobs' skills: MythicMobs-style lines and metaskills. */
+    private ai.resourcepack.engine.core.skill.SkillRuntime skills;
     private VehicleRuntime vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
@@ -847,6 +849,35 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // older servers and so cannot be an annotated method. See Seats.
         seats.registerDismount(this);
         getServer().getPluginManager().registerEvents(creatures, this);
+        skills = new ai.resourcepack.engine.core.skill.SkillRuntime(this,
+                new ai.resourcepack.engine.core.skill.SkillRuntime.Host() {
+                    @Override
+                    public ai.resourcepack.engine.api.Mobs mobs() {
+                        return creatures;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Vfx vfx() {
+                        return vfxRuntime;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Sounds sounds() {
+                        return sounds;
+                    }
+
+                    @Override
+                    public ai.resourcepack.engine.api.Items items() {
+                        return items;
+                    }
+
+                    @Override
+                    public boolean tint(org.bukkit.entity.Entity entity, int rgb, long ticks) {
+                        return creatures.tint(entity, rgb, ticks);
+                    }
+                });
+        creatures.hooks(skills);
+        getServer().getPluginManager().registerEvents(skills, this);
         // Smithing results and anvil recipes are decided in events; see
         // RecipeStations. Registered once, holding whatever the last load gave.
         getServer().getPluginManager().registerEvents(recipes.stations(), this);
@@ -999,6 +1030,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(animator, this);
         animator.start();
         creatures.start();
+        skills.start();
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
@@ -1846,6 +1878,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return creatures;
     }
 
+    /** Custom mobs' skills: register a mechanic, a condition or a targeter; cast a metaskill. */
+    public ai.resourcepack.engine.api.MobSkills skills() {
+        return skills;
+    }
+
     /** The studio models this server holds, and the rigs standing in its worlds. */
     public Models models() {
         return models;
@@ -1997,6 +2034,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (creatures != null) {
             creatures.stop();
+        }
+        if (skills != null) {
+            skills.stop();
         }
         if (animator != null) {
             animator.stop();
@@ -2369,6 +2409,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         mobModelTops = Map.copyOf(tops);
         creatures.replace(withPushedMobs());
+        // After the mobs: a skill line names mobs (summon) and metaskills,
+        // and the names it is checked against are the live registry's.
+        ai.resourcepack.engine.core.skill.SkillDefinitions.Result parsedSkills =
+                ai.resourcepack.engine.core.skill.SkillDefinitions.parse(loaded, skills.names());
+        report(to, "skills", parsedSkills.diagnostics());
+        skills.replace(parsedSkills);
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
         report(to, "vehicles", parsedVehicles.diagnostics());
