@@ -39,7 +39,7 @@ public final class GiveCommands {
     }
 
     /** The engine's own subcommands Studio opens things with. */
-    private static final Set<String> RP_SUBCOMMANDS = Set.of("dialog", "screen", "hud", "shader", "sound");
+    private static final Set<String> RP_SUBCOMMANDS = Set.of("dialog", "screen", "hud", "shader", "sound", "egg", "cast");
 
     /** The engine's command and its aliases, as plugin.yml declares them. */
     private static final Set<String> RP_ROOTS = Set.of("rp", "rpe", "rpengine");
