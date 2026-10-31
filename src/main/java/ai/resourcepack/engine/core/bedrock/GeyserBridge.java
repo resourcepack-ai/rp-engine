@@ -95,6 +95,9 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     private final NamespacedKey placedYawKey;
     private final NamespacedKey scaleKey;
 
+    /** Mobs wearing a model, drawn as it. */
+    private final BedrockMobs mobs;
+
     // Registration happens once, at Geyser's registry build during boot, so
     // model-specific names are unknowable. A fixed pool of generic ids is
     // registered instead ("rpai:model_<n>" entities, "rpai_slot_<n>" item
@@ -149,6 +152,9 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             plugin.getLogger().warning("Couldn't create " + packsDir + " - Bedrock pack pushes won't persist");
         }
         harvestIdentifiers();
+        this.mobs = new BedrockMobs(plugin, contentByXuid::get);
+        GeyserApi.api().eventBus().subscribe(registrar, org.geysermc.geyser.api.event.java.ServerSpawnEntityEvent.class,
+            mobs::onSpawn);
         GeyserApi.api().eventBus().subscribe(registrar, SessionLoadResourcePacksEvent.class, this::onSessionLoadPacks);
         GeyserApi.api().eventBus().subscribe(registrar, GeyserDefineEntitiesEvent.class, this::onDefineEntities);
         GeyserApi.api().eventBus().subscribe(registrar, GeyserDefineCustomItemsEvent.class, this::onDefineCustomItems);
@@ -157,6 +163,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     }
 
     public void shutdown() {
+        mobs.shutdown();
         if (viewTask != null) {
             viewTask.cancel();
             viewTask = null;
@@ -617,6 +624,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
                 plugin.getLogger().warning("Couldn't register Bedrock content model slot " + slot + ": " + e.getMessage());
             }
         }
+        count += mobs.define(event);
         if (count > 0) plugin.getLogger().info("Registered " + count + " model entity slots with Geyser");
     }
 
@@ -659,6 +667,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         GeyserSession session = sessionOf(player.getUniqueId());
         if (session == null || !player.isOnline()) return;
         Map<UUID, Long> mine = spawned.computeIfAbsent(player.getUniqueId(), k -> new ConcurrentHashMap<>());
+        mobs.scan(player, SPAWN_RANGE);
 
         // Out of range, gone, or in another world: take it down.
         mine.entrySet().removeIf(entry -> {
@@ -698,6 +707,23 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
     @Override
     public void forget(UUID playerId) {
         forgetPlayer(playerId);
+        mobs.forget(playerId);
+    }
+
+    @Override
+    public void worn(Entity host, String modelId, float scale, float turn) {
+        // The turn is in the pack: BedrockContent hangs the worn geometry off it.
+        mobs.worn(host, modelId, scale);
+    }
+
+    @Override
+    public void unworn(Entity host) {
+        mobs.unworn(host);
+    }
+
+    @Override
+    public void wornAnimation(Entity host, String animation, boolean ends) {
+        mobs.animation(host, animation, ends);
     }
 
     /** A rig was just placed - show it now to every Bedrock player near it, rather than on the next pass. */

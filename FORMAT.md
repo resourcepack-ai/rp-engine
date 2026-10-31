@@ -1158,6 +1158,13 @@ ModelEngine walks forwards here unchanged. A model built facing South (+Z) needs
 in Studio are turned for you. The same rule holds for `/rp bind` and
 MythicMobs' `rpmodel`, which have no `turn:`: draw the model facing North.
 
+**Bedrock players** (through Geyser) see the mob as its model too, sized by
+`scale:`, turned by `turn:` and playing the same animations; a model from this
+folder, that is: a mob pushed from Studio is not drawn for them yet. Two
+differences: a dying mob tips over the way a Bedrock mob does rather than
+playing `death`, and its name sits where Geyser puts a name, over the hitbox.
+If two mobs wear one model with different `turn:`s, Bedrock uses the first's.
+
 A custom mob cannot be bred, tamed, ridden, sheared, milked or traded with, and
 never turns into something else (a drowned zombie, a struck pig). A name tag and
 a lead work on it.
