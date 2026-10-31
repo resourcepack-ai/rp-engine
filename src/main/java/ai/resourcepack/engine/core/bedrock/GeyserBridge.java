@@ -152,7 +152,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             plugin.getLogger().warning("Couldn't create " + packsDir + " - Bedrock pack pushes won't persist");
         }
         harvestIdentifiers();
-        this.mobs = new BedrockMobs(plugin, contentByXuid::get);
+        this.mobs = new BedrockMobs(plugin, contentByXuid::get, slotsByXuid::get);
         GeyserApi.api().eventBus().subscribe(registrar, org.geysermc.geyser.api.event.java.ServerSpawnEntityEvent.class,
             mobs::onSpawn);
         GeyserApi.api().eventBus().subscribe(registrar, SessionLoadResourcePacksEvent.class, this::onSessionLoadPacks);

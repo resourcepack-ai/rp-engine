@@ -1,0 +1,345 @@
+{
+  "about": "Written by studio/scripts/gen-mob-bedrock.mjs from lib/bedrock-geometry.ts: what Studio's .mcpack holds for one pushed mob. Read by StudioMobBedrockTest.",
+  "modelId": "golem_king",
+  "slot": 7,
+  "turn": 270,
+  "animationNames": [
+    "walk",
+    "slam"
+  ],
+  "items": {
+    "items": [
+      {
+        "model": "golem_king",
+        "slot": 7,
+        "displayName": "Golem King"
+      }
+    ]
+  },
+  "geometry": {
+    "format_version": "1.16.0",
+    "minecraft:geometry": [
+      {
+        "description": {
+          "identifier": "geometry.rpai.golem_king",
+          "texture_width": 16,
+          "texture_height": 16,
+          "visible_bounds_width": 3,
+          "visible_bounds_height": 3,
+          "visible_bounds_offset": [
+            0,
+            0.5,
+            0
+          ]
+        },
+        "bones": [
+          {
+            "name": "body",
+            "pivot": [
+              0,
+              4,
+              0
+            ],
+            "cubes": [
+              {
+                "origin": [
+                  -4,
+                  4,
+                  -4
+                ],
+                "size": [
+                  8,
+                  10,
+                  8
+                ],
+                "uv": {
+                  "north": {
+                    "uv": [
+                      0,
+                      0
+                    ],
+                    "uv_size": [
+                      8,
+                      10
+                    ]
+                  },
+                  "up": {
+                    "uv": [
+                      8,
+                      8
+                    ],
+                    "uv_size": [
+                      -8,
+                      -8
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "name": "head",
+            "parent": "body",
+            "pivot": [
+              0,
+              14,
+              -2
+            ],
+            "cubes": [
+              {
+                "origin": [
+                  -3,
+                  14,
+                  -5
+                ],
+                "size": [
+                  6,
+                  6,
+                  6
+                ],
+                "uv": {
+                  "south": {
+                    "uv": [
+                      0,
+                      0
+                    ],
+                    "uv_size": [
+                      6,
+                      6
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "animations": {
+    "format_version": "1.8.0",
+    "animations": {
+      "animation.rpai.golem_king.walk": {
+        "loop": true,
+        "animation_length": 1,
+        "bones": {
+          "body": {
+            "rotation": {
+              "0.0": [
+                0,
+                0,
+                5
+              ],
+              "1.0": [
+                0,
+                0,
+                5
+              ]
+            }
+          }
+        }
+      },
+      "animation.rpai.golem_king.slam": {
+        "animation_length": 1.2,
+        "bones": {
+          "head": {
+            "rotation": {
+              "0.0": [
+                0,
+                0,
+                0
+              ],
+              "0.6": [
+                -30,
+                0,
+                0
+              ],
+              "1.2": [
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "placedEntity": {
+    "format_version": "1.10.0",
+    "minecraft:client_entity": {
+      "description": {
+        "identifier": "rpai:model_7",
+        "materials": {
+          "default": "entity_alphatest"
+        },
+        "textures": {
+          "default": "textures/entity/rpai_golem_king"
+        },
+        "geometry": {
+          "default": "geometry.rpai.golem_king"
+        },
+        "animations": {
+          "walk": "animation.rpai.golem_king.walk",
+          "slam": "animation.rpai.golem_king.slam"
+        },
+        "scripts": {
+          "animate": [
+            "walk"
+          ]
+        },
+        "render_controllers": [
+          "controller.render.default"
+        ]
+      }
+    }
+  },
+  "mobEntity": {
+    "format_version": "1.10.0",
+    "minecraft:client_entity": {
+      "description": {
+        "identifier": "rpai:mob_7",
+        "materials": {
+          "default": "entity_alphatest"
+        },
+        "textures": {
+          "default": "textures/entity/rpai_golem_king"
+        },
+        "geometry": {
+          "default": "geometry.rpai.golem_king.worn"
+        },
+        "animations": {
+          "walk": "animation.rpai.golem_king.walk",
+          "slam": "animation.rpai.golem_king.slam",
+          "rpe_rest": "animation.rpai.golem_king.rest"
+        },
+        "render_controllers": [
+          "controller.render.default"
+        ]
+      }
+    }
+  },
+  "restAnimation": {
+    "format_version": "1.8.0",
+    "animations": {
+      "animation.rpai.golem_king.rest": {
+        "animation_length": 0.05,
+        "bones": {}
+      }
+    }
+  },
+  "turnedGeometry": {
+    "format_version": "1.16.0",
+    "minecraft:geometry": [
+      {
+        "description": {
+          "identifier": "geometry.rpai.golem_king.worn",
+          "texture_width": 16,
+          "texture_height": 16,
+          "visible_bounds_width": 3,
+          "visible_bounds_height": 3,
+          "visible_bounds_offset": [
+            0,
+            0.5,
+            0
+          ]
+        },
+        "bones": [
+          {
+            "name": "rpe_turn",
+            "pivot": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              -270,
+              0
+            ]
+          },
+          {
+            "name": "body",
+            "pivot": [
+              0,
+              4,
+              0
+            ],
+            "cubes": [
+              {
+                "origin": [
+                  -4,
+                  4,
+                  -4
+                ],
+                "size": [
+                  8,
+                  10,
+                  8
+                ],
+                "uv": {
+                  "north": {
+                    "uv": [
+                      0,
+                      0
+                    ],
+                    "uv_size": [
+                      8,
+                      10
+                    ]
+                  },
+                  "up": {
+                    "uv": [
+                      8,
+                      8
+                    ],
+                    "uv_size": [
+                      -8,
+                      -8
+                    ]
+                  }
+                }
+              }
+            ],
+            "parent": "rpe_turn"
+          },
+          {
+            "name": "head",
+            "parent": "body",
+            "pivot": [
+              0,
+              14,
+              -2
+            ],
+            "cubes": [
+              {
+                "origin": [
+                  -3,
+                  14,
+                  -5
+                ],
+                "size": [
+                  6,
+                  6,
+                  6
+                ],
+                "uv": {
+                  "south": {
+                    "uv": [
+                      0,
+                      0
+                    ],
+                    "uv_size": [
+                      6,
+                      6
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
