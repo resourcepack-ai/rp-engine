@@ -1199,9 +1199,8 @@ in Studio are turned for you. The same rule holds for `/rp bind` and
 MythicMobs' `rpmodel`, which have no `turn:`: draw the model facing North.
 
 **Bedrock players** (through Geyser) see the mob as its model too, sized by
-`scale:`, turned by `turn:` and playing the same animations; a model from this
-folder, that is: a mob pushed from Studio is not drawn for them yet. Two
-differences: a dying mob tips over the way a Bedrock mob does rather than
+`scale:`, turned by `turn:` and playing the same animations, whether its model
+comes from this folder or from a Studio push (since 0.2.53). Two differences: a dying mob tips over the way a Bedrock mob does rather than
 playing `death`, and its name sits where Geyser puts a name, over the hitbox.
 If two mobs wear one model with different `turn:`s, Bedrock uses the first's.
 
