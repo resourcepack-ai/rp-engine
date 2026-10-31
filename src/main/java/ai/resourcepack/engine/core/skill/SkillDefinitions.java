@@ -129,6 +129,43 @@ public final class SkillDefinitions {
         return new Result(mobs, metaskills, diagnostics);
     }
 
+    /**
+     * {@code authored} with the skills Studio pushed added: each pushed mob's
+     * lines and starting stance, and its metaskills under {@code namespace}.
+     * The same reader as the content folder's, so a pushed line that cannot
+     * run is a diagnostic naming {@code origin} and skipped, exactly as an
+     * authored one. A pushed mob replaces an authored one of the same id, as
+     * the mobs themselves are merged.
+     *
+     * @param lines      mob id to its own lines
+     * @param stances    mob id to the stance it starts in (absent for none)
+     * @param metaskills bare name to a MythicMobs-shaped body
+     *                   ({@code Cooldown}, {@code Conditions}, {@code Skills})
+     */
+    public static Result withPushed(Result authored, String namespace, Map<ContentId, List<String>> lines,
+                                    Map<ContentId, String> stances, Map<String, Map<String, Object>> metaskills,
+                                    String origin, Names names) {
+        Map<ContentId, MobSkillSet> mobs = new LinkedHashMap<>(authored.mobs);
+        Map<ContentId, Metaskill> skills = new LinkedHashMap<>(authored.metaskills);
+        List<Diagnostic> diagnostics = new ArrayList<>(authored.diagnostics);
+        java.util.Set<ContentId> ids = new java.util.LinkedHashSet<>(lines.keySet());
+        ids.addAll(stances.keySet());
+        for (ContentId id : ids) {
+            List<String> written = lines.getOrDefault(id, List.of());
+            List<SkillLine> parsed = SkillDefinitions.lines(new ArrayList<Object>(written), origin,
+                    id.path() + ".skills", names, true, diagnostics);
+            String stance = stances.get(id);
+            mobs.remove(id);
+            if (!parsed.isEmpty() || stance != null) {
+                mobs.put(id, new MobSkillSet(parsed, stance));
+            }
+        }
+        metaskills.forEach((name, body) -> ContentId.of(namespace, name.toLowerCase(Locale.ROOT))
+                .flatMap(id -> metaskill(id, body, origin, names, diagnostics))
+                .ifPresent(skill -> skills.put(skill.id, skill)));
+        return new Result(mobs, skills, diagnostics);
+    }
+
     /** One metaskill from its MythicMobs-shaped body; keys are case-insensitive. */
     static java.util.Optional<Metaskill> metaskill(ContentId id, Map<String, Object> body, String origin, Names names,
                                                    List<Diagnostic> diagnostics) {

@@ -162,7 +162,125 @@ public final class StudioContent {
         MobRanged ranged;
         /** Absent is a mob that never spawns on its own. */
         MobSpawning spawning;
+        /**
+         * Its own skill lines, MythicMobs' grammar as written
+         * ({@code skill{s=studio:golem.slam} @self ~onTimer:120 <50%}), read by
+         * the same parser as a content folder's {@code skills:}. Absent is none.
+         */
+        List<String> skills;
+        /** The stance it starts in; absent is none. */
+        String stance;
+        /** The metaskills its lines call, registered as {@code studio:<name>}. Absent is none. */
+        List<MobMetaskill> metaskills;
     }
+
+    /**
+     * One metaskill a pushed mob's lines call: MythicMobs' file shape in
+     * camelCase, handed to the same reader as a content folder's
+     * {@code skills/} file. {@code name} is the bare id, unique in the push.
+     */
+    static final class MobMetaskill {
+        String name;
+        /** Seconds, per mob. Absent is none. */
+        Double cooldown;
+        /** Each tested on the mob, with an optional action ({@code stance{s=x} false}). */
+        List<String> conditions;
+        /** Each target must pass. */
+        List<String> targetConditions;
+        List<String> skills;
+    }
+
+    /**
+     * A pushed mob's skills, kept as they arrived: the engine's skill loader
+     * parses them beside the content folder's, and a restart writes them back
+     * unchanged. See {@link #mobSkills()}.
+     */
+    public static final class PushedMobSkills {
+        private final List<String> lines;
+        private final String stance;
+        private final Map<String, Map<String, Object>> metaskills;
+
+        PushedMobSkills(List<String> lines, String stance, Map<String, Map<String, Object>> metaskills) {
+            this.lines = List.copyOf(lines);
+            this.stance = stance;
+            this.metaskills = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(metaskills));
+        }
+
+        /** The mob's own lines, as written. */
+        public List<String> lines() {
+            return lines;
+        }
+
+        /** The stance it starts in, or null. */
+        public String stance() {
+            return stance;
+        }
+
+        /**
+         * Bare metaskill name to its body in MythicMobs' shape
+         * ({@code Cooldown}, {@code Conditions}, {@code TargetConditions},
+         * {@code Skills}), which is what the skill loader reads.
+         */
+        public Map<String, Map<String, Object>> metaskills() {
+            return metaskills;
+        }
+
+        static PushedMobSkills of(Mob mob) {
+            List<String> lines = new ArrayList<>();
+            for (String line : mob.skills == null ? List.<String>of() : mob.skills) {
+                if (line != null && !line.isBlank()) {
+                    lines.add(line);
+                }
+            }
+            Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
+            for (MobMetaskill skill : mob.metaskills == null ? List.<MobMetaskill>of() : mob.metaskills) {
+                if (skill == null || skill.name == null || skill.name.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> body = new LinkedHashMap<>();
+                if (skill.cooldown != null && skill.cooldown > 0) {
+                    body.put("Cooldown", skill.cooldown);
+                }
+                if (skill.conditions != null && !skill.conditions.isEmpty()) {
+                    body.put("Conditions", List.copyOf(skill.conditions));
+                }
+                if (skill.targetConditions != null && !skill.targetConditions.isEmpty()) {
+                    body.put("TargetConditions", List.copyOf(skill.targetConditions));
+                }
+                body.put("Skills", skill.skills == null ? List.of() : List.copyOf(skill.skills));
+                metaskills.put(skill.name.trim().toLowerCase(Locale.ROOT), body);
+            }
+            String stance = mob.stance == null || mob.stance.isBlank() ? null : mob.stance.trim();
+            if (lines.isEmpty() && metaskills.isEmpty() && stance == null) {
+                return null;
+            }
+            return new PushedMobSkills(lines, stance, metaskills);
+        }
+
+        /** Back onto a wire mob, in the shape it arrived in. */
+        @SuppressWarnings("unchecked")
+        void writeTo(Mob out) {
+            if (!lines.isEmpty()) {
+                out.skills = new ArrayList<>(lines);
+            }
+            out.stance = stance;
+            if (metaskills.isEmpty()) {
+                return;
+            }
+            out.metaskills = new ArrayList<>();
+            metaskills.forEach((name, body) -> {
+                MobMetaskill skill = new MobMetaskill();
+                skill.name = name;
+                Object cooldown = body.get("Cooldown");
+                skill.cooldown = cooldown instanceof Number ? ((Number) cooldown).doubleValue() : null;
+                skill.conditions = (List<String>) body.get("Conditions");
+                skill.targetConditions = (List<String>) body.get("TargetConditions");
+                skill.skills = new ArrayList<>((List<String>) body.get("Skills"));
+                out.metaskills.add(skill);
+            });
+        }
+    }
+
 
     /** A pushed mob's boss bar: Bukkit {@code BarColor} and {@code BarStyle} names. */
     static final class MobBossBar {
@@ -791,6 +909,8 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
+    /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
+    private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
     private volatile Map<String, ai.resourcepack.engine.core.cape.Cape> capes = Map.of();
     private volatile String packId = "";
 
@@ -860,6 +980,7 @@ public final class StudioContent {
         copy.textEffects = textEffects;
         copy.vfx = vfx;
         copy.mobs = mobs;
+        copy.mobSkills = mobSkills;
         copy.capes = capes;
         copy.packId = packId;
         return copy;
@@ -886,6 +1007,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
+        Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
         Map<String, ai.resourcepack.engine.core.cape.Cape> capes = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
@@ -902,7 +1024,11 @@ public final class StudioContent {
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
             vfx.putAll(pack.vfx);
+            // A mob's skills go with the mob: a later push of it with none
+            // must not keep an earlier push's.
+            pack.mobs.keySet().forEach(mobSkills::remove);
             mobs.putAll(pack.mobs);
+            mobSkills.putAll(pack.mobSkills);
             capes.putAll(pack.capes);
             last = pack.packId;
         }
@@ -918,6 +1044,7 @@ public final class StudioContent {
         all.textEffects = Map.copyOf(effects);
         all.vfx = Map.copyOf(vfx);
         all.mobs = Map.copyOf(mobs);
+        all.mobSkills = Map.copyOf(mobSkills);
         all.capes = Map.copyOf(capes);
         all.packId = last;
         return all;
@@ -993,6 +1120,16 @@ public final class StudioContent {
     /** The pushed custom mobs, keyed by {@code studio:<id>}. */
     public Map<ContentId, EntityInfo> mobs() {
         return mobs;
+    }
+
+    /**
+     * The pushed mobs' skills, keyed by {@code studio:<id>} like {@link #mobs()},
+     * for the mobs that have any. Lines and metaskills as Studio wrote them,
+     * MythicMobs' grammar, parsed by the skill loader beside a content
+     * folder's so there is one reader for both.
+     */
+    public Map<ContentId, PushedMobSkills> mobSkills() {
+        return mobSkills;
     }
 
     /**
@@ -1226,12 +1363,19 @@ public final class StudioContent {
         }
 
         Map<ContentId, EntityInfo> readMobs = new LinkedHashMap<>();
+        Map<ContentId, PushedMobSkills> readMobSkills = new LinkedHashMap<>();
         for (Mob mob : manifest.mobs == null ? List.<Mob>of() : manifest.mobs) {
             if (mob == null) {
                 continue;
             }
             id(mob.id, log, "mob").flatMap(id -> mob(id, mob, log))
-                    .ifPresent(info -> readMobs.put(info.id(), info));
+                    .ifPresent(info -> {
+                        readMobs.put(info.id(), info);
+                        PushedMobSkills skills = PushedMobSkills.of(mob);
+                        if (skills != null) {
+                            readMobSkills.put(info.id(), skills);
+                        }
+                    });
         }
 
         Map<String, ai.resourcepack.engine.core.cape.Cape> readCapes = new LinkedHashMap<>();
@@ -1258,6 +1402,7 @@ public final class StudioContent {
         textEffects = Map.copyOf(readEffects);
         vfx = Map.copyOf(readVfx);
         mobs = Map.copyOf(readMobs);
+        mobSkills = Map.copyOf(readMobSkills);
         capes = Map.copyOf(readCapes);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
@@ -1935,7 +2080,12 @@ public final class StudioContent {
         }
         manifest.mobs = new ArrayList<>();
         for (EntityInfo info : mobs.values()) {
-            manifest.mobs.add(mobOut(info));
+            Mob out = mobOut(info);
+            PushedMobSkills skills = mobSkills.get(info.id());
+            if (skills != null) {
+                skills.writeTo(out);
+            }
+            manifest.mobs.add(out);
         }
         manifest.capes = new ArrayList<>();
         for (ai.resourcepack.engine.core.cape.Cape info : capes.values()) {

@@ -429,6 +429,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
     /** The content folder's mobs, kept apart so a push can lay its own over them. */
     private Map<ContentId, ai.resourcepack.engine.api.EntityInfo> authoredEntities = Map.of();
+    /** The content folder's skills, kept so a push can add its own to them without a reload. */
+    private ai.resourcepack.engine.core.skill.SkillDefinitions.Result authoredSkills;
     /**
      * How far above its floor each content-folder mob's model reaches, by the
      * model's item id, measured at reload. Where a mob's name goes; see
@@ -1361,6 +1363,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         allVehicles.putAll(all.vehicles());
         vehicles.replace(allVehicles);
         creatures.replace(withPushedMobs());
+        replaceSkills();
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
         // Without this, re-syncing leaves a chassis in the world that the
@@ -1912,6 +1915,38 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             all.putAll(pushedAll.mobs());
         }
         return all;
+    }
+
+    /**
+     * Every mob's skills: the content folder's and every push still held,
+     * read by one loader, the push winning a mob id they share as the mobs
+     * themselves do. A pushed line that cannot run is said in the console.
+     */
+    private void replaceSkills() {
+        if (skills == null || authoredSkills == null) {
+            return;
+        }
+        Map<ContentId, List<String>> lines = new LinkedHashMap<>();
+        Map<ContentId, String> stances = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
+        if (pushedAll != null) {
+            pushedAll.mobSkills().forEach((id, pushedSkills) -> {
+                lines.put(id, pushedSkills.lines());
+                if (pushedSkills.stance() != null) {
+                    stances.put(id, pushedSkills.stance());
+                }
+                metaskills.putAll(pushedSkills.metaskills());
+            });
+            // A pushed mob with no skills still replaces an authored one's.
+            pushedAll.mobs().keySet().forEach(id -> lines.putIfAbsent(id, List.of()));
+        }
+        ai.resourcepack.engine.core.skill.SkillDefinitions.Result all =
+                ai.resourcepack.engine.core.skill.SkillDefinitions.withPushed(authoredSkills, "studio", lines, stances,
+                        metaskills, "Studio push", skills.names());
+        List<ai.resourcepack.engine.api.Diagnostic> pushedProblems =
+                all.diagnostics().subList(authoredSkills.diagnostics().size(), all.diagnostics().size());
+        report(getServer().getConsoleSender(), "pushed skills", pushedProblems);
+        skills.replace(all);
     }
 
     /** The custom mobs this server holds: spawn one, animate one, make an egg. */
@@ -2479,7 +2514,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         ai.resourcepack.engine.core.skill.SkillDefinitions.Result parsedSkills =
                 ai.resourcepack.engine.core.skill.SkillDefinitions.parse(mobsLoaded, skills.names());
         report(to, "skills", parsedSkills.diagnostics());
-        skills.replace(parsedSkills);
+        authoredSkills = parsedSkills;
+        replaceSkills();
 
         VehicleDefinitions.Result parsedVehicles = VehicleDefinitions.parse(loaded);
         report(to, "vehicles", parsedVehicles.diagnostics());
