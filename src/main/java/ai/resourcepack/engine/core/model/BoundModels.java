@@ -421,6 +421,18 @@ public final class BoundModels {
         return partsOf(host);
     }
 
+    /**
+     * Whether {@code part} is a piece of an animated rig, rather than the one
+     * display a still model is drawn as. A rig's parts are drawn through
+     * item definitions this engine and Studio write (and tint); a still model
+     * is the whole item, whose definition is the author's.
+     */
+    public boolean rigPart(ItemDisplay part) {
+        String modelId = part.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        RigStore.Rig rig = modelId == null ? null : rigs.get(modelId);
+        return rig != null && rig.parts != null && !rig.parts.isEmpty();
+    }
+
     private List<ItemDisplay> partsOf(Entity host) {
         List<ItemDisplay> parts = new ArrayList<>();
         if (host == null) {

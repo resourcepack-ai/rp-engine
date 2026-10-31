@@ -136,6 +136,47 @@ public final class StudioContent {
         /** Absent and empty both drop nothing: the list REPLACES vanilla loot. */
         List<MobDrop> drops;
         Integer xp;
+        /** Absent is on: a mob flashes red when hurt unless told not to. */
+        Boolean hurtFlash;
+        /** Blocks it notices a target from; absent is the type's own. */
+        Double followRange;
+        Boolean glowing;
+        Boolean fireImmune;
+        /** Absent is no boss bar. */
+        MobBossBar bossBar;
+        /** Absent is a mob that does not shoot. */
+        MobRanged ranged;
+        /** Absent is a mob that never spawns on its own. */
+        MobSpawning spawning;
+    }
+
+    /** A pushed mob's boss bar: Bukkit {@code BarColor} and {@code BarStyle} names. */
+    static final class MobBossBar {
+        String color;
+        String style;
+        Double range;
+    }
+
+    /** How a pushed mob shoots; see {@code EntityInfo.Ranged}. */
+    static final class MobRanged {
+        String projectile;
+        Double damage;
+        Double cooldown;
+        Double range;
+    }
+
+    /** Where a pushed mob spawns on its own; see {@code EntityInfo.Spawning}. */
+    static final class MobSpawning {
+        List<String> worlds;
+        List<String> biomes;
+        List<String> replaces;
+        Double chance;
+        Integer minLight;
+        Integer maxLight;
+        String time;
+        Integer minGroup;
+        Integer maxGroup;
+        Integer maxPerChunk;
     }
 
     /** One line of a pushed mob's loot. */
@@ -1424,7 +1465,30 @@ public final class StudioContent {
                 .sounds(sounds)
                 .drops(drops)
                 .xp(mob.xp == null ? 0 : mob.xp)
+                .hurtFlash(!Boolean.FALSE.equals(mob.hurtFlash))
+                .followRange(mob.followRange == null ? 0 : mob.followRange)
+                .glowing(Boolean.TRUE.equals(mob.glowing))
+                .fireImmune(Boolean.TRUE.equals(mob.fireImmune))
+                .bossBar(mob.bossBar == null ? null : EntityInfo.BossBar.of(mob.bossBar.color, mob.bossBar.style,
+                        mob.bossBar.range == null ? 0 : mob.bossBar.range))
+                .ranged(mob.ranged == null ? null : EntityInfo.Ranged.of(mob.ranged.projectile,
+                        mob.ranged.damage == null ? 0 : mob.ranged.damage,
+                        mob.ranged.cooldown == null ? 0 : mob.ranged.cooldown,
+                        mob.ranged.range == null ? 0 : mob.ranged.range))
+                .spawning(spawning(mob.spawning))
                 .build());
+    }
+
+    private static EntityInfo.Spawning spawning(MobSpawning rules) {
+        if (rules == null) {
+            return null;
+        }
+        int minGroup = rules.minGroup == null ? 1 : rules.minGroup;
+        return EntityInfo.Spawning.of(rules.worlds, rules.biomes, rules.replaces,
+                rules.chance == null ? 0.1 : rules.chance,
+                rules.minLight == null ? 0 : rules.minLight, rules.maxLight == null ? 15 : rules.maxLight,
+                rules.time, minGroup, rules.maxGroup == null ? minGroup : rules.maxGroup,
+                rules.maxPerChunk == null ? 2 : rules.maxPerChunk);
     }
 
     /** A mob back out, in the shape it arrived in — a restart reads nothing else. */
@@ -1461,6 +1525,36 @@ public final class StudioContent {
             out.drops.add(written);
         }
         out.xp = info.xp();
+        out.hurtFlash = info.hurtFlash();
+        out.followRange = info.followRange();
+        out.glowing = info.glowing();
+        out.fireImmune = info.fireImmune();
+        info.bossBar().ifPresent(bar -> {
+            out.bossBar = new MobBossBar();
+            out.bossBar.color = bar.color();
+            out.bossBar.style = bar.style();
+            out.bossBar.range = bar.range();
+        });
+        info.ranged().ifPresent(shot -> {
+            out.ranged = new MobRanged();
+            out.ranged.projectile = shot.projectile();
+            out.ranged.damage = shot.damage();
+            out.ranged.cooldown = shot.cooldown();
+            out.ranged.range = shot.range();
+        });
+        info.spawning().ifPresent(rules -> {
+            out.spawning = new MobSpawning();
+            out.spawning.worlds = new ArrayList<>(rules.worlds());
+            out.spawning.biomes = new ArrayList<>(rules.biomes());
+            out.spawning.replaces = new ArrayList<>(rules.replaces());
+            out.spawning.chance = rules.chance();
+            out.spawning.minLight = rules.minLight();
+            out.spawning.maxLight = rules.maxLight();
+            out.spawning.time = rules.time();
+            out.spawning.minGroup = rules.minGroup();
+            out.spawning.maxGroup = rules.maxGroup();
+            out.spawning.maxPerChunk = rules.maxPerChunk();
+        });
         return out;
     }
 

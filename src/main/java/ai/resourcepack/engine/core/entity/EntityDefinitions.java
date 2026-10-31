@@ -140,7 +140,14 @@ public final class EntityDefinitions {
                 .turn((float) number(body, "turn", 0, -360, 360, origin, where, diagnostics))
                 .headBone(body.string("head-bone").orElse(null))
                 .ai(body.bool("ai").orElse(Boolean.TRUE))
-                .burns(body.bool("burns").orElse(Boolean.FALSE));
+                .burns(body.bool("burns").orElse(Boolean.FALSE))
+                .hurtFlash(body.bool("hurt-flash").orElse(Boolean.TRUE))
+                .followRange(number(body, "follow-range", 0, 0, 128, origin, where, diagnostics))
+                .glowing(body.bool("glowing").orElse(Boolean.FALSE))
+                .fireImmune(body.bool("fire-immune").orElse(Boolean.FALSE))
+                .bossBar(bossBar(body, origin, where, diagnostics))
+                .ranged(ranged(body, origin, where, diagnostics))
+                .spawning(spawning(body, origin, where, diagnostics));
         if (model == null && !body.node("animations").map(DefinitionNode::isEmpty).orElse(true)) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "animations: are set but there is no model: to play them on."));
@@ -236,6 +243,117 @@ public final class EntityDefinitions {
             }
         }
         return out;
+    }
+
+    /**
+     * {@code boss-bar: true}, or {@code boss-bar: {color: RED, style: SOLID,
+     * range: 32}}. Absent or {@code false} is none.
+     */
+    private static EntityInfo.BossBar bossBar(DefinitionNode body, String origin, String where,
+                                              List<Diagnostic> diagnostics) {
+        if (!body.has("boss-bar")) {
+            return null;
+        }
+        Optional<Boolean> flag = body.bool("boss-bar");
+        if (flag.isPresent()) {
+            return flag.get() ? EntityInfo.BossBar.of(null, null, 0) : null;
+        }
+        Optional<DefinitionNode> declared = body.node("boss-bar");
+        if (declared.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "boss-bar: is not true, false or a map. Try boss-bar: {color: RED, range: 32}."));
+            return null;
+        }
+        DefinitionNode bar = declared.get();
+        String color = bar.string("color").orElse(null);
+        if (color != null && !EntityInfo.BossBar.COLORS.contains(color.trim().toUpperCase(Locale.ROOT))) {
+            diagnostics.add(Diagnostic.warning(origin, where, "boss-bar.color: " + color
+                    + " is not one of " + String.join(", ", EntityInfo.BossBar.COLORS) + ". Using PURPLE."));
+        }
+        String style = bar.string("style").orElse(null);
+        if (style != null && !EntityInfo.BossBar.STYLES.contains(style.trim().toUpperCase(Locale.ROOT))) {
+            diagnostics.add(Diagnostic.warning(origin, where, "boss-bar.style: " + style
+                    + " is not one of " + String.join(", ", EntityInfo.BossBar.STYLES) + ". Using SOLID."));
+        }
+        return EntityInfo.BossBar.of(color, style,
+                number(bar, "range", 32, 1, 256, origin, where + ".boss-bar", diagnostics));
+    }
+
+    /**
+     * {@code ranged: {projectile: arrow, damage: 4, cooldown: 2, range: 16}},
+     * or {@code ranged: snowball}. Absent is a mob that only fights up close.
+     */
+    private static EntityInfo.Ranged ranged(DefinitionNode body, String origin, String where,
+                                            List<Diagnostic> diagnostics) {
+        if (!body.has("ranged")) {
+            return null;
+        }
+        Optional<Boolean> flag = body.bool("ranged");
+        if (flag.isPresent()) {
+            return flag.get() ? EntityInfo.Ranged.of("arrow", 0, 0, 0) : null;
+        }
+        Optional<DefinitionNode> declared = body.node("ranged");
+        DefinitionNode shot = declared.orElse(DefinitionNode.empty());
+        String projectile = declared.isPresent() ? shot.string("projectile").orElse("arrow")
+                : body.string("ranged").orElse("arrow");
+        String bare = projectile.trim().toLowerCase(Locale.ROOT).replace("minecraft:", "");
+        if (!EntityInfo.Ranged.PROJECTILES.contains(bare)) {
+            diagnostics.add(Diagnostic.warning(origin, where, "ranged.projectile: " + projectile
+                    + " is not one of " + String.join(", ", EntityInfo.Ranged.PROJECTILES) + ". Using arrow."));
+        }
+        return EntityInfo.Ranged.of(bare,
+                number(shot, "damage", 0, 0, 2048, origin, where + ".ranged", diagnostics),
+                number(shot, "cooldown", 2, 0.25, 60, origin, where + ".ranged", diagnostics),
+                number(shot, "range", 16, 2, 64, origin, where + ".ranged", diagnostics));
+    }
+
+    /**
+     * {@code spawning:}, the natural-spawn rules. Absent is a mob that only
+     * comes from a command, an egg or a plugin.
+     */
+    private static EntityInfo.Spawning spawning(DefinitionNode body, String origin, String where,
+                                                List<Diagnostic> diagnostics) {
+        if (!body.has("spawning")) {
+            return null;
+        }
+        Optional<Boolean> flag = body.bool("spawning");
+        if (flag.isPresent() && !flag.get()) {
+            return null;
+        }
+        Optional<DefinitionNode> declared = body.node("spawning");
+        if (declared.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "spawning: is not a map. Try spawning: {biomes: [desert], chance: 0.1, time: night}."));
+            return null;
+        }
+        DefinitionNode rules = declared.get();
+        String at = where + ".spawning";
+        for (String replaced : rules.strings("replaces")) {
+            String name = replaced.trim().toUpperCase(Locale.ROOT).replace("MINECRAFT:", "");
+            if (!isSpawnableMob(name)) {
+                diagnostics.add(Diagnostic.warning(origin, where, "spawning.replaces: " + replaced
+                        + " is not a mob, so no natural spawn of it is ever replaced."));
+            }
+        }
+        for (String biome : rules.strings("biomes")) {
+            if (biome.startsWith("#")) {
+                diagnostics.add(Diagnostic.warning(origin, where, "spawning.biomes: " + biome
+                        + " is a biome tag, which this does not read. Name the biomes, or use * as in *forest*."));
+            }
+        }
+        String time = rules.string("time").orElse("any");
+        if (!EntityInfo.Spawning.TIMES.contains(time.trim().toLowerCase(Locale.ROOT))) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "spawning.time: " + time + " is not day, night or any. Using any."));
+        }
+        int minLight = (int) Math.round(number(rules, "min-light", 0, 0, 15, origin, at, diagnostics));
+        int maxLight = (int) Math.round(number(rules, "max-light", 15, 0, 15, origin, at, diagnostics));
+        int minGroup = (int) Math.round(number(rules, "min-group", 1, 1, 16, origin, at, diagnostics));
+        int maxGroup = (int) Math.round(number(rules, "max-group", minGroup, 1, 16, origin, at, diagnostics));
+        return EntityInfo.Spawning.of(rules.strings("worlds"), rules.strings("biomes"), rules.strings("replaces"),
+                number(rules, "chance", 0.1, 0, 1, origin, at, diagnostics), minLight, maxLight, time,
+                minGroup, maxGroup,
+                (int) Math.round(number(rules, "max-per-chunk", 2, 1, 64, origin, at, diagnostics)));
     }
 
     /** A number between {@code low} and {@code high}, or {@code otherwise} with a warning. */
