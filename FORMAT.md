@@ -3171,6 +3171,13 @@ character of the tag the player wears, the one with the highest `priority`
 among those they hold (an ID breaks a tie), and empty for none.
 `%rpengine_tag_id%` is which one.
 
+**Several at once.** `slot: badge` (letters, digits and `_`, not `id`) puts a
+tag in a slot of its own, with its own winner: `%rpengine_tag_badge%` and
+`%rpengine_tag_id_badge%`. A tag with no slot is in the main slot, which is
+what `%rpengine_tag%` prints, so a rank can sit before the name and a badge
+after it. `%rpengine_tags%` is every slot's winner, highest priority first,
+a space between. A slot no tag names prints the placeholder as typed.
+
 ## Screens and HUDs
 
 A custom GUI and a HUD overlay are the same trick as an icon, scaled up: the

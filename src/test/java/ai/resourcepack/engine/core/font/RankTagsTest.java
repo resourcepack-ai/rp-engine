@@ -418,6 +418,52 @@ class RankTagsTest {
     }
 
     @Test
+    void eachSlotHasItsOwnWinner() throws IOException {
+        write("mypack/fonts/ranks.yml", """
+                owner:
+                  priority: 100
+                  tag:
+                    text: OWNER
+                vip:
+                  priority: 10
+                  tag:
+                    text: VIP
+                supporter:
+                  slot: Badge
+                  priority: 5
+                  tag:
+                    text: SUPPORTER
+                builder:
+                  slot: badge
+                  priority: 1
+                  tag:
+                    text: BUILDER
+                odd:
+                  slot: id
+                  tag:
+                    text: ODD
+                """);
+        IconDefinitions.Result result = IconDefinitions.parse(load());
+        assertEquals(1, result.diagnostics().size(), "slot: id is refused: " + result.diagnostics());
+        RankTagWearers wearers = new RankTagWearers();
+        wearers.replace(result);
+
+        ContentId vip = ContentId.parse("mypack:vip").orElseThrow();
+        ContentId supporter = ContentId.parse("mypack:supporter").orElseThrow();
+        ContentId builder = ContentId.parse("mypack:builder").orElseThrow();
+        java.util.Set<String> held = new java.util.HashSet<>(List.of(
+                "rpengine.tag.mypack.vip", "rpengine.tag.mypack.supporter", "rpengine.tag.mypack.builder"));
+        assertEquals(java.util.Optional.of(vip), wearers.tagOf(held::contains),
+                "a badge never outranks the main slot's tag");
+        assertEquals(java.util.Optional.of(supporter), wearers.tagOf("badge", held::contains));
+        assertEquals(List.of(vip, supporter), wearers.tagsOf(held::contains), "one per slot");
+        held.remove("rpengine.tag.mypack.supporter");
+        assertEquals(java.util.Optional.of(builder), wearers.tagOf("badge", held::contains));
+        assertTrue(wearers.hasSlot("badge"));
+        assertTrue(!wearers.hasSlot("id"), "a refused slot is the main one");
+    }
+
+    @Test
     void anAscentWinsOverTheCentredOne() throws IOException {
         write("mypack/fonts/ranks.yml", """
                 vip:
