@@ -500,6 +500,13 @@ public final class VehicleRuntime implements Listener {
      * real attachment point of its own. See {@link MountOffset}.
      */
     private final double displayMountOffset;
+
+    /**
+     * Whether this server bakes rigs from its own content folder. Below it an
+     * occupant's emote is refused for want of a rig, and "sync it again" would
+     * send a server owner with no Studio pack after something that cannot help.
+     */
+    private final boolean bakesRigs;
     private final double standMountOffset;
 
     /**
@@ -767,6 +774,8 @@ public final class VehicleRuntime implements Listener {
         this.wrecks = new Regions.Fanout<>(plugin);
         this.rigs = rigs;
         this.particles = new VehicleParticles(plugin.getLogger());
+        this.bakesRigs = compatibility != null
+                && compatibility.has(ai.resourcepack.engine.api.Feature.BAKED_EMOTE_RIGS);
         this.controls = VehicleControls.forServer(compatibility, plugin.getLogger());
         this.carry = DisplayCarry.forServer(compatibility, MODEL_GLIDE_TICKS);
         this.displayMountOffset = MountOffset.forServer(compatibility);
@@ -3774,7 +3783,10 @@ public final class VehicleRuntime implements Listener {
                 case NO_RIGS_IN_PACK:
                 case INCOMPLETE_EMOTE_DATA:
                 case NO_EMOTES:
-                    why = "this pack arrived without its emote rigs - sync it again.";
+                    why = bakesRigs
+                            ? "this pack arrived without its emote rigs - sync it again."
+                            : "this Minecraft is older than 1.21.4, where no emote rigs are baked"
+                                    + " from the content folder; only a rig pushed from Studio would do.";
                     break;
                 case UNKNOWN_EMOTE:
                     why = "this pack no longer has an emote called '" + wanted + "'.";

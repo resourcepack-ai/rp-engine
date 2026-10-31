@@ -120,8 +120,10 @@ public final class LiquidCommands implements Area {
         Reply.to(player, "The blocks are still ordinary water. This says what being in them means.");
         if (liquids.info(id.get()).map(l -> l.color().isPresent()).orElse(false)
                 && biomes.biomeOf(id.get()).isEmpty()) {
-            Reply.to(player, "Its colour needs a restart before it shows: a biome is registered "
-                    + "when the server starts and a reload cannot add one.");
+            Reply.to(player, biomes.supported()
+                    ? "Its colour needs a restart before it shows: a biome is registered "
+                            + "when the server starts and a reload cannot add one."
+                    : "Its colour needs Minecraft 1.21.6 or newer; here it keeps vanilla water's.");
         }
         return true;
     }

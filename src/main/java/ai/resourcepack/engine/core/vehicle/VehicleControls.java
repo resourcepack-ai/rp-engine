@@ -322,11 +322,18 @@ public interface VehicleControls extends Listener {
          * <p>Cancelled, so the click does not also swing a sword, place a
          * block or eat: the driver has an item in their hand and every one of
          * those would fire while they were driving.
+         *
+         * <p>Not {@code ignoreCancelled}: Bukkit fires every click on AIR
+         * already "cancelled" ({@code isCancelled} is whether the clicked
+         * block is denied, and there is no block), so with it this saw only
+         * clicks that happened to land on a block, and a driver looking at the
+         * sky could not speed up. Another plugin refusing the click says so
+         * through the item instead.
          */
-        @EventHandler(ignoreCancelled = true)
+        @EventHandler
         public void onClick(PlayerInteractEvent event) {
             Double current = throttles.get(event.getPlayer().getUniqueId());
-            if (current == null) {
+            if (current == null || event.useItemInHand() == org.bukkit.event.Event.Result.DENY) {
                 return;
             }
             double step;

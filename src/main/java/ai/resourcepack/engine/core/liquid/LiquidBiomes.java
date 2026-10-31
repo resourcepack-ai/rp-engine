@@ -63,17 +63,33 @@ public final class LiquidBiomes {
 
     private final Logger log;
 
+    /**
+     * Whether this server can load the biomes {@link #biome} writes
+     * ({@code Feature.LIQUID_TINTING}). Below it nothing is written, and a pack
+     * an earlier engine wrote is taken away: the biome format is not the old
+     * game's, and a datapack biome it cannot parse does not lose its colour, it
+     * stops the SERVER starting ("Failed to load registries"), before any
+     * plugin can do anything about it. Found on Paper 1.19.4.
+     */
+    private final boolean supported;
+
     /** Whether the datapack on disk names a colour this run does not have. */
     private volatile boolean restartWanted;
 
-    public LiquidBiomes(Logger log) {
+    public LiquidBiomes(Logger log, boolean supported) {
         this.log = log;
+        this.supported = supported;
     }
 
     /** The biome a liquid's tint is registered as. */
     public static NamespacedKey keyOf(ContentId liquid) {
         return new NamespacedKey(NAMESPACE,
                 (liquid.namespace() + "_" + liquid.path()).toLowerCase(Locale.ROOT));
+    }
+
+    /** Whether this server can show a liquid's colour at all (after a restart). */
+    public boolean supported() {
+        return supported;
     }
 
     /**
@@ -102,6 +118,10 @@ public final class LiquidBiomes {
             return;
         }
         Path root = DataPackFolder.of(worlds.get(0), PACK);
+        if (!supported) {
+            removeUnloadable(root);
+            return;
+        }
         Path biomes = root.resolve("data/" + NAMESPACE + "/worldgen/biome");
         Set<String> wanted = new LinkedHashSet<>();
         boolean changed = false;
@@ -235,6 +255,29 @@ public final class LiquidBiomes {
                     world.refreshChunk(x, z);
                 }
             }
+        }
+    }
+
+    /**
+     * Takes away a datapack this server could not load, so the next start does
+     * not fail on it. Ours alone, so the whole folder goes.
+     */
+    private void removeUnloadable(Path root) {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+            List<Path> all = new ArrayList<>();
+            walk.forEach(all::add);
+            all.sort(java.util.Comparator.reverseOrder());
+            for (Path path : all) {
+                Files.deleteIfExists(path);
+            }
+            log.warning("Removed " + root + ": it holds liquid colours in a biome format"
+                    + " this Minecraft cannot read, and would stop the server starting.");
+        } catch (IOException e) {
+            log.warning("Could not remove " + root + " (" + e.getMessage() + "). Delete it before"
+                    + " the next restart: this Minecraft cannot read its biomes and will not start.");
         }
     }
 

@@ -66,8 +66,12 @@ public final class TextEffectAssets implements PackContributor {
                 // imported pack that brought one, say). Ours would overwrite
                 // theirs, so theirs stays and this version gets an overlay,
                 // which a client of it reads over the base.
-                into.warn(bundle.name(), "text-effects", "This bundle already has its own text shader, so Text Effects "
-                        + "for this server's version go in an overlay above it, and that shader stops drawing.");
+                into.warn(bundle.name(), "text-effects", packFormat
+                        < ai.resourcepack.engine.core.pack.PackBuilder.FIRST_OVERLAY_FORMAT
+                        ? "This bundle already has its own text shader, and this Minecraft reads no overlays "
+                                + "(1.20.2+), so its own shader is kept and Text Effects do not draw on this version."
+                        : "This bundle already has its own text shader, so Text Effects "
+                                + "for this server's version go in an overlay above it, and that shader stops drawing.");
                 base = false;
                 root = group.directory() + "/";
             }

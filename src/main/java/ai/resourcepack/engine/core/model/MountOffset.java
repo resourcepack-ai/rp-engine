@@ -29,13 +29,21 @@ public final class MountOffset {
     public static final double MODERN = 0.7;
 
     /**
-     * Before 1.20.2, where a passenger sat ABOVE its vehicle by a fixed amount
-     * rather than below it by the attachment point.
+     * Before 1.20.2, where a passenger sat at its vehicle's riding offset plus
+     * its OWN riding offset, and a player's own is -0.35: a player rides 0.35
+     * below a marker stand (measured on Paper 1.19.4 and 1.20.1, 2026-10-31).
      *
-     * <p>Negative because the correction goes the other way: on those versions
-     * the stand is spawned below the seat rather than above it.
+     * <p>The number is 0.45 rather than 0.35 so a rider lands where a MODERN
+     * server puts them, which is what every seat was tuned against in game:
+     * measured the same day on 1.20.4 and 1.21.11, a player rides 0.6 below a
+     * marker stand, not the 0.7 {@link #MODERN} says, so a modern seat puts
+     * its rider 0.1 above the arithmetic. 0.45 - 0.35 keeps that 0.1.
+     *
+     * <p>It was -1.75 until then, which nobody had measured, and put every
+     * seated player on 1.19.4 to 1.20.1 two blocks into the floor, where they
+     * suffocated.
      */
-    public static final double LEGACY = -1.75;
+    public static final double LEGACY = 0.45;
 
     /**
      * A SMALL armour stand's passenger attachment point, in blocks.
@@ -75,14 +83,11 @@ public final class MountOffset {
      * The same, for a vehicle seat on the fallback arm — a small stand rather
      * than a marker or a display. See {@link #SMALL_STAND_ATTACHMENT}.
      *
-     * <p>The correction only applies on the modern arm, where a passenger sits
-     * at the vehicle's attachment point minus its own. Below 1.20.2 the rule
-     * is a fixed offset that does not read the attachment at all, so there is
-     * nothing to subtract — and that arm is the less verified of the two here,
-     * because the figure it carries was measured with a marker.
+     * <p>Both arms read the stand's own riding offset (three quarters of its
+     * height, before 1.20.2 as after), so it comes off both.
      */
     public static double forVehicleSeat(Compatibility compatibility) {
         boolean modern = compatibility != null && compatibility.has(Feature.MODERN_PASSENGER_OFFSET);
-        return modern ? MODERN - SMALL_STAND_ATTACHMENT : LEGACY;
+        return (modern ? MODERN : LEGACY) - SMALL_STAND_ATTACHMENT;
     }
 }

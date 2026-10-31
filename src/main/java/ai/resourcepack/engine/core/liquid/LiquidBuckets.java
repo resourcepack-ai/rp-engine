@@ -102,8 +102,11 @@ public final class LiquidBuckets {
         pools.save(log);
 
         if (liquid.get().color().isPresent() && biomes.biomeOf(id.get()).isEmpty()) {
-            say(player, "That liquid has a colour the server has not loaded yet. "
-                    + "It needs a restart; the pool works either way.");
+            say(player, biomes.supported()
+                    ? "That liquid has a colour the server has not loaded yet. "
+                            + "It needs a restart; the pool works either way."
+                    : "That liquid's colour needs Minecraft 1.21.6 or newer; "
+                            + "the pool works, in vanilla water's colour.");
         }
         if (player.getGameMode() != GameMode.CREATIVE) {
             stack.setAmount(stack.getAmount() - 1);
