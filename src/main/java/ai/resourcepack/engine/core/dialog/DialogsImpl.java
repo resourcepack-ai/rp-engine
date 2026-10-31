@@ -1121,22 +1121,23 @@ public final class DialogsImpl implements Dialogs {
         return root.getClass().getName().endsWith("CommandSyntaxException");
     }
 
-    /** What came of a "Run as console" click ({@link #runConsole}). */
+    /** What came of a "Run as console" or several-command "Run command" click ({@link #runConsole}, {@link #runAsPlayer}). */
     public enum ConsoleRun {
-        /** Run, and the server knew the command. */
+        /** Run, and the server knew every command. */
         RAN,
         /** The dialog the player was shown has no such click (or it expired, or was closed). */
         NOT_OFFERED,
-        /** Offered, but the command failed: unknown, threw, or a placeholder filled it with something no command takes. */
+        /** Offered, but a command failed: unknown, threw, or a placeholder filled it with something no command takes. */
         FAILED
     }
 
     /**
      * The command a "Run as console" click names, as the console will run it:
-     * filled for this player, with what their dialog was opened with. Empty
-     * unless the dialog they were last shown (still theirs: see
-     * {@link #lastShown}) holds a click running exactly {@code rp click <key>}
-     * among the pieces they could see, and carries a command by that key.
+     * filled for this player, with what their dialog was opened with, one
+     * command per line. Empty unless the dialog they were last shown (still
+     * theirs: see {@link #lastShown}) holds a click running exactly {@code rp
+     * click <key>} among the pieces they could see, and carries a command by
+     * that key.
      *
      * <p>That check is the whole of the security: {@code /rp click} is a
      * command every player has, because their click runs it, so it must do
@@ -1144,13 +1145,29 @@ public final class DialogsImpl implements Dialogs {
      * sent to the client, so nobody can have changed a word of it.
      */
     public Optional<String> consoleCommand(Player viewer, String key) {
+        return clickCommands(viewer, key, DialogLinks.consoleClick(key)).map(lines -> String.join("\n", lines));
+    }
+
+    /**
+     * The commands the click {@code click} (an {@code rp click} or {@code rp
+     * run} naming {@code key}) runs, filled for this player, in order; empty
+     * unless the dialog they were shown holds exactly that click. A command
+     * whose placeholders left nothing is an empty string in its place.
+     */
+    Optional<List<String>> clickCommands(Player viewer, String key, String click) {
         Shown shown = viewer == null || key == null || !DialogInfo.CONSOLE_KEY.matcher(key).matches() ? null : current(viewer);
         if (shown == null || !visibleJson(viewer, shown.id(), shown.values())
-                .map(json -> DialogLinks.holdsCommand(json, DialogLinks.consoleClick(key))).orElse(false)) {
+                .map(json -> DialogLinks.holdsCommand(json, click)).orElse(false)) {
             return Optional.empty();
         }
         return info(viewer, shown.id()).map(info -> info.consoleCommands().get(key))
-                .map(command -> filledCommand(viewer, command, shown.values()));
+                .map(commands -> {
+                    List<String> out = new java.util.ArrayList<>();
+                    for (String line : commands.split("\n")) {
+                        out.add(filledCommand(viewer, line, shown.values()));
+                    }
+                    return out;
+                });
     }
 
     /**
@@ -1173,36 +1190,57 @@ public final class DialogsImpl implements Dialogs {
     }
 
     /**
-     * Runs a "Run as console" click's command as the console, when the player
-     * was offered it ({@link #consoleCommand}). A failure is logged with the
-     * command, since the player is only told that it failed.
+     * Runs a "Run as console" click's commands as the console, in order, when
+     * the player was offered them ({@link #consoleCommand}). It stops at the
+     * first that fails, which is logged with the command, since the player is
+     * only told that it failed.
      */
     public ConsoleRun runConsole(Player viewer, String key) {
-        Optional<String> command = consoleCommand(viewer, key);
-        if (command.isEmpty()) {
+        return run(viewer, key, DialogLinks.consoleClick(key), "console", command -> {
+            org.bukkit.plugin.Plugin owner = plugin;
+            return owner == null
+                    ? Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command)
+                    : Regions.console(owner, command);
+        });
+    }
+
+    /**
+     * Runs a "Run command" click's commands (several: one is the game's own
+     * {@code run_command}) as the player, with their own permissions, in
+     * order, when they were offered them: {@code rp run <key>}. It stops at the
+     * first that fails. A player's own command tells them why it failed, as
+     * one they type does; the log has the rest.
+     */
+    public ConsoleRun runAsPlayer(Player viewer, String key) {
+        return run(viewer, key, DialogLinks.runClick(key), "player", viewer::performCommand);
+    }
+
+    private ConsoleRun run(Player viewer, String key, String click, String who,
+                           java.util.function.Predicate<String> dispatch) {
+        Optional<List<String>> commands = clickCommands(viewer, key, click);
+        if (commands.isEmpty()) {
             return ConsoleRun.NOT_OFFERED;
         }
         String named = lastShown(viewer).map(shown -> shown.id().toString()).orElse("a dialog");
-        if (command.get().isEmpty()) {
-            Bukkit.getLogger().warning("[RPEngine] " + named + ": a console button's placeholders left no command to run for "
-                    + viewer.getName() + ".");
-            return ConsoleRun.FAILED;
-        }
-        try {
-            org.bukkit.plugin.Plugin owner = plugin;
-            boolean ran = owner == null
-                    ? Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command.get())
-                    : Regions.console(owner, command.get());
-            if (ran) {
-                return ConsoleRun.RAN;
+        for (String command : commands.get()) {
+            if (command.isEmpty()) {
+                Bukkit.getLogger().warning("[RPEngine] " + named + ": a " + who + " button's placeholders left no command to run for "
+                        + viewer.getName() + ".");
+                return ConsoleRun.FAILED;
             }
-            Bukkit.getLogger().warning("[RPEngine] " + named + ": the console does not know the command its button runs: /"
-                    + command.get());
-        } catch (RuntimeException e) {
-            Bukkit.getLogger().log(java.util.logging.Level.WARNING,
-                    "[RPEngine] " + named + ": the command its console button runs failed: /" + command.get(), e);
+            try {
+                if (!dispatch.test(command)) {
+                    Bukkit.getLogger().warning("[RPEngine] " + named + ": the " + who + " does not know a command its button runs: /"
+                            + command);
+                    return ConsoleRun.FAILED;
+                }
+            } catch (RuntimeException e) {
+                Bukkit.getLogger().log(java.util.logging.Level.WARNING,
+                        "[RPEngine] " + named + ": a command its " + who + " button runs failed: /" + command, e);
+                return ConsoleRun.FAILED;
+            }
         }
-        return ConsoleRun.FAILED;
+        return ConsoleRun.RAN;
     }
 
     /**

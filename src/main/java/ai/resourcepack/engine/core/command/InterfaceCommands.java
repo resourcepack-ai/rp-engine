@@ -71,6 +71,7 @@ public final class InterfaceCommands implements Area {
                 Help.of("page", "<id|close>", "turn or close a dialog"),
                 Help.of("slot", "<slot>", "move an item in a dialog"),
                 Help.of("click", "<key>", "a dialog's console button"),
+                Help.of("run", "<key>", "a dialog's button of commands"),
                 Help.of("quick", "<id>", "open a quick action (G)"));
     }
 
@@ -101,6 +102,8 @@ public final class InterfaceCommands implements Area {
                 return slot(sender, args);
             case "click":
                 return click(sender, args);
+            case "run":
+                return run(sender, args);
             case "quick":
                 return quick(sender, args);
             case "shaders":
@@ -149,6 +152,41 @@ public final class InterfaceCommands implements Area {
                 break;
             default:
                 break;
+        }
+        return true;
+    }
+
+    /**
+     * {@code /rp run <key>} — what a "Run command" button in a dialog with
+     * several commands runs, as the player who clicked it. The engine then runs
+     * each command that key names, in order, as that player and with their own
+     * permissions (a click event holds one command; this is how a button holds
+     * more).
+     *
+     * <p>Every player may run it, for {@code /rp click}'s reason and under its
+     * check: only a click the dialog they were last shown holds runs anything
+     * (see {@link ai.resourcepack.engine.core.dialog.DialogsImpl#runAsPlayer}).
+     * It can never run anything as the console, so the worst a player can do
+     * with it is what they could type themselves.
+     *
+     * <p>Silent when it works; a command that fails has already told them why.
+     */
+    private boolean run(CommandSender sender, String[] args) {
+        if (!(dialogs instanceof ai.resourcepack.engine.core.dialog.DialogsImpl impl)) {
+            Reply.to(sender, "Dialogs are not available on this server.");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            Reply.to(sender, "Only a player clicks a dialog's button: /rp run is what one runs.");
+            return true;
+        }
+        if (args.length != 2) {
+            Reply.to(sender, "/rp run <key>");
+            return true;
+        }
+        if (impl.runAsPlayer(player, args[1].toLowerCase(Locale.ROOT))
+                == ai.resourcepack.engine.core.dialog.DialogsImpl.ConsoleRun.NOT_OFFERED) {
+            Reply.to(sender, "The dialog you were shown has no such button.");
         }
         return true;
     }

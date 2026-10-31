@@ -377,6 +377,34 @@ class DialogDefinitionsTest {
         assertEquals(warps.consoleCommands(), warps.withCommand("warps", null).withClosesAfterClick(false).consoleCommands());
     }
 
+    /**
+     * A list under {@code console:} or {@code command:} is several commands:
+     * one key for the lot, run in order, by the console for one and the
+     * player for the other. A one-item list is the plain button it always was.
+     */
+    @Test
+    void aListOfCommandsIsOneButtonThatRunsThemAll() throws IOException {
+        write("mypack/dialogs/menus.yml",
+                "kit:\n"
+                        + "  buttons:\n"
+                        + "    - label: Food\n"
+                        + "      console: [\"give {player} bread\", \"/give {player} torch 16\"]\n"
+                        + "    - label: Go\n"
+                        + "      command:\n"
+                        + "        - spawn\n"
+                        + "        - kit starter\n"
+                        + "    - label: Shop\n"
+                        + "      command: [shop]\n");
+        DialogInfo kit = one(parse(), "mypack:kit");
+        String console = DialogLinks.consoleKey("give {player} bread\ngive {player} torch 16");
+        String player = DialogLinks.consoleKey("spawn\nkit starter");
+        assertTrue(kit.json().contains("\"command\": \"rp click " + console + "\""), kit.json());
+        assertTrue(kit.json().contains("\"command\": \"rp run " + player + "\""), kit.json());
+        assertTrue(kit.json().contains("\"command\": \"shop\""), kit.json());
+        assertEquals(java.util.Map.of(console, "give {player} bread\ngive {player} torch 16", player, "spawn\nkit starter"),
+                kit.consoleCommands());
+    }
+
     /** Studio's export puts a dialog's console commands beside its JSON file. */
     @Test
     void aJsonFileCarriesItsConsoleCommands() throws IOException {

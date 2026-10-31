@@ -288,7 +288,7 @@ public final class DialogDefinitions {
         for (String key : declared.get().keys()) {
             Optional<String> command = declared.get().string(key);
             if (!DialogInfo.CONSOLE_KEY.matcher(key).matches() || command.isEmpty()
-                    || DialogInfo.consoleCommand(command.get()) == null) {
+                    || DialogInfo.clickCommands(command.get()) == null) {
                 diagnostics.add(Diagnostic.warning(origin, where, "console-commands: " + key
                         + " is not a key (lower-case letters and digits) with a command, so its button does nothing."));
                 continue;
@@ -416,13 +416,14 @@ public final class DialogDefinitions {
         out.append(", \"width\": ").append(node.integer("width").orElse(150));
 
         // The console runs it: the click names it by key (DialogLinks.CONSOLE),
-        // and the command stays on the server.
-        Optional<String> console = node.string("console");
-        if (console.isPresent()) {
-            String command = DialogInfo.consoleCommand(console.get());
+        // and the command stays on the server. A list is several, in order.
+        List<String> console = node.strings("console");
+        if (!console.isEmpty()) {
+            String command = DialogInfo.clickCommands(String.join("\n", console));
             if (command == null) {
-                diagnostics.add(Diagnostic.warning(origin, where, "console: \"" + console.get()
-                        + "\" is not a command (blank, too long, or with a section sign in it), so the button only closes."));
+                diagnostics.add(Diagnostic.warning(origin, where, "console: \"" + String.join("; ", console)
+                        + "\" is not a command (blank, too long, more than " + DialogInfo.MAX_CLICK_COMMANDS
+                        + ", or with a section sign in it), so the button only closes."));
                 return out.append(" }").toString();
             }
             String key = DialogLinks.consoleKey(command);
@@ -432,11 +433,31 @@ public final class DialogDefinitions {
             return out.append(" }").toString();
         }
 
+        // Several commands for the player: a click holds one, so the engine
+        // runs them by key (DialogLinks.RUN), each as the player who clicked.
+        List<String> commands = node.strings("command");
+        if (commands.size() > 1) {
+            String command = DialogInfo.clickCommands(String.join("\n", commands));
+            if (command == null) {
+                diagnostics.add(Diagnostic.warning(origin, where, "command: \"" + String.join("; ", commands)
+                        + "\" is not a list of commands (blank, too long, more than " + DialogInfo.MAX_CLICK_COMMANDS
+                        + ", or with a section sign in one), so the button only closes."));
+                return out.append(" }").toString();
+            }
+            String key = DialogLinks.consoleKey(command);
+            consoles.put(key, command);
+            out.append(", \"action\": { \"type\": \"minecraft:run_command\", \"command\": ")
+                    .append(quote(DialogLinks.runClick(key))).append(" }");
+            return out.append(" }").toString();
+        }
+
         // One key per action, rather than an `action:` naming one and a
         // `value:` beside it. An author writing `command: spawn` has said both
         // things in one line, and the pair is the shape people get wrong.
         for (String action : ACTIONS) {
-            Optional<String> value = node.string(key(action));
+            // A one-item list under command: is the one command.
+            Optional<String> value = action.equals("run_command") && commands.size() == 1
+                    ? Optional.of(commands.get(0)) : node.string(key(action));
             if (value.isEmpty()) {
                 continue;
             }
