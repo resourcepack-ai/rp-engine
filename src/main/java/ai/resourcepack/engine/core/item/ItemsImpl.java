@@ -357,9 +357,13 @@ public final class ItemsImpl implements Items {
     /**
      * Ampersand colour codes, because that is what a server owner writes in a
      * YAML file and has written in every plugin they have ever configured.
+     * Icons come last, because each one hands back the colour in force before
+     * it: lore is purple until told otherwise, and a picture in purple text is
+     * a purple picture.
      */
     private static String colour(String text) {
-        return ChatColor.translateAlternateColorCodes('&',
-                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(text));
+        return ai.resourcepack.engine.core.font.IconsImpl.formatInstalled(
+                ChatColor.translateAlternateColorCodes('&',
+                        ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(text)));
     }
 }

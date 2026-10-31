@@ -2867,6 +2867,10 @@ Put one into any piece of text with `:namespace:id:`:
 /rp say Cheers :mypack:beer:
 ```
 
+An item's `name:` and `lore:` take them too, and there an icon is drawn in its
+own colours rather than tinted by the line around it (lore is purple until told
+otherwise, and a picture in purple text is a purple picture).
+
 The engine's `Icons.format(text)` does that substitution, so a plugin can run
 config text through it and let server owners write icons into their own
 messages. An ID that names nothing is **left exactly as written** rather than

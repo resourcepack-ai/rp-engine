@@ -292,7 +292,50 @@ class IconsTest {
 
         String sword = one(parse(), "mypack:sword").character();
 
-        assertEquals("You hold a " + sword + " now", icons.format("You hold a :mypack:sword: now"));
+        // White, then back to the colour the line started with: see the
+        // tests below for why.
+        assertEquals("You hold a §f" + sword + "§r now", icons.format("You hold a :mypack:sword: now"));
+    }
+
+    // The game multiplies a glyph by its text's colour, so an icon in lore
+    // with no colour of its own was lore's purple, and one after &7 was grey.
+
+    @Test
+    void anIconIsWhiteAndTheTextAfterItGetsItsColourBack() throws IOException {
+        write("mypack/fonts/a.yml", "leaf: {}\n");
+        IconsImpl icons = new IconsImpl();
+        icons.replace(parse().icons());
+        String leaf = icons.character(ContentId.parse("mypack:leaf").orElseThrow()).orElseThrow();
+
+        assertEquals("§7§lFresh §f" + leaf + "§7§l ok",
+                icons.format("§7§lFresh :mypack:leaf: ok"));
+        String hex = "§x§e§5§3§9§3§5";
+        assertEquals(hex + "a §f" + leaf + hex + " b", icons.format(hex + "a :mypack:leaf: b"));
+        // After a reset there is nothing to restore but the line's own start.
+        assertEquals("§7a§rb §f" + leaf + "§r c", icons.format("§7a§rb :mypack:leaf: c"));
+    }
+
+    @Test
+    void iconsSideBySideAreOneWhiteStretch() throws IOException {
+        write("mypack/fonts/a.yml", "leaf: {}\n");
+        IconsImpl icons = new IconsImpl();
+        icons.replace(parse().icons());
+        String leaf = icons.character(ContentId.parse("mypack:leaf").orElseThrow()).orElseThrow();
+
+        assertEquals("§7§f" + leaf + leaf + leaf + "§7 3/5",
+                icons.format("§7:mypack:leaf::mypack:leaf::mypack:leaf: 3/5"));
+    }
+
+    @Test
+    void aCharacterAlreadyInTheTextIsWhitenedToo() throws IOException {
+        write("mypack/fonts/a.yml", "leaf: {}\n");
+        IconsImpl icons = new IconsImpl();
+        icons.replace(parse().icons());
+        String leaf = icons.character(ContentId.parse("mypack:leaf").orElseThrow()).orElseThrow();
+
+        assertEquals("§5§f" + leaf + "§5 x", icons.format("§5" + leaf + " x"));
+        // Already white and plain: nothing to do.
+        assertEquals("§f" + leaf + " x", icons.format("§f" + leaf + " x"));
     }
 
     @Test
@@ -331,7 +374,7 @@ class IconsTest {
         IconDefinitions.Result parsed = parse();
         icons.replace(parsed.icons());
 
-        assertEquals(one(parsed, "mypack:apple").character() + one(parsed, "mypack:sword").character(),
+        assertEquals("§f" + one(parsed, "mypack:apple").character() + one(parsed, "mypack:sword").character(),
                 icons.format(":mypack:apple::mypack:sword:"));
         assertEquals(List.of(ContentId.parse("mypack:apple").orElseThrow(),
                         ContentId.parse("mypack:sword").orElseThrow()),

@@ -570,6 +570,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.textfx.TextEffectShaders.get().maxEffects());
         textEffectIds.load(getLogger());
         textEffects.install();
+        icons.install();
         items = new ItemsImpl(this, compatibility, modelNumbers);
         actionRunner = new ActionRunner(items, sounds);
         // Emotes come over from the previous engine whole: the store, the
@@ -1874,6 +1875,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // the world is guarded, so one refusal cannot cost the steps after it.
         boolean worldStopped = Regions.folia();
         ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
+        IconsImpl.uninstall();
         music.shutdown();
         if (heartbeat != null) {
             heartbeat.stop();
