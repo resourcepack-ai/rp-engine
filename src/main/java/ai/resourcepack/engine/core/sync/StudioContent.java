@@ -281,7 +281,6 @@ public final class StudioContent {
         }
     }
 
-
     /** A pushed mob's boss bar: Bukkit {@code BarColor} and {@code BarStyle} names. */
     static final class MobBossBar {
         String color;
