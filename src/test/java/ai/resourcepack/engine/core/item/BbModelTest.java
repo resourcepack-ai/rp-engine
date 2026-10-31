@@ -327,6 +327,51 @@ class BbModelTest {
     }
 
     @Test
+    void aBlockbench5ProjectKeepsItsBonesInTheGroupsList() {
+        // 5.0 writes the outliner as bare {uuid, children} references and the
+        // bone data in `groups`. Read only the outliner and every bone, and so
+        // every animation, was lost: the mob came in as one still lump.
+        String five = project(","
+                + "\"groups\": [{\"uuid\": \"bone-0\", \"name\": \"torso\", \"origin\": [8, 12, 8]},"
+                + " {\"uuid\": \"bone-1\", \"name\": \"arm\", \"origin\": [8, 6, 8]}],"
+                + "\"outliner\": [{\"uuid\": \"bone-0\", \"children\": ["
+                + " {\"uuid\": \"bone-1\", \"children\": [\"cube-1\"]}]}],"
+                + "\"animations\": [{\"name\": \"wave\", \"length\": 1, \"loop\": \"loop\","
+                + " \"animators\": {" + WAVE + "}}]");
+        JsonObject model = BbModel.convert(five.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+
+        var groups = model.getAsJsonArray("groups");
+        assertEquals(2, groups.size());
+        assertEquals("torso", groups.get(0).getAsJsonObject().get("name").getAsString());
+        assertEquals("arm", groups.get(1).getAsJsonObject().get("name").getAsString());
+        assertEquals("[8.0,6.0,8.0]", groups.get(1).getAsJsonObject().get("origin").toString());
+        assertEquals(0, groups.get(1).getAsJsonObject().get("parent").getAsInt());
+        assertEquals("[0]", groups.get(1).getAsJsonObject().get("children").toString());
+        assertTrue(model.getAsJsonArray("animations").get(0).getAsJsonObject()
+                .getAsJsonObject("animators").has("g:1"));
+    }
+
+    @Test
+    void aModelEngineHitboxBoneIsMeasuredNotDrawn() {
+        // Model Engine's `hitbox` bone is a volume, usually textured with
+        // nothing; drawn, it was a ghostly box round the whole mob.
+        String withHitbox = "{\"resolution\": {\"width\": 16, \"height\": 16},"
+                + "\"elements\": ["
+                + " {\"name\": \"body\", \"uuid\": \"c1\", \"from\": [4, 0, 4], \"to\": [12, 8, 12], \"faces\": {}},"
+                + " {\"name\": \"hitbox\", \"uuid\": \"c2\", \"from\": [0, 0, 0], \"to\": [16, 16, 16], \"faces\": {}}],"
+                + "\"groups\": [{\"uuid\": \"g1\", \"name\": \"body\", \"origin\": [8, 0, 8]},"
+                + " {\"uuid\": \"g2\", \"name\": \"hitbox\", \"origin\": [8, 8, 8]}],"
+                + "\"outliner\": [{\"uuid\": \"g1\", \"children\": [\"c1\"]},"
+                + " {\"uuid\": \"g2\", \"children\": [\"c2\"]}]}";
+        JsonObject model = BbModel.convert(withHitbox.getBytes(StandardCharsets.UTF_8), "mypack", "golem")
+                .orElseThrow().model();
+
+        assertEquals(1, model.getAsJsonArray("elements").size());
+        assertEquals("[4.0,0.0,4.0]", model.getAsJsonArray("elements").get(0).getAsJsonObject().get("from").toString());
+    }
+
+    @Test
     void animatorsAreRekeyedFromUuidsToBoneIndices() {
         // The load-bearing one. Blockbench keys an animator by the bone's
         // uuid; everything downstream looks up "g:<index>", and a uuid there

@@ -255,6 +255,7 @@ public final class CustomEntities implements Listener, Mobs {
                 spawned -> configure(spawned, id, info));
         if (mob instanceof LivingEntity) {
             LivingEntity body = (LivingEntity) mob;
+            unjockey(body);
             applyHeight(body, info);
             if (info.health() > 0) {
                 body.setHealth(Math.min(info.health(), maxHealth(body)));
@@ -316,6 +317,31 @@ public final class CustomEntities implements Listener, Mobs {
         }
         if (info.knockbackResistance() > 0) {
             setBase(body, Vanilla.attribute("knockback_resistance"), info.knockbackResistance());
+        }
+    }
+
+    /**
+     * Undoes the extras vanilla rolls for a freshly spawned mob: a baby, a
+     * spider jockey's skeleton, a baby zombie's chicken.
+     *
+     * <p>Vanilla's spawn finalising does these by chance, and a custom mob
+     * is the model and nothing else: a baby is a smaller, faster hitbox under
+     * a full-size model, and a jockey is a second, visible mob standing on it
+     * or under it. A spider in the first real-client test arrived with a
+     * skeleton riding it.
+     */
+    private static void unjockey(LivingEntity body) {
+        if (body instanceof org.bukkit.entity.Ageable) {
+            ((org.bukkit.entity.Ageable) body).setAdult();
+        }
+        for (Entity rider : List.copyOf(body.getPassengers())) {
+            body.removePassenger(rider);
+            rider.remove();
+        }
+        Entity mount = body.getVehicle();
+        if (mount != null) {
+            body.leaveVehicle();
+            mount.remove();
         }
     }
 
