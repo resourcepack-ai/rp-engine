@@ -4,12 +4,14 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.event.ModelBindEvent;
 import ai.resourcepack.engine.core.Host;
+import ai.resourcepack.engine.core.animation.RigMath;
 
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
@@ -53,6 +55,10 @@ public final class BoundModels {
     private final NamespacedKey partKey;
     private final NamespacedKey boundKey;
     private final NamespacedKey scaleKey;
+    private final NamespacedKey yawKey;
+    private final NamespacedKey turnKey;
+    private final NamespacedKey headPivotKey;
+    private final NamespacedKey dyingKey;
 
     /**
      * Somewhere a bind can be WRITTEN DOWN, for a host that outlives its own
@@ -83,6 +89,10 @@ public final class BoundModels {
         this.partKey = host.key("part-index");
         this.boundKey = host.key(RigAnimator.BOUND_KEY);
         this.scaleKey = host.key(RigAnimator.SCALE_KEY);
+        this.yawKey = host.key("rig-yaw");
+        this.turnKey = host.key(RigAnimator.TURN_KEY);
+        this.headPivotKey = host.key(RigAnimator.HEAD_PIVOT_KEY);
+        this.dyingKey = host.key(RigAnimator.DYING_KEY);
     }
 
     /**
@@ -116,25 +126,53 @@ public final class BoundModels {
         unbind(host);
         remember.test(host, modelId);
 
+        return dress(host, modelId.toString(), whole, part -> partStack(whole, part), scale, 0f, null);
+    }
+
+    /**
+     * Puts art on {@code host} with nobody asked: a custom mob the engine
+     * spawned itself, so there is no other owner to refuse it and nothing to
+     * remember it by but the mob.
+     *
+     * <p>The art arrives as stacks rather than as an item id, because a mob
+     * pushed from Studio has no item: its model is paper wearing a string,
+     * exactly as a pushed vehicle's is.
+     *
+     * @param rigId    the rig store's key: an item id, or Studio's carrier string
+     * @param partItem what a part renders as, from the part's own item string
+     * @param turn     degrees added to the heading, for a model built facing elsewhere
+     * @param headBone a bone that turns toward the target, or null
+     */
+    public boolean dress(Entity host, String rigId, ItemStack whole,
+                         java.util.function.Function<String, ItemStack> partItem,
+                         float scale, float turn, String headBone) {
+        if (host == null || !host.isValid() || rigId == null || whole == null) {
+            return false;
+        }
+        for (Entity rider : List.copyOf(host.getPassengers())) {
+            if (isPart(rider)) {
+                animator.untrack(rider.getUniqueId());
+                rider.remove();
+            }
+        }
         float size = scale > 0 ? scale : 1f;
-        String id = modelId.toString();
-        RigStore.Rig rig = rigs.get(id);
+        RigStore.Rig rig = rigs.get(rigId);
 
         List<ItemDisplay> parts = new ArrayList<>();
         if (rig != null && rig.parts != null && !rig.parts.isEmpty()) {
             // An animated model: one display per part, exactly as a placed rig
             // gets. The yaw passed here is the host's at this instant and is
             // only the starting value — the animator reads the live one.
-            parts.addAll(spawns.parts(host.getLocation().getBlock(), id, rig,
-                    host.getLocation().getYaw(), null, size, part -> partStack(whole, part.item)));
+            parts.addAll(spawns.parts(host.getLocation().getBlock(), rigId, rig,
+                    host.getLocation().getYaw(), null, size, part -> partItem.apply(part.item)));
         } else {
             // A still model is one display holding the item itself. Bound the
             // same way and read by the same code, so a model that gains an
             // animation later needs nothing changed here.
-            parts.add(host.getWorld().spawn(host.getLocation(), ItemDisplay.class, d -> {
+            parts.add(ai.resourcepack.engine.core.version.Spawning.spawn(host.getWorld(), host.getLocation(), ItemDisplay.class, d -> {
                 d.setItemStack(whole);
                 d.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.NONE);
-                d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, id);
+                d.getPersistentDataContainer().set(modelKey, PersistentDataType.STRING, rigId);
                 d.getPersistentDataContainer().set(partKey, PersistentDataType.INTEGER, 0);
                 if (size != 1f) {
                     d.getPersistentDataContainer().set(scaleKey, PersistentDataType.FLOAT, size);
@@ -145,9 +183,23 @@ public final class BoundModels {
             return false;
         }
 
+        float[] headPivot = headBone == null || headBone.isEmpty() ? null : headPivot(rig, headBone);
         for (ItemDisplay part : parts) {
-            part.getPersistentDataContainer().set(boundKey, PersistentDataType.STRING,
-                    host.getUniqueId().toString());
+            PersistentDataContainer pdc = part.getPersistentDataContainer();
+            pdc.set(boundKey, PersistentDataType.STRING, host.getUniqueId().toString());
+            if (turn != 0f) {
+                pdc.set(turnKey, PersistentDataType.FLOAT, turn);
+                if (!animator.animates(part)) {
+                    // A still part is never posed by the animator, so its
+                    // turn is baked in here, ahead of the size, the same way
+                    // the animator puts a moving part's heading ahead of it.
+                    part.setTransformation(turned(turn, size));
+                }
+            }
+            if (headPivot != null && inLineage(rig, pdc.get(partKey, PersistentDataType.INTEGER), headBone)) {
+                pdc.set(headPivotKey, PersistentDataType.STRING,
+                        headPivot[0] + "," + headPivot[1] + "," + headPivot[2]);
+            }
             // Passengers, so vanilla carries them. A display that had to be
             // teleported every tick would cost a packet per part per player
             // per tick and still trail the body it belongs to.
@@ -158,6 +210,76 @@ public final class BoundModels {
 
         conceal(host, true);
         return true;
+    }
+
+    /** The still pose of a part turned by {@code turn} degrees and grown by {@code size}. */
+    private static org.bukkit.util.Transformation turned(float turn, float size) {
+        org.joml.Matrix4f m = new org.joml.Matrix4f().rotateY((float) Math.toRadians(-turn));
+        if (size != 1f) {
+            m.scaleLocal(size);
+            m.translateLocal(0f, 0.5f * (size - 1f), 0f);
+        }
+        return RigMath.toTransformation(m);
+    }
+
+    /**
+     * Where a named head bone turns about, in model pixels, or null if no
+     * moving part is that bone.
+     *
+     * <p>A bone's own pivot is on the manifest only when it has a behaviour,
+     * and a Studio rig carries none; what both kinds DO carry is the program
+     * of every moving part, whose last bone step pivots about that bone. So a
+     * head that never moves in any animation cannot turn either: it was
+     * merged into the still remainder at pack build and has no display of its
+     * own to turn.
+     */
+    private static float[] headPivot(RigStore.Rig rig, String headBone) {
+        if (rig == null || rig.parts == null) {
+            return null;
+        }
+        for (RigStore.Part part : rig.parts) {
+            if (part == null || part.bone == null || !part.bone.equalsIgnoreCase(headBone)) {
+                continue;
+            }
+            if (part.pivot != null && part.pivot.length == 3) {
+                return part.pivot.clone();
+            }
+            if (part.program != null) {
+                for (int i = part.program.size() - 1; i >= 0; i--) {
+                    RigStore.Step step = part.program.get(i);
+                    if (step != null && step.target != null && step.target.startsWith("g:")
+                            && step.pivot != null && step.pivot.length == 3) {
+                        return step.pivot.clone();
+                    }
+                }
+            }
+            if (part.anchor != null && part.anchor.length == 3) {
+                return new float[]{part.anchor[0] + 8f, part.anchor[1] + 8f, part.anchor[2] + 8f};
+            }
+        }
+        return null;
+    }
+
+    /** Whether part {@code index} is the head bone or inside it, so it turns with it. */
+    private static boolean inLineage(RigStore.Rig rig, Integer index, String headBone) {
+        if (rig == null || rig.parts == null || index == null || index < 0 || index >= rig.parts.size()) {
+            return false;
+        }
+        RigStore.Part part = rig.parts.get(index);
+        if (part == null) {
+            return false;
+        }
+        if (part.bone != null && part.bone.equalsIgnoreCase(headBone)) {
+            return true;
+        }
+        if (part.bones != null) {
+            for (String bone : part.bones) {
+                if (bone != null && bone.equalsIgnoreCase(headBone)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** Whether a listener said no to this bind or unbind. */
@@ -223,6 +345,65 @@ public final class BoundModels {
         }
         animator.stopOn(parts);
         return true;
+    }
+
+    /**
+     * How long an animation of what {@code host} wears runs, in seconds at its
+     * own speed, or -1 when it has no such animation.
+     */
+    public double animationSeconds(Entity host, String animation) {
+        List<ItemDisplay> parts = partsOf(host);
+        if (parts.isEmpty() || animation == null) {
+            return -1;
+        }
+        RigStore.Rig rig = rigs.get(parts.get(0).getPersistentDataContainer().get(modelKey, PersistentDataType.STRING));
+        RigStore.Animation found = RigAnimations.animationAt(rig,
+                RigAnimations.findAnimationIndexByName(rig, animation));
+        if (found == null) {
+            return -1;
+        }
+        return Math.max(0, found.length) / RigAnimations.speedOf(found);
+    }
+
+    /**
+     * Lets go of what {@code host} wears so it can outlive the host for a
+     * moment: a mob's death animation, which runs past the second vanilla
+     * keeps a dead body.
+     *
+     * <p>Made non-persistent, so a part caught by a restart or an unload in
+     * that window is not saved at all, and marked dying, so one that somehow
+     * was is removed the moment it loads (see {@code RigAnimator.reaped}). Its
+     * heading is written down, because a part whose host is gone reads the
+     * stored one, and the one stored at spawn is wherever the mob faced then.
+     *
+     * @return the parts, for the caller to remove when the animation is over
+     */
+    public List<ItemDisplay> release(Entity host) {
+        List<ItemDisplay> parts = partsOf(host);
+        float yaw = host == null ? 0f : host.getLocation().getYaw();
+        for (ItemDisplay part : parts) {
+            PersistentDataContainer pdc = part.getPersistentDataContainer();
+            Float turn = pdc.get(turnKey, PersistentDataType.FLOAT);
+            pdc.set(yawKey, PersistentDataType.FLOAT, yaw + (turn == null ? 0f : turn));
+            pdc.set(dyingKey, PersistentDataType.BYTE, (byte) 1);
+            part.setPersistent(false);
+        }
+        return parts;
+    }
+
+    /** Removes released parts, now, on the calling thread. */
+    public void discard(List<ItemDisplay> parts) {
+        for (ItemDisplay part : parts) {
+            animator.untrack(part.getUniqueId());
+            if (part.isValid()) {
+                part.remove();
+            }
+        }
+    }
+
+    /** The displays {@code host} wears, if it wears one of our models. */
+    public List<ItemDisplay> parts(Entity host) {
+        return partsOf(host);
     }
 
     private List<ItemDisplay> partsOf(Entity host) {

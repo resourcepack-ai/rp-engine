@@ -74,6 +74,7 @@ public final class ModelCommands implements Area {
                 Help.of("purge", "[radius]", "remove orphaned ones"),
                 Help.of("entities", "list the custom entities"),
                 Help.of("spawn", "<id>", "spawn one where you stand"),
+                Help.of("egg", "<id> [player] [n]", "a spawn egg"),
                 Help.of("bind", "<id>", "put a model on the mob you face"),
                 Help.of("unbind", "take it off again"));
     }
@@ -93,6 +94,8 @@ public final class ModelCommands implements Area {
                 return bind(sender, args);
             case "unbind":
                 return unbind(sender);
+            case "egg":
+                return egg(sender, args);
             default:
                 return spawn(sender, args);
         }
@@ -100,6 +103,12 @@ public final class ModelCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
+        if (sub.equals("egg") && args.length == 3) {
+            return Completions.matching(args[2], Targets.names(sender, sub));
+        }
+        if (sub.equals("egg") && args.length == 4) {
+            return Completions.matching(args[3], "1", "16", "64");
+        }
         if (args.length != 2) {
             return List.of();
         }
@@ -110,6 +119,7 @@ public final class ModelCommands implements Area {
                 // because the argument happens to be a number.
                 return Completions.matching(args[1], "8", "16", "32", "64", "128");
             case "spawn":
+            case "egg":
                 return Completions.matchingIds(args[1], creatures.ids());
             case "bind":
                 // Every item id, because any of them may carry a model. The
@@ -355,6 +365,37 @@ public final class ModelCommands implements Area {
         return value == Math.rint(value)
                 ? String.valueOf((long) value)
                 : String.valueOf(Math.round(value * 10) / 10.0);
+    }
+
+    /**
+     * {@code /rp egg <id> [player] [amount]}: a spawn egg that hatches the
+     * custom mob. Giving one to somebody else needs {@code rpengine.egg.others},
+     * as every {@code [player]} command does.
+     */
+    private boolean egg(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            Reply.to(sender, "/rpengine egg <id> [player] [amount]");
+            return true;
+        }
+        Optional<ContentId> id = ContentId.parse(args[1]);
+        if (id.isEmpty() || creatures.info(id.get()).isEmpty()) {
+            Reply.to(sender, "No entity called " + args[1] + ".");
+            return true;
+        }
+        Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
+        if (target == null) {
+            Reply.to(sender, args.length > 2 ? "Nobody called " + args[2] + " is online." : "Name a player.");
+            return true;
+        }
+        if (!Targets.permitted(sender, "egg", target)) {
+            Targets.refuse(sender, "egg", "give an egg to");
+            return true;
+        }
+        int amount = args.length > 3 ? Args.amount(args[3]) : 1;
+        creatures.egg(id.get(), amount).ifPresent(egg -> target.getInventory().addItem(egg));
+        Reply.to(sender, "Gave " + target.getName() + " " + amount + " " + args[1] + " egg"
+                + (amount == 1 ? "." : "s."));
+        return true;
     }
 
     private boolean spawn(CommandSender sender, String[] args) {

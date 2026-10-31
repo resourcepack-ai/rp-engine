@@ -1046,36 +1046,113 @@ reading), nothing is built into the pack, and `/rp armor` says why.
 
 ## Entities
 
-A real mob wearing a model.
+A real mob wearing a model, animated by what it is doing.
 
 ```yaml
-guard:
-  type: ZOMBIE         # required. Chosen for BEHAVIOUR: the looks are replaced
-  model: mypack:guard  # assets/models/guard.bbmodel, or an item id
-  name: "&cTemple Guard"
-  health: 40
-  scale: 1.2
+# entities/mobs.yml
+rhino:
+  type: POLAR_BEAR        # required. Chosen for BEHAVIOUR: the looks are replaced
+  model: zoo:rhino        # assets/models/rhino.bbmodel, or an item id
+  name: "&7Rhino"
+  name-visible: false     # the name only when looked at. Default: shown when named
+  health: 40              # max health, 1 to 1024. Default: the mob's own
+  damage: 6               # attack damage. Default: the mob's own
+  speed: 1.2              # times the mob's own speed, 0.1 to 4
+  knockback-resistance: 0.5   # 0 to 1
+  scale: 1.0              # how big the MODEL is drawn
+  height: 1.4             # how tall the HITBOX is, in blocks (1.20.5 and newer)
+  turn: 180               # degrees, for a model built facing the other way
+  head-bone: head         # turns toward whatever it is fighting
+  ai: true                # false stands it still for ever
+  burns: false            # true lets daylight set it alight, like a zombie
   silent: false
-  tags: [temple, boss]
+  tags: [zoo]
+  animations:
+    spawn: appear
+    idle: idle
+    walk: walk
+    run: gallop
+    attack: charge
+    hurt: flinch
+    death: fall
+  sounds:
+    ambient: zoo:grunt    # every 8 to 20 seconds while somebody is near
+    hurt: zoo:ouch
+    death: entity.cow.death   # a vanilla sound event works too
+    attack: zoo:snort
+    step: zoo:thud
+  drops:
+    - {item: minecraft:leather, min: 1, max: 3}
+    - {item: zoo:horn, chance: 0.25}
+    - minecraft:bone
+  xp: 5
 ```
 
-It is genuinely a mob: its own AI, its own loot, found by `@e[tag=boss]`, seen
-by every other plugin. Pick `type` for how it should *behave* — a zombie hunts
-and burns, a villager wanders and flees, an armour stand does nothing at all.
+It is genuinely a mob: its own AI and pathing, found by `@e[tag=zoo]`, seen by
+every other plugin. Pick `type` for how it should *behave*: a zombie hunts, a
+polar bear wanders and fights back, an iron golem guards, a pig wanders and
+runs when hit, an allay drifts, a phantom swoops. Everything else here is the
+part `type` does not decide.
 
-The model is an `ItemDisplay` riding the mob, with the vanilla body made
-invisible rather than removed, so the hitbox stays where the model looks. A
-custom entity never despawns: one that vanished because a player walked away
-would leave its model standing there, because a removed mount ejects its
-passengers rather than taking them.
+**The model is the whole rig.** An animated model is a display per moving
+part, riding the mob with the vanilla body made invisible, so the hitbox stays
+where the model looks. A still model is one display. A custom entity never
+despawns: one that vanished because a player walked away would leave its model
+standing there, because a removed mount ejects its passengers.
+
+**`animations:` maps a state to one of the model's animations by name.** The
+states, most important first:
+
+| State | When | Kind |
+|---|---|---|
+| `death` | It dies. The model stays for the animation (at most five seconds), then goes | once |
+| `spawn` | It was just spawned | once |
+| `attack` | It hits something, or fires at it | once |
+| `hurt` | It takes damage | once |
+| `run` | It moves fast, or chases what it is fighting | loop |
+| `walk` | It moves | loop |
+| `idle` | It stands | loop |
+
+A *once* animation plays to its end and the mob goes back to moving; only a
+more important one cuts it short (a mob hit mid-bite keeps biting, a mob killed
+mid-bite falls over). A blank loop falls through: no `run` walks, no `walk`
+idles, no `idle` stands in the rest pose. A blank once-animation does not play.
+A name the model has no animation for is a state that does not animate.
+
+**`sounds:`** silences the mob's own sounds as soon as any is set, so a rhino
+does not growl like a polar bear. Each is a sound of a pack (`zoo:grunt`) or a
+vanilla sound event.
+
+**`drops:` replaces the vanilla loot entirely.** No `drops:` drops nothing. An
+item is a vanilla one (`minecraft:leather`) or one of a pack's (`zoo:horn`); `min`
+and `max` are a count (default 1), `chance` 0 to 1 (default 1). `xp` is the
+experience it leaves (default 0).
+
+**`head-bone:`** names a bone that turns toward whatever the mob is targeting,
+as an `h_` bone does (below). The bone has to move in at least one animation: a
+bone that never moves is drawn as part of the still body and has nothing of its
+own to turn.
+
+**`height:`** sizes the hitbox through the `scale` attribute, which arrived in
+1.20.5; older servers keep the mob's own box. `scale:` sizes only the model.
+
+A custom mob cannot be bred, tamed, ridden, sheared, milked or traded with, and
+never turns into something else (a drowned zombie, a struck pig). A name tag and
+a lead work on it.
 
 `model:` is an item id, but nobody holds a mob's model in their hand, so the
 item need not be written: a model of the same pack in `assets/models/` that no
 item wears gets a plain one, as a blueprint does. An entity may share its id
-with that item; entities are outside the id space, as recipes are. One naming
-neither an item nor a model spawns as the plain mob, and the load warns.
+with that item, and several entities may wear one model; entities are outside
+the id space, as recipes are. One naming neither an item nor a model spawns as
+the plain mob, and the load warns.
 
-`/rp spawn mypack:guard` puts one where you stand.
+`/rp spawn zoo:rhino` puts one where you stand. `/rp egg zoo:rhino [player]
+[amount]` gives a spawn egg that hatches one where it is used (on a spawner
+too, where it does nothing to the spawner).
+
+Mobs made in Studio arrive with a push or a published pack and are spawned as
+`studio:<id>`, exactly like these.
 
 ### Bones that do something
 

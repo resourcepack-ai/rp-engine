@@ -55,9 +55,13 @@ final class HeadLook {
      * behind itself gets its head on backwards, which is what the numbers
      * literally say and not what anybody wants to see.
      */
-    static void applyTo(Matrix4f m, RigStore.Part part, ItemDisplay display) {
-        if (part.behaviour == null || part.pivot == null || part.pivot.length != 3) return;
-        if (!isHeadBone(part)) return;
+    static void applyTo(Matrix4f m, RigStore.Part part, ItemDisplay display, float[] named) {
+        float[] pivot = named;
+        if (pivot == null) {
+            if (part.behaviour == null || part.pivot == null || part.pivot.length != 3) return;
+            if (!isHeadBone(part)) return;
+            pivot = part.pivot;
+        }
         Entity host = display.getVehicle();
         if (!(host instanceof LivingEntity)) return;
 
@@ -66,9 +70,9 @@ final class HeadLook {
         float pitch = clamp(look[1], MAX_NECK_PITCH);
         if (yaw == 0f && pitch == 0f) return;
 
-        float px = (part.pivot[0] - 8f) / 16f;
-        float py = (part.pivot[1] - 8f) / 16f;
-        float pz = (part.pivot[2] - 8f) / 16f;
+        float px = (pivot[0] - 8f) / 16f;
+        float py = (pivot[1] - 8f) / 16f;
+        float pz = (pivot[2] - 8f) / 16f;
         m.translate(px, py, pz);
         // Yaw negated for the same reason the placement yaw is: the rig's
         // space turns the other way round from the world's.
@@ -114,6 +118,25 @@ final class HeadLook {
         return new float[]{
                 wanted - host.getLocation().getYaw(),
                 (float) Math.toDegrees(Math.atan2(-to.getY(), flat))};
+    }
+
+    /**
+     * A head pivot a custom mob named by bone ({@code head-bone:}), as
+     * {@code BoundModels} wrote it on the part, or null.
+     *
+     * <p>Every part inside the named bone carries the BONE's pivot rather than
+     * its own, so a jaw turns with the skull about the neck instead of about
+     * its own hinge.
+     */
+    static float[] pivot(String written) {
+        if (written == null) return null;
+        String[] split = written.split(",");
+        if (split.length != 3) return null;
+        try {
+            return new float[]{Float.parseFloat(split[0]), Float.parseFloat(split[1]), Float.parseFloat(split[2])};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean isHeadBone(RigStore.Part part) {

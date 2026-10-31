@@ -517,4 +517,53 @@ class StudioContentTest {
         reloaded.register(registry, LOG);
         assertTrue(registry.contains(fire, ContentKind.TEXT_EFFECT));
     }
+
+    @Test
+    void aPushedMobIsReadSavedAndReadBack(@TempDir Path dir) {
+        String json = """
+                {"packId":"zoo",
+                 "sounds":[{"id":"grunt","event":"custom.grunt","category":"hostile"}],
+                 "mobs":[{"id":"rhino","model":"rhino","name":"Rhino","nameVisible":false,
+                          "type":"POLAR_BEAR","ai":true,"burns":false,"health":40,"damage":6,
+                          "speed":1.2,"knockbackResistance":0.5,"scale":1.5,"height":1.4,"turn":180,
+                          "headBone":"head",
+                          "animations":{"idle":"idle","walk":"walk","attack":"bite","fly":"nope"},
+                          "sounds":{"ambient":"grunt","step":null},
+                          "drops":[{"item":"minecraft:leather","min":1,"max":3,"chance":1.0}],
+                          "xp":5},
+                         {"id":"unicorn","model":"u","type":"NOT_A_MOB"},
+                         {"id":"plain","model":"p","type":"ZOMBIE"}]}
+                """;
+        StudioContent content = read(dir, json);
+        ContentId id = ContentId.parse("studio:rhino").orElseThrow();
+        ai.resourcepack.engine.api.EntityInfo rhino = content.mobs().get(id);
+
+        assertEquals("rhino", rhino.carrier().orElseThrow(), "the art is named the way a pushed vehicle's is");
+        assertEquals("POLAR_BEAR", rhino.type());
+        assertEquals(1.2, rhino.speed());
+        assertEquals(1.5f, rhino.scale());
+        assertEquals("studio:grunt", rhino.sounds().get("ambient"), "qualified on the way in, as a vehicle's are");
+        assertFalse(rhino.sounds().containsKey("step"));
+        assertEquals(3, rhino.animations().size(), "a state this jar does not know is skipped");
+        assertFalse(content.mobs().containsKey(ContentId.parse("studio:unicorn").orElseThrow()));
+
+        // Absent is the safe default, not Gson's zero.
+        ai.resourcepack.engine.api.EntityInfo plain = content.mobs().get(ContentId.parse("studio:plain").orElseThrow());
+        assertTrue(plain.ai());
+        assertEquals(1, plain.speed());
+        assertEquals(1f, plain.scale());
+        assertTrue(plain.drops().isEmpty());
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        ai.resourcepack.engine.api.EntityInfo back = reloaded.mobs().get(id);
+        assertEquals("studio:grunt", back.sounds().get("ambient"));
+        assertEquals(rhino.animations(), back.animations());
+        assertEquals(180f, back.turn());
+        assertEquals("head", back.headBone().orElseThrow());
+        assertEquals(5, back.xp());
+        assertEquals(3, back.drops().get(0).max());
+        assertFalse(back.nameVisible());
+    }
 }

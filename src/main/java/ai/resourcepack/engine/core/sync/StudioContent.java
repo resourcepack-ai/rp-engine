@@ -5,6 +5,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ContentRegistration;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.DefinitionNode;
+import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.MergeResult;
 import ai.resourcepack.engine.api.Namespace;
 import ai.resourcepack.engine.api.OverlayInfo;
@@ -87,6 +88,63 @@ public final class StudioContent {
         List<ShaderObject> objects;
         List<TextEffect> textEffects;
         List<Vfx> vfx;
+        List<Mob> mobs;
+    }
+
+    /**
+     * A custom mob: a vanilla mob for the behaviour, a pushed model for the
+     * looks, and the rest of what {@code entities/*.yml} can say. Registered
+     * as {@code studio:<id>}, spawned with {@code /rp spawn}.
+     *
+     * <p>{@code model} is the art the way a pushed VEHICLE names it — the
+     * {@code custom_model_data} string on paper, which is also the rig store's
+     * key — not an item id; see {@link Vehicle}.
+     *
+     * <p><strong>Every optional field is boxed</strong>, for the reason the
+     * vehicle's flight numbers are: Gson leaves an absent primitive at zero,
+     * and zero is the wrong default for {@code ai}, {@code speed} and
+     * {@code scale}. Absent means the safe default in every case.
+     */
+    static final class Mob {
+        String id;
+        String model;
+        String name;
+        Boolean nameVisible;
+        /** A Bukkit {@code EntityType} name: the behaviour underneath. */
+        String type;
+        Boolean ai;
+        Boolean burns;
+        Double health;
+        Double damage;
+        /** A multiplier on the type's own movement speed. */
+        Double speed;
+        Double knockbackResistance;
+        /** How big the MODEL is drawn, as a vehicle's scale. */
+        Double scale;
+        /** The hitbox height in blocks the model wants; see {@code EntityInfo.height}. */
+        Double height;
+        /** Degrees added to the model's heading. */
+        Double turn;
+        String headBone;
+        /** State name to animation name. A name this jar does not know is skipped. */
+        Map<String, String> animations;
+        /**
+         * Slot to SOUND id, a bare id of a sound in this same manifest, which
+         * becomes {@code studio:<id>} at this end exactly as a vehicle's does.
+         */
+        Map<String, String> sounds;
+        /** Absent and empty both drop nothing: the list REPLACES vanilla loot. */
+        List<MobDrop> drops;
+        Integer xp;
+    }
+
+    /** One line of a pushed mob's loot. */
+    static final class MobDrop {
+        /** {@code minecraft:leather}, or {@code studio:<item id>} of the same pack. */
+        String item;
+        Integer min;
+        Integer max;
+        Double chance;
     }
 
     /**
@@ -677,6 +735,7 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
+    private volatile Map<ContentId, EntityInfo> mobs = Map.of();
     private volatile String packId = "";
 
     /** The registry handle, held for as long as the content is registered. */
@@ -744,6 +803,7 @@ public final class StudioContent {
         copy.objects = objects;
         copy.textEffects = textEffects;
         copy.vfx = vfx;
+        copy.mobs = mobs;
         copy.packId = packId;
         return copy;
     }
@@ -768,6 +828,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
+        Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         String last = "";
         for (StudioContent pack : packs == null ? java.util.List.<StudioContent>of() : packs) {
             if (pack == null) {
@@ -783,6 +844,7 @@ public final class StudioContent {
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
             vfx.putAll(pack.vfx);
+            mobs.putAll(pack.mobs);
             last = pack.packId;
         }
         StudioContent all = new StudioContent();
@@ -796,6 +858,7 @@ public final class StudioContent {
         all.objects = Map.copyOf(objects);
         all.textEffects = Map.copyOf(effects);
         all.vfx = Map.copyOf(vfx);
+        all.mobs = Map.copyOf(mobs);
         all.packId = last;
         return all;
     }
@@ -857,6 +920,11 @@ public final class StudioContent {
         return vfx;
     }
 
+    /** The pushed custom mobs, keyed by {@code studio:<id>}. */
+    public Map<ContentId, EntityInfo> mobs() {
+        return mobs;
+    }
+
     /**
      * Whether a vehicle is stopped by a placement of the pushed model
      * {@code id}.
@@ -875,7 +943,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && vfx.isEmpty();
+                && textEffects.isEmpty() && vfx.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -1087,6 +1155,15 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.VfxInfo.Source.STUDIO, null), recipe)));
         }
 
+        Map<ContentId, EntityInfo> readMobs = new LinkedHashMap<>();
+        for (Mob mob : manifest.mobs == null ? List.<Mob>of() : manifest.mobs) {
+            if (mob == null) {
+                continue;
+            }
+            id(mob.id, log, "mob").flatMap(id -> mob(id, mob, log))
+                    .ifPresent(info -> readMobs.put(info.id(), info));
+        }
+
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -1098,10 +1175,11 @@ public final class StudioContent {
         objects = Map.copyOf(readObjects);
         textEffects = Map.copyOf(readEffects);
         vfx = Map.copyOf(readVfx);
+        mobs = Map.copyOf(readMobs);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size());
+                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + mobs.size());
     }
 
     /**
@@ -1278,6 +1356,114 @@ public final class StudioContent {
                 .withAddons(addons(vehicle.addons)));
     }
 
+    /**
+     * One mob off the manifest, or empty if its type is not a mob this server
+     * can spawn — said in the log, since a Studio that offers a behaviour this
+     * Minecraft version lacks is the one way it happens.
+     */
+    private static java.util.Optional<EntityInfo> mob(ContentId id, Mob mob, Logger log) {
+        String type = mob.type == null ? "" : mob.type.trim().toUpperCase(Locale.ROOT);
+        boolean spawnable;
+        try {
+            org.bukkit.entity.EntityType found = org.bukkit.entity.EntityType.valueOf(type);
+            spawnable = found.isSpawnable() && found.isAlive();
+        } catch (IllegalArgumentException e) {
+            spawnable = false;
+        }
+        if (!spawnable) {
+            if (log != null) {
+                log.warning("Pushed mob " + id.path() + " is a " + mob.type
+                        + ", which is not a mob this server can spawn, so it was skipped.");
+            }
+            return java.util.Optional.empty();
+        }
+        Map<ai.resourcepack.engine.api.MobState, String> animations =
+                new EnumMap<>(ai.resourcepack.engine.api.MobState.class);
+        if (mob.animations != null) {
+            mob.animations.forEach((state, animation) ->
+                    ai.resourcepack.engine.api.MobState.parse(state).ifPresent(parsed -> {
+                        if (animation != null && !animation.isEmpty()) {
+                            animations.put(parsed, animation);
+                        }
+                    }));
+        }
+        // Qualified here, as a vehicle's are: the mob and its sounds arrive in
+        // one push and land in one namespace.
+        Map<String, String> sounds = new LinkedHashMap<>();
+        if (mob.sounds != null) {
+            mob.sounds.forEach((slot, sound) -> {
+                if (slot != null && sound != null && !sound.isEmpty()) {
+                    id(sound).ifPresent(qualified -> sounds.put(slot.toLowerCase(Locale.ROOT), qualified.toString()));
+                }
+            });
+        }
+        List<ai.resourcepack.engine.api.EntityDrop> drops = new ArrayList<>();
+        for (MobDrop drop : mob.drops == null ? List.<MobDrop>of() : mob.drops) {
+            if (drop == null || drop.item == null || drop.item.isEmpty()) {
+                continue;
+            }
+            int min = drop.min == null ? 1 : drop.min;
+            drops.add(ai.resourcepack.engine.api.EntityDrop.of(drop.item, min,
+                    drop.max == null ? min : drop.max, drop.chance == null ? 1 : drop.chance));
+        }
+        return java.util.Optional.of(EntityInfo.builder(id, type)
+                .carrier(mob.model)
+                .name(mob.name)
+                .nameVisible(Boolean.TRUE.equals(mob.nameVisible))
+                .ai(!Boolean.FALSE.equals(mob.ai))
+                .burns(Boolean.TRUE.equals(mob.burns))
+                .health(mob.health == null ? 0 : mob.health)
+                .damage(mob.damage == null ? 0 : mob.damage)
+                .speed(mob.speed == null ? 1 : mob.speed)
+                .knockbackResistance(mob.knockbackResistance == null ? 0 : mob.knockbackResistance)
+                .scale(mob.scale == null ? 1f : mob.scale.floatValue())
+                .height(mob.height == null ? 0 : mob.height)
+                .turn(mob.turn == null ? 0f : mob.turn.floatValue())
+                .headBone(mob.headBone)
+                .animations(animations)
+                .sounds(sounds)
+                .drops(drops)
+                .xp(mob.xp == null ? 0 : mob.xp)
+                .build());
+    }
+
+    /** A mob back out, in the shape it arrived in — a restart reads nothing else. */
+    private static Mob mobOut(EntityInfo info) {
+        Mob out = new Mob();
+        out.id = info.id().path();
+        out.model = info.carrier().orElse("");
+        out.name = info.name().orElse("");
+        out.nameVisible = info.nameVisible();
+        out.type = info.type();
+        out.ai = info.ai();
+        out.burns = info.burns();
+        out.health = info.health();
+        out.damage = info.damage();
+        out.speed = info.speed();
+        out.knockbackResistance = info.knockbackResistance();
+        out.scale = (double) info.scale();
+        out.height = info.height();
+        out.turn = (double) info.turn();
+        out.headBone = info.headBone().orElse(null);
+        out.animations = new LinkedHashMap<>();
+        info.animations().forEach((state, animation) -> out.animations.put(state.key(), animation));
+        out.sounds = new LinkedHashMap<>();
+        // Back to the bare id, or a re-read looks for studio:studio:grunt.
+        info.sounds().forEach((slot, sound) -> out.sounds.put(slot,
+                ContentId.parse(sound).map(ContentId::path).orElse(sound)));
+        out.drops = new ArrayList<>();
+        for (ai.resourcepack.engine.api.EntityDrop drop : info.drops()) {
+            MobDrop written = new MobDrop();
+            written.item = drop.item();
+            written.min = drop.min();
+            written.max = drop.max();
+            written.chance = drop.chance();
+            out.drops.add(written);
+        }
+        out.xp = info.xp();
+        return out;
+    }
+
     private static Map<String, DefinitionNode> addons(Map<String, Map<String, Object>> declared) {
         if (declared == null || declared.isEmpty()) {
             return Map.of();
@@ -1410,6 +1596,9 @@ public final class StudioContent {
         for (ContentId id : vfx.keySet()) {
             claimed.define(ContentKind.VFX, id.path());
         }
+        // Mobs are deliberately not defined: entities are outside the id
+        // space (see ContentFolderLoader.UNREGISTERED), so a mob may share its
+        // id with the vehicle or model it is built from.
     }
 
     /** Drops the namespace, if it is held. */
@@ -1606,6 +1795,10 @@ public final class StudioContent {
             effect.name = entry.info().name();
             effect.recipe = entry.recipe().toJson();
             manifest.vfx.add(effect);
+        }
+        manifest.mobs = new ArrayList<>();
+        for (EntityInfo info : mobs.values()) {
+            manifest.mobs.add(mobOut(info));
         }
         try {
             Files.createDirectories(file.getParentFile().toPath());

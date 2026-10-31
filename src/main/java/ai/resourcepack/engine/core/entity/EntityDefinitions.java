@@ -5,10 +5,13 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.DefinitionNode;
 import ai.resourcepack.engine.api.Diagnostic;
+import ai.resourcepack.engine.api.EntityDrop;
 import ai.resourcepack.engine.api.EntityInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.api.MobState;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -118,9 +121,154 @@ public final class EntityDefinitions {
             }
         }
 
-        return Optional.of(EntityInfo.of(definition.id(), type, model,
-                body.string("name").orElse(null), health, scale,
-                body.bool("silent").orElse(Boolean.FALSE), body.strings("tags")));
+        EntityInfo.Builder built = EntityInfo.builder(definition.id(), type)
+                .model(model)
+                .name(body.string("name").orElse(null))
+                .nameVisible(body.bool("name-visible").orElse(null))
+                .health(health)
+                .scale(scale)
+                .silent(body.bool("silent").orElse(Boolean.FALSE))
+                .tags(body.strings("tags"))
+                .animations(animations(body, origin, where, diagnostics))
+                .sounds(sounds(body, origin, where, diagnostics))
+                .drops(drops(body, origin, where, diagnostics))
+                .xp((int) Math.round(number(body, "xp", 0, 0, 10000, origin, where, diagnostics)))
+                .damage(number(body, "damage", 0, 0, 2048, origin, where, diagnostics))
+                .speed(number(body, "speed", 1, 0.1, 4, origin, where, diagnostics))
+                .knockbackResistance(number(body, "knockback-resistance", 0, 0, 1, origin, where, diagnostics))
+                .height(number(body, "height", 0, 0, 64, origin, where, diagnostics))
+                .turn((float) number(body, "turn", 0, -360, 360, origin, where, diagnostics))
+                .headBone(body.string("head-bone").orElse(null))
+                .ai(body.bool("ai").orElse(Boolean.TRUE))
+                .burns(body.bool("burns").orElse(Boolean.FALSE));
+        if (model == null && !body.node("animations").map(DefinitionNode::isEmpty).orElse(true)) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "animations: are set but there is no model: to play them on."));
+        }
+        return Optional.of(built.build());
+    }
+
+    /**
+     * {@code animations: {idle: idle, walk: walk, attack: bite}}: state to the
+     * name of one of the model's animations. Whether the model HAS that
+     * animation is only known once its rig is built, so a wrong name is a
+     * state that does not animate rather than a load error.
+     */
+    private static Map<MobState, String> animations(DefinitionNode body, String origin, String where,
+                                                     List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node("animations");
+        if (declared.isEmpty()) {
+            if (body.has("animations")) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "animations: is not a map of state to animation name. Try animations: {idle: idle, walk: walk}."));
+            }
+            return Map.of();
+        }
+        Map<MobState, String> out = new EnumMap<>(MobState.class);
+        for (String key : declared.get().keys()) {
+            Optional<MobState> state = MobState.parse(key);
+            if (state.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "animations: " + key + " is not a state. The states are " + stateNames() + "."));
+                continue;
+            }
+            declared.get().string(key).filter(name -> !name.isBlank())
+                    .ifPresent(name -> out.put(state.get(), name.trim()));
+        }
+        return out;
+    }
+
+    /** {@code sounds: {ambient: mypack:grunt, hurt: entity.pig.hurt}}. */
+    private static Map<String, String> sounds(DefinitionNode body, String origin, String where,
+                                              List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node("sounds");
+        if (declared.isEmpty()) {
+            if (body.has("sounds")) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "sounds: is not a map. Try sounds: {ambient: mypack:grunt, hurt: mypack:ouch}."));
+            }
+            return Map.of();
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String key : declared.get().keys()) {
+            String slot = key.trim().toLowerCase(Locale.ROOT);
+            if (!EntityInfo.SOUND_KEYS.contains(slot)) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "sounds: " + key + " is not one of " + String.join(", ", EntityInfo.SOUND_KEYS) + "."));
+                continue;
+            }
+            declared.get().string(key).filter(sound -> !sound.isBlank())
+                    .ifPresent(sound -> out.put(slot, sound.trim()));
+        }
+        return out;
+    }
+
+    /**
+     * {@code drops:} as a list, each either an item on its own or
+     * {@code {item, min, max, chance}}. What a mob drops INSTEAD of its
+     * vanilla loot, so absent and empty are the same: nothing.
+     */
+    private static List<EntityDrop> drops(DefinitionNode body, String origin, String where,
+                                          List<Diagnostic> diagnostics) {
+        Object raw = body.raw("drops");
+        if (raw == null) {
+            return List.of();
+        }
+        if (!(raw instanceof List)) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "drops: is not a list. Try drops: [{item: minecraft:leather, min: 1, max: 3}]."));
+            return List.of();
+        }
+        List<EntityDrop> out = new ArrayList<>();
+        for (Object entry : (List<?>) raw) {
+            if (entry instanceof Map) {
+                DefinitionNode drop = DefinitionNode.of((Map<?, ?>) entry);
+                Optional<String> item = drop.string("item");
+                if (item.isEmpty() || item.get().isBlank()) {
+                    diagnostics.add(Diagnostic.warning(origin, where, "A drop has no item:, so it drops nothing."));
+                    continue;
+                }
+                int min = drop.integer("min").orElse(drop.integer("amount").orElse(1));
+                int max = drop.integer("max").orElse(min);
+                out.add(EntityDrop.of(item.get(), min, max, drop.decimal("chance").orElse(1.0)));
+            } else if (entry != null && !(entry instanceof List)) {
+                out.add(EntityDrop.of(entry.toString(), 1, 1, 1));
+            }
+        }
+        return out;
+    }
+
+    /** A number between {@code low} and {@code high}, or {@code otherwise} with a warning. */
+    private static double number(DefinitionNode body, String key, double otherwise, double low, double high,
+                                 String origin, String where, List<Diagnostic> diagnostics) {
+        if (!body.has(key)) {
+            return otherwise;
+        }
+        Optional<Double> value = body.decimal(key);
+        if (value.isEmpty() || !Double.isFinite(value.get())) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    key + ": " + body.raw(key) + " is not a number. Using " + plain(otherwise) + "."));
+            return otherwise;
+        }
+        if (value.get() < low || value.get() > high) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    key + ": " + plain(value.get()) + " is outside " + plain(low) + " to " + plain(high)
+                            + ". Using " + plain(Math.max(low, Math.min(high, value.get()))) + "."));
+            return Math.max(low, Math.min(high, value.get()));
+        }
+        return value.get();
+    }
+
+    private static String plain(double value) {
+        return value == Math.rint(value) ? String.valueOf((long) value) : String.valueOf(value);
+    }
+
+    private static String stateNames() {
+        List<String> names = new ArrayList<>();
+        for (MobState state : MobState.values()) {
+            names.add(state.key());
+        }
+        return String.join(", ", names);
     }
 
     /**

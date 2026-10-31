@@ -101,6 +101,26 @@ public final class RigAnimator implements Listener {
      * through it.
      */
     static final String OVERLAY_KEY = "rig-overlays";
+
+    /**
+     * On a bound part: degrees added to its host's heading, for a custom mob
+     * whose model was built facing another way than the mob walks.
+     */
+    static final String TURN_KEY = "rig-turn";
+
+    /**
+     * On a bound part: the pivot, in model pixels as {@code x,y,z}, of a head
+     * bone named by the mob rather than by an {@code h_} prefix. Its presence
+     * is what makes the part look at the target; see {@code HeadLook}.
+     */
+    static final String HEAD_PIVOT_KEY = "rig-head-pivot";
+
+    /**
+     * On a part that has outlived its host on purpose: a custom mob's death
+     * animation. Non-persistent as well, so this only matters if something
+     * saved one anyway — and then it is garbage on sight (see {@link #reaped}).
+     */
+    static final String DYING_KEY = "rig-dying";
     private static final int RANGE_SCAN_INTERVAL = 5;
 
     private final Host host;
@@ -118,6 +138,9 @@ public final class RigAnimator implements Listener {
     private final NamespacedKey boundKey;
     private final NamespacedKey yawHostKey;
     private final NamespacedKey overlayKey;
+    private final NamespacedKey turnKey;
+    private final NamespacedKey headPivotKey;
+    private final NamespacedKey dyingKey;
 
     private final Map<UUID, ItemDisplay> tracked = new ConcurrentHashMap<>();
     private final Map<UUID, Interaction> hitboxes = new ConcurrentHashMap<>();
@@ -325,6 +348,9 @@ public final class RigAnimator implements Listener {
         this.boundKey = host.key(BOUND_KEY);
         this.yawHostKey = host.key(YAW_HOST_KEY);
         this.overlayKey = host.key(OVERLAY_KEY);
+        this.turnKey = host.key(TURN_KEY);
+        this.headPivotKey = host.key(HEAD_PIVOT_KEY);
+        this.dyingKey = host.key(DYING_KEY);
     }
 
     public void placements(java.util.function.Function<Interaction, Placement> placements) {
@@ -402,6 +428,22 @@ public final class RigAnimator implements Listener {
     private boolean reaped(Entity entity) {
         if (!(entity instanceof ItemDisplay)) {
             return false;
+        }
+        PersistentDataContainer marks = entity.getPersistentDataContainer();
+        // A part let go for a death animation is never meant to be saved; if
+        // one was, its animation ended long ago.
+        if (marks.has(dyingKey, PersistentDataType.BYTE)) {
+            entity.remove();
+            return true;
+        }
+        // A BOUND part arrives out of a chunk riding its host, because a
+        // passenger is saved inside its vehicle. One riding nothing is a part
+        // whose host was removed under it (a respawned NPC, a mob a plugin
+        // deleted, a death before 0.2.51), and nothing will ever dress a
+        // bare display again.
+        if (marks.has(boundKey, PersistentDataType.STRING) && entity.getVehicle() == null) {
+            entity.remove();
+            return true;
         }
         String anchor = entity.getPersistentDataContainer().get(yawHostKey, PersistentDataType.STRING);
         if (anchor == null) {
@@ -901,7 +943,8 @@ public final class RigAnimator implements Listener {
         // whatever the walk cycle does to it, and looking around is composed
         // on top. Doing it the other way makes an idle animation drag the
         // head back off whatever it was looking at.
-        HeadLook.applyTo(animationTransform, part, display);
+        HeadLook.applyTo(animationTransform, part, display,
+                HeadLook.pivot(pdc.get(headPivotKey, PersistentDataType.STRING)));
 
         // Innermost of all: the part's rest pose, which is its anchor and any
         // fixed rotation. See RigStore.Part.applyRest for why their order is
@@ -1000,11 +1043,13 @@ public final class RigAnimator implements Listener {
         }
         if (pdc.has(boundKey, PersistentDataType.STRING)) {
             Entity host = display.getVehicle();
-            return host == null
-                    // Its host is gone, or the chunk holding it is. The last
-                    // stored yaw beats snapping to north.
-                    ? pdc.get(yawKey, PersistentDataType.FLOAT)
-                    : host.getLocation().getYaw();
+            if (host == null) {
+                // Its host is gone, or the chunk holding it is. The last
+                // stored yaw beats snapping to north.
+                return pdc.get(yawKey, PersistentDataType.FLOAT);
+            }
+            Float turn = pdc.get(turnKey, PersistentDataType.FLOAT);
+            return host.getLocation().getYaw() + (turn == null ? 0f : turn);
         }
         return pdc.get(yawKey, PersistentDataType.FLOAT);
     }
