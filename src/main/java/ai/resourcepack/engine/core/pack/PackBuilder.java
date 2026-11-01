@@ -231,6 +231,8 @@ public final class PackBuilder {
                     new Sink(contentRoot, zip, writtenBy, diagnostics, generatedOverlays));
         }
         addGeneratedOverlays(overlays, generatedOverlays);
+        // Last, so it sees every model the contributors wrote as well.
+        ModelAtlas.complete(zip);
 
         zip.add("pack.mcmeta", mcmeta(bundle, overlays, sections.json()).getBytes(StandardCharsets.UTF_8));
 

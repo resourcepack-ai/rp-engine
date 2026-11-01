@@ -90,6 +90,11 @@ public final class DeterministicZip {
         }
     }
 
+    /** Every path that will be written, in the order it will be. */
+    public java.util.Set<String> paths() {
+        return java.util.Collections.unmodifiableSet(entries.keySet());
+    }
+
     /** How many files will be written. */
     public int size() {
         return entries.size();
