@@ -46,6 +46,18 @@ public final class SyncCommands implements Area {
     /** Whether a player joined through Geyser, which studio needs to build them the right pack. */
     private final java.util.function.Predicate<java.util.UUID> isBedrock;
 
+    /**
+     * When each player last tried codes, and how many: {@link #CODE_TRIES} a
+     * {@link #CODE_WINDOW_MS}. The far end counts misses per server ADDRESS,
+     * so on a server many people share, one player guessing used to spend
+     * everybody's budget, and each try is a blocking connect when the socket
+     * is down.
+     */
+    private final java.util.Map<java.util.UUID, long[]> tries = new java.util.concurrent.ConcurrentHashMap<>();
+
+    static final int CODE_TRIES = 5;
+    static final long CODE_WINDOW_MS = 10 * 60 * 1000L;
+
     public SyncCommands(Server server, SyncClient sync, SyncGroup group,
                         DistributionManager distribution,
                         Consumer<String> announce, Consumer<String> unpush,
@@ -376,6 +388,13 @@ public final class SyncCommands implements Area {
         return true;
     }
 
+    /** Whether {@code player} may try another code now, counting this one. */
+    boolean mayTry(java.util.UUID player, long now) {
+        long[] seen = tries.compute(player, (id, was) ->
+                was == null || now - was[0] > CODE_WINDOW_MS ? new long[]{now, 1} : new long[]{was[0], was[1] + 1});
+        return seen[1] <= CODE_TRIES;
+    }
+
     /**
      * Anything that is not a verb is meant to be a code, because that is what
      * somebody types first and asking them to write "sync code 48213097" would
@@ -390,6 +409,18 @@ public final class SyncCommands implements Area {
             Reply.to(player, code + " is not a pairing code. "
                     + "Codes are eight digits, from the sync button in the panel.");
             Reply.to(player, "/rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
+            return true;
+        }
+        // A code somebody else here has claimed is theirs: claiming it again
+        // used to move it to whoever typed it last, here, while the far end
+        // (rightly) kept it with the first, so their next push came to you.
+        String holder = sync.claimant(code);
+        if (holder != null && !holder.equalsIgnoreCase(player.getName())) {
+            Reply.to(player, "That code is already in use on this server. Get your own from the sync button in the panel.");
+            return true;
+        }
+        if (holder == null && !mayTry(player.getUniqueId(), System.currentTimeMillis())) {
+            Reply.to(player, "Too many codes tried. Wait a few minutes, then use the code the panel shows you.");
             return true;
         }
         if (!sync.link(code, player.getName(), isBedrock.test(player.getUniqueId()))) {
