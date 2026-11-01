@@ -17,6 +17,9 @@ import org.bukkit.inventory.ItemStack;
  * protection, plot ownership, build height, an event world where nothing may be
  * placed at all: every one of them is a decision a server makes, so this asks
  * rather than guesses.
+ *
+ * <p>A vehicle parked from its item and a custom mob hatched from its egg ask
+ * too, with the vehicle's or the mob's id as {@link #model()}.
  */
 public final class ModelPlaceEvent extends PlayerEvent implements Cancellable {
 
