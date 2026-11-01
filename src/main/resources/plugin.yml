@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|run|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|stingers|stinger|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|run|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -51,6 +51,8 @@ permissions:
       rpengine.effect: true
       rpengine.vfx: true
       rpengine.cast: true
+      rpengine.stingers: true
+      rpengine.stinger: true
       rpengine.screens: true
       rpengine.screen: true
       rpengine.dialogs: true
@@ -114,6 +116,7 @@ permissions:
       rpengine.unbind.others: true
       rpengine.cast.others: true
       rpengine.cast.at: true
+      rpengine.stinger.others: true
       rpengine.update: true
       rpengine.shaders.notify: true
   rpengine.reload:
@@ -200,6 +203,15 @@ permissions:
     default: op
   rpengine.cast.at:
     description: Play a VFX at any place, in any world, cast by nobody (/rp cast <name> at <x> <y> <z>).
+    default: op
+  rpengine.stingers:
+    description: List the stinger transitions.
+    default: op
+  rpengine.stinger:
+    description: Play a stinger transition on your own screen.
+    default: op
+  rpengine.stinger.others:
+    description: Play a stinger transition on somebody else's screen, or on everybody's (@a).
     default: op
   rpengine.chat.effects.all:
     # One effect is rpengine.chat.effects.<name>, which cannot be listed here

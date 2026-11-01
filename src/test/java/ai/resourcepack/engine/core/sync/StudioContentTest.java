@@ -623,6 +623,33 @@ class StudioContentTest {
     }
 
     @Test
+    void aStingerKeepsItsCharacterAndColoursAndSurvivesARestart(@TempDir Path dir) {
+        StudioContent content = read(dir, "{\"packId\":\"p\",\"stingers\":["
+                + "{\"id\":\"arena\",\"name\":\"Arena\",\"glyph\":\"\ue900\",\"in\":\"#ec04fc\","
+                + "\"out\":\"#ec08fc\",\"auto\":\"#ec0cfc\",\"inTicks\":10,\"holdTicks\":40,\"outTicks\":14,"
+                + "\"soundIn\":\"entity.player.attack.sweep\"},"
+                + "{\"id\":\"bad\",\"name\":\"Bad\",\"glyph\":\"x\",\"in\":\"red\",\"out\":\"#ec08fc\"}]}");
+        ContentId arena = ContentId.parse("studio:arena").orElseThrow();
+        assertEquals(1, content.stingers().size(), "a colour that is not #rrggbb plays nothing");
+        ai.resourcepack.engine.core.stinger.StingerEntry entry = content.stingers().get(arena);
+        assertEquals("", entry.glyph());
+        assertEquals("#ec04fc", entry.inColor());
+        assertEquals("#ec08fc", entry.outColor());
+        assertEquals(10, entry.info().inTicks());
+        assertEquals(40, entry.info().holdTicks());
+        assertEquals(14, entry.info().outTicks());
+        assertEquals("entity.player.attack.sweep", entry.info().soundIn().orElseThrow());
+        assertTrue(entry.info().soundOut().isEmpty());
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        assertEquals("", reloaded.stingers().get(arena).glyph());
+        assertEquals(40, reloaded.stingers().get(arena).info().holdTicks());
+        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).stingers().size());
+    }
+
+    @Test
     void aTextEffectIsNamedByItsColourAndSurvivesARestart(@TempDir Path dir) {
         StudioContent content = read(dir, "{\"packId\":\"p\",\"textEffects\":["
                 + "{\"id\":\"fire\",\"name\":\"Fire\",\"color\":\"#fc04f8\"},"

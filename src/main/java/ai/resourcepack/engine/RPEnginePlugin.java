@@ -227,6 +227,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ai.resourcepack.engine.core.vfx.VfxCatalogue vfxCatalogue =
             new ai.resourcepack.engine.core.vfx.VfxCatalogue(() -> pushedAll.vfx());
     private ai.resourcepack.engine.core.vfx.VfxRuntime vfxRuntime;
+    /** Stinger transitions: every live push's, and the runtime that times their titles. See core/stinger. */
+    private final ai.resourcepack.engine.core.stinger.StingerCatalogue stingerCatalogue =
+            new ai.resourcepack.engine.core.stinger.StingerCatalogue(() -> pushedAll.stingers());
+    private ai.resourcepack.engine.core.stinger.StingerRuntime stingerRuntime;
 
     /**
      * Text effects: the pushes' and the content folder's, by name, and which
@@ -790,6 +794,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         player == null ? Map.of() : overlayRuntime.values(player)));
         vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
                 ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
+        // A stinger's glyph and shader are only in the pack it came in, so it
+        // plays for the players holding that pack: the VFX's lookup.
+        stingerRuntime = new ai.resourcepack.engine.core.stinger.StingerRuntime(this, stingerCatalogue,
+                (player, id) -> pushedPacks.contentFor(player.getUniqueId(), distribution.serving(player.getUniqueId()))
+                        .map(content -> content.stingers().containsKey(id)).orElse(false));
+        getServer().getPluginManager().registerEvents(stingerRuntime, this);
         // After the vehicles exist, or the first call has nothing to configure.
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         // Before anything reads a plant's state: how many plants tripwire
@@ -1252,6 +1262,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                                         + "custom_model_data, which older servers cannot carry."),
                 new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
                 new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime),
+                new ai.resourcepack.engine.core.command.StingerCommands(stingerRuntime),
                 new ai.resourcepack.engine.core.command.MusicCommands(music));
 
         // /emote is optional. A server that wants everything under /rp —
@@ -2074,6 +2085,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return vfxRuntime;
     }
 
+    /** The stinger transitions this server can play, and playing them: cover a screen, do something, uncover it. */
+    public ai.resourcepack.engine.api.Stingers stingers() {
+        return stingerRuntime;
+    }
+
     /** The 3D shader objects this server holds, and the ones standing in its worlds. */
     public ai.resourcepack.engine.api.ShaderObjects shaderObjects() {
         return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);
@@ -2120,6 +2136,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         if (vfxRuntime != null && !worldStopped) {
             vfxRuntime.stop();
+        }
+        if (stingerRuntime != null) {
+            stingerRuntime.stopAll();
         }
         if (vehicles != null && !worldStopped) {
             vehicles.stop();

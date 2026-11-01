@@ -36,6 +36,7 @@ final class StudioWire {
         List<ShaderObject> objects;
         List<TextEffect> textEffects;
         List<Vfx> vfx;
+        List<Stinger> stingers;
         List<Mob> mobs;
         /**
          * Written by {@link StudioContent#save} only, and read only by {@link StudioContent#load}: that
@@ -179,6 +180,28 @@ final class StudioWire {
         String id;
         String name;
         com.google.gson.JsonObject recipe;
+    }
+
+    /**
+     * A stinger transition: the character its title shows, the trigger
+     * colours that make the pack's text shader play each half, and how long
+     * each half runs. The drawing is all in the pack; the engine only sends
+     * titles ({@code core/stinger/}).
+     *
+     * <p><strong>Boxed ticks</strong>: an absent one is Studio's default, never 0.
+     */
+    static final class Stinger {
+        String id;
+        String name;
+        String glyph;
+        String in;
+        String out;
+        String auto;
+        Integer inTicks;
+        Integer holdTicks;
+        Integer outTicks;
+        String soundIn;
+        String soundOut;
     }
 
     /**

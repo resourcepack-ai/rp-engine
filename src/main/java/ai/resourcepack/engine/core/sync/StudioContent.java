@@ -246,6 +246,7 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
     /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
     private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
@@ -419,6 +420,7 @@ public final class StudioContent {
         copy.objects = objects;
         copy.textEffects = textEffects;
         copy.vfx = vfx;
+        copy.stingers = stingers;
         copy.mobs = mobs;
         copy.mobSkills = mobSkills;
         copy.packId = packId;
@@ -446,6 +448,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
         String last = "";
@@ -464,6 +467,7 @@ public final class StudioContent {
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
             vfx.putAll(pack.vfx);
+            stingers.putAll(pack.stingers);
             // A mob's skills go with the mob: a later push of it with none
             // must not keep an earlier push's.
             pack.mobs.keySet().forEach(mobSkills::remove);
@@ -483,6 +487,7 @@ public final class StudioContent {
         all.objects = Map.copyOf(objects);
         all.textEffects = Map.copyOf(effects);
         all.vfx = Map.copyOf(vfx);
+        all.stingers = Map.copyOf(stingers);
         all.mobs = Map.copyOf(mobs);
         all.mobSkills = Map.copyOf(mobSkills);
         all.packId = last;
@@ -546,6 +551,11 @@ public final class StudioContent {
         return vfx;
     }
 
+    /** The pushed stinger transitions, keyed by {@code studio:<id>}. */
+    public Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers() {
+        return stingers;
+    }
+
     /** The pushed custom mobs, keyed by {@code studio:<id>}. */
     public Map<ContentId, EntityInfo> mobs() {
         return mobs;
@@ -601,7 +611,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && variations.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && vfx.isEmpty() && mobs.isEmpty();
+                && textEffects.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -846,6 +856,29 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.VfxInfo.Source.STUDIO, null), recipe)));
         }
 
+        Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> readStingers = new LinkedHashMap<>();
+        for (Stinger stinger : manifest.stingers == null ? List.<Stinger>of() : manifest.stingers) {
+            // The character and the two phase colours are the whole stinger
+            // as far as the engine goes; without them it has nothing to send.
+            if (stinger == null || stinger.glyph == null || stinger.glyph.isEmpty()
+                    || !ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.in)
+                    || !ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.out)) {
+                if (log != null && stinger != null) log.warning("Pushed stinger " + stinger.id
+                        + " is missing its character or a #rrggbb colour, so it was skipped.");
+                continue;
+            }
+            id(stinger.id, log, "stinger").ifPresent(id -> readStingers.put(id,
+                    new ai.resourcepack.engine.core.stinger.StingerEntry(
+                            new ai.resourcepack.engine.api.StingerInfo(id, stinger.name,
+                                    stinger.inTicks == null ? 12 : stinger.inTicks,
+                                    stinger.holdTicks == null ? 30 : stinger.holdTicks,
+                                    stinger.outTicks == null ? 12 : stinger.outTicks,
+                                    stinger.soundIn, stinger.soundOut),
+                            stinger.glyph, stinger.in.toLowerCase(Locale.ROOT), stinger.out.toLowerCase(Locale.ROOT),
+                            ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.auto)
+                                    ? stinger.auto.toLowerCase(Locale.ROOT) : null)));
+        }
+
         Map<ContentId, EntityInfo> readMobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> readMobSkills = new LinkedHashMap<>();
         for (Mob mob : manifest.mobs == null ? List.<Mob>of() : manifest.mobs) {
@@ -880,12 +913,14 @@ public final class StudioContent {
         objects = Map.copyOf(readObjects);
         textEffects = Map.copyOf(readEffects);
         vfx = Map.copyOf(readVfx);
+        stingers = Map.copyOf(readStingers);
         mobs = Map.copyOf(readMobs);
         mobSkills = Map.copyOf(readMobSkills);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + mobs.size());
+                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + stingers.size()
+                        + mobs.size());
     }
 
     /**
@@ -1587,6 +1622,23 @@ public final class StudioContent {
             effect.name = entry.info().name();
             effect.recipe = entry.recipe().toJson();
             manifest.vfx.add(effect);
+        }
+        manifest.stingers = new ArrayList<>();
+        for (ai.resourcepack.engine.core.stinger.StingerEntry entry : stingers.values()) {
+            Stinger out = new Stinger();
+            ai.resourcepack.engine.api.StingerInfo info = entry.info();
+            out.id = info.id().path();
+            out.name = info.name();
+            out.glyph = entry.glyph();
+            out.in = entry.inColor();
+            out.out = entry.outColor();
+            out.auto = entry.autoColor();
+            out.inTicks = info.inTicks();
+            out.holdTicks = info.holdTicks();
+            out.outTicks = info.outTicks();
+            out.soundIn = info.soundIn().orElse(null);
+            out.soundOut = info.soundOut().orElse(null);
+            manifest.stingers.add(out);
         }
         manifest.mobs = new ArrayList<>();
         for (EntityInfo info : mobs.values()) {
