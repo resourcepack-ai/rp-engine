@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -128,5 +129,70 @@ class StudioMobSkillsTest {
         ContentId mob = ContentId.of("studio", "golem_king").orElseThrow();
         assertEquals(first.mobSkills().get(mob).lines(), reread.mobSkills().get(mob).lines());
         assertEquals(first.mobSkills().get(mob).metaskills(), reread.mobSkills().get(mob).metaskills());
+    }
+
+    /**
+     * A stranger's push (read as untrusted) is held to an allowlist. Every
+     * line Studio sends must pass it, or the test server would quietly drop
+     * real abilities; and the ways round the old text filter must not.
+     */
+    @Test
+    void everyLineStudioSendsIsOneAStrangerMayRun() throws IOException {
+        SkillDefinitions.Names names = realNames();
+        StudioContent content = StudioContent.read(studioManifest(), "studio-mob.json", null);
+        assertNotNull(content);
+        content.mobSkills().forEach((id, skills) -> {
+            for (String line : skills.lines()) {
+                assertNull(SkillDefinitions.strangerRefusal(line, false, names), line);
+            }
+            skills.metaskills().forEach((name, body) -> {
+                for (String key : List.of("Skills", "Conditions", "TargetConditions")) {
+                    if (body.get(key) instanceof List<?> written) {
+                        for (Object entry : written) {
+                            assertNull(SkillDefinitions.strangerRefusal(String.valueOf(entry), !key.equals("Skills"), names),
+                                    name + " " + key + ": " + entry);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    @Test
+    void aStrangerRunsNothingAsTheServerAndReachesNoOtherWorld() {
+        SkillDefinitions.Names names = realNames();
+        for (String line : List.of(
+                "command{c=op x} @self",
+                "command[c=op x] @self",
+                "command\u001f{c=op x} @self",
+                "\u0001CMD{c=op x}",
+                "consolecommand[c=stop]",
+                "skill{s=[ - command[c=op x] ]} @self ~onSpawn",
+                "skill{s=[ - skill{s=[ - cmd{c=op x} ]} ]} @self",
+                "skill{s=myserver:reward} @self ~onTimer:20",
+                "skill:myserver:reward @self",
+                "teleportto{l=0,64,0,world} @self",
+                "damage{a=1} @playersonserver",
+                "message{m=hi} @playersinworld",
+                "summon{type=tnt;a=32} @self ~onTimer:1",
+                "summon{type=minecraft:wither} @self",
+                "summon{type=end_crystal} @self",
+                "projectile{onHit=[ - damage{a=1} ]} @target",
+                "aura{onTick=[ - damage{a=1} ]} @self",
+                "not a line {{{")) {
+            assertNotNull(SkillDefinitions.strangerRefusal(line, false, names), line);
+        }
+        assertNotNull(SkillDefinitions.strangerRefusal("incombat castinstead myserver:reward", true, names));
+        assertNotNull(SkillDefinitions.strangerRefusal("incombat cast [ - command{c=op x} ]", true, names));
+        for (String line : List.of(
+                "damage{a=10} @playersinradius{r=6}",
+                "delay 10",
+                "summon{type=zombie;a=2} @self",
+                "summon{type=studio:golem_minion} @self",
+                "skill{s=studio:golem_king.slam} @self ~onTimer:120 ?incombat",
+                "skill{s=[ - damage{a=1} - sound{s=entity.generic.explode} ]} @self")) {
+            assertNull(SkillDefinitions.strangerRefusal(line, false, names), line);
+        }
+        assertNull(SkillDefinitions.strangerRefusal("incombat castinstead studio:golem_king.slam", true, names));
     }
 }

@@ -781,6 +781,11 @@ final class Mechanics {
             }
         }
         for (int i = 0; i < amount; i++) {
+            if (!runtime.roomToSummon(place.getWorld())) {
+                runtime.warnOnce("summon-cap:" + place.getWorld().getName(), "Skills have " + SkillRuntime.MAX_SUMMONED_PER_WORLD
+                        + " summoned entities alive in " + place.getWorld().getName() + "; summon does nothing there until some are gone.");
+                break;
+            }
             Location at = radius > 0 ? SkillMath.scatter(place, 0, radius, ThreadLocalRandom.current()) : place.clone();
             at.setY(place.getY() + cast.number("yoffset", 0, "y"));
             Entity spawned = mob.isPresent()
@@ -789,6 +794,7 @@ final class Mechanics {
             if (spawned == null) {
                 continue;
             }
+            runtime.summoned(spawned);
             spawned.getPersistentDataContainer().set(runtime.parentKey, PersistentDataType.STRING,
                     cast.caster().getUniqueId().toString());
             cast.context.state.children.add(spawned.getUniqueId());

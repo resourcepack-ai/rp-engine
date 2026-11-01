@@ -123,7 +123,7 @@ class StudioContentTest {
 
         SoundInfo sound = reloaded.sounds().get(ContentId.parse("studio:laser").orElseThrow());
         assertEquals("custom.laser", sound.event());
-        assertEquals("",
+        assertEquals("\u0001",
                 reloaded.screens().get(ContentId.parse("studio:shop").orElseThrow()).title());
         assertEquals(OverlayInfo.Slot.BOSS_BAR,
                 reloaded.huds().get(ContentId.parse("studio:mana").orElseThrow()).slot());
@@ -275,6 +275,10 @@ class StudioContentTest {
         assertTrue(StudioContent.PushedMobSkills.runsCommand("command{c=op x} @self"));
         assertTrue(StudioContent.PushedMobSkills.runsCommand("- Cmd{c=op x}"));
         assertTrue(StudioContent.PushedMobSkills.runsCommand("projectile{onHit=[ - consolecommand{c=stop} ]} @target"));
+        // The parser takes either bracket, and trims anything up to a space.
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("command[c=op x] @self"));
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("command\u001f{c=op x} @self"));
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("\u0001cmd [c=op x]"));
         assertFalse(StudioContent.PushedMobSkills.runsCommand("skill{s=studio:commander.slam} @self"));
         assertFalse(StudioContent.PushedMobSkills.runsCommand("message{m=Use /command to win} @self"));
         assertFalse(StudioContent.PushedMobSkills.runsCommand("mycommand{} @self"));

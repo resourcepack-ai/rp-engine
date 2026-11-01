@@ -91,6 +91,16 @@ final class SkillRegistry implements SkillDefinitions.Names {
     }
 
     @Override
+    public boolean same(String name, String as, boolean targeter) {
+        if (name == null || as == null) {
+            return false;
+        }
+        Object mine = targeter ? targeters.get(key(name)) : mechanics.get(key(name));
+        Object theirs = targeter ? targeters.get(key(as)) : mechanics.get(key(as));
+        return mine != null && mine == theirs;
+    }
+
+    @Override
     public boolean condition(String name) {
         return conditions.containsKey(key(name));
     }

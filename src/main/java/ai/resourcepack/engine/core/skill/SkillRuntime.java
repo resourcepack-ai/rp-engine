@@ -133,6 +133,36 @@ public final class SkillRuntime implements Listener, MobSkills, MobHooks {
     private final Map<UUID, SkillState> states = new ConcurrentHashMap<>();
     /** Bumped by every reload: a tree waiting from before it stops instead of running stale lines. */
     volatile int generation;
+
+    /**
+     * The most entities skills may have summoned and still alive in one world.
+     * {@code summon} takes 32 a cast, and a mob that summons itself on spawn,
+     * or TNT on a one-tick timer, was otherwise a server brought to its knees
+     * by one mob, every world sharing the one main thread.
+     */
+    static final int MAX_SUMMONED_PER_WORLD = 100;
+
+    /** What skills have summoned, swept of the dead as it is counted. */
+    private final java.util.Set<Entity> summoned = ConcurrentHashMap.newKeySet();
+
+    /** Whether a skill may summon one more into {@code world}. */
+    boolean roomToSummon(org.bukkit.World world) {
+        int count = 0;
+        for (java.util.Iterator<Entity> it = summoned.iterator(); it.hasNext(); ) {
+            Entity entity = it.next();
+            if (!entity.isValid()) {
+                it.remove();
+            } else if (entity.getWorld().equals(world)) {
+                count++;
+            }
+        }
+        return count < MAX_SUMMONED_PER_WORLD;
+    }
+
+    /** Counts {@code entity} against {@link #MAX_SUMMONED_PER_WORLD}. */
+    void summoned(Entity entity) {
+        summoned.add(entity);
+    }
     private final Set<String> warned = ConcurrentHashMap.newKeySet();
     /** How deep skills setting off skills go on this thread; see {@link #MAX_NESTING}. */
     private final ThreadLocal<int[]> nesting = ThreadLocal.withInitial(() -> new int[1]);
