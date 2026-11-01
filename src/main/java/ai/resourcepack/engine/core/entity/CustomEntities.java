@@ -1880,12 +1880,25 @@ public final class CustomEntities implements Listener, Mobs {
         if (id.isEmpty()) {
             return;
         }
+        // Read before cancelling, which denies it: another plugin refusing
+        // this click (a protected region, a read-only lobby) refuses the hatch.
+        // It was hatched regardless, so anybody handed an egg could put a mob,
+        // skills and all, wherever they stood.
+        boolean refused = event.useItemInHand() == org.bukkit.event.Event.Result.DENY;
         event.setCancelled(true);
         Block clicked = event.getClickedBlock();
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || clicked == null) {
+        if (refused || event.getAction() != Action.RIGHT_CLICK_BLOCK || clicked == null) {
             return;
         }
         Block at = clicked.getRelative(event.getBlockFace());
+        // And asked like any placement of something the engine draws, so a
+        // server's own rules about where things may go hold for mobs too.
+        ai.resourcepack.engine.api.event.ModelPlaceEvent ask = new ai.resourcepack.engine.api.event.ModelPlaceEvent(
+                event.getPlayer(), id.get(), at, event.getItem());
+        org.bukkit.Bukkit.getPluginManager().callEvent(ask);
+        if (ask.isCancelled()) {
+            return;
+        }
         Location where = at.getLocation().add(0.5, 0, 0.5);
         where.setYaw(event.getPlayer().getLocation().getYaw() + 180f);
         if (spawn(where, id.get()).isPresent() && event.getPlayer().getGameMode() != GameMode.CREATIVE) {
