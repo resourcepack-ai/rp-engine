@@ -202,9 +202,14 @@ class ItemsAdderPackTest {
         BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
         assertFalse(built.diagnostics().stream().anyMatch(d -> d.message().contains("No model")),
                 built.diagnostics().toString());
-        String model = new String(build(report).get("assets/shop/models/item/wing.json"), StandardCharsets.UTF_8);
+        Map<String, byte[]> zip = build(report);
+        String model = new String(zip.get("assets/shop/models/item/wing.json"), StandardCharsets.UTF_8);
         assertTrue(model.contains("\"elements\""), model);
         assertFalse(model.contains("item/generated"), model);
+        // textures/set_v1/ is in no atlas of the game's, so without an entry
+        // every face draws as the missing texture.
+        String atlas = new String(zip.get("assets/minecraft/atlases/blocks.json"), StandardCharsets.UTF_8);
+        assertTrue(atlas.contains("\"resource\":\"shop:set_v1/tex\""), atlas);
     }
 
     @Test
