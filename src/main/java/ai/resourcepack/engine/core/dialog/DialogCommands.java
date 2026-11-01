@@ -234,6 +234,9 @@ public final class DialogCommands {
             }
         }
 
+        /** What a player may give as {@code {target}}: a player's name (a Bedrock prefix included), never a selector. */
+        private static final java.util.regex.Pattern TARGET = java.util.regex.Pattern.compile("[A-Za-z0-9_.*-]{1,32}");
+
         @Override
         public boolean execute(CommandSender sender, String label, String[] args) {
             if (!(sender instanceof Player player)) {
@@ -251,7 +254,9 @@ public final class DialogCommands {
                 int eq = arg.indexOf('=');
                 if (eq > 0 && staff) {
                     values.put(arg.substring(0, eq), arg.substring(eq + 1));
-                } else if (eq < 0 && !values.containsKey("target")) {
+                } else if (eq < 0 && !values.containsKey("target") && TARGET.matcher(arg).matches()) {
+                    // A name and nothing else: {target} is filled into the
+                    // dialog's console buttons, where "@a" would be everybody.
                     values.put("target", arg);
                 }
             }
