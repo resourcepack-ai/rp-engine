@@ -1934,13 +1934,39 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         Map<ContentId, String> stances = new LinkedHashMap<>();
         Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
         if (pushedAll != null) {
+            ai.resourcepack.engine.core.skill.SkillDefinitions.Names names = skills.names();
+            List<String> refused = new ArrayList<>();
             pushedAll.mobSkills().forEach((id, pushedSkills) -> {
-                lines.put(id, pushedSkills.lines());
+                // A stranger's push is held to what a stranger may run; see
+                // SkillDefinitions.strangerRefusal and StudioRelay.trusts.
+                boolean trusted = pushedSkills.trusted();
+                lines.put(id, trusted ? pushedSkills.lines()
+                        : strangerLines(pushedSkills.lines(), false, names, id.toString(), refused));
                 if (pushedSkills.stance() != null) {
                     stances.put(id, pushedSkills.stance());
                 }
-                metaskills.putAll(pushedSkills.metaskills());
+                pushedSkills.metaskills().forEach((name, body) -> {
+                    if (trusted) {
+                        metaskills.put(name, body);
+                        return;
+                    }
+                    Map<String, Object> held = new LinkedHashMap<>(body);
+                    for (String key : List.of("Skills", "Conditions", "TargetConditions")) {
+                        if (body.get(key) instanceof List<?> written) {
+                            List<String> all = new ArrayList<>();
+                            written.forEach(entry -> all.add(String.valueOf(entry)));
+                            held.put(key, strangerLines(all, !key.equals("Skills"), names, "studio:" + name, refused));
+                        }
+                    }
+                    metaskills.put(name, held);
+                });
             });
+            if (!refused.isEmpty()) {
+                getLogger().warning("Left out " + refused.size() + " pushed skill line(s) a synced pack may not "
+                        + "run here (" + ai.resourcepack.engine.core.sync.StudioRelay.TRUSTED_PERMISSION
+                        + " lets a push run them): " + String.join("; ", refused.subList(0, Math.min(5, refused.size())))
+                        + (refused.size() > 5 ? "; ..." : ""));
+            }
             // A pushed mob with no skills still replaces an authored one's.
             pushedAll.mobs().keySet().forEach(id -> lines.putIfAbsent(id, List.of()));
         }
@@ -1951,6 +1977,22 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 all.diagnostics().subList(authoredSkills.diagnostics().size(), all.diagnostics().size());
         report(getServer().getConsoleSender(), "pushed skills", pushedProblems);
         skills.replace(all);
+    }
+
+    /** {@code written} without the lines a stranger may not run, each refusal said in {@code refused}. */
+    private static List<String> strangerLines(List<String> written, boolean conditions,
+                                              ai.resourcepack.engine.core.skill.SkillDefinitions.Names names,
+                                              String where, List<String> refused) {
+        List<String> kept = new ArrayList<>();
+        for (String line : written) {
+            String why = ai.resourcepack.engine.core.skill.SkillDefinitions.strangerRefusal(line, conditions, names);
+            if (why == null) {
+                kept.add(line);
+            } else {
+                refused.add(where + ": " + why);
+            }
+        }
+        return kept;
     }
 
     /** The custom mobs this server holds: spawn one, animate one, make an egg. */

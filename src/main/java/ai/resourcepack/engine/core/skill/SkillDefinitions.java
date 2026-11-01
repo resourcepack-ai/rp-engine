@@ -54,6 +54,179 @@ public final class SkillDefinitions {
         boolean targeter(String name);
 
         boolean condition(String name);
+
+        /**
+         * Whether {@code name} runs the same mechanic (or, with
+         * {@code targeter}, the same targeter) as {@code as}. By name here; the
+         * registry compares what each one runs, so an alias is what it names.
+         */
+        default boolean same(String name, String as, boolean targeter) {
+            return name != null && name.trim().equalsIgnoreCase(as);
+        }
+    }
+
+    /**
+     * The mechanics a stranger's push may use (one read as untrusted: see
+     * {@code StudioRelay.trusts}): Studio's ability catalogue, which is what
+     * its panel and its planner offer, and calling a metaskill. Compared by
+     * what each name RUNS ({@link Names#same}), so an alias is the mechanic it
+     * names, and an alias somebody invents for {@code command} is not.
+     *
+     * <p>An allowlist, not a list of the dangerous ones: a stranger's line
+     * that ran {@code command{}} or {@code command[]} (the parser takes either
+     * bracket) ran as the console, and every mechanic added to the engine
+     * after this would otherwise be one more thing to remember to refuse.
+     */
+    static final List<String> STRANGER_MECHANICS = List.of("skill", "animate", "damage", "heal", "throw", "pull",
+            "leap", "lunge", "potion", "ignite", "summon", "setstance", "vfx", "sound", "particles", "message",
+            "sendtitle", "shoot", "explosion", "lightning", "tint", "speed", "shield", "teleport");
+
+    /** The targeters a stranger's push may use: Studio's catalogue. None of them reaches past the caster's world. */
+    static final List<String> STRANGER_TARGETERS = List.of("self", "target", "trigger", "playersinradius",
+            "livinginradius", "nearestplayer", "livingincone", "selflocation", "targetlocation", "forward", "ring",
+            "randomlocationsnearcaster");
+
+    /** The condition actions that run a metaskill, whose argument is a skill reference. */
+    private static final Set<String> CASTING_ACTIONS = Set.of("cast", "castinstead", "orelsecast");
+
+    /**
+     * Why a line (or, with {@code condition}, one line of a metaskill's
+     * {@code Conditions:}) from a stranger's push may not run, or null when
+     * it may: every mechanic and targeter it names is in
+     * {@link #STRANGER_MECHANICS} and {@link #STRANGER_TARGETERS}, inline
+     * skills to any depth included, and every metaskill it calls is one a
+     * push registered ({@code studio:}). A server's own metaskills are the
+     * server's: a stranger's mob calling one that rewards a kill with a
+     * command would be that stranger running it on a timer.
+     *
+     * <p>Parsed with the loader's own parser, so it sees exactly what will
+     * run; a line it cannot parse is refused rather than guessed at.
+     */
+    public static String strangerRefusal(String raw, boolean condition, Names names) {
+        return strangerRefusal(raw, condition, names, 0);
+    }
+
+    private static String strangerRefusal(String raw, boolean condition, Names names, int depth) {
+        if (depth > 8) {
+            return "inline skills nested too deep";
+        }
+        SkillParser.Parsed parsed = condition ? SkillParser.condition(raw, false) : SkillParser.parse(raw);
+        if (parsed.line == null) {
+            return "it does not parse";
+        }
+        SkillLine line = parsed.line;
+        if (!condition) {
+            String mechanic = line.mechanic;
+            boolean waits = mechanic.equals("delay") || mechanic.equals("wait");
+            if (!waits && STRANGER_MECHANICS.stream().noneMatch(allowed -> names.same(mechanic, allowed, false))) {
+                return mechanic + " is not a mechanic a synced pack may use here";
+            }
+            if (names.same(mechanic, "summon", false)) {
+                String why = strangerSummon(line.args.get("type", "t", "mob", "m"));
+                if (why != null) {
+                    return why;
+                }
+            }
+            if (names.same(mechanic, "skill", false)) {
+                String why = strangerSkillRef(line.args.get("skill", "s", "meta", "m", "metaskill", ""), names, depth);
+                if (why != null) {
+                    return why;
+                }
+            }
+            for (String value : line.args.values.values()) {
+                String why = strangerInline(value, names, depth);
+                if (why != null) {
+                    return why;
+                }
+            }
+            if (line.targeter != null) {
+                String targeter = line.targeter.name;
+                if (STRANGER_TARGETERS.stream().noneMatch(allowed -> names.same(targeter, allowed, true))) {
+                    return "@" + targeter + " is not a targeter a synced pack may use here";
+                }
+                for (String value : line.targeter.args.values.values()) {
+                    String why = strangerInline(value, names, depth);
+                    if (why != null) {
+                        return why;
+                    }
+                }
+            }
+        }
+        for (SkillLine.Cond cond : line.conditions) {
+            if (CASTING_ACTIONS.contains(cond.action)) {
+                String why = strangerSkillRef(cond.actionArg, names, depth);
+                if (why != null) {
+                    return why;
+                }
+            }
+            for (String value : cond.ref.args.values.values()) {
+                String why = strangerInline(value, names, depth);
+                if (why != null) {
+                    return why;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * What a stranger's {@code summon} may bring: a custom mob, or a vanilla
+     * one that is a creature and not a boss. Not TNT, a crystal, a minecart
+     * or a falling block, which are griefing and lag with nothing to fight.
+     */
+    private static String strangerSummon(String type) {
+        if (type == null || type.isBlank()) {
+            return null;
+        }
+        String text = type.trim().toLowerCase(Locale.ROOT);
+        String bare = text.startsWith("minecraft:") ? text.substring("minecraft:".length()) : text;
+        org.bukkit.entity.EntityType vanilla = null;
+        for (org.bukkit.entity.EntityType candidate : org.bukkit.entity.EntityType.values()) {
+            if (candidate.name().equalsIgnoreCase(bare)) {
+                vanilla = candidate;
+            }
+        }
+        if (vanilla == null) {
+            // Not a vanilla name: a custom mob, or nothing, which summons nothing.
+            return null;
+        }
+        if (!vanilla.isAlive() || vanilla == org.bukkit.entity.EntityType.PLAYER
+                || vanilla.name().equals("WITHER") || vanilla.name().equals("ENDER_DRAGON")
+                || vanilla.name().equals("ARMOR_STAND")) {
+            return "summon{type=" + type.trim() + "} is not a creature a synced pack may summon here";
+        }
+        return null;
+    }
+
+    /** A metaskill a stranger's line calls: inline (checked in turn), or one a push registered. */
+    private static String strangerSkillRef(String ref, Names names, int depth) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        String text = ref.trim();
+        if (text.startsWith("[")) {
+            return strangerInline(text, names, depth);
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        int colon = lower.indexOf(':');
+        if (colon >= 0 && !lower.substring(0, colon).equals("studio")) {
+            return "it calls " + text + ", which is the server's own";
+        }
+        return null;
+    }
+
+    /** An argument that lists skills inline ({@code [ - damage{a=1} ]}): each checked as a line. */
+    private static String strangerInline(String value, Names names, int depth) {
+        if (value == null || !value.trim().startsWith("[")) {
+            return null;
+        }
+        for (String piece : SkillParser.inline(value.trim())) {
+            String why = strangerRefusal(piece, false, names, depth + 1);
+            if (why != null) {
+                return why;
+            }
+        }
+        return null;
     }
 
     private static Map<String, String> triggers() {

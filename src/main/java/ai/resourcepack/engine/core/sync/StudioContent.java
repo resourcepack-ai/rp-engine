@@ -192,11 +192,23 @@ public final class StudioContent {
         private final List<String> lines;
         private final String stance;
         private final Map<String, Map<String, Object>> metaskills;
+        private final boolean trusted;
 
-        PushedMobSkills(List<String> lines, String stance, Map<String, Map<String, Object>> metaskills) {
+        PushedMobSkills(List<String> lines, String stance, Map<String, Map<String, Object>> metaskills,
+                        boolean trusted) {
             this.lines = List.copyOf(lines);
             this.stance = stance;
             this.metaskills = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(metaskills));
+            this.trusted = trusted;
+        }
+
+        /**
+         * Whether these came in a push read as trusted. When not, the skill
+         * loader holds every line to what a stranger may run
+         * ({@code SkillDefinitions.strangerRefusal}).
+         */
+        public boolean trusted() {
+            return trusted;
         }
 
         /** The mob's own lines, as written. */
@@ -267,26 +279,29 @@ public final class StudioContent {
             if (lines.isEmpty() && metaskills.isEmpty() && stance == null) {
                 return null;
             }
-            return new PushedMobSkills(lines, stance, metaskills);
+            return new PushedMobSkills(lines, stance, metaskills, trusted);
         }
 
         /**
          * The command mechanics ({@code command}, and its aliases {@code cmd}
          * and {@code consolecommand}) named anywhere in a line, inline skills
          * ({@code [ - cmd{...} ]}) and a condition's action included. A mechanic
-         * is always its name followed by {@code {}: with nothing after it, a
-         * command mechanic has no command and does nothing. Deliberately a
-         * search of the text rather than a parse, so that no nesting the parser
-         * learns later can hide one; a line that merely says the word before a
-         * brace somewhere (a message, say) is left out too, which is the safe
-         * way to be wrong.
+         * with a command is always its name followed by its arguments, in
+         * either bracket (the parser takes {@code command[c=...]} as readily as
+         * braces) after anything up to a space, which the parser trims. A search
+         * of the text rather than a parse, so that no nesting the parser learns
+         * later can hide one; a line that merely says the word before a bracket
+         * somewhere is left out too, which is the safe way to be wrong. This is
+         * the coarse first pass, counted for the player; the skill loader then
+         * holds a stranger's lines to an allowlist (see
+         * {@code SkillDefinitions.strangerRefusal}).
          */
         static boolean runsCommand(String line) {
             return line != null && COMMAND_MECHANIC.matcher(line).find();
         }
 
         private static final java.util.regex.Pattern COMMAND_MECHANIC = java.util.regex.Pattern.compile(
-                "(?i)(?<![a-z0-9_])(?:command|cmd|consolecommand)\\s*\\{");
+                "(?i)(?<![a-z0-9_])(?:command|cmd|consolecommand)[\\x00-\\x20]*[\\{\\[]");
 
         /** Back onto a wire mob, in the shape it arrived in. */
         @SuppressWarnings("unchecked")

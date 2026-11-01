@@ -366,8 +366,12 @@ public final class StudioRelay {
         onMainThread(() -> {
             eachRecipient(code, player -> {
                 for (String line : List.of(title, body == null ? "" : body, url == null ? "" : url)) {
-                    if (!line.isEmpty()) {
-                        EngineCommand.say(player, line);
+                    // Plain text: a notification quotes other people (an
+                    // inviter's name, a pack's), and a colour code in one
+                    // could dress it up as a line from the server.
+                    String plain = line.replace('§', ' ').replaceAll("\\p{Cntrl}", " ").trim();
+                    if (!plain.isEmpty()) {
+                        EngineCommand.say(player, plain);
                     }
                 }
                 return true;
