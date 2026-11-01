@@ -23,6 +23,7 @@ engine.music();     // background music
 engine.icons();     // icons, and putting one into a piece of text
 engine.textEffects(); // Text Effects, and writing a piece of text in one
 engine.vfx();       // VFX: play one where somebody stands
+engine.stingers();  // stinger transitions: cover a screen, do something, uncover it
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
 engine.dialogs();   // dialogs: open one, feed it values, read player settings
 engine.registry();  // everything this server holds, by id
@@ -1072,6 +1073,38 @@ sounds are played to them alone; every sound an effect started is stopped when
 it ends. At most `vfx.max-sprites` sprites (config.yml, 4,000 by default) are alive at
 once across every effect; past it the oldest effects end, never the newest.
 Main thread only.
+
+## Stinger transitions
+
+`engine.stingers()` covers a player's screen with a Studio stinger, runs your
+code once it is covered, and uncovers it. The pack draws it; the engine only
+times it with titles, so there is nothing to place and nothing to clean up.
+
+```java
+Stingers stingers = engine.stingers();
+ContentId arena = ContentId.parse("studio:arena").orElseThrow();
+
+// In, then teleport while covered, then its own hold, then out.
+stingers.play(player, arena, () -> player.teleport(lobby));
+
+// Held until you say so: a world loading, a match filling.
+stingers.cover(player, arena, () -> startLoading(player))
+        .ifPresent(play -> whenLoaded(() -> play.release()));
+```
+
+`play(player, id, whenCovered)` holds for the stinger's own hold,
+`play(player, id, holdTicks, whenCovered)` for yours, and `cover` until
+`StingerPlay.release()`. A `StingerPlay` has `release()`, `isCovered()`,
+`isFinished()` and `cancel()`, which clears the title at once. `ids()`,
+`info(id)` and `find(name)` give a `StingerInfo`: `name()`, `inTicks()`,
+`holdTicks()`, `outTicks()`, `soundIn()`, `soundOut()`.
+
+Every play answers empty, and `whenCovered` is not run, for an unknown id or a
+player whose pack does not hold the stinger (`canPlay(player, id)` asks first):
+its glyph and shader are only in the pack it came in. A new play on a player
+replaces the one playing on them; a player leaving ends theirs quietly.
+Any thread; `whenCovered` runs on the player's own thread (their region's on
+Folia), so touch only them and their surroundings from it.
 
 ## Custom mobs
 

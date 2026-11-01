@@ -27,6 +27,7 @@ class GiveCommandsTest {
         assertTrue(allowed("/rp sound studio:chime Steve"));
         assertTrue(allowed("/rp egg studio:rhino Steve"));
         assertTrue(allowed("/rp cast studio:slash Steve"));
+        assertTrue(allowed("/rp stinger studio:arena @p"));
         assertTrue(allowed("/rp armor wear studio:knight Steve"));
         assertTrue(allowed("execute as Steve at @s rotated ~ 0 run summon text_display ^ ^1.5 ^3 "
                 + "{billboard:\"center\",background:0,shadow:0b,see_through:0b,view_range:4f,"

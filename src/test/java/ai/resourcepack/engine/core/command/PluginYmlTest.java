@@ -53,7 +53,7 @@ class PluginYmlTest {
      * to a command is a decision this test makes somebody take.
      */
     private static final Set<String> ACT_ON_OTHERS =
-            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg");
+            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg", "stinger");
 
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
