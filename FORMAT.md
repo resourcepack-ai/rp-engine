@@ -3804,7 +3804,9 @@ command, another plugin's) takes its place with nothing in between, and when
 none comes the engine closes it. A command that belongs to another plugin is
 answered before it runs, so whatever that command opens arrives after the
 close rather than being shut by it. `close` closes at once, so a dialog the
-click opens comes after a glimpse of the world; `none` stays as it is; and
+click opens comes after a glimpse of the world; `none` stays open, and is
+drawn again once a `console:` button or a `command:` list has run (0.2.57+), so
+its placeholders and `if:` pieces show what the commands changed; and
 `wait_for_response` shows the game's "Waiting for Server" screen until the
 engine answers, which it does for every click it hears.
 
