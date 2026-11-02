@@ -45,6 +45,9 @@ import java.util.function.BiPredicate;
  */
 final class Mechanics {
 
+    /** The most an {@code explosion} mechanic is allowed: a wither's skull is 1, its spawn 7, a bed in the Nether 5. */
+    static final double MAX_EXPLOSION_POWER = 16;
+
     private Mechanics() {
     }
 
@@ -367,7 +370,10 @@ final class Mechanics {
             if (world == null) {
                 return false;
             }
-            float power = (float) cast.number("power", cast.number("yield", 2, "y"), "p");
+            // Clamped: a power of a few hundred stalls the server for everybody
+            // while it is worked out, and nothing in the game goes past 8.
+            float power = (float) Math.max(0, Math.min(MAX_EXPLOSION_POWER,
+                    cast.number("power", cast.number("yield", 2, "y"), "p")));
             boolean fire = cast.bool("fire", false, "f", "setfire");
             boolean breaks = cast.bool("breakblocks", false, "bb", "blockdamage", "bd");
             return world.createExplosion(place, power, fire, breaks, cast.caster());

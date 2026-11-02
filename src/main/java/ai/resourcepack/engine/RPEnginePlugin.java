@@ -669,7 +669,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // than built on the first push, because a player is still wearing the
         // last one after a restart.
         pushed = new StudioContent(getDataFolder());
-        pushed.load(getLogger());
+        // Read as the push it was: a server holding the token (the public
+        // test server) never trusts one; see StudioRelay.trusts.
+        pushed.load(getLogger(), getConfig().getString("sync.server-token", "").isBlank());
         if (!pushed.isEmpty()) {
             pushedPacks.arrived(pushed.snapshot());
         }

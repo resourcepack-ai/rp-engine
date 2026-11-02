@@ -427,7 +427,10 @@ permissions:
     # live-test (a public test server) must not let everybody run console
     # commands. A push's "Run as console" dialog buttons and its mobs'
     # command skills are kept only when the player who owns the sync has
-    # this; without it they are left out and the rest of the push arrives.
+    # this; without it they are left out and the rest of the push arrives,
+    # read as a stranger's: no dialog /command or Quick Actions key, no
+    # natural mob spawning, mob skills held to Studio's catalogue. A server
+    # holding a sync server-token trusts nobody's push - see StudioRelay.trusts.
     description: Keep console commands in packs you push from Studio (dialog console buttons, mob command skills).
     default: op
   rpengine.distribute:
