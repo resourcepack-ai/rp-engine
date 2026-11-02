@@ -1270,13 +1270,29 @@ public final class DialogsImpl implements Dialogs {
             if (!viewer.isOnline() || shows.getOrDefault(viewer, 0L) != showsBefore || current(viewer) != clicked) {
                 return;
             }
-            org.bukkit.event.inventory.InventoryType open = viewer.getOpenInventory().getType();
-            if (open != org.bukkit.event.inventory.InventoryType.CRAFTING
-                    && open != org.bukkit.event.inventory.InventoryType.CREATIVE) {
+            if (containerOpen(viewer)) {
                 return;
             }
             follow(viewer, clicked.id(), clicked.values());
         });
+    }
+
+    /**
+     * Whether a player has a container open (a chest, a menu another plugin
+     * built), not just their own inventory, which is what the server counts
+     * them as having open while a dialog is up. By reflection: InventoryView
+     * became an interface in 1.21, and a call compiled against either form
+     * fails on the other. True when it cannot tell, so nothing is shut.
+     */
+    private static boolean containerOpen(Player viewer) {
+        try {
+            Object view = viewer.getOpenInventory();
+            Object type = org.bukkit.inventory.InventoryView.class.getMethod("getType").invoke(view);
+            return type != org.bukkit.event.inventory.InventoryType.CRAFTING
+                    && type != org.bukkit.event.inventory.InventoryType.CREATIVE;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
     }
 
     /**
