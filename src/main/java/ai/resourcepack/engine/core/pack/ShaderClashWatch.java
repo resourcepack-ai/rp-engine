@@ -34,7 +34,7 @@ import java.util.zip.ZipFile;
 public final class ShaderClashWatch {
 
     /** The permission whose holders are told in chat. */
-    public static final String PERMISSION = "rpengine.shaders";
+    public static final String PERMISSION = "rpengine.shaders.notify";
 
     /**
      * How long after startup the other plugins' folders are read a second
