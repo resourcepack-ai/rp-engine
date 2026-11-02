@@ -40,10 +40,11 @@ class PluginYmlTest {
      * server that gives its ops every command has not thereby said only ops
      * may use an emoji. {@code chat.effects.all} is the same for typing
      * {@code <fx:name>}. {@code update} is who is told on joining that a newer
-     * RP Engine is out.
+     * RP Engine is out, and {@code shaders.notify} who is told in chat that
+     * another plugin's pack clashes with a shader.
      */
     private static final Set<String> NOT_SUBCOMMANDS =
-            Set.of("emote.cast", "emote.force", "chat.icons", "chat.effects.all", "update");
+            Set.of("emote.cast", "emote.force", "chat.icons", "chat.effects.all", "update", "shaders.notify");
 
     /**
      * The subcommands that can be pointed at ANOTHER player, each of which
