@@ -190,25 +190,22 @@ public final class StudioRelay {
         Optional<String> rigsText = joined(rigsJson);
         Optional<String> emotesText = joined(emotesJson);
         Optional<String> contentText = joined(contentJson);
-        // Console commands only from somebody trusted with them; see
-        // StudioContent.withoutConsole.
+        // Console commands only from somebody trusted with them, and never on
+        // the public test server; see trusts and StudioContent.withoutConsole.
+        // An untrusted push is then READ untrusted too (updateFromJson below),
+        // which also leaves out what would reach every player.
         Player owner = syncOwner(code);
-        if (contentText.isPresent() && (owner == null || !owner.hasPermission(CONSOLE_PERMISSION))) {
+        boolean trusted = trusts(owner);
+        int removed = 0;
+        if (contentText.isPresent() && !trusted) {
             StudioContent.Stripped stripped = StudioContent.withoutConsole(contentText.get());
             if (stripped.removed() > 0) {
                 contentText = Optional.of(stripped.json());
-                log.warning("Left " + stripped.removed() + " console command(s) out of a Studio push by "
-                        + (owner == null ? "a player who is not online" : owner.getName())
-                        + ", who does not have " + CONSOLE_PERMISSION + ".");
-                if (owner != null) {
-                    Player tell = owner;
-                    Tasks.on(plugin, tell, () -> EngineCommand.say(tell,
-                            "Console commands in your pack (dialog console buttons, mob command skills) were left out: "
-                                    + "you need " + CONSOLE_PERMISSION + " on this server."));
-                }
+                removed = stripped.removed();
             }
         }
         StudioContent[] arrived = new StudioContent[1];
+        int[] dropped = {removed};
         synchronized (merging) {
             rigsText.ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
             emotesText.ifPresent(json -> merged("Emotes", emotes.updateFromJson(json), () -> emotes.save(log)));
@@ -219,10 +216,11 @@ public final class StudioRelay {
             // push and the next one may already be waiting to replace it. The
             // snapshot is what the recipients of THIS push are shown.
             contentText.ifPresent(json -> {
-                MergeResult result = content.updateFromJson(json, log);
+                MergeResult result = content.updateFromJson(json, log, trusted);
                 merged("Pushed content", result, () -> content.save(log));
                 if (result.ok()) {
                     arrived[0] = content.snapshot();
+                    dropped[0] += content.droppedCommands();
                 }
             });
         }
@@ -246,6 +244,20 @@ public final class StudioRelay {
                 packs.arrived(own);
             }
             if (pack != null) register.accept(pack);
+            if (dropped[0] > 0) {
+                log.warning("Left " + dropped[0] + " console command(s) out of a Studio push by "
+                        + (owner == null ? "a player who is not online" : owner.getName())
+                        + (sync.announcesPresence() ? ": this server never runs a synced pack's commands."
+                                : ", who does not have " + CONSOLE_PERMISSION + "."));
+                if (owner != null) {
+                    Player tell = owner;
+                    Tasks.on(plugin, tell, () -> EngineCommand.say(tell, sync.announcesPresence()
+                            ? "Console commands in your pack (dialog console buttons, mob command skills) were left "
+                                    + "out: a pack synced to this server never runs commands as the server."
+                            : "Console commands in your pack (dialog console buttons, mob command skills) were left "
+                                    + "out: you need " + CONSOLE_PERMISSION + " on this server."));
+                }
+            }
             eachRecipient(code, player -> {
                 boolean reachedThem = deliverTo(player, pack, bedrockUrl);
                 if (reachedThem) {
@@ -439,6 +451,20 @@ public final class StudioRelay {
         }
         Optional<String> owner = group.receiving(player.getName()).flatMap(group::owner);
         return owner.isEmpty() ? player : plugin.getServer().getPlayerExact(owner.get());
+    }
+
+    /**
+     * Whether a push from {@code owner} ({@link #syncOwner}) is trusted: to
+     * keep its console commands, and what reaches every player (a dialog's
+     * {@code /command} and Quick Actions key, a mob's natural spawning); see
+     * {@link StudioContent#updateFromJson(String, java.util.logging.Logger,
+     * boolean)}. Only when they hold {@link #CONSOLE_PERMISSION}, and never on
+     * a server that announces presence: that is ResourcePack AI's own test
+     * server, where anybody may sync, so nobody's permissions there are
+     * evidence of anything (a LuckPerms wildcard is enough to grant this).
+     */
+    private boolean trusts(Player owner) {
+        return !sync.announcesPresence() && owner != null && owner.hasPermission(CONSOLE_PERMISSION);
     }
 
     /**

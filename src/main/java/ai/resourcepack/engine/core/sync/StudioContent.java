@@ -89,6 +89,13 @@ public final class StudioContent {
         List<TextEffect> textEffects;
         List<Vfx> vfx;
         List<Mob> mobs;
+        /**
+         * Written by {@link #save} only, and read only by {@link #load}: that
+         * the push this file holds was read as trusted (see
+         * {@link #updateFromJson(String, Logger, boolean)}). A push that
+         * carries it is not believed; whoever pushed decides nothing here.
+         */
+        Boolean commandsKept;
     }
 
     /**
@@ -211,11 +218,20 @@ public final class StudioContent {
             return metaskills;
         }
 
-        static PushedMobSkills of(Mob mob) {
+        /**
+         * The mob's skills off the wire; with {@code trusted} false, without
+         * any line or metaskill step that runs a command ({@link
+         * #runsCommand}), each counted in {@code dropped[0]}.
+         */
+        static PushedMobSkills of(Mob mob, boolean trusted, int[] dropped) {
             List<String> lines = new ArrayList<>();
             for (String line : mob.skills == null ? List.<String>of() : mob.skills) {
                 if (line != null && !line.isBlank()) {
-                    lines.add(line);
+                    if (trusted || !runsCommand(line)) {
+                        lines.add(line);
+                    } else {
+                        dropped[0]++;
+                    }
                 }
             }
             Map<String, Map<String, Object>> metaskills = new LinkedHashMap<>();
@@ -233,7 +249,18 @@ public final class StudioContent {
                 if (skill.targetConditions != null && !skill.targetConditions.isEmpty()) {
                     body.put("TargetConditions", List.copyOf(skill.targetConditions));
                 }
-                body.put("Skills", skill.skills == null ? List.of() : List.copyOf(skill.skills));
+                List<String> steps = new ArrayList<>();
+                for (String step : skill.skills == null ? List.<String>of() : skill.skills) {
+                    if (step == null) {
+                        continue;
+                    }
+                    if (trusted || !runsCommand(step)) {
+                        steps.add(step);
+                    } else {
+                        dropped[0]++;
+                    }
+                }
+                body.put("Skills", List.copyOf(steps));
                 metaskills.put(skill.name.trim().toLowerCase(Locale.ROOT), body);
             }
             String stance = mob.stance == null || mob.stance.isBlank() ? null : mob.stance.trim();
@@ -242,6 +269,24 @@ public final class StudioContent {
             }
             return new PushedMobSkills(lines, stance, metaskills);
         }
+
+        /**
+         * The command mechanics ({@code command}, and its aliases {@code cmd}
+         * and {@code consolecommand}) named anywhere in a line, inline skills
+         * ({@code [ - cmd{...} ]}) and a condition's action included. A mechanic
+         * is always its name followed by {@code {}: with nothing after it, a
+         * command mechanic has no command and does nothing. Deliberately a
+         * search of the text rather than a parse, so that no nesting the parser
+         * learns later can hide one; a line that merely says the word before a
+         * brace somewhere (a message, say) is left out too, which is the safe
+         * way to be wrong.
+         */
+        static boolean runsCommand(String line) {
+            return line != null && COMMAND_MECHANIC.matcher(line).find();
+        }
+
+        private static final java.util.regex.Pattern COMMAND_MECHANIC = java.util.regex.Pattern.compile(
+                "(?i)(?<![a-z0-9_])(?:command|cmd|consolecommand)\\s*\\{");
 
         /** Back onto a wire mob, in the shape it arrived in. */
         @SuppressWarnings("unchecked")
@@ -898,6 +943,12 @@ public final class StudioContent {
     private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
     private volatile String packId = "";
 
+    /** Whether the last manifest was read as trusted; what {@link #save} records. */
+    private volatile boolean commandsKept = true;
+
+    /** How many commands the last manifest read had taken out of it; see {@link #droppedCommands()}. */
+    private volatile int droppedCommands;
+
     /** The registry handle, held for as long as the content is registered. */
     private Namespace claimed;
 
@@ -1021,6 +1072,15 @@ public final class StudioContent {
             owner.add(field, kept);
         }
         return dropped;
+    }
+
+    /**
+     * How many commands the last manifest read had taken out of it because it
+     * was read without them: console buttons and command skill lines. Zero
+     * when it was allowed them or had none.
+     */
+    public int droppedCommands() {
+        return droppedCommands;
     }
 
     /** The pack this came from, as Studio names it. Empty when the manifest named none. */
@@ -1236,6 +1296,28 @@ public final class StudioContent {
      * @param log where to say it, or null to keep the old silence
      */
     public MergeResult updateFromJson(String json, Logger log) {
+        return updateFromJson(json, log, true);
+    }
+
+    /**
+     * As above, and with {@code trusted} false, read as a stranger's: everything
+     * in it that runs a command, or reaches players who were not pushed it,
+     * left out. That is a dialog's "Run as console" buttons and every mob
+     * skill line (or metaskill step) that names a command mechanic; a dialog's
+     * {@code /command} and its place on the Quick Actions key, which are every
+     * player's; and a mob's natural spawning, which is every world's.
+     *
+     * <p><b>This is what stands between a sync and the console.</b> A push is
+     * whatever the person who pressed Sync put in their pack, and on a server
+     * where somebody may sync without being trusted with the console (the
+     * public test server, where everybody may), a console button reading
+     * {@code op {player}} or a mob that casts {@code command{c=op ...}} is that
+     * person running anything they like as the server. So the caller decides,
+     * by who the push is for (see {@code StudioRelay}), and what is left out is
+     * left out of the store, so a restart cannot bring it back.
+     * {@link #droppedCommands()} says how many commands went.
+     */
+    public MergeResult updateFromJson(String json, Logger log, boolean trusted) {
         if (json == null || json.isEmpty()) {
             return MergeResult.failed("empty manifest");
         }
@@ -1249,6 +1331,8 @@ public final class StudioContent {
             return MergeResult.failed("not a manifest");
         }
 
+        // The commands {@code trusted} false took out, counted for the caller to say so.
+        int[] dropped = {0};
         Map<ContentId, SoundInfo> readSounds = new LinkedHashMap<>();
         for (Sound sound : manifest.sounds == null ? List.<Sound>of() : manifest.sounds) {
             if (sound == null || sound.event == null || sound.event.isEmpty()) {
@@ -1351,16 +1435,20 @@ public final class StudioContent {
             Map<String, String> consoles = new LinkedHashMap<>();
             for (DialogConsole console : dialog.consoleCommands == null ? List.<DialogConsole>of() : dialog.consoleCommands) {
                 if (console != null && console.key != null && console.command != null) {
-                    consoles.put(console.key, console.command);
+                    if (trusted) {
+                        consoles.put(console.key, console.command);
+                    } else {
+                        dropped[0]++;
+                    }
                 }
             }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
-                            .withCommand(dialog.command, dialog.permission)
+                            .withCommand(trusted ? dialog.command : null, dialog.permission)
                             .withClickSounds(clickSound, clickSounds)
                             .withConsoleCommands(consoles)
                             .withClosesAfterClick(Boolean.TRUE.equals(dialog.closeAfterClick))
-                            .withQuickAction(dialog.quickAction == null ? null
+                            .withQuickAction(dialog.quickAction == null || !trusted ? null
                                     : new ai.resourcepack.engine.api.DialogInfo.QuickAction(
                                             Boolean.TRUE.equals(dialog.quickAction.launcher),
                                             dialog.quickAction.label == null || dialog.quickAction.label.isBlank()
@@ -1425,16 +1513,22 @@ public final class StudioContent {
             if (mob == null) {
                 continue;
             }
+            if (!trusted) {
+                // Natural spawning puts the mob in every world on the server.
+                mob.spawning = null;
+            }
             id(mob.id, log, "mob").flatMap(id -> mob(id, mob, log))
                     .ifPresent(info -> {
                         readMobs.put(info.id(), info);
-                        PushedMobSkills skills = PushedMobSkills.of(mob);
+                        PushedMobSkills skills = PushedMobSkills.of(mob, trusted, dropped);
                         if (skills != null) {
                             readMobSkills.put(info.id(), skills);
                         }
                     });
         }
 
+        commandsKept = trusted;
+        droppedCommands = dropped[0];
         sounds = Map.copyOf(readSounds);
         screens = Map.copyOf(readScreens);
         screenHeads = Map.copyOf(readHeads);
@@ -1934,14 +2028,33 @@ public final class StudioContent {
         }
     }
 
-    /** Reads what was saved. A missing file is an empty pack, not a problem. */
+    /** {@link #load(Logger, boolean)} on a server that may trust a push. */
     public void load(Logger log) {
+        load(log, true);
+    }
+
+    /**
+     * Reads what was saved. A missing file is an empty pack, not a problem.
+     *
+     * @param trusted whether this server trusts a push at all; even then the
+     *                file is read as trusted only when it says the push it
+     *                holds was, so a file written before that was recorded is
+     *                read as a stranger's
+     */
+    public void load(Logger log, boolean trusted) {
         if (file == null || !file.isFile()) {
             return;
         }
         try {
-            MergeResult result = updateFromJson(
-                    new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8), log);
+            String json = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            boolean kept = false;
+            try {
+                Manifest saved = gson.fromJson(json, Manifest.class);
+                kept = saved != null && Boolean.TRUE.equals(saved.commandsKept);
+            } catch (RuntimeException unreadable) {
+                // updateFromJson says why.
+            }
+            MergeResult result = updateFromJson(json, log, trusted && kept);
             if (result.ok()) {
                 if (result.count() > 0) {
                     log.info("Loaded " + result.count() + " pushed asset(s) from " + file.getName());
@@ -1975,6 +2088,7 @@ public final class StudioContent {
         }
         Manifest manifest = new Manifest();
         manifest.packId = packId;
+        manifest.commandsKept = commandsKept ? Boolean.TRUE : null;
         manifest.sounds = new ArrayList<>();
         for (Map.Entry<ContentId, SoundInfo> entry : sounds.entrySet()) {
             Sound sound = new Sound();

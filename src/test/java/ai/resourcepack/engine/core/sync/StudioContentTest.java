@@ -188,6 +188,98 @@ class StudioContentTest {
         assertEquals(pushed.clickSounds(), after.clickSounds());
     }
 
+    /**
+     * What a stranger's push may carry and what it may not. A push read as
+     * untrusted (somebody without rpengine.sync.console, or anybody on the
+     * public test server) used to keep its console buttons, so a dialog
+     * reading "op {player}" made whoever synced it an operator; and a mob's
+     * command skills ran as the console the same way.
+     */
+    private static final String STRANGER = """
+            {"packId":"ian8vezm",
+             "dialogs":[{"id":"menu","name":"Menu",
+               "json":{"type":"minecraft:notice","title":"Menu"},
+               "command":"menu",
+               "quickAction":{"launcher":true,"label":"Menu"},
+               "consoleCommands":[{"key":"a1b2c3d4","command":"op {player}"}]}],
+             "mobs":[{"id":"golem","model":"golem","type":"ZOMBIE",
+               "spawning":{"worlds":["world"],"chance":0.5},
+               "skills":["skill{s=studio:golem.slam} @self ~onTimer:120",
+                         "command{c=op Someone} @self ~onTimer:20",
+                         "skill{s=[ - CMD{c=stop} ]} @self ~onSpawn"],
+               "metaskills":[{"name":"golem.slam","skills":[
+                 "damage{a=10} @playersinradius{r=6}",
+                 "consolecommand{c=deop Owner} @self",
+                 "command {c=op Someone} @self"]}]}]}
+            """;
+
+    @Test
+    void anUntrustedPushKeepsNothingThatRunsACommandOrReachesEverybody(@TempDir Path dir) {
+        StudioContent content = new StudioContent(dir.toFile());
+        assertTrue(content.updateFromJson(STRANGER, LOG, false).ok());
+
+        ai.resourcepack.engine.api.DialogInfo menu = content.dialogs().get(ContentId.parse("studio:menu").orElseThrow());
+        assertTrue(menu.consoleCommands().isEmpty(), "no console buttons");
+        assertTrue(menu.command().isEmpty(), "no /command, which would be every player's");
+        assertTrue(menu.quickAction().isEmpty(), "not on the Quick Actions key, which is every player's");
+
+        ContentId golem = ContentId.parse("studio:golem").orElseThrow();
+        assertTrue(content.mobs().get(golem).spawning().isEmpty(), "no natural spawning, which is every world's");
+        StudioContent.PushedMobSkills skills = content.mobSkills().get(golem);
+        assertEquals(java.util.List.of("skill{s=studio:golem.slam} @self ~onTimer:120"), skills.lines());
+        assertEquals(java.util.List.of("damage{a=10} @playersinradius{r=6}"),
+                skills.metaskills().get("golem.slam").get("Skills"));
+        assertEquals(5, content.droppedCommands());
+    }
+
+    @Test
+    void aTrustedPushKeepsItAll(@TempDir Path dir) {
+        StudioContent content = new StudioContent(dir.toFile());
+        assertTrue(content.updateFromJson(STRANGER, LOG, true).ok());
+        ai.resourcepack.engine.api.DialogInfo menu = content.dialogs().get(ContentId.parse("studio:menu").orElseThrow());
+        assertEquals(java.util.Map.of("a1b2c3d4", "op {player}"), menu.consoleCommands());
+        assertEquals("menu", menu.command().orElseThrow());
+        assertTrue(menu.quickAction().isPresent());
+        ContentId golem = ContentId.parse("studio:golem").orElseThrow();
+        assertTrue(content.mobs().get(golem).spawning().isPresent());
+        assertEquals(3, content.mobSkills().get(golem).lines().size());
+        assertEquals(0, content.droppedCommands());
+    }
+
+    @Test
+    void aRestartReadsAPushAsTrustedOnlyWhenItWasAndTheServerStillTrusts(@TempDir Path dir) {
+        ContentId menu = ContentId.parse("studio:menu").orElseThrow();
+        StudioContent trusted = new StudioContent(dir.toFile());
+        assertTrue(trusted.updateFromJson(STRANGER, LOG, true).ok());
+        trusted.save(LOG);
+        StudioContent again = new StudioContent(dir.toFile());
+        again.load(LOG, true);
+        assertFalse(again.dialogs().get(menu).consoleCommands().isEmpty(), "a trusted push stays trusted");
+        StudioContent nowTestServer = new StudioContent(dir.toFile());
+        nowTestServer.load(LOG, false);
+        assertTrue(nowTestServer.dialogs().get(menu).consoleCommands().isEmpty(), "a server that trusts no push reads none");
+
+        // A file written before the marker existed, or by a stranger's push
+        // that says it is trusted, is read as a stranger's.
+        StudioContent claims = new StudioContent(dir.toFile());
+        assertTrue(claims.updateFromJson(STRANGER.replaceFirst("\\{", "{\"commandsKept\":true,"), LOG, false).ok());
+        assertTrue(claims.dialogs().get(menu).consoleCommands().isEmpty(), "a push cannot vouch for itself");
+        claims.save(LOG);
+        StudioContent reread = new StudioContent(dir.toFile());
+        reread.load(LOG, true);
+        assertTrue(reread.dialogs().get(menu).consoleCommands().isEmpty());
+    }
+
+    @Test
+    void runsCommandFindsTheMechanicAnywhereAndOnlyTheMechanic() {
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("command{c=op x} @self"));
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("- Cmd{c=op x}"));
+        assertTrue(StudioContent.PushedMobSkills.runsCommand("projectile{onHit=[ - consolecommand{c=stop} ]} @target"));
+        assertFalse(StudioContent.PushedMobSkills.runsCommand("skill{s=studio:commander.slam} @self"));
+        assertFalse(StudioContent.PushedMobSkills.runsCommand("message{m=Use /command to win} @self"));
+        assertFalse(StudioContent.PushedMobSkills.runsCommand("mycommand{} @self"));
+    }
+
     @Test
     void aDialogCommandIsOnePlainWord(@TempDir Path dir) {
         assertEquals("shop", ai.resourcepack.engine.api.DialogInfo.commandName(" /Shop "));
