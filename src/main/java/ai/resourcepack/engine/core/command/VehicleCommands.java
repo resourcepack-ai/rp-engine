@@ -119,7 +119,7 @@ public final class VehicleCommands implements Area {
     private boolean spawn(CommandSender sender, String[] args) {
         Location at = Places.standingAt(sender);
         if (at == null || args.length < 2) {
-            Reply.to(sender, "/rpengine vehicle <id>, as a player.");
+            Reply.to(sender, "/rp vehicle <id>, as a player.");
             return true;
         }
         Optional<Entity> spawned = ContentId.parse(args[1]).flatMap(id -> vehicles.spawn(at, id));
@@ -159,7 +159,7 @@ public final class VehicleCommands implements Area {
     private boolean remove(CommandSender sender) {
         Location at = Places.standingAt(sender);
         if (at == null) {
-            Reply.to(sender, "/rpengine vehicle remove, as a player.");
+            Reply.to(sender, "/rp vehicle remove, as a player.");
             return true;
         }
         List<Entity> found = vehicles.near(at, REACH);

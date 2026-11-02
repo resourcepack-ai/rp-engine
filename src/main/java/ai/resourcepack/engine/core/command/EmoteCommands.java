@@ -95,7 +95,18 @@ public final class EmoteCommands implements Area {
             return true;
         }
         Player player = (Player) sender;
-        if (args.length == 0 || args[0].equalsIgnoreCase("stop")) {
+        if (args.length == 0) {
+            // Bare /emote used to stop, which answered the question nobody
+            // asks; somebody typing it on its own wants to know what there is.
+            List<String> names = emotes.ids().stream().sorted().toList();
+            if (names.isEmpty()) {
+                Reply.to(player, "This server has no emotes yet.");
+            } else {
+                Reply.to(player, "Emotes: " + String.join(", ", names) + ". /emote <name> to play one.");
+            }
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("stop")) {
             emotes.stop(player, false, EmoteEndEvent.Cause.STOPPED);
             Reply.to(player, "Stopped.");
             return true;
@@ -118,7 +129,7 @@ public final class EmoteCommands implements Area {
         // what an emote's arguments mean, and a second copy here would drift.
         EmoteResult result = emotes.perform(player, List.of(rest), showYourself);
         if (!result.started()) {
-            Reply.to(player, refusal(result));
+            Reply.error(player, refusal(result));
             return true;
         }
         // Asked of the director rather than worked out here, so the warning
@@ -221,7 +232,7 @@ public final class EmoteCommands implements Area {
     static String refusal(EmoteResult result) {
         switch (result.reason()) {
             case UNKNOWN_EMOTE:
-                return "No emote by that name.";
+                return "No emote called that. /emote to see them.";
             case NO_EMOTES:
                 return "This server has no emotes yet.";
             case NO_RIGS_IN_PACK:
@@ -229,7 +240,7 @@ public final class EmoteCommands implements Area {
             case NO_RIG_FOR_PLAYER:
                 return "There is no rig for you in this pack.";
             case ALREADY_EMOTING:
-                return "You are already emoting.";
+                return "You're already doing one - /emote stop first.";
             case NOT_ON_GROUND:
                 return "You need to be on the ground.";
             case IN_WATER:
@@ -249,11 +260,10 @@ public final class EmoteCommands implements Area {
             case SOLO_EMOTE:
                 return "That emote needs other players.";
             case COOLDOWN:
-                return "Give it a moment.";
+                return "Wait a few seconds before the next one.";
             case CANCELLED:
-                return "Something stopped that.";
             default:
-                return "Cannot do that here.";
+                return "You can't emote here.";
         }
     }
 }

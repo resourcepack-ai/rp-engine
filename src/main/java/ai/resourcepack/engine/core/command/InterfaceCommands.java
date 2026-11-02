@@ -558,7 +558,7 @@ public final class InterfaceCommands implements Area {
 
     private boolean sound(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine sound <id> [player]");
+            Reply.to(sender, "/rp sound <id> [player]");
             return true;
         }
         if (args[1].equalsIgnoreCase("stop")) {
@@ -566,7 +566,7 @@ public final class InterfaceCommands implements Area {
         }
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine sound <id> <player>");
+            Reply.to(sender, "Name a player: /rp sound <id> <player>");
             return true;
         }
         if (!Targets.permitted(sender, "sound", target)) {
@@ -594,12 +594,12 @@ public final class InterfaceCommands implements Area {
      */
     private boolean stopSound(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            Reply.to(sender, "/rpengine sound stop <id|all> [player]");
+            Reply.to(sender, "/rp sound stop <id|all> [player]");
             return true;
         }
         Player target = Targets.of(sender, args.length > 3 ? args[3] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine sound stop <id|all> <player>");
+            Reply.to(sender, "Name a player: /rp sound stop <id|all> <player>");
             return true;
         }
         if (!Targets.permitted(sender, "sound", target)) {
@@ -641,7 +641,7 @@ public final class InterfaceCommands implements Area {
         // Proof the placeholder works in ordinary text, which is the whole
         // point of putting the glyphs in the default font.
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine say <text with :namespace:id: in it>");
+            Reply.to(sender, "/rp say <text with :namespace:id: in it>");
             return true;
         }
         // And text effects, so <fx:fire> can be tried the same way.
@@ -708,12 +708,12 @@ public final class InterfaceCommands implements Area {
 
     private boolean shader(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine shader <id|clear> [player]");
+            Reply.to(sender, "/rp shader <id|clear> [player]");
             return true;
         }
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine shader <id|clear> <player>");
+            Reply.to(sender, "Name a player: /rp shader <id|clear> <player>");
             return true;
         }
         if (!Targets.permitted(sender, "shader", target)) {
@@ -748,12 +748,12 @@ public final class InterfaceCommands implements Area {
 
     private boolean screen(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine screen <id> [player]");
+            Reply.to(sender, "/rp screen <id> [player]");
             return true;
         }
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine screen <id> <player>");
+            Reply.to(sender, "Name a player: /rp screen <id> <player>");
             return true;
         }
         if (!Targets.permitted(sender, "screen", target)) {
@@ -829,7 +829,7 @@ public final class InterfaceCommands implements Area {
         // else: for everybody else it is always themselves.
         boolean others = Targets.mayTargetOthers(sender, "dialog");
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine dialog <id> [name=value...]" + (others ? " [player]" : ""));
+            Reply.to(sender, "/rp dialog <id> [name=value...]" + (others ? " [player]" : ""));
             return true;
         }
         // Values are name=value; the one word without "=" is the player. It is
@@ -855,7 +855,7 @@ public final class InterfaceCommands implements Area {
         Player target = Targets.of(sender, named);
         if (target == null) {
             Reply.to(sender, named == null
-                    ? "Name a player: /rpengine dialog <id> [name=value...] <player>"
+                    ? "Name a player: /rp dialog <id> [name=value...] <player>"
                     : "Nobody called " + named + " is online.");
             return true;
         }
@@ -897,12 +897,12 @@ public final class InterfaceCommands implements Area {
 
     private boolean hud(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine hud <id|clear> [player]");
+            Reply.to(sender, "/rp hud <id|clear> [player]");
             return true;
         }
         Player target = Targets.of(sender, args.length > 2 ? args[2] : null);
         if (target == null) {
-            Reply.to(sender, "Name a player: /rpengine hud <id|clear> <player>");
+            Reply.to(sender, "Name a player: /rp hud <id|clear> <player>");
             return true;
         }
         if (!Targets.permitted(sender, "hud", target)) {

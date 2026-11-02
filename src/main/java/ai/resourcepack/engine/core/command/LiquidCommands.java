@@ -59,7 +59,7 @@ public final class LiquidCommands implements Area {
     @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
         if (!(sender instanceof Player)) {
-            Reply.to(sender, "/rpengine liquid, as a player.");
+            Reply.to(sender, "/rp liquid, as a player.");
             return true;
         }
         Player player = (Player) sender;
@@ -100,7 +100,7 @@ public final class LiquidCommands implements Area {
             return true;
         }
         if (args.length < 3) {
-            Reply.to(player, "/rpengine liquid fill <id>");
+            Reply.to(player, "/rp liquid fill <id>");
             return true;
         }
         Optional<ContentId> id = ContentId.parse(args[2]);
@@ -161,9 +161,9 @@ public final class LiquidCommands implements Area {
         // would have offered to RUN it, marking a corner because somebody
         // clicked a usage line. Three lines are also simply easier to read,
         // and each of them is now separately clickable.
-        Reply.to(player, "/rpengine liquid corner");
-        Reply.to(player, "/rpengine liquid fill <id>");
-        Reply.to(player, "/rpengine liquid clear");
+        Reply.to(player, "/rp liquid corner");
+        Reply.to(player, "/rp liquid fill <id>");
+        Reply.to(player, "/rp liquid clear");
         return true;
     }
 

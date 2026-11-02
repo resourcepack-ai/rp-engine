@@ -52,7 +52,7 @@ public final class MusicCommands implements Area {
             return true;
         }
         if (!sender.hasPermission("rpengine.music." + verb)) {
-            Reply.to(sender, "You need rpengine.music." + verb + " for that.");
+            Reply.error(sender, "You need rpengine.music." + verb + " for that.");
             return true;
         }
         if (verb.equals("play")) {
