@@ -96,6 +96,7 @@ permissions:
       rpengine.armor: true
       rpengine.edit: true
       rpengine.sync: true
+      rpengine.sync.console: true
       rpengine.distribute: true
       rpengine.push: true
       rpengine.emote.cast: true
@@ -420,6 +421,14 @@ permissions:
     default: op
   rpengine.sync:
     description: Live-test a pack from Studio, and share it.
+    default: op
+  rpengine.sync.console:
+    # Separate from rpengine.sync on purpose: a server that lets everybody
+    # live-test (a public test server) must not let everybody run console
+    # commands. A push's "Run as console" dialog buttons and its mobs'
+    # command skills are kept only when the player who owns the sync has
+    # this; without it they are left out and the rest of the push arrives.
+    description: Keep console commands in packs you push from Studio (dialog console buttons, mob command skills).
     default: op
   rpengine.distribute:
     description: Serve a published pack to everybody who joins this server.

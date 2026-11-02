@@ -112,6 +112,11 @@ class PluginYmlTest {
                 assertEquals("rpengine.cast.at", VfxCommands.AT_PERMISSION);
                 sub = "cast";
             }
+            // Or a sync owner's console commands surviving a push (rpengine.sync.console).
+            if (sub.equals("sync.console")) {
+                assertEquals("rpengine.sync.console", ai.resourcepack.engine.core.sync.StudioRelay.CONSOLE_PERMISSION);
+                sub = "sync";
+            }
             assertTrue(subs.contains(sub) || sub.equals("info"),
                     "rpengine." + node + " gates nothing: no such subcommand");
         }

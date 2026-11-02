@@ -190,6 +190,24 @@ public final class StudioRelay {
         Optional<String> rigsText = joined(rigsJson);
         Optional<String> emotesText = joined(emotesJson);
         Optional<String> contentText = joined(contentJson);
+        // Console commands only from somebody trusted with them; see
+        // StudioContent.withoutConsole.
+        Player owner = syncOwner(code);
+        if (contentText.isPresent() && (owner == null || !owner.hasPermission(CONSOLE_PERMISSION))) {
+            StudioContent.Stripped stripped = StudioContent.withoutConsole(contentText.get());
+            if (stripped.removed() > 0) {
+                contentText = Optional.of(stripped.json());
+                log.warning("Left " + stripped.removed() + " console command(s) out of a Studio push by "
+                        + (owner == null ? "a player who is not online" : owner.getName())
+                        + ", who does not have " + CONSOLE_PERMISSION + ".");
+                if (owner != null) {
+                    Player tell = owner;
+                    Tasks.on(plugin, tell, () -> EngineCommand.say(tell,
+                            "Console commands in your pack (dialog console buttons, mob command skills) were left out: "
+                                    + "you need " + CONSOLE_PERMISSION + " on this server."));
+                }
+            }
+        }
         StudioContent[] arrived = new StudioContent[1];
         synchronized (merging) {
             rigsText.ifPresent(json -> merged("Rigs", rigs.updateFromJson(json), () -> rigs.save(log)));
@@ -399,6 +417,28 @@ public final class StudioRelay {
      */
     private boolean known(String ref) {
         return SyncCodes.isUuid(ref) || sync.claimant(ref) != null;
+    }
+
+    /** What a push's owner needs for its console commands to be kept. */
+    public static final String CONSOLE_PERMISSION = "rpengine.sync.console";
+
+    /**
+     * Whose Studio account a push came from: the player who claimed the sync
+     * it is on. A uuid ref names a recipient, so it is traced back to the
+     * owner of the sync that player is receiving, and is its own owner only
+     * when it is on none. Null if that player is not here.
+     */
+    private Player syncOwner(String ref) {
+        UUID direct = SyncCodes.uuidOf(ref);
+        if (direct == null) {
+            return addressee(ref);
+        }
+        Player player = plugin.getServer().getPlayer(direct);
+        if (player == null) {
+            return null;
+        }
+        Optional<String> owner = group.receiving(player.getName()).flatMap(group::owner);
+        return owner.isEmpty() ? player : plugin.getServer().getPlayerExact(owner.get());
     }
 
     /**
