@@ -1221,7 +1221,9 @@ public final class DialogsImpl implements Dialogs {
         if (commands.isEmpty()) {
             return ConsoleRun.NOT_OFFERED;
         }
-        String named = lastShown(viewer).map(shown -> shown.id().toString()).orElse("a dialog");
+        Shown clicked = current(viewer);
+        long showsBefore = shows.getOrDefault(viewer, 0L);
+        String named = clicked == null ? "a dialog" : clicked.id().toString();
         for (String command : commands.get()) {
             if (command.isEmpty()) {
                 Bukkit.getLogger().warning("[RPEngine] " + named + ": a " + who + " button's placeholders left no command to run for "
@@ -1240,7 +1242,59 @@ public final class DialogsImpl implements Dialogs {
                 return ConsoleRun.FAILED;
             }
         }
+        redrawAfterRun(viewer, clicked, showsBefore);
         return ConsoleRun.RAN;
+    }
+
+    /**
+     * Draws a Stay open dialog again once its button's commands have run, so
+     * what they changed shows: a placeholder's new value, a piece whose Show
+     * when no longer holds. Without it the player kept looking at the dialog as
+     * it was, and a button they had just lost was still there to click (and
+     * refused, as no longer offered).
+     *
+     * <p>On the next tick, so a command that hands its work on by a tick has
+     * done it, and only when nothing else has taken the screen since: no
+     * dialog shown in between (a command that opens one, this engine's or
+     * {@code rpe dialog}), no chest opened over it, and the player still on
+     * this one. Only a dialog that stays open is redrawn ({@link #staysOpen}):
+     * every other kind is gone or going once the click lands, and bringing it
+     * back would undo its author's choice.
+     */
+    private void redrawAfterRun(Player viewer, Shown clicked, long showsBefore) {
+        org.bukkit.plugin.Plugin scheduler = plugin;
+        if (scheduler == null || clicked == null || !staysOpen(info(viewer, clicked.id()).orElse(null))) {
+            return;
+        }
+        Tasks.on(scheduler, viewer, () -> {
+            if (!viewer.isOnline() || shows.getOrDefault(viewer, 0L) != showsBefore || current(viewer) != clicked) {
+                return;
+            }
+            org.bukkit.event.inventory.InventoryType open = viewer.getOpenInventory().getType();
+            if (open != org.bukkit.event.inventory.InventoryType.CRAFTING
+                    && open != org.bukkit.event.inventory.InventoryType.CREATIVE) {
+                return;
+            }
+            follow(viewer, clicked.id(), clicked.values());
+        });
+    }
+
+    /**
+     * Whether a dialog stays on the screen after a click, as it was: its own
+     * {@code after_action} is {@code none} and the engine does not close it
+     * (Studio's Stay open, a hand-written {@code after: none}). Seamless is
+     * also {@code none}, but closes.
+     */
+    static boolean staysOpen(DialogInfo info) {
+        if (info == null || info.closesAfterClick() || info.json() == null || !info.json().contains("after_action")) {
+            return false;
+        }
+        try {
+            com.google.gson.JsonElement after = com.google.gson.JsonParser.parseString(info.json()).getAsJsonObject().get("after_action");
+            return after != null && after.isJsonPrimitive() && "none".equals(after.getAsString());
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /**

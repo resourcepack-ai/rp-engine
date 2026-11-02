@@ -329,6 +329,11 @@ class DialogDefinitionsTest {
                         + "  after: close\n"
                         + "  buttons:\n"
                         + "    - label: Go\n"
+                        + "      command: spawn\n"
+                        + "stays:\n"
+                        + "  after: none\n"
+                        + "  buttons:\n"
+                        + "    - label: Go\n"
                         + "      command: spawn\n");
         DialogDefinitions.Result result = parse();
         DialogInfo menu = one(result, "mypack:menu");
@@ -347,10 +352,14 @@ class DialogDefinitionsTest {
         assertFalse(waits.closesAfterClick());
         assertTrue(DialogsImpl.waitsForResponse(waits.json()));
         assertFalse(DialogsImpl.waitsForResponse(menu.json()));
+        assertFalse(DialogsImpl.staysOpen(menu), "seamless says none, but closes");
+        assertFalse(DialogsImpl.staysOpen(waits));
 
         DialogInfo closes = one(result, "mypack:closes");
         assertFalse(closes.closesAfterClick());
         assertTrue(closes.json().contains("\"after_action\": \"close\""));
+        assertFalse(DialogsImpl.staysOpen(closes));
+        assertTrue(DialogsImpl.staysOpen(one(result, "mypack:stays")), "none is drawn again after its buttons run");
         // The flag survives what is added after it.
         assertTrue(menu.withCommand("menu", null).withClickSounds(null, java.util.List.of()).closesAfterClick());
     }
