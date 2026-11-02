@@ -936,6 +936,93 @@ public final class StudioContent {
         return read;
     }
 
+    /** A skill line naming the command mechanic anywhere in it, inline skills included. */
+    private static final java.util.regex.Pattern COMMAND_SKILL =
+            java.util.regex.Pattern.compile("(^|[^a-z0-9_])(command|cmd|consolecommand)([^a-z0-9_]|$)");
+
+    /** What {@link #withoutConsole} returns: the manifest, and how much it took out. */
+    public record Stripped(String json, int removed) { }
+
+    /**
+     * A pushed manifest with everything that would run a command as the
+     * console taken out: each dialog's {@code consoleCommands}, and every mob
+     * skill line, metaskill line or metaskill condition that names the
+     * {@code command} mechanic. For a push from somebody who may live-test a
+     * pack but may not run console commands ({@code rpengine.sync.console}):
+     * {@code rpengine.sync} is often given to everybody on a test server, and
+     * a pushed dialog button running {@code op <name>} as the console made
+     * that the same as giving everybody op.
+     *
+     * <p>The skill test is deliberately coarse, a lower-cased search for the
+     * mechanic's names as words: it cannot be got round by inline skills or
+     * odd spacing, and a mob that loses a line it did not need is the whole
+     * cost of a false match. A manifest that is not JSON comes back unchanged
+     * for {@link #updateFromJson} to refuse.
+     */
+    public static Stripped withoutConsole(String json) {
+        com.google.gson.JsonElement root;
+        try {
+            root = com.google.gson.JsonParser.parseString(json);
+        } catch (RuntimeException e) {
+            return new Stripped(json, 0);
+        }
+        if (!root.isJsonObject()) {
+            return new Stripped(json, 0);
+        }
+        int removed = 0;
+        com.google.gson.JsonObject manifest = root.getAsJsonObject();
+        for (com.google.gson.JsonObject dialog : objects(manifest.get("dialogs"))) {
+            com.google.gson.JsonElement consoles = dialog.remove("consoleCommands");
+            if (consoles != null && !(consoles.isJsonArray() && consoles.getAsJsonArray().isEmpty())
+                    && !consoles.isJsonNull()) {
+                removed++;
+            }
+        }
+        for (com.google.gson.JsonObject mob : objects(manifest.get("mobs"))) {
+            removed += dropCommandLines(mob, "skills");
+            for (com.google.gson.JsonObject meta : objects(mob.get("metaskills"))) {
+                removed += dropCommandLines(meta, "skills");
+                removed += dropCommandLines(meta, "conditions");
+                removed += dropCommandLines(meta, "targetConditions");
+            }
+        }
+        return removed == 0 ? new Stripped(json, 0) : new Stripped(manifest.toString(), removed);
+    }
+
+    private static List<com.google.gson.JsonObject> objects(com.google.gson.JsonElement array) {
+        List<com.google.gson.JsonObject> out = new ArrayList<>();
+        if (array != null && array.isJsonArray()) {
+            for (com.google.gson.JsonElement each : array.getAsJsonArray()) {
+                if (each.isJsonObject()) {
+                    out.add(each.getAsJsonObject());
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Takes out of {@code owner.field} (a list of strings) every line naming the command mechanic. */
+    private static int dropCommandLines(com.google.gson.JsonObject owner, String field) {
+        com.google.gson.JsonElement lines = owner.get(field);
+        if (lines == null || !lines.isJsonArray()) {
+            return 0;
+        }
+        com.google.gson.JsonArray kept = new com.google.gson.JsonArray();
+        int dropped = 0;
+        for (com.google.gson.JsonElement line : lines.getAsJsonArray()) {
+            String text = line.isJsonPrimitive() ? line.getAsString() : line.toString();
+            if (COMMAND_SKILL.matcher(text.toLowerCase(java.util.Locale.ROOT)).find()) {
+                dropped++;
+            } else {
+                kept.add(line);
+            }
+        }
+        if (dropped > 0) {
+            owner.add(field, kept);
+        }
+        return dropped;
+    }
+
     /** The pack this came from, as Studio names it. Empty when the manifest named none. */
     public String packId() {
         return packId;
