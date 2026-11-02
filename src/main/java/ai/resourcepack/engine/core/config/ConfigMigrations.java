@@ -251,7 +251,7 @@ public final class ConfigMigrations {
                 "# https://resourcepack.ai/docs/rp-engine/config#other-plugins-shaders",
                 "shaders:",
                 "  merge: true",
-                "  # Also say it in chat to players with rpengine.shaders (ops), when it",
+                "  # Also say it in chat to players with rpengine.shaders.notify (ops), when it",
                 "  # happens and when they join. False keeps it to the console.",
                 "  notify-players: true",
                 "");
