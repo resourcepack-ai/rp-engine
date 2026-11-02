@@ -98,6 +98,18 @@ public final class RigPlacementListener implements Listener {
     /** The source stack's Bedrock slot marker, on the hitbox. See {@link #itemWithModelData}. */
     private final NamespacedKey bedrockSlotKey;
 
+    /**
+     * The size the STACK asked for, on the hitbox when a random size made the
+     * placement's differ. A broken animated rig rebuilds its item from the
+     * placement, and without this the roll would stick to the item and every
+     * later copy would go down at that size before rolling again.
+     */
+    private final NamespacedKey itemScaleKey;
+
+    /** How a player's placement of a pushed model varies; wired in at startup. */
+    private java.util.function.Function<String, ai.resourcepack.engine.api.ModelInfo.Variation> variations =
+            id -> ai.resourcepack.engine.api.ModelInfo.Variation.NONE;
+
     public RigPlacementListener(Host host, RigStore rigs, RigAnimator animator) {
         this.host = host;
         this.modelKey = host.key("model-id");
@@ -113,6 +125,14 @@ public final class RigPlacementListener implements Listener {
         this.authoredKey = host.key("model");
         this.placedYawKey = host.key("model-yaw");
         this.bedrockSlotKey = host.key("bedrock-slot");
+        this.itemScaleKey = host.key("rig-item-scale");
+    }
+
+    /** Where a pushed model's random turn and size come from, by its bare id. */
+    public void variations(java.util.function.Function<String, ai.resourcepack.engine.api.ModelInfo.Variation> variations) {
+        this.variations = variations == null
+                ? id -> ai.resourcepack.engine.api.ModelInfo.Variation.NONE
+                : variations;
     }
 
     /** The model id a panel-given item carries, or null if it's not one of ours. */
@@ -200,13 +220,21 @@ public final class RigPlacementListener implements Listener {
         if (ask.isCancelled()) return;
 
         // Nearest cardinal, so the model fronts the player like a placed
-        // furnace would.
-        float yaw = Math.round(player.getLocation().getYaw() / 90f) * 90f;
+        // furnace would — and then the model's own random turn and size, when
+        // Studio gave it one, rolled once and stored like any other placement.
+        ai.resourcepack.engine.api.ModelInfo.Variation variation = variation(modelId);
+        java.util.concurrent.ThreadLocalRandom roll = java.util.concurrent.ThreadLocalRandom.current();
+        float yaw = variation.yaw(Math.round(player.getLocation().getYaw() / 90f) * 90f, roll.nextDouble());
+        float stackScale = scaleOf(item);
+        float scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, stackScale * variation.scale(roll.nextDouble())));
 
         // The stack's choice becomes the placement's, stored on the entities
         // so it survives restarts and two copies of one model can stand side
         // by side playing different animations.
-        Interaction placed = spawn(target, modelId, item, yaw, animationOf(item), scaleOf(item), player);
+        Interaction placed = spawn(target, modelId, item, yaw, animationOf(item), scale, player);
+        if (scale != stackScale) {
+            placed.getPersistentDataContainer().set(itemScaleKey, PersistentDataType.FLOAT, stackScale);
+        }
         Bukkit.getPluginManager().callEvent(new ai.resourcepack.engine.api.event.ModelPlacedEvent(
                 player, ask.model(), placement(placed), item));
 
@@ -214,6 +242,19 @@ public final class RigPlacementListener implements Listener {
             item.setAmount(item.getAmount() - 1);
         }
         player.swingMainHand();
+    }
+
+    /**
+     * A pushed model's random turn and size. Asked by the id the stack
+     * carries and, failing that, its lower-case form, since a push names a
+     * model by slug and a stack written by hand may not match its case.
+     */
+    private ai.resourcepack.engine.api.ModelInfo.Variation variation(String modelId) {
+        ai.resourcepack.engine.api.ModelInfo.Variation found = variations.apply(modelId);
+        if (found == null || found.isNone()) {
+            found = variations.apply(modelId.toLowerCase(java.util.Locale.ROOT));
+        }
+        return found == null ? ai.resourcepack.engine.api.ModelInfo.Variation.NONE : found;
     }
 
     /**
@@ -393,7 +434,12 @@ public final class RigPlacementListener implements Listener {
         // The rebuild has to carry the animation choice, or breaking and
         // replacing a model resets it to the rig's first animation.
         String animation = hitbox.getPersistentDataContainer().get(animationKey, PersistentDataType.STRING);
-        Float placedScale = hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
+        // The stack's own size, not the placement's: a random size is the
+        // placement's and goes back to being rolled.
+        Float itemScale = hitbox.getPersistentDataContainer().get(itemScaleKey, PersistentDataType.FLOAT);
+        Float placedScale = itemScale != null
+                ? itemScale
+                : hitbox.getPersistentDataContainer().get(scaleKey, PersistentDataType.FLOAT);
         float scale = placedScale != null ? placedScale : 1f;
         String slot = hitbox.getPersistentDataContainer().get(bedrockSlotKey, PersistentDataType.STRING);
         Location where = hitbox.getLocation().add(0, 0.5, 0);

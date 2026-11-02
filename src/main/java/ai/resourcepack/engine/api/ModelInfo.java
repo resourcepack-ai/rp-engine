@@ -291,6 +291,142 @@ public final class ModelInfo {
         }
     }
 
+    /**
+     * How much a piece differs from the last one put down: a turn and a size
+     * picked at random each time a player places it, so a field of rocks or a
+     * shelf of pots does not read as one model stamped out.
+     *
+     * <p>Rolled ONCE, at placement, and stored on the placement under the keys
+     * its facing and size already live in, so everything that reads those
+     * (seats, states, growing, vehicle collision, the Bedrock copy) sees the
+     * piece as it was put down and a restart does not reshuffle it. Only a
+     * player's placement rolls; a plugin's {@code Models.place} is exact.
+     */
+    public static final class Variation {
+
+        /** Nothing random: every piece goes down as defined. */
+        public static final Variation NONE = new Variation(0f, 0f, 1f, 1f);
+
+        /** The widest a turn can be, either side: any direction at all. */
+        public static final float MAX_ROTATION = 180f;
+
+        /** The smallest and largest a random size may be, as a multiplier. */
+        public static final float MIN_SCALE = 0.1f;
+        public static final float MAX_SCALE = 10f;
+
+        private final float rotation;
+        private final float rotationStep;
+        private final float scaleMin;
+        private final float scaleMax;
+
+        private Variation(float rotation, float rotationStep, float scaleMin, float scaleMax) {
+            this.rotation = rotation;
+            this.rotationStep = rotationStep;
+            this.scaleMin = scaleMin;
+            this.scaleMax = scaleMax;
+        }
+
+        /**
+         * @param rotation     degrees either side of the way the piece would
+         *                     have faced, 0&ndash;180; 180 is any direction
+         * @param rotationStep the turn is a whole number of these, in degrees,
+         *                     or 0 for any angle; 90 keeps a piece on the grid
+         * @param scaleMin     the smallest size, as a multiplier of its own
+         * @param scaleMax     the largest; the two are swapped if given backwards
+         */
+        public static Variation of(float rotation, float rotationStep, float scaleMin, float scaleMax) {
+            float turn = finite(rotation, 0f);
+            float step = finite(rotationStep, 0f);
+            float low = clampScale(finite(scaleMin, 1f));
+            float high = clampScale(finite(scaleMax, 1f));
+            if (low > high) {
+                float swap = low;
+                low = high;
+                high = swap;
+            }
+            turn = Math.max(0f, Math.min(MAX_ROTATION, turn));
+            step = Math.max(0f, Math.min(360f, step));
+            if (turn == 0f && low == 1f && high == 1f) {
+                return NONE;
+            }
+            return new Variation(turn, step, low, high);
+        }
+
+        private static float finite(float value, float fallback) {
+            return Float.isFinite(value) ? value : fallback;
+        }
+
+        private static float clampScale(float value) {
+            return Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
+        }
+
+        /** Degrees either side of the piece's facing a placement may turn. */
+        public float rotation() {
+            return rotation;
+        }
+
+        /** What a turn is a whole number of, in degrees; 0 for any angle. */
+        public float rotationStep() {
+            return rotationStep;
+        }
+
+        /** The smallest random size, as a multiplier. */
+        public float scaleMin() {
+            return scaleMin;
+        }
+
+        /** The largest random size, as a multiplier. */
+        public float scaleMax() {
+            return scaleMax;
+        }
+
+        /** Whether this varies anything at all. */
+        public boolean isNone() {
+            return rotation == 0f && scaleMin == 1f && scaleMax == 1f;
+        }
+
+        /**
+         * The way a piece faces, {@code yaw} being the way it would have
+         * without this.
+         *
+         * <p>A stepped turn picks one of its steps evenly. A full circle
+         * (180 either side) counts its steps round the circle rather than
+         * from -180 to 180, or the half-turn would be picked twice as often
+         * as every other.
+         *
+         * @param roll a uniform random number in [0, 1)
+         */
+        public float yaw(float yaw, double roll) {
+            if (rotation == 0f) {
+                return yaw;
+            }
+            double r = Math.max(0d, Math.min(Math.nextDown(1d), roll));
+            if (rotationStep <= 0f) {
+                return (float) (yaw + (r * 2d - 1d) * rotation);
+            }
+            if (rotation >= MAX_ROTATION) {
+                int around = Math.max(1, Math.round(360f / rotationStep));
+                return yaw + (int) Math.floor(r * around) * (360f / around);
+            }
+            int each = (int) Math.floor(rotation / rotationStep + 1e-4);
+            int picked = (int) Math.floor(r * (each * 2 + 1)) - each;
+            return yaw + picked * rotationStep;
+        }
+
+        /**
+         * The size multiplier a placement gets.
+         *
+         * @param roll a uniform random number in [0, 1)
+         */
+        public float scale(double roll) {
+            if (scaleMin == scaleMax) {
+                return scaleMin;
+            }
+            double r = Math.max(0d, Math.min(1d, roll));
+            return (float) (scaleMin + r * (scaleMax - scaleMin));
+        }
+    }
+
     private final ContentId id;
     private final ContentId item;
     private final Facing facing;
@@ -302,6 +438,7 @@ public final class ModelInfo {
     private float seatSide;
     private float seatForward;
     private boolean vehicleCollision = true;
+    private Variation variation = Variation.NONE;
     private ModelShape shape = ModelShape.NONE;
     private StorageSpec storage;
     private Jukebox jukebox;
@@ -467,6 +604,18 @@ public final class ModelInfo {
         return changed;
     }
 
+    /**
+     * The same model, put down a little differently each time, or exactly as
+     * defined for {@link Variation#NONE} or null.
+     *
+     * <p>A copy, for the reason {@link #withSeatOffset} gives.
+     */
+    public ModelInfo withVariation(Variation variation) {
+        ModelInfo changed = copy();
+        changed.variation = variation == null ? Variation.NONE : variation;
+        return changed;
+    }
+
     /** The same model, knowing what it is shaped like. */
     public ModelInfo withShape(ModelShape shape) {
         ModelInfo changed = copy();
@@ -531,6 +680,7 @@ public final class ModelInfo {
         made.seatSide = seatSide;
         made.seatForward = seatForward;
         made.vehicleCollision = vehicleCollision;
+        made.variation = variation;
         made.shape = shape;
         made.storage = storage;
         made.jukebox = jukebox;
@@ -578,6 +728,11 @@ public final class ModelInfo {
      */
     public boolean vehicleCollision() {
         return vehicleCollision;
+    }
+
+    /** How a player's placement turns and sizes it at random; {@link Variation#NONE} for not at all. */
+    public Variation variation() {
+        return variation;
     }
 
     /**

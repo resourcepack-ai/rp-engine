@@ -649,6 +649,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         animator.bedrock(bedrock);
         rigPlacement = new RigPlacementListener(library, rigs, animator);
         rigPlacement.bedrock(bedrock);
+        // Read at each placement, so a push that changes a model's random turn
+        // or size reaches the next one without a restart.
+        rigPlacement.variations(id -> pushedAll.modelVariation(id));
         models = new ModelsImpl(animator, rigs, rigPlacement);
 
         emoteStore = new EmoteStore(getDataFolder());

@@ -111,6 +111,36 @@ class StudioContentTest {
         assertTrue(registry.contains(ContentId.parse("studio:laser").orElseThrow()));
     }
 
+    /**
+     * A model's random turn and size, sent beside its collision flag, and kept
+     * through the file a restart reads back.
+     */
+    @Test
+    void aModelsRandomTurnAndSizeSurviveARestart(@TempDir Path dir) {
+        StudioContent content = read(dir, """
+                {"packId":"ian8vezm","models":[
+                  {"id":"rock","vehicleCollision":true,
+                   "variation":{"rotation":180,"rotationStep":90,"scaleMin":0.8,"scaleMax":1.25}},
+                  {"id":"rug","vehicleCollision":false}]}
+                """);
+
+        assertEquals(180f, content.modelVariation("rock").rotation());
+        assertEquals(1.25f, content.modelVariation("rock").scaleMax());
+        assertTrue(content.modelVariation("rug").isNone());
+        assertTrue(content.modelVariation("never-heard-of").isNone());
+        assertTrue(content.modelStopsVehicles("rock"));
+        assertFalse(content.modelStopsVehicles("rug"));
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+
+        assertEquals(90f, reloaded.modelVariation("rock").rotationStep());
+        assertEquals(0.8f, reloaded.modelVariation("rock").scaleMin());
+        assertFalse(reloaded.modelStopsVehicles("rug"));
+        assertEquals(180f, StudioContent.union(java.util.List.of(reloaded)).modelVariation("rock").rotation());
+    }
+
     @Test
     void itSurvivesARestart(@TempDir Path dir) {
         StudioContent content = read(dir, MANIFEST);

@@ -205,6 +205,7 @@ public final class ModelDefinitions {
                         light, surface, drop)
                 .withSeatOffset(seatSide, seatForward)
                 .withVehicleCollision(vehicleCollision)
+                .withVariation(variation(body, origin, where, diagnostics))
                 .withShape(shape)
                 .withStorage(storage)
                 .withJukebox(jukebox)
@@ -599,6 +600,92 @@ public final class ModelDefinitions {
             return 0f;
         }
         return value;
+    }
+
+    /**
+     * {@code random:}, how much each placement differs from the last.
+     *
+     * <pre>
+     * random:
+     *   rotation: 180       # degrees either side of its facing; 180 is any way
+     *   rotation-step: 90   # optional: turn by whole quarters, staying on the grid
+     *   scale: [0.8, 1.2]   # or 0.8-1.2: a size picked between the two
+     * </pre>
+     *
+     * Anything out of range is clamped with a warning rather than refused,
+     * the way {@link #size} treats a hitbox: a typo should still place.
+     */
+    static ModelInfo.Variation variation(DefinitionNode body, String origin, String where,
+                                         List<Diagnostic> diagnostics) {
+        Optional<DefinitionNode> declared = body.node("random");
+        if (declared.isEmpty()) {
+            if (body.has("random")) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "random: should hold rotation:, rotation-step: or scale:. It is ignored."));
+            }
+            return ModelInfo.Variation.NONE;
+        }
+        DefinitionNode random = declared.get();
+        float rotation = degrees(random, "rotation", origin, where, diagnostics);
+        if (rotation > ModelInfo.Variation.MAX_ROTATION) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "random: rotation: " + rotation + " is more than 180, which is already any direction. "
+                            + "Using 180."));
+        }
+        float step = degrees(random, "rotation-step", origin, where, diagnostics);
+        if (step > 0f && rotation > 0f && rotation < ModelInfo.Variation.MAX_ROTATION && step > rotation) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "random: rotation-step: " + step + " is more than rotation: " + rotation
+                            + ", so it never turns."));
+        }
+
+        float low = 1f;
+        float high = 1f;
+        List<String> scale = random.strings("scale");
+        if (scale.size() == 1 && scale.get(0).indexOf('-', 1) > 0) {
+            String one = scale.get(0);
+            int dash = one.indexOf('-', 1);
+            scale = List.of(one.substring(0, dash), one.substring(dash + 1));
+        }
+        if (scale.size() == 2) {
+            try {
+                low = Float.parseFloat(scale.get(0).trim());
+                high = Float.parseFloat(scale.get(1).trim());
+            } catch (NumberFormatException e) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "random: scale: " + scale + " is not two numbers. It keeps its own size."));
+                low = 1f;
+                high = 1f;
+            }
+        } else if (!scale.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "random: scale: should be two numbers, as [0.8, 1.2] or 0.8-1.2. It keeps its own size."));
+        }
+        for (float each : new float[]{low, high}) {
+            if (!Float.isFinite(each) || each < ModelInfo.Variation.MIN_SCALE
+                    || each > ModelInfo.Variation.MAX_SCALE) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "random: scale: " + each + " is outside " + ModelInfo.Variation.MIN_SCALE
+                                + " to " + ModelInfo.Variation.MAX_SCALE + " and was clamped."));
+            }
+        }
+        return ModelInfo.Variation.of(rotation, step, low, high);
+    }
+
+    /** A non-negative angle, 0 when absent or not a number. */
+    private static float degrees(DefinitionNode body, String key, String origin, String where,
+                                 List<Diagnostic> diagnostics) {
+        if (!body.has(key)) {
+            return 0f;
+        }
+        Optional<Double> value = body.decimal(key);
+        if (value.isEmpty() || !Double.isFinite(value.get()) || value.get() < 0d) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "random: " + key + ": " + body.raw(key) + " is not a number of degrees, 0 or more. "
+                            + "Using 0."));
+            return 0f;
+        }
+        return value.get().floatValue();
     }
 
     /**

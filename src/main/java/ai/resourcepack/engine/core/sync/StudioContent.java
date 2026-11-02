@@ -567,6 +567,27 @@ public final class StudioContent {
         String id;
         /** Boxed for the reason every optional field here is. Absent is TRUE. */
         Boolean vehicleCollision;
+        /**
+         * How a player's placement turns and sizes it at random, or absent for
+         * not at all. The other fact a zip has no field for, and sent on the
+         * same terms: only for the models that have one.
+         */
+        PlaceVariation variation;
+    }
+
+    /**
+     * A model's random turn and size, as {@link ai.resourcepack.engine.api.ModelInfo.Variation}
+     * takes them. Every field absent means "not that one".
+     */
+    static final class PlaceVariation {
+        /** Degrees either side of its facing, 0-180. */
+        Float rotation;
+        /** What a turn is a whole number of, in degrees, or absent/0 for any angle. */
+        Float rotationStep;
+        /** The smallest size, as a multiplier. */
+        Float scaleMin;
+        /** The largest. */
+        Float scaleMax;
     }
 
     static final class Sound {
@@ -948,6 +969,11 @@ public final class StudioContent {
      * the pack to say so. See {@link #modelStopsVehicles}.
      */
     private volatile Set<String> vehiclePassable = Set.of();
+    /**
+     * The pushed models a player's placement varies, by bare id. Exceptions
+     * again: a model absent here goes down exactly as built.
+     */
+    private volatile Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> variations = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
@@ -1120,6 +1146,7 @@ public final class StudioContent {
         copy.huds = huds;
         copy.vehicles = vehicles;
         copy.vehiclePassable = vehiclePassable;
+        copy.variations = variations;
         copy.dialogs = dialogs;
         copy.armor3d = armor3d;
         copy.objects = objects;
@@ -1146,6 +1173,7 @@ public final class StudioContent {
         Map<ContentId, OverlayInfo> huds = new LinkedHashMap<>();
         Map<ContentId, VehicleInfo> vehicles = new LinkedHashMap<>();
         Set<String> passable = new java.util.LinkedHashSet<>();
+        Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> varied = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = new LinkedHashMap<>();
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
@@ -1163,6 +1191,7 @@ public final class StudioContent {
             huds.putAll(pack.huds);
             vehicles.putAll(pack.vehicles);
             passable.addAll(pack.vehiclePassable);
+            varied.putAll(pack.variations);
             dialogs.putAll(pack.dialogs);
             armor.putAll(pack.armor3d);
             objects.putAll(pack.objects);
@@ -1181,6 +1210,7 @@ public final class StudioContent {
         all.huds = Map.copyOf(huds);
         all.vehicles = Map.copyOf(vehicles);
         all.vehiclePassable = Set.copyOf(passable);
+        all.variations = Map.copyOf(varied);
         all.dialogs = Map.copyOf(dialogs);
         all.armor3d = Map.copyOf(armor);
         all.objects = Map.copyOf(objects);
@@ -1278,10 +1308,32 @@ public final class StudioContent {
         return id != null && !vehiclePassable.contains(id);
     }
 
+    /**
+     * How a player's placement of a pushed model varies its turn and size,
+     * or {@link ai.resourcepack.engine.api.ModelInfo.Variation#NONE} for a
+     * model this has never heard of.
+     */
+    public ai.resourcepack.engine.api.ModelInfo.Variation modelVariation(String id) {
+        ai.resourcepack.engine.api.ModelInfo.Variation found = id == null ? null : variations.get(id);
+        return found == null ? ai.resourcepack.engine.api.ModelInfo.Variation.NONE : found;
+    }
+
+    /** What arrived, cleaned the way a content folder's {@code random:} is. */
+    static ai.resourcepack.engine.api.ModelInfo.Variation variationOf(PlaceVariation sent) {
+        if (sent == null) {
+            return ai.resourcepack.engine.api.ModelInfo.Variation.NONE;
+        }
+        return ai.resourcepack.engine.api.ModelInfo.Variation.of(
+                sent.rotation == null ? 0f : sent.rotation,
+                sent.rotationStep == null ? 0f : sent.rotationStep,
+                sent.scaleMin == null ? 1f : sent.scaleMin,
+                sent.scaleMax == null ? 1f : sent.scaleMax);
+    }
+
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
+                && vehiclePassable.isEmpty() && variations.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
                 && textEffects.isEmpty() && vfx.isEmpty() && mobs.isEmpty();
     }
 
@@ -1393,12 +1445,17 @@ public final class StudioContent {
         }
 
         Set<String> readPassable = new java.util.LinkedHashSet<>();
+        Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> readVariations = new LinkedHashMap<>();
         for (Model model : manifest.models == null ? List.<Model>of() : manifest.models) {
             if (model == null || model.id == null || model.id.isEmpty()) {
                 continue;
             }
             if (Boolean.FALSE.equals(model.vehicleCollision)) {
                 readPassable.add(model.id);
+            }
+            ai.resourcepack.engine.api.ModelInfo.Variation variation = variationOf(model.variation);
+            if (!variation.isNone()) {
+                readVariations.put(model.id, variation);
             }
         }
 
@@ -1550,6 +1607,7 @@ public final class StudioContent {
         huds = Map.copyOf(readHuds);
         vehicles = Map.copyOf(readVehicles);
         vehiclePassable = Set.copyOf(readPassable);
+        variations = Map.copyOf(readVariations);
         dialogs = Map.copyOf(readDialogs);
         armor3d = Map.copyOf(readArmor);
         objects = Map.copyOf(readObjects);
@@ -2153,10 +2211,23 @@ public final class StudioContent {
         // put a wall in front of every car at a rug somebody had already said
         // to drive over.
         manifest.models = new ArrayList<>();
-        for (String id : vehiclePassable) {
+        Set<String> modelIds = new java.util.LinkedHashSet<>(vehiclePassable);
+        modelIds.addAll(variations.keySet());
+        for (String id : modelIds) {
             Model model = new Model();
             model.id = id;
-            model.vehicleCollision = Boolean.FALSE;
+            if (vehiclePassable.contains(id)) {
+                model.vehicleCollision = Boolean.FALSE;
+            }
+            ai.resourcepack.engine.api.ModelInfo.Variation variation = variations.get(id);
+            if (variation != null) {
+                PlaceVariation written = new PlaceVariation();
+                written.rotation = variation.rotation();
+                written.rotationStep = variation.rotationStep();
+                written.scaleMin = variation.scaleMin();
+                written.scaleMax = variation.scaleMax();
+                model.variation = written;
+            }
             manifest.models.add(model);
         }
         // The one entry on this list a restart cannot do without, and it was

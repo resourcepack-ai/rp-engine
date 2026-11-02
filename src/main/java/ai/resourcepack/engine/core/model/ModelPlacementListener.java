@@ -295,7 +295,14 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
-        Interaction placed = place(target, info, yawFor(player, info), held);
+        // A random turn and size, rolled once here and stored where the facing
+        // and the plugin multiplier already live, so everything that reads
+        // those sees the piece as it went down.
+        ModelInfo.Variation variation = info.variation();
+        java.util.concurrent.ThreadLocalRandom roll = java.util.concurrent.ThreadLocalRandom.current();
+        float yaw = variation.yaw(yawFor(player, info), roll.nextDouble());
+        float multiplier = variation.scale(roll.nextDouble());
+        Interaction placed = place(target, info, yaw, held, multiplier);
         if (placed != null) {
             Bukkit.getPluginManager().callEvent(
                     new ai.resourcepack.engine.api.event.ModelPlacedEvent(player, info.id(), placement(placed), held));
