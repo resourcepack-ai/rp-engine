@@ -112,7 +112,7 @@ public final class SyncCommands implements Area {
             return distribute(sender, args);
         }
         if (!(sender instanceof Player)) {
-            Reply.to(sender, "/rpengine sync, as a player.");
+            Reply.to(sender, "/rp sync, as a player.");
             return true;
         }
         return sync((Player) sender, args);
@@ -158,9 +158,9 @@ public final class SyncCommands implements Area {
 
     private boolean distribute(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine distribute <code>  serve a published pack to everybody who joins");
-            Reply.to(sender, "/rpengine distribute off     stop serving it");
-            Reply.to(sender, "/rpengine distribute off --keep  stop, and keep its folder in content/ as your own");
+            Reply.to(sender, "/rp distribute <code>  serve a published pack to everybody who joins");
+            Reply.to(sender, "/rp distribute off     stop serving it");
+            Reply.to(sender, "/rp distribute off --keep  stop, and keep its folder in content/ as your own");
             return true;
         }
         if (args[1].equalsIgnoreCase("off")) {
@@ -226,7 +226,7 @@ public final class SyncCommands implements Area {
 
     private boolean add(Player player, String[] args) {
         if (args.length < 3) {
-            Reply.to(player, "/rpengine sync add <player>");
+            Reply.to(player, "/rp sync add <player>");
             return true;
         }
         own(player);
@@ -309,7 +309,7 @@ public final class SyncCommands implements Area {
 
     private boolean remove(Player player, String[] args) {
         if (args.length < 3) {
-            Reply.to(player, "/rpengine sync remove <player>");
+            Reply.to(player, "/rp sync remove <player>");
             return true;
         }
         own(player);
@@ -408,7 +408,7 @@ public final class SyncCommands implements Area {
         if (!SyncCodes.isValid(code)) {
             Reply.to(player, code + " is not a pairing code. "
                     + "Codes are eight digits, from the sync button in the panel.");
-            Reply.to(player, "/rpengine sync <code|add|accept|deny|remove|leave|who|stop>");
+            Reply.to(player, "/rp sync <code>, or add|who|leave|stop");
             return true;
         }
         // A code somebody else here has claimed is theirs: claiming it again
@@ -424,7 +424,11 @@ public final class SyncCommands implements Area {
             return true;
         }
         if (!sync.link(code, player.getName(), isBedrock.test(player.getUniqueId()))) {
-            Reply.to(player, "Could not reach studio. Check sync.url in config.yml.");
+            // The player cannot fix the address and should not be shown the
+            // config; whoever can is reading the console.
+            Reply.error(player, "Couldn't reach Studio just now - try again in a minute.");
+            org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(SyncCommands.class).getLogger().warning(player.getName()
+                    + " could not sync: Studio's sync service did not answer. Check sync.url in config.yml.");
             return true;
         }
         // Anybody already on this player's sync comes across to the new code
@@ -446,7 +450,7 @@ public final class SyncCommands implements Area {
         List<String> others = group.recipients(code).stream()
                 .filter(name -> !name.equalsIgnoreCase(player.getName()))
                 .toList();
-        Reply.to(player, "Waiting for a push on " + code + ". Hit sync in the panel. "
+        Reply.to(player, "Waiting for your pack on code " + code + ". Press Sync in Studio. "
                 + (others.isEmpty()
                         ? "/rp sync add <player> to share it."
                         : "Still sharing with " + String.join(", ", others) + "."));

@@ -73,7 +73,7 @@ public final class SpawnerCommands implements Area {
             return true;
         }
         if (!sender.hasPermission("rpengine.spawner." + verb)) {
-            Reply.to(sender, "You need rpengine.spawner." + verb + " for that.");
+            Reply.error(sender, "You need rpengine.spawner." + verb + " for that.");
             return true;
         }
         switch (verb) {

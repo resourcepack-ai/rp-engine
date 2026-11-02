@@ -185,7 +185,7 @@ public final class ContentCommands implements Area {
 
     private boolean give(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine give <id> [amount]");
+            Reply.to(sender, "/rp give <id> [amount]");
             return true;
         }
         if (!(sender instanceof Player)) {

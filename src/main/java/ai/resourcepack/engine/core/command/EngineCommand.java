@@ -149,6 +149,17 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
     }
 
     /**
+     * The subcommands a dialog's buttons run, which nobody types.
+     *
+     * <p>Every player holds their nodes, because a click on a dialog runs them
+     * as that player — so they stay runnable. But completing them, or listing
+     * them in the help of somebody who only came to see what they can do, is
+     * six lines of machinery between a player and the two commands they
+     * wanted. Staff, who hold {@code rpengine.info}, still see them in the help.
+     */
+    static final Set<String> PLUMBING = Set.of("var", "page", "slot", "click", "run", "quick");
+
+    /**
      * Answering an invitation, which nobody needs permission to do.
      *
      * <p>The permission is checked on the first word, which is the subcommand
@@ -196,15 +207,15 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
         }
 
         String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
-        if (sub.equals("info")) {
+        if (sub.equals("info") || sub.equals("help")) {
             return info(sender);
         }
         if (!areas.containsKey(sub)) {
-            Reply.to(sender, "No such command. /rpengine for the list.");
+            Reply.error(sender, "No such command. /rp for the ones you can use.");
             return true;
         }
         if (!ungated(sub, args) && !allowed(sender, sub)) {
-            Reply.to(sender, "You need " + permissionFor(sub) + " for that.");
+            Reply.error(sender, "You need " + permissionFor(sub) + " for that.");
             return true;
         }
         if (!ai.resourcepack.engine.core.Regions.folia()) {
@@ -236,7 +247,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
             // refuses is worse than not completing it.
             List<String> theirs = new ArrayList<>();
             for (String sub : areas.keySet()) {
-                if (allowed(sender, sub)) {
+                if (allowed(sender, sub) && !PLUMBING.contains(sub)) {
                     theirs.add(sub);
                 }
             }
@@ -259,30 +270,32 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
      *
      * <p>Only what the reader can actually run, for the same reason the
      * completer offers only that: a help listing a command that then refuses
-     * is worse than one that leaves it out.
+     * is worse than one that leaves it out. That is also why the command list
+     * is not behind {@code rpengine.info} — a player who may only emote is
+     * still told so — and only the counts of what is loaded are.
      */
     private boolean info(CommandSender sender) {
-        if (!sender.hasPermission(permissionFor("info"))) {
-            Reply.to(sender, "You need " + permissionFor("info") + " for that.");
-            return true;
-        }
-        Reply.to(sender, Reply.plural(registry.ids().size(), "id") + " across "
-                + Reply.plural(registry.namespaces().size(), "namespace") + ", "
-                + Reply.plural(built.get().size(), "bundle") + ".");
+        boolean staff = sender.hasPermission(permissionFor("info"));
+        if (staff) {
+            Reply.to(sender, Reply.plural(registry.ids().size(), "id") + " across "
+                    + Reply.plural(registry.namespaces().size(), "namespace") + ", "
+                    + Reply.plural(built.get().size(), "bundle") + ".");
 
-        List<String> kinds = new ArrayList<>();
-        for (ContentKind kind : ContentKind.values()) {
-            int count = registry.ids(kind).size();
-            if (count > 0) {
-                kinds.add(Reply.plural(count, kind.name().toLowerCase(Locale.ROOT)));
+            List<String> kinds = new ArrayList<>();
+            for (ContentKind kind : ContentKind.values()) {
+                int count = registry.ids(kind).size();
+                if (count > 0) {
+                    kinds.add(Reply.plural(count, kind.name().toLowerCase(Locale.ROOT)));
+                }
             }
+            Reply.to(sender, kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds));
         }
-        Reply.to(sender, kinds.isEmpty() ? "nothing loaded" : String.join(", ", kinds));
 
         boolean any = false;
         for (Area area : groups) {
             List<Help> lines = area.help().stream()
                     .filter(line -> allowed(sender, line.command()))
+                    .filter(line -> staff || !PLUMBING.contains(line.command()))
                     .toList();
             if (lines.isEmpty()) {
                 continue;
@@ -299,8 +312,9 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(line.render(sender));
             }
         }
-        if (!any) {
-            Reply.to(sender, "You have no RP Engine commands. Ask for rpengine.admin.");
+        if (!any && !staff) {
+            Reply.to(sender, "Nothing here for you to run."
+                    + (sender.hasPermission(permissionFor("emote")) ? " Try /emote." : ""));
         }
         return true;
     }

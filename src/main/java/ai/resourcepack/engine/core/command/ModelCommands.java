@@ -170,7 +170,7 @@ public final class ModelCommands implements Area {
             return true;
         }
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine bind <id>");
+            Reply.to(sender, "/rp bind <id>");
             return true;
         }
         Player player = (Player) sender;
@@ -398,7 +398,7 @@ public final class ModelCommands implements Area {
      */
     private boolean egg(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine egg <id> [player] [amount]");
+            Reply.to(sender, "/rp egg <id> [player] [amount]");
             return true;
         }
         Optional<ContentId> id = ContentId.parse(args[1]);
@@ -429,7 +429,7 @@ public final class ModelCommands implements Area {
      */
     private boolean spawn(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rpengine spawn <id> [x y z [world]] [count] [level]");
+            Reply.to(sender, "/rp spawn <id> [x y z [world]] [count] [level]");
             return true;
         }
         Optional<ContentId> id = ContentId.parse(args[1]);
@@ -456,7 +456,7 @@ public final class ModelCommands implements Area {
             at = ((org.bukkit.command.BlockCommandSender) sender).getBlock().getLocation().add(0.5, 1, 0.5);
         }
         if (at == null || at.getWorld() == null) {
-            Reply.to(sender, "From the console: /rpengine spawn <id> <x> <y> <z> [world] [count] [level].");
+            Reply.to(sender, "From the console: /rp spawn <id> <x> <y> <z> [world] [count] [level].");
             return true;
         }
         int count = 1;

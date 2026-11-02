@@ -89,7 +89,7 @@ public final class ObjectCommands implements Area {
             return true;
         }
         if (!sender.hasPermission("rpengine.object." + verb)) {
-            Reply.to(sender, "You need rpengine.object." + verb + " for that.");
+            Reply.error(sender, "You need rpengine.object." + verb + " for that.");
             return true;
         }
         if ("spawn".equals(verb)) {
