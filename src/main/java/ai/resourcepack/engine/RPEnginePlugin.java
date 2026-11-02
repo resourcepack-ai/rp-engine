@@ -1963,7 +1963,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             });
             if (!refused.isEmpty()) {
                 getLogger().warning("Left out " + refused.size() + " pushed skill line(s) a synced pack may not "
-                        + "run here (" + ai.resourcepack.engine.core.sync.StudioRelay.TRUSTED_PERMISSION
+                        + "run here (" + ai.resourcepack.engine.core.sync.StudioRelay.CONSOLE_PERMISSION
                         + " lets a push run them): " + String.join("; ", refused.subList(0, Math.min(5, refused.size())))
                         + (refused.size() > 5 ? "; ..." : ""));
             }
