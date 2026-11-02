@@ -326,6 +326,14 @@ emotes:
   # rigs work as before.
   rigs: true
 
+  # Which of those players get a rig: the ones seen in the last rig-days days,
+  # newest first, at most rig-players of them. Everybody else wears the
+  # default until they come back, which bakes theirs again. Every rig is about
+  # 20 KB of everybody's download, so a server strangers pass through wants
+  # these; 0 is no limit.
+  rig-days: 30
+  rig-players: 64
+
   # Whether an emoting player's nametag is drawn through whatever is in front
   # of it. Off, and deliberately unlike vanilla.
   #

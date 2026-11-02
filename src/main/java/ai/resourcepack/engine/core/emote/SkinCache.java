@@ -163,6 +163,9 @@ public final class SkinCache {
         try {
             if (Files.isRegularFile(png) && Files.isRegularFile(meta)
                     && want.equals(Files.readString(meta, StandardCharsets.UTF_8))) {
+                // Seen now: the stamp's age is how long since they were last
+                // here, which is what decides whether their rig is baked.
+                Files.setLastModifiedTime(meta, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
                 return tellIfUnbaked(player, key) ? Noticed.KEPT : Noticed.SETTLED;
             }
         } catch (IOException ignored) {
@@ -226,10 +229,23 @@ public final class SkinCache {
     }
 
     /**
-     * Every skin on disk plus the default, ready to bake. Read on the main
-     * thread at build time; a folder of a few hundred small PNGs is nothing.
+     * The skins to bake plus the default, ready to bake: the players seen in
+     * the last {@code emotes.rig-days} days, newest first, at most
+     * {@code emotes.rig-players} of them (0 for no limit on either).
+     *
+     * <p>It was every skin on disk, so on a server strangers pass through the
+     * rigs pack grew by a rig with every newcomer and never shrank: 308 rigs
+     * and 6 MB on the public test server, re-downloaded by everybody each time
+     * it changed. A player left out wears the default rig, and coming back is
+     * an unbaked arrival, which asks for the rebake that puts them back in.
      */
     List<RigBaker.Skin> snapshot() {
+        int days = plugin.getConfig().getInt("emotes.rig-days", 30);
+        int most = plugin.getConfig().getInt("emotes.rig-players", 64);
+        return snapshot(days, most, System.currentTimeMillis());
+    }
+
+    List<RigBaker.Skin> snapshot(int days, int most, long now) {
         List<RigBaker.Skin> skins = new ArrayList<>();
         byte[] fallback = defaultSheet();
         if (fallback != null) {
@@ -242,13 +258,23 @@ public final class SkinCache {
         if (files == null) {
             return skins;
         }
+        List<Object[]> seen = new ArrayList<>();
         for (File file : files) {
             String key = file.getName().substring(0, file.getName().length() - 4).toLowerCase(Locale.ROOT);
             if (key.length() != 32) {
                 // A cape sheet (<key>_cape.png) is read beside its skin, not on its own.
                 continue;
             }
-            RigBaker.Skin skin = read(key, file);
+            File meta = folder.resolve(key + ".txt").toFile();
+            long last = meta.isFile() ? meta.lastModified() : file.lastModified();
+            if (days > 0 && now - last > days * 86_400_000L) {
+                continue;
+            }
+            seen.add(new Object[]{last, key, file});
+        }
+        seen.sort((a, b) -> Long.compare((long) b[0], (long) a[0]));
+        for (Object[] each : most > 0 && seen.size() > most ? seen.subList(0, most) : seen) {
+            RigBaker.Skin skin = read((String) each[1], (File) each[2]);
             if (skin != null) {
                 skins.add(skin);
             }
