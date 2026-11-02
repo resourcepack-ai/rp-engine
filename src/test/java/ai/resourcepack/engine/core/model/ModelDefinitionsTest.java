@@ -265,6 +265,52 @@ class ModelDefinitionsTest {
         assertEquals(0.5f, info.seat());
     }
 
+    // ---- random turn and size --------------------------------------------
+
+    @Test
+    void aPieceGoesDownAsBuiltUnlessItSaysOtherwise() throws IOException {
+        chair("  place: {}\n");
+
+        assertTrue(one(parse(), "mypack:chair").variation().isNone());
+    }
+
+    @Test
+    void aPieceCanTurnAndSizeAtRandom() throws IOException {
+        chair("  place:\n    vehicle-collision: false\n    random:\n      rotation: 30\n"
+                + "      rotation-step: 15\n      scale: [0.8, 1.2]\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertEquals(30f, info.variation().rotation());
+        assertEquals(15f, info.variation().rotationStep());
+        assertEquals(0.8f, info.variation().scaleMin());
+        assertEquals(1.2f, info.variation().scaleMax());
+        // The copy chain again: a later `with` must not drop it, nor it them.
+        assertFalse(info.vehicleCollision());
+    }
+
+    @Test
+    void aScaleRangeCanBeWrittenWithADash() throws IOException {
+        chair("  place:\n    random:\n      scale: 0.5-2\n");
+
+        ModelInfo.Variation variation = one(parse(), "mypack:chair").variation();
+
+        assertEquals(0.5f, variation.scaleMin());
+        assertEquals(2f, variation.scaleMax());
+        assertEquals(0f, variation.rotation());
+    }
+
+    @Test
+    void anOutOfRangeTurnIsClampedAndSaidSo() throws IOException {
+        chair("  place:\n    random:\n      rotation: 400\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertEquals(180f, one(result, "mypack:chair").variation().rotation());
+        assertTrue(result.diagnostics().stream().map(Diagnostic::message)
+                .anyMatch(message -> message.contains("rotation: 400")));
+    }
+
     // ---- storage --------------------------------------------------------
 
     @Test

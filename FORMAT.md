@@ -434,6 +434,10 @@ chair:
     light: 0            # 0-15, what it gives off. A lamp wants 14.
     surface: floor      # floor | wall | ceiling | any
     drop: mypack:shard  # what breaking it gives back. Default: itself
+    random:             # each one put down a little different (0.2.57)
+      rotation: 180     # degrees either side of its facing. 180 is any way
+      rotation-step: 90 # optional: whole quarter turns, so it stays on the grid
+      scale: [0.8, 1.2] # or 0.8-1.2: a size between the two, times scale:
     # width and height are the hitbox, in blocks. Leave them out and they are
     # measured off the model, which is almost always what you want.
 ```
@@ -480,6 +484,18 @@ things a vehicle is meant to drive over rather than into — a rug, a manhole
 cover, a painted road marking. Anything low enough to be a kerb is driven onto
 and over anyway, so a flat piece rarely needs it; a piece a vehicle can stand on
 holds it up, so you can lay a bridge out of models and drive across.
+
+`random:` makes a field of rocks, a row of pots or a scatter of crates look
+like many things rather than one model stamped out. Each placement by a player
+rolls its own turn and size once, on top of `facing:` and `scale:`, and keeps
+them: they are stored with the placement, so a restart does not reshuffle
+anything and a seat, a state or growing sees the piece as it went down.
+`rotation:` is how far either side of the way it would have faced, in degrees;
+`rotation-step:` makes that a whole number of steps (`90` for something that
+should stay square to the blocks, `45` for eight ways). `scale:` is a range
+of multipliers, 0.1 to 10. A plugin putting a piece down through
+`Models.place` gets exactly what it asked for, with nothing rolled. A model
+pushed from Studio carries the same settings, set on the model's page.
 
 `light:` works the same way and for the same reason — a display entity emits
 nothing, so a real light block goes in the anchor and is taken away when the
