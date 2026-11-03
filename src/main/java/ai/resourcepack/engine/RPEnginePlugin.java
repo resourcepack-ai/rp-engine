@@ -975,10 +975,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     case "legs" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.LEGGINGS;
                     default -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.BOOTS;
                 };
-                return set.piece(piece).map(worn -> {
-                    dresser.dress(meta, set, worn);
-                    return (String) null;
-                }).orElse("armor3d: " + written + " has no " + piece.wire());
+                // Not Optional.map: a null from it is an empty Optional, which
+                // reported "has no boots" for every piece it had just dressed.
+                java.util.Optional<ai.resourcepack.engine.core.armor3d.Armor3dSet.Worn> worn = set.piece(piece);
+                if (worn.isEmpty()) {
+                    return "armor3d: " + written + " has no " + piece.wire();
+                }
+                dresser.dress(meta, set, worn.get());
+                return null;
             });
         }
         // A page the client turned to by itself is only heard of through the next

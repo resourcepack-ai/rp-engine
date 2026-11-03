@@ -138,7 +138,15 @@ public final class Armor3dCommands implements Area {
         }
         if (wear) {
             Reply.to(player, "You're wearing " + Reply.accent(set.name()) + ".");
-            if (!worn.showsSelf(player) && !worn.drawsItself(player, set)) {
+            // A body piece with neither displays nor a shader asset is drawn
+            // by nobody: the set turned both off.
+            boolean bodyHidden = set.pieces().values().stream()
+                    .filter(piece -> piece.piece() != Armor3dSet.Piece.HELMET)
+                    .anyMatch(piece -> piece.parts().isEmpty() && piece.asset() == null);
+            if (bodyHidden) {
+                Reply.note(player, "Nobody sees more of this set than the helmet: its armor3d file has "
+                        + "displays: false and shaders: false. Remove both lines to show the whole set.");
+            } else if (!worn.showsSelf(player) && !worn.drawsItself(player, set)) {
                 Reply.note(player, "Everyone else sees the whole set; you see the helmet. "
                         + "/rp armor self shows you the rest, in F5.");
             }

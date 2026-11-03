@@ -22,9 +22,9 @@ import java.util.Set;
  * santa:
  *   name: "Santa Suit"   # optional; the id when absent
  *   model: armor_santa   # assets/models/armor_santa.bbmodel; the id's path when absent
- *   displays: false      # optional, default true; see below
- *   shaders: false       # optional, default true; see below
- *   shader-helmet: true  # optional, default false; see below
+ *   displays: true       # optional, default true; see below
+ *   shaders: true        # optional, default true; see below
+ *   shader-helmet: false # optional, default false; see below
  * }</pre>
  *
  * <p>{@code displays} decides what a viewer whose client does not draw the set
