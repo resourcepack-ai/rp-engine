@@ -664,6 +664,14 @@ public final class ContentFolderLoader {
      * a file claiming a different one would put content somewhere the pack
      * does not own. A mismatch is worth saying out loud, because it means the
      * folder was renamed on the way in.
+     *
+     * <p><strong>Their art is still where they put it</strong>, though:
+     * ItemsAdder never cared what the folder is called, so a pack whose folder
+     * is {@code galaxyset} keeps its models and textures in
+     * {@code resourcepack/assets/galaxy_set/}, the namespace its configs
+     * declare. When that folder exists, its art is read from there
+     * ({@link ItemsAdder.Art}); looking under the folder's name instead found
+     * nothing, and every item in the pack came out without a model.
      */
     private void loadItemsAdderConfigs(Path root, Path folder, Namespace namespace,
                                        List<ContentDefinition> definitions,
@@ -686,8 +694,21 @@ public final class ContentFolderLoader {
             }
         }
         // Their resource pack's own English, for a subtitle written as a key.
-        Path assets = folder.resolve(ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK)
-                .resolve("assets").resolve(namespace.name());
+        Path resourcePackAssets = folder.resolve(ai.resourcepack.engine.core.item.ModelSources.RESOURCE_PACK)
+                .resolve("assets");
+        String packArt = namespace.name();
+        if (!Files.isDirectory(resourcePackAssets.resolve(packArt))) {
+            for (DefinitionNode document : documents.values()) {
+                Optional<String> declared = ItemsAdder.namespaceOf(document)
+                        .filter(ContentId::isValidNamespace)
+                        .filter(name -> Files.isDirectory(resourcePackAssets.resolve(name)));
+                if (declared.isPresent()) {
+                    packArt = declared.get();
+                    break;
+                }
+            }
+        }
+        Path assets = resourcePackAssets.resolve(packArt);
         if (!documents.isEmpty()) {
             ItemsAdderSound.langFile(assets.resolve("lang").resolve("en_us.json"))
                     .forEach(shared.lang::putIfAbsent);
@@ -696,17 +717,26 @@ public final class ContentFolderLoader {
         for (Map.Entry<Path, DefinitionNode> read : documents.entrySet()) {
             String origin = relative(root, read.getKey());
             Optional<DefinitionNode> document = Optional.of(read.getValue());
-            ItemsAdder.namespaceOf(document.get()).ifPresent(declared -> {
-                if (!declared.equals(namespace.name())) {
-                    diagnostics.add(Diagnostic.warning(origin, "info.namespace",
-                            "says " + declared + " but the folder is " + namespace.name()
-                                    + ", and the folder wins. Rename the folder to " + declared
-                                    + " if ids like " + declared + ":something are written elsewhere."));
+            ItemsAdder.Art art = ItemsAdder.Art.same(namespace.name());
+            Optional<String> declared = ItemsAdder.namespaceOf(document.get());
+            if (declared.isPresent() && !declared.get().equals(namespace.name())) {
+                boolean artThere = ContentId.isValidNamespace(declared.get())
+                        && !Files.isDirectory(resourcePackAssets.resolve(namespace.name()))
+                        && Files.isDirectory(resourcePackAssets.resolve(declared.get()));
+                if (artThere) {
+                    art = new ItemsAdder.Art(namespace.name(), declared.get());
                 }
-            });
+                diagnostics.add(Diagnostic.warning(origin, "info.namespace",
+                        "says " + declared.get() + " but the folder is " + namespace.name()
+                                + ", and the folder wins: its ids are " + namespace.name() + ":something"
+                                + (artThere ? " (its art is still read from resourcepack/assets/"
+                                + declared.get() + "/)" : "")
+                                + ". Rename the folder to " + declared.get()
+                                + " if ids like " + declared.get() + ":something are written elsewhere."));
+            }
 
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : ItemsAdder.translate(document.get(), namespace.name(), origin, diagnostics, shared)
+                    : ItemsAdder.translate(document.get(), namespace.name(), art, origin, diagnostics, shared)
                     .entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {

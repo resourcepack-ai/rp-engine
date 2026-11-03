@@ -3038,7 +3038,11 @@ full blocks.
 
 **The folder name is still the namespace.** A file whose `info.namespace` says
 something else is loaded under the folder's name and warns, because the folder
-is what this engine claimed and ids written elsewhere have to resolve.
+is what this engine claimed and ids written elsewhere have to resolve. Its art
+is still found where ItemsAdder keeps it: when the pack has no
+`resourcepack/assets/<folder name>/` but does have
+`resourcepack/assets/<declared namespace>/`, its models, textures, armour layers
+and font images are read from there.
 
 ## A plain resource pack
 

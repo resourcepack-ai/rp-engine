@@ -91,6 +91,33 @@ final class ItemsAdder {
     }
 
     /**
+     * Where a pack's art is: under its own namespace, or, when its folder was
+     * renamed, under the namespace its configs declare, which is where their
+     * {@code resourcepack/assets/} keeps it. ItemsAdder never cared what the
+     * folder is called; here the folder names the ids, so the two can differ.
+     *
+     * @param ids       the namespace the pack's ids are in (its folder)
+     * @param namespace the namespace its models and textures are in
+     */
+    record Art(String ids, String namespace) {
+
+        static Art same(String namespace) {
+            return new Art(namespace, namespace);
+        }
+
+        /**
+         * A bare model or texture path as a resource location in the art's
+         * namespace when that is not the pack's own; anything else as written.
+         */
+        String of(String path) {
+            if (path == null || namespace.equals(ids) || path.indexOf(':') >= 0 || path.startsWith("{")) {
+                return path;
+            }
+            return namespace + ":" + path;
+        }
+    }
+
+    /**
      * The armour art a document declares, by name: {@code equipments:} (4.0.10
      * and up), and the older {@code armors_rendering:}, renamed
      * {@code legacy_armor_renderings:} in 4.0.9. All three give a set its
@@ -133,6 +160,13 @@ final class ItemsAdder {
     static Map<ContentKind, Map<String, Object>> translate(
             DefinitionNode document, String namespace, String origin, List<Diagnostic> diagnostics,
             Shared shared) {
+        return translate(document, namespace, Art.same(namespace), origin, diagnostics, shared);
+    }
+
+    /** @param art where the pack's models and textures are; see {@link Art} */
+    static Map<ContentKind, Map<String, Object>> translate(
+            DefinitionNode document, String namespace, Art art, String origin, List<Diagnostic> diagnostics,
+            Shared shared) {
         Map<ContentKind, Map<String, Object>> out = new LinkedHashMap<>();
         Map<String, DefinitionNode> armours = shared.armours;
         Map<String, String> drops = shared.drops;
@@ -153,12 +187,12 @@ final class ItemsAdder {
                         return;
                     }
                     if (blockBehaviour(item).isPresent()) {
-                        Map<String, Object> block = blockItem(item, id, namespace, drops, origin, diagnostics);
-                        directionalFaces(items, item, id, namespace, block);
+                        Map<String, Object> block = blockItem(item, id, namespace, art, drops, origin, diagnostics);
+                        directionalFaces(items, item, id, art, block);
                         blocksFromItems.put(id, block);
                     } else {
-                        Map<String, Object> body = item(item, id, origin, diagnostics);
-                        armour(item, id, origin, diagnostics, body, armours);
+                        Map<String, Object> body = item(item, id, art, origin, diagnostics);
+                        armour(item, id, art, origin, diagnostics, body, armours);
                         item.node("events").ifPresent(events -> ItemsAdderEvents.translate(events, id, namespace,
                                 body.containsKey("place"), origin, diagnostics).into(body));
                         translated.put(id, body);
@@ -173,7 +207,7 @@ final class ItemsAdder {
         document.node("font_images").ifPresent(images -> {
             Map<String, Object> translated = new LinkedHashMap<>();
             for (String id : images.keys()) {
-                images.node(id).ifPresent(image -> translated.put(id, icon(image)));
+                images.node(id).ifPresent(image -> translated.put(id, icon(image, art)));
             }
             if (!translated.isEmpty()) {
                 out.put(ContentKind.FONT, translated);
@@ -185,7 +219,7 @@ final class ItemsAdder {
             for (String id : blocks.keys()) {
                 blocks.node(id).ifPresent(block -> {
                     if (block.bool("enabled").orElse(Boolean.TRUE)) {
-                        Map<String, Object> body = block(block);
+                        Map<String, Object> body = block(block, art);
                         drop(id, drops, body);
                         translatedBlocks.put(id, body);
                     }
@@ -473,13 +507,13 @@ final class ItemsAdder {
      * own numbering, so a world built with their plugin has blocks this engine
      * cannot recognise. A pack migrates; a world does not.
      */
-    private static Map<String, Object> block(DefinitionNode block) {
+    private static Map<String, Object> block(DefinitionNode block, Art art) {
         Map<String, Object> out = new LinkedHashMap<>();
         DefinitionNode specific = blockBehaviour(block).orElse(DefinitionNode.empty());
         DefinitionNode resource = block.node("resource").orElse(DefinitionNode.empty());
 
         specific.string("placed_model").or(() -> resource.string("model_path"))
-                .ifPresent(model -> out.put("model", model));
+                .ifPresent(model -> out.put("model", art.of(model)));
         specific.string("hardness").ifPresent(hardness -> out.put("hardness", hardness));
         specific.integer("light_level").filter(level -> level > 0).ifPresent(level -> out.put("light", level));
         specific.string("break_tool").ifPresent(tool -> out.put("tool", tool));
@@ -512,10 +546,10 @@ final class ItemsAdder {
      * comes with it, so its name and lore ride along. Their placed-block
      * events become the block's own actions, beside the item's.
      */
-    private static Map<String, Object> blockItem(DefinitionNode item, String id, String namespace,
+    private static Map<String, Object> blockItem(DefinitionNode item, String id, String namespace, Art art,
                                                  Map<String, String> drops, String origin,
                                                  List<Diagnostic> diagnostics) {
-        Map<String, Object> out = block(item);
+        Map<String, Object> out = block(item, art);
         DefinitionNode specific = blockBehaviour(item).orElse(DefinitionNode.empty());
         DefinitionNode resource = item.node("resource").orElse(DefinitionNode.empty());
 
@@ -550,7 +584,7 @@ final class ItemsAdder {
                                 + "draws any shape."));
         }
         directional(specific, out);
-        variants(specific, namespace, out);
+        variants(specific, art, out);
         if (specific.bool("no_explosion").orElse(Boolean.FALSE)) {
             out.put("blast-resistant", true);
         }
@@ -563,7 +597,7 @@ final class ItemsAdder {
                 .ifPresent(to -> out.put("click-into", to.contains(":") ? to : namespace + ":" + to));
 
         if (!out.containsKey("model")) {
-            generatedCube(resource, namespace).ifPresent(model -> out.put("model", model));
+            generatedCube(resource, art.namespace()).ifPresent(model -> out.put("model", model));
         }
         for (String tool : specific.strings("break_tools_whitelist")) {
             String kind = toolKind(tool);
@@ -639,7 +673,7 @@ final class ItemsAdder {
     }
 
     /** A directional block's {@code <id>_<face>} items, as the model each direction wears. */
-    private static void directionalFaces(DefinitionNode items, DefinitionNode item, String id, String namespace,
+    private static void directionalFaces(DefinitionNode items, DefinitionNode item, String id, Art art,
                                          Map<String, Object> out) {
         if (!out.containsKey("rotate") || out.get("rotate").equals("axis")) {
             return;
@@ -647,9 +681,9 @@ final class ItemsAdder {
         Map<String, Object> appearances = new LinkedHashMap<>();
         for (String face : FACES) {
             items.node(id + "_" + face).ifPresent(sibling -> {
-                Object model = block(sibling).get("model");
+                Object model = block(sibling, art).get("model");
                 if (model == null) {
-                    model = generatedCube(sibling.node("resource").orElse(DefinitionNode.empty()), namespace)
+                    model = generatedCube(sibling.node("resource").orElse(DefinitionNode.empty()), art.namespace())
                             .orElse(null);
                 }
                 if (model != null) {
@@ -663,7 +697,7 @@ final class ItemsAdder {
     }
 
     /** {@code custom_variants}: a look picked at random as each is placed. */
-    private static void variants(DefinitionNode specific, String namespace, Map<String, Object> out) {
+    private static void variants(DefinitionNode specific, Art art, Map<String, Object> out) {
         DefinitionNode declared = specific.node("custom_variants").orElse(null);
         if (declared == null) {
             return;
@@ -672,7 +706,7 @@ final class ItemsAdder {
         for (String name : declared.keys()) {
             declared.node(name).ifPresent(variant -> {
                 Map<String, Object> pick = new LinkedHashMap<>();
-                variant.string("model").ifPresent(model -> pick.put("model", model));
+                variant.string("model").ifPresent(model -> pick.put("model", art.of(model)));
                 variant.integer("x").ifPresent(x -> pick.put("x", x));
                 variant.integer("y").ifPresent(y -> pick.put("y", y));
                 variant.bool("uvlock").ifPresent(uvlock -> pick.put("uvlock", uvlock));
@@ -804,7 +838,7 @@ final class ItemsAdder {
     }
 
     /** One item. */
-    private static Map<String, Object> item(DefinitionNode item, String id,
+    private static Map<String, Object> item(DefinitionNode item, String id, Art art,
                                             String origin, List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         DefinitionNode resource = item.node("resource").orElse(DefinitionNode.empty());
@@ -823,8 +857,8 @@ final class ItemsAdder {
 
         // A texture path is a file; ours is the path without the extension,
         // and both are rooted at the same place.
-        texture(resource).ifPresent(texture -> out.put("texture", texture));
-        resource.string("model_path").ifPresent(model -> out.put("model", model));
+        texture(resource).ifPresent(texture -> out.put("texture", art.of(texture)));
+        resource.string("model_path").ifPresent(model -> out.put("model", art.of(model)));
 
         item.node("durability").ifPresent(durability -> {
             durability.integer("max_durability").ifPresent(max -> out.put("durability", max));
@@ -976,7 +1010,7 @@ final class ItemsAdder {
      * needed ItemsAdder's shaders), a {@code use_color} tint, and colour-only
      * armour, which has no art to carry and is worn as plain leather.
      */
-    private static void armour(DefinitionNode item, String id, String origin, List<Diagnostic> diagnostics,
+    private static void armour(DefinitionNode item, String id, Art art, String origin, List<Diagnostic> diagnostics,
                                Map<String, Object> out, Map<String, DefinitionNode> armours) {
         String material = item.string("material")
                 .or(() -> item.node("resource").flatMap(resource -> resource.string("material")))
@@ -1003,7 +1037,7 @@ final class ItemsAdder {
                 }
                 return;
             }
-            wear(id, slot, set.get(), armours, origin, diagnostics, out);
+            wear(id, slot, set.get(), armours, art, origin, diagnostics, out);
             return;
         }
 
@@ -1014,7 +1048,7 @@ final class ItemsAdder {
         String slot = armourSlot(legacy.get().string("slot").get());
         Optional<String> set = legacy.get().string("custom_armor");
         if (set.isPresent()) {
-            wear(id, slot, set.get(), armours, origin, diagnostics, out);
+            wear(id, slot, set.get(), armours, art, origin, diagnostics, out);
             return;
         }
         if (legacy.get().string("color").isEmpty()) {
@@ -1035,7 +1069,7 @@ final class ItemsAdder {
 
     /** One piece of a named set: the slot, and the set's layer for that slot. */
     private static void wear(String id, String slot, String set, Map<String, DefinitionNode> armours,
-                             String origin, List<Diagnostic> diagnostics, Map<String, Object> out) {
+                             Art artIn, String origin, List<Diagnostic> diagnostics, Map<String, Object> out) {
         out.put("armor", slot);
         String name = set.trim().substring(set.trim().indexOf(':') + 1);
         DefinitionNode rendering = armours.get(name);
@@ -1063,7 +1097,7 @@ final class ItemsAdder {
             return;
         }
         String path = art.get().trim();
-        out.put("armor-art", path.endsWith(".png") ? path.substring(0, path.length() - 4) : path);
+        out.put("armor-art", artIn.of(path.endsWith(".png") ? path.substring(0, path.length() - 4) : path));
         if (rendering.bool("use_color").orElse(Boolean.FALSE)) {
             diagnostics.add(Diagnostic.warning(origin, id,
                     "the armour " + name + " is tinted with its color (use_color), which RP Engine cannot do to a "
@@ -1128,10 +1162,15 @@ final class ItemsAdder {
     }
 
     /** A font image, which is an icon. */
-    private static Map<String, Object> icon(DefinitionNode image) {
+    private static Map<String, Object> icon(DefinitionNode image, Art art) {
         Map<String, Object> out = new LinkedHashMap<>();
         image.string("path").ifPresent(path -> {
             String file = path.endsWith(".png") ? path.substring(0, path.length() - 4) : path;
+            if (!art.of(file).equals(file)) {
+                // Art in another namespace is a location, rooted at textures/.
+                out.put("file", art.of(file));
+                return;
+            }
             // Their path is rooted at the pack's textures folder and starts
             // with font/; ours is the name under textures/font/.
             out.put("file", file.startsWith("font/") ? file.substring("font/".length()) : file);
