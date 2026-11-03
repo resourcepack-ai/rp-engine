@@ -3815,7 +3815,14 @@ public final class EmoteDirector implements Listener {
         base.setPitch(0);
         boolean moved = session.lastBase == null || !session.lastBase.equals(base);
         session.lastBase = base.clone();
-        if (!session.rigHidden && moved) {
+        // A hidden rig is left standing as a rule (its displays are air, and a
+        // player crossing the hide boundary several times a second should not
+        // pay for moving them). A DRIVEN one is carried anyway: its seat goes
+        // on moving while it is hidden - a plugin putting it away while its
+        // camera is in the rider's head, a basket at fifteen blocks a second -
+        // and displays left where it was hidden glide in from there, the whole
+        // way, the moment it is shown again.
+        if ((!session.rigHidden || session.driven) && moved) {
             for (ItemDisplay display : session.parts) {
                 if (display != null && display.isValid()) Regions.move(display, base);
             }
