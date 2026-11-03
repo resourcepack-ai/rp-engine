@@ -960,9 +960,9 @@ taller than the head. Built in Blockbench and named here:
 santa:
   name: "Santa Suit"     # optional; the id when absent
   model: armor_santa     # assets/models/armor_santa.bbmodel; the id when absent
-  displays: false        # optional, default true; see How it is drawn
-  shaders: false         # optional, default true; see How it is drawn
-  shader-helmet: false   # optional; see below
+  displays: true         # optional, default true; see How it is drawn
+  shaders: true          # optional, default true; see How it is drawn
+  shader-helmet: false   # optional, default false; see below
 ```
 
 That is the set `mypack:santa`, and `/rp armor wear mypack:santa` puts it on.
