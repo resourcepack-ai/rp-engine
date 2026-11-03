@@ -213,6 +213,68 @@ class ItemsAdderPackTest {
     }
 
     @Test
+    void aRenamedFolderStillFindsItsArtUnderTheDeclaredNamespace() throws IOException {
+        // A marketplace pack unzipped into a folder of its own name: the
+        // configs say galaxy_set and so does resourcepack/assets/, but the
+        // folder is galaxyset. ItemsAdder does not care; every model and
+        // texture used to come out missing here.
+        write("galaxyset/configs/galaxy_set.yml", """
+                info:
+                  namespace: galaxy_set
+                equipments:
+                  galaxy:
+                    layer_1: armor/galaxy_layer_1.png
+                    layer_2: armor/galaxy_layer_2.png
+                items:
+                  galaxy_sword:
+                    display_name: Galaxy Sword
+                    resource:
+                      material: NETHERITE_SWORD
+                      generate: false
+                      model_path: galaxy_set/sword
+                  galaxy_key:
+                    display_name: Galaxy Key
+                    resource:
+                      material: PAPER
+                      generate: true
+                      textures: [item/galaxy_key.png]
+                  galaxy_chestplate:
+                    resource:
+                      material: PAPER
+                      generate: true
+                      textures: [item/galaxy_chestplate.png]
+                    equipment:
+                      slot: CHEST
+                      id: galaxy_set:galaxy
+                """);
+        write("galaxyset/resourcepack/assets/galaxy_set/models/galaxy_set/sword.json", """
+                {"textures": {"0": "galaxy_set:item/sword"},
+                 "elements": [{"from": [0, 0, 0], "to": [16, 16, 16],
+                   "faces": {"north": {"uv": [0, 0, 16, 16], "texture": "#0"}}}]}
+                """);
+        bytes("galaxyset/resourcepack/assets/galaxy_set/textures/item/sword.png", new byte[] {1});
+        bytes("galaxyset/resourcepack/assets/galaxy_set/textures/item/galaxy_key.png", new byte[] {2});
+        bytes("galaxyset/resourcepack/assets/galaxy_set/textures/item/galaxy_chestplate.png", new byte[] {3});
+        bytes("galaxyset/resourcepack/assets/galaxy_set/textures/armor/galaxy_layer_1.png", new byte[] {4});
+
+        LoadReport report = load();
+        // The ids are still the folder's.
+        assertEquals("Galaxy Sword", item("galaxyset:galaxy_sword").name().orElseThrow());
+        assertTrue(warned(report, "info.namespace", "resourcepack/assets/galaxy_set/"),
+                report.diagnostics().toString());
+
+        BuildReport built = new PackBuilder().with(new ItemAssets()).build(content, out, report);
+        assertFalse(built.diagnostics().stream()
+                        .anyMatch(d -> d.message().contains("No model") || d.message().contains("No texture")),
+                built.diagnostics().toString());
+        Map<String, byte[]> zip = build(report);
+        String sword = new String(zip.get("assets/galaxyset/models/item/galaxy_sword.json"), StandardCharsets.UTF_8);
+        assertTrue(sword.contains("\"elements\""), sword);
+        assertArrayEquals(new byte[] {4},
+                zip.get("assets/galaxyset/textures/entity/equipment/humanoid/galaxy_chestplate.png"));
+    }
+
+    @Test
     void furnitureIsAPlacedModel() throws IOException {
         theirPack();
 
