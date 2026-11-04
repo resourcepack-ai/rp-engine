@@ -3633,7 +3633,7 @@ it, an effect on the words, an icon, and an animation, each a choice.
 | `padding` | `2` | Columns of face either side of the words, up to 12 |
 | `animation` | `none` | `glint` (a shine sweeps across), `rainbow` (the letters cycle colours), `twinkle` (stars on the face) or `pulse` (the border breathes) |
 | `scale` | `1` | 1 to 4: every pixel drawn that many times over |
-| `offset` | `0` | Pixels above (negative: below) centred on a chat line |
+| `offset` | `0` | Pixels above (negative: below) centred on a chat line, in the game's own GUI pixels whatever the `scale` |
 
 A colour is `"#rrggbb"`, `"#rgb"` or one of the game's sixteen names (`red`,
 `dark_red`, `gold`...). A mistake costs the field rather than the tag: it is a

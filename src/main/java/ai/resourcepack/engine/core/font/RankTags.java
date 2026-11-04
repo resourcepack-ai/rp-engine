@@ -464,9 +464,16 @@ public final class RankTags {
     private static final int SHADOW = 8;
     private static final int TEXT = 9;
 
-    /** The provider ascent that centres a glyph this tall on a chat line, then moves it {@code offset} up. */
+    /**
+     * The provider ascent that centres a glyph this tall on a chat line, then
+     * moves it {@code offset} GUI pixels up, whatever the tag's scale, so every
+     * step moves it one. Centred is never above the glyph's own height (the
+     * game refuses an ascent above it), or the first step down on a small tag
+     * would move nothing. Studio's rule, which RankTagsTest holds this to.
+     */
     static int ascent(int height, int offset) {
-        return Math.max(-height, Math.min(height, (int) Math.round(height / 2.0 + 3.5) + offset));
+        int centred = Math.min(height, (int) Math.round(height / 2.0 + 3.5));
+        return Math.max(-height, Math.min(height, centred + offset));
     }
 
     /** The first frame of a tag. */
@@ -490,7 +497,7 @@ public final class RankTags {
                 argb[y * w * k + x] = c == T ? 0 : 0xff000000 | c;
             }
         }
-        return new Drawn(w * k, h * k, ascent(h * k, spec.offset() * k), argb);
+        return new Drawn(w * k, h * k, ascent(h * k, spec.offset()), argb);
     }
 
     /** Every frame, stacked top to bottom: the sheet an animated tag's font cuts into one glyph per frame. */
