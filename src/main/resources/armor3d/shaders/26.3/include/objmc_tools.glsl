@@ -11,7 +11,16 @@
 // ARB_shader_ballot or NV_shader_thread_shuffle, whichever the driver has),
 // so a read of lane `from` walks every lane of the subgroup and keeps that
 // one. Every active lane must call it, as with the operations it replaces.
-#define RPAI_LANE_READ(T) T rpaiLaneRead(T v, uint from) {     T got = v;     for (uint k = 0u; k < gl_SubgroupSize; k++) {         T x = subgroupBroadcast(v, k);         if (k == from) got = x;     }     return got; }
+//
+// Each lane is read with its own broadcast, its id a constant. GLSL for
+// OpenGL requires subgroupBroadcast's id to be a compile-time constant, and
+// SPIRV-Cross hands a loop counter straight through: NVIDIA let that pass,
+// AMD refused it ("'id' : argument must be compile-time constant") and the
+// whole pack failed to load. 64 lanes covers every subgroup size a desktop
+// OpenGL driver reports (32 on NVIDIA and Intel, 32 or 64 on AMD); the guard
+// is uniform, so every active lane still makes every call.
+#define RPAI_LANE(T, K) if (K < gl_SubgroupSize) { T x = subgroupBroadcast(v, K); if (from == K) got = x; }
+#define RPAI_LANE_READ(T) T rpaiLaneRead(T v, uint from) { T got = v; RPAI_LANE(T, 0u) RPAI_LANE(T, 1u) RPAI_LANE(T, 2u) RPAI_LANE(T, 3u) RPAI_LANE(T, 4u) RPAI_LANE(T, 5u) RPAI_LANE(T, 6u) RPAI_LANE(T, 7u) RPAI_LANE(T, 8u) RPAI_LANE(T, 9u) RPAI_LANE(T, 10u) RPAI_LANE(T, 11u) RPAI_LANE(T, 12u) RPAI_LANE(T, 13u) RPAI_LANE(T, 14u) RPAI_LANE(T, 15u) RPAI_LANE(T, 16u) RPAI_LANE(T, 17u) RPAI_LANE(T, 18u) RPAI_LANE(T, 19u) RPAI_LANE(T, 20u) RPAI_LANE(T, 21u) RPAI_LANE(T, 22u) RPAI_LANE(T, 23u) RPAI_LANE(T, 24u) RPAI_LANE(T, 25u) RPAI_LANE(T, 26u) RPAI_LANE(T, 27u) RPAI_LANE(T, 28u) RPAI_LANE(T, 29u) RPAI_LANE(T, 30u) RPAI_LANE(T, 31u) RPAI_LANE(T, 32u) RPAI_LANE(T, 33u) RPAI_LANE(T, 34u) RPAI_LANE(T, 35u) RPAI_LANE(T, 36u) RPAI_LANE(T, 37u) RPAI_LANE(T, 38u) RPAI_LANE(T, 39u) RPAI_LANE(T, 40u) RPAI_LANE(T, 41u) RPAI_LANE(T, 42u) RPAI_LANE(T, 43u) RPAI_LANE(T, 44u) RPAI_LANE(T, 45u) RPAI_LANE(T, 46u) RPAI_LANE(T, 47u) RPAI_LANE(T, 48u) RPAI_LANE(T, 49u) RPAI_LANE(T, 50u) RPAI_LANE(T, 51u) RPAI_LANE(T, 52u) RPAI_LANE(T, 53u) RPAI_LANE(T, 54u) RPAI_LANE(T, 55u) RPAI_LANE(T, 56u) RPAI_LANE(T, 57u) RPAI_LANE(T, 58u) RPAI_LANE(T, 59u) RPAI_LANE(T, 60u) RPAI_LANE(T, 61u) RPAI_LANE(T, 62u) RPAI_LANE(T, 63u) return got; }
 RPAI_LANE_READ(float)
 RPAI_LANE_READ(vec2)
 RPAI_LANE_READ(vec3)
