@@ -94,8 +94,23 @@ void main() {
 #endif
 
     //objmc
+    // Only the armour pipelines (armor_cutout_no_cull, its decal, translucent
+    // and glint twins) are built with both of these, and an armour layer is
+    // the only thing the decode draws. Every other entity pipeline (the player's
+    // skin, mobs, item entities) gets vanilla's: compiled into all of them,
+    // the decode cost AMD's driver over a minute at every new pack, the game
+    // frozen meanwhile.
+#if defined(NO_OVERLAY) && defined(PER_FACE_LIGHTING)
     #define ENTITY
     #include <minecraft:objmc_main.glsl>
+#else
+    isCustom = 0;
+    isGUI = 0;
+    isHand = 0;
+    noshadow = 0;
+    transition = 0.0;
+    texCoord2 = texCoord;
+#endif
 
     gl_Position = ProjMat * ModelViewMat * vec4(Pos, 1.0);
 
