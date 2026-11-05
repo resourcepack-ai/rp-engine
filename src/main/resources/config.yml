@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 8
+config-version: 9
 
 # How players download the packs this server builds.
 host:
@@ -407,6 +407,17 @@ send:
   # How long after joining the packs are sent, in ticks (20 a second). Does
   # not apply to before-join.
   delay: 0
+
+# Behind a Velocity proxy running RPE Proxy, the proxy sends players the
+# packs instead of this server: once when they join the network, and not again
+# when they switch servers unless the new server wants a different pack. It
+# can also serve the packs from the proxy's own port, so nothing else has to
+# be opened. Turn it on in every server behind the proxy that runs RP Engine.
+# A player whose connection does not run through RPE Proxy is sent the packs
+# by this server, as with it off. Read at startup.
+# https://resourcepack.ai/docs/rp-engine/proxy
+proxy:
+  enabled: false
 
 # HUD overlays.
 overlays:

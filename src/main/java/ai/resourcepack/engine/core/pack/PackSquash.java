@@ -127,6 +127,8 @@ public final class PackSquash {
         return thread;
     });
     private final Map<String, Future<Outcome>> running = new ConcurrentHashMap<>();
+    /** A squashed file's SHA-1 -> the SHA-1 of the pack it was made from. */
+    private final Map<String, String> sources = new ConcurrentHashMap<>();
     /** Each problem is said once a run, not on every reload. */
     private final Set<String> said = ConcurrentHashMap.newKeySet();
 
@@ -217,9 +219,21 @@ public final class PackSquash {
         return squashed(pack, outcome.zip());
     }
 
+    /**
+     * The SHA-1 of the pack a squashed file was made from, or {@code sha1}
+     * itself for one that was not squashed. PackSquash's output is not the
+     * same twice (the order of its files and its sound encoding vary), so this
+     * is what says two servers are serving the same pack.
+     */
+    public String sourceOf(String sha1) {
+        return sources.getOrDefault(sha1, sha1);
+    }
+
     private BuiltPack squashed(BuiltPack pack, Path zip) {
         try {
-            return BuiltPack.of(pack.bundle(), zip, sha1(zip), Files.size(zip), pack.entries());
+            String sha1 = sha1(zip);
+            sources.put(sha1, pack.sha1());
+            return BuiltPack.of(pack.bundle(), zip, sha1, Files.size(zip), pack.entries());
         } catch (IOException e) {
             return pack;
         }

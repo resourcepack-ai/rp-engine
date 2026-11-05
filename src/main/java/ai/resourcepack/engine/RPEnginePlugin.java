@@ -370,6 +370,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private volatile long sendDelayTicks = 0L;
     /** Player -> the moment send.delay lets their packs go, in millis. */
     private final Map<UUID, Long> sendNotBefore = new ConcurrentHashMap<>();
+    /** proxy.enabled: the link to RPE Proxy. Null when off. */
+    private ai.resourcepack.engine.core.serve.ProxyBridge proxyBridge;
+    /** Players whose join is waiting to learn whether RPE Proxy carries them. */
+    private final Set<UUID> awaitingProxy = ConcurrentHashMap.newKeySet();
+    /** Said once a run. */
+    private boolean warnedNoProxy;
 
     /** The rigs the last build baked, so a newcomer's own can be stacked on exactly that build. */
     private RigAssets currentRigs;
@@ -1874,6 +1880,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             heldOnlyForOthers.add(player.getUniqueId());
             return true;
         }
+        if (awaitingProxy.contains(player.getUniqueId())) {
+            // Still finding out whether RPE Proxy carries them; waitForProxy releases.
+            return true;
+        }
         Long notBefore = sendNotBefore.get(player.getUniqueId());
         if (notBefore != null && System.currentTimeMillis() < notBefore) {
             // send.delay has not run out; its own timer releases them.
@@ -2340,12 +2350,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getConfig().getBoolean("prompt.force", false),
                 PackSending.forServer(compatibility), getLogger());
         readSendSettings();
+        // Read at startup: the plugin channel is registered once.
+        if (getConfig().getBoolean("proxy.enabled", false)) {
+            proxyBridge = new ai.resourcepack.engine.core.serve.ProxyBridge(this, delivery.loads(), getLogger());
+            proxyBridge.register();
+            proxyBridge.identity(packSquash::sourceOf);
+            delivery.proxy(proxyBridge);
+            startup("Proxy", "Packs go through RPE Proxy (proxy.enabled)");
+        }
         // Read here and only here: the listener is registered once.
-        if (getConfig().getBoolean("send.before-join", false) && mode != PackHost.Mode.NONE) {
+        if (getConfig().getBoolean("send.before-join", false) && mode != PackHost.Mode.NONE
+                && proxyBridge != null) {
+            getLogger().warning("send.before-join is ignored with proxy.enabled: RPE Proxy sends the packs.");
+        } else if (getConfig().getBoolean("send.before-join", false) && mode != PackHost.Mode.NONE) {
             boolean hooked = delivery.stacks() && PaperPreJoin.register(this, new PaperPreJoin.Source() {
                 @Override
                 public List<PackDelivery.PreJoin> plan(UUID player) {
-                    if (!isEnabled() || bedrock.isBedrock(player)) {
+                    if (!isEnabled() || bedrock.isBedrock(player) || proxyBridge != null) {
                         return List.of();
                     }
                     return delivery.preJoinPlan(player, desiredFor(null));
@@ -3285,6 +3306,30 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** The longest a join waits for its skin before sending the packs without it: two seconds. */
     private static final long JOIN_SKIN_WAIT_TICKS = 40L;
 
+    /** How many times, two ticks apart, a join looks for RPE Proxy before sending the packs itself. */
+    private static final int PROXY_WAIT_TRIES = 20;
+
+    private void waitForProxy(Player player, int tries) {
+        Tasks.onLater(this, player, () -> {
+            if (stale(player) || !player.isOnline() || !awaitingProxy.contains(player.getUniqueId())) {
+                return;
+            }
+            boolean carried = proxyBridge.carries(player);
+            if (!carried && tries < PROXY_WAIT_TRIES) {
+                waitForProxy(player, tries + 1);
+                return;
+            }
+            if (!carried && !warnedNoProxy) {
+                warnedNoProxy = true;
+                getLogger().warning(player.getName() + "'s connection does not run through RPE Proxy, so this server "
+                        + "sent them the packs itself. Install RPE Proxy on the proxy (Velocity), or set proxy.enabled "
+                        + "to false. Said once per restart.");
+            }
+            awaitingProxy.remove(player.getUniqueId());
+            releasePacks(player);
+        }, 2L);
+    }
+
     /** What a join sends, which send.on-join turns off. */
     private void sendAtJoin(Player joined) {
         // Held for a moment while their skin is fetched, when it is one this
@@ -3293,6 +3338,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // rather than two. offerOwnRig releases them; the timer is for a fetch
         // that is slow or fails.
         holdingPacks.add(joined.getUniqueId());
+        if (proxyBridge != null && !proxyBridge.carries(joined) && !bedrock.isBedrock(joined.getUniqueId())) {
+            // The proxy says it is there by adding its channel to the ones the
+            // player's game listens on, which reaches this server a moment
+            // after the join. Sending before it does would send them here.
+            awaitingProxy.add(joined.getUniqueId());
+            waitForProxy(joined, 0);
+        }
         if (sendDelayTicks > 0) {
             // send.delay: nothing goes before it has run out, whatever else
             // would have released them sooner; this timer releases them then.
@@ -3458,6 +3510,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         studioPacks.remove(event.getPlayer().getUniqueId());
         holdingPacks.remove(event.getPlayer().getUniqueId());
         sendNotBefore.remove(event.getPlayer().getUniqueId());
+        awaitingProxy.remove(event.getPlayer().getUniqueId());
         awaitingOthers.remove(event.getPlayer().getUniqueId());
         heldOnlyForOthers.remove(event.getPlayer().getUniqueId());
         dropOwnRig(event.getPlayer().getUniqueId());
