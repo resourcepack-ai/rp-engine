@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 5
+config-version: 6
 
 # How players download the packs this server builds.
 host:
@@ -355,11 +355,36 @@ default-bundle: "main"
 # What the client is told when it is asked to accept a pack.
 prompt:
   # Shown in the accept dialog. Empty uses the client's own wording.
+  # MiniMessage (<red>, <#fa4943>, <bold>, <gradient:#9055FF:#13E2DA>,
+  # <rainbow>) and & codes (&c, &l, &#fa4943) both work.
   message: ""
 
   # true disconnects a player who declines. Off by default: kicking somebody
   # for declining is a decision a server makes, not one a plugin makes for it.
   force: false
+
+# When players are sent the packs.
+# https://resourcepack.ai/docs/rp-engine/config#sending-the-pack
+send:
+  # Send the packs while the player is still connecting, so they arrive in
+  # the world with them already loaded, rather than once they are in it.
+  # Paper 1.21.7 or newer; anywhere else they are sent on join instead. A
+  # big pack keeps the player on the loading screen until it has loaded.
+  # Read at startup.
+  before-join: false
+
+  # Send the packs when a player joins: everything, or with before-join on,
+  # only what did not arrive before it. false sends nothing at join, for a
+  # server that sends them itself.
+  on-join: true
+
+  # Send everybody online the new packs after /rp reload. false keeps what
+  # they have until they next join.
+  on-reload: true
+
+  # How long after joining the packs are sent, in ticks (20 a second). Does
+  # not apply to before-join.
+  delay: 0
 
 # HUD overlays.
 overlays:

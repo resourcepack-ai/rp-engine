@@ -169,4 +169,27 @@ class ConfigMigrationsTest {
 
         assertTrue(preserved.getBoolean("host.fallback-on-download-failure"));
     }
+
+    @Test
+    void addsTheSendSectionAfterPromptWithTodaysBehaviour() throws Exception {
+        String old = "config-version: 5\nprompt:\n  message: \"hi\"\n  force: true\n\n"
+                + "# HUD overlays.\noverlays:\n  refresh-ticks: 30\n";
+
+        String migrated = ConfigMigrations.migrate(old).text();
+        YamlConfiguration after = yaml(migrated);
+
+        assertEquals(ConfigMigrations.latest(), after.getInt("config-version"));
+        assertFalse(after.getBoolean("send.before-join"));
+        assertTrue(after.getBoolean("send.on-join"));
+        assertTrue(after.getBoolean("send.on-reload"));
+        assertEquals(0, after.getInt("send.delay"));
+        assertEquals("hi", after.getString("prompt.message"));
+        assertEquals(30, after.getInt("overlays.refresh-ticks"));
+        assertTrue(migrated.indexOf("send:") > migrated.indexOf("force: true"));
+        assertTrue(migrated.indexOf("send:") < migrated.indexOf("# HUD overlays."));
+        assertTrue(migrated.contains("  delay: 0\n\n# HUD overlays."), migrated);
+
+        String noPrompt = "config-version: 5\nhost:\n  mode: upload\n";
+        assertTrue(yaml(ConfigMigrations.migrate(noPrompt).text()).getBoolean("send.on-join"));
+    }
 }

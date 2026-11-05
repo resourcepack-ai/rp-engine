@@ -23,8 +23,8 @@ public final class PackDelivery {
 
     private final BundleSessions sessions;
     private final PackHost host;
-    private final String prompt;
-    private final boolean force;
+    private volatile String prompt;
+    private volatile boolean force;
     private final PackSending sending;
     private final Logger logger;
     /** Who has finished loading what. See {@link PackLoads}. */
@@ -49,10 +49,91 @@ public final class PackDelivery {
                         PackSending sending, Logger logger) {
         this.sessions = sessions;
         this.host = host;
-        this.prompt = prompt == null || prompt.isEmpty() ? null : prompt;
-        this.force = force;
+        prompt(prompt, force);
         this.sending = sending;
         this.logger = logger;
+    }
+
+    /**
+     * Sets {@code prompt.message} and {@code prompt.force}. The message may be
+     * MiniMessage, {@code &} codes or both; see {@link PromptText}.
+     */
+    public void prompt(String message, boolean force) {
+        String legacy = PromptText.toLegacy(message);
+        this.prompt = legacy.isEmpty() ? null : legacy;
+        this.force = force;
+    }
+
+    /** The accept screen's message as a legacy string, or null for the client's own wording. */
+    public String prompt() {
+        return prompt;
+    }
+
+    /** Whether declining disconnects the player. */
+    public boolean force() {
+        return force;
+    }
+
+    /** One pack sent while a player is still connecting: which, and the link it went out with. */
+    public record PreJoin(BuiltPack pack, String url) {
+    }
+
+    /**
+     * What to send {@code player} while they are still connecting
+     * ({@code send.before-join}), bottom of the stack first. Empty when any of
+     * it is still on its way to the pack host: the join sends the lot then,
+     * rather than half now and half later.
+     *
+     * <p>A connection starts holding nothing from us, so whatever was recorded
+     * for this player before (a session that ended without a quit, which a
+     * connection dropped mid-configuration is) goes first.
+     */
+    public List<PreJoin> preJoinPlan(java.util.UUID player, List<BuiltPack> desired) {
+        sessions.forget(player);
+        loads.forget(player);
+        java.util.List<PreJoin> out = new java.util.ArrayList<>();
+        for (BuiltPack pack : desired) {
+            if (pack.url().isEmpty() && host.pending(pack.bundle())) {
+                return List.of();
+            }
+            Optional<String> url = pack.url().isEmpty() ? host.url(pack.bundle(), player) : Optional.of(pack.url());
+            if (url.isEmpty()) {
+                continue;
+            }
+            if (pack.url().isEmpty()) {
+                hosted.put(pack.uuid(), url.get());
+            }
+            out.add(new PreJoin(pack, url.get()));
+        }
+        return out;
+    }
+
+    /**
+     * Records what the client said about the packs {@link #preJoinPlan} sent.
+     * A pack it loaded, or declined, is held; one it failed to download or
+     * never answered for is not, so the join sends it again the ordinary way.
+     *
+     * @param statuses pack id to the client's last answer, by Adventure's name
+     *                 for it ({@code SUCCESSFULLY_LOADED}, {@code DECLINED}...)
+     */
+    public void preJoined(java.util.UUID player, List<PreJoin> sent, java.util.Map<java.util.UUID, String> statuses) {
+        java.util.List<BuiltPack> held = new java.util.ArrayList<>();
+        for (PreJoin item : sent) {
+            String status = statuses.get(item.pack().uuid());
+            if ("SUCCESSFULLY_LOADED".equals(status)) {
+                loads.sent(player, item.pack().uuid());
+                loads.confirmed(player, item.pack().uuid());
+                held.add(item.pack());
+            } else if ("DECLINED".equals(status)) {
+                loads.sent(player, item.pack().uuid());
+                loads.declined(player, item.pack().uuid());
+                held.add(item.pack());
+            } else {
+                // Everything above it has to follow it, to keep the stack's order.
+                break;
+            }
+        }
+        sessions.applied(player, held);
     }
 
     /**
