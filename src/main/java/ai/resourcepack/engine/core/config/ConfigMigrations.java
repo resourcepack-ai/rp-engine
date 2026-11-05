@@ -67,7 +67,9 @@ public final class ConfigMigrations {
             new Migration(7, "added pack.packsquash, which runs each pack through PackSquash for a smaller download",
                     ConfigMigrations::packSquash),
             new Migration(8, "added pack.merge, which builds other plugins' resource packs into RP Engine's",
-                    ConfigMigrations::packMerge)
+                    ConfigMigrations::packMerge),
+            new Migration(9, "added proxy.enabled, which hands players' packs to RPE Proxy on a Velocity proxy",
+                    ConfigMigrations::proxy)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -431,6 +433,27 @@ public final class ConfigMigrations {
         String indent = childIndent(text, pack.end());
         String rest = text.startsWith("\n", pack.end()) ? text.substring(pack.end() + 1) : text.substring(pack.end());
         return text.substring(0, pack.end()) + "\n" + indent(block, indent) + "\n\n" + rest;
+    }
+
+    /** 9: {@code proxy:}, off, at the end of the file. */
+    static String proxy(String text, YamlConfiguration parsed) {
+        if (parsed.contains("proxy")) {
+            return text;
+        }
+        String section = String.join("\n",
+                "",
+                "# Behind a Velocity proxy running RPE Proxy, the proxy sends players the",
+                "# packs instead of this server: once when they join the network, and not again",
+                "# when they switch servers unless the new server wants a different pack. It",
+                "# can also serve the packs from the proxy's own port, so nothing else has to",
+                "# be opened. Turn it on in every server behind the proxy that runs RP Engine.",
+                "# A player whose connection does not run through RPE Proxy is sent the packs",
+                "# by this server, as with it off. Read at startup.",
+                "# https://resourcepack.ai/docs/rp-engine/proxy",
+                "proxy:",
+                "  enabled: false",
+                "");
+        return (text.endsWith("\n") || text.isEmpty() ? text : text + "\n") + section;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

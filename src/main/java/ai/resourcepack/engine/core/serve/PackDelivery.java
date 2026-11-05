@@ -44,6 +44,8 @@ public final class PackDelivery {
     private final java.util.Map<java.util.UUID, List<BuiltPack>> applied = new java.util.concurrent.ConcurrentHashMap<>();
     /** Said once a run, like {@link #warnedAboutFailure}. */
     private boolean warnedAboutFallback;
+    /** proxy.enabled: RPE Proxy, for the players whose connection runs through it. Null when off. */
+    private volatile ProxyBridge proxy;
 
     public PackDelivery(BundleSessions sessions, PackHost host, String prompt, boolean force,
                         PackSending sending, Logger logger) {
@@ -62,6 +64,17 @@ public final class PackDelivery {
         String legacy = PromptText.toLegacy(message);
         this.prompt = legacy.isEmpty() ? null : legacy;
         this.force = force;
+    }
+
+    /** Hands players whose connection runs through RPE Proxy to it. Null turns that off. */
+    public void proxy(ProxyBridge bridge) {
+        this.proxy = bridge;
+    }
+
+    /** Whether {@code player}'s packs go through RPE Proxy. */
+    public boolean viaProxy(Player player) {
+        ProxyBridge bridge = proxy;
+        return bridge != null && bridge.carries(player);
     }
 
     /** The accept screen's message as a legacy string, or null for the client's own wording. */
@@ -183,6 +196,26 @@ public final class PackDelivery {
                 host.whenSettled(pack.bundle(), () -> retry(player, id));
                 return false;
             }
+        }
+        ProxyBridge bridge = proxy;
+        if (bridge != null && bridge.carries(player)) {
+            // The proxy is told the whole stack and works out the difference
+            // against what the player holds from ANY server, which is what
+            // keeps a server switch from sending anything.
+            bridge.sendStack(player, desired, pack -> {
+                if (!pack.url().isEmpty()) {
+                    return pack.url();
+                }
+                return host.url(pack.bundle(), player.getUniqueId()).orElse("");
+            }, prompt, force);
+            for (BuiltPack pack : adding) {
+                loads.sent(player.getUniqueId(), pack.uuid());
+                player.getServer().getPluginManager().callEvent(new PackSendEvent(player, pack.bundle(),
+                        pack.url().isEmpty() ? host.url(pack.bundle(), player.getUniqueId()).orElse("") : pack.url(),
+                        pack));
+            }
+            sessions.applied(player.getUniqueId(), desired);
+            return true;
         }
         for (BundleSessions.Held held : delta.remove()) {
             sending.remove(player, held.uuid());
@@ -410,7 +443,8 @@ public final class PackDelivery {
      * @return whether anything was sent
      */
     public boolean restack(Player player, List<BuiltPack> desired) {
-        if (player == null || desired == null || desired.isEmpty() || !sending.stacks()) {
+        if (player == null || desired == null || desired.isEmpty() || !sending.stacks() || viaProxy(player)) {
+            // Through the proxy, the packs are the proxy's to keep on top.
             return false;
         }
         sessions.forget(player.getUniqueId());
