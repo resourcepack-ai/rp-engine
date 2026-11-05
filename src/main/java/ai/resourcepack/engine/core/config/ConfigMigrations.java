@@ -60,7 +60,10 @@ public final class ConfigMigrations {
                     ConfigMigrations::vfxMaxSprites),
             new Migration(5, "added host.fallback-on-download-failure, which serves a player this server's own copy"
                     + " when the pack host fails them",
-                    ConfigMigrations::hostFallback)
+                    ConfigMigrations::hostFallback),
+            new Migration(6, "added send:, which chooses when players are sent the packs (before-join, on-join,"
+                    + " on-reload, delay)",
+                    ConfigMigrations::send)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -327,6 +330,51 @@ public final class ConfigMigrations {
         String indent = childIndent(text, host.end());
         String rest = text.startsWith("\n", host.end()) ? text.substring(host.end() + 1) : text.substring(host.end());
         return text.substring(0, host.end()) + "\n" + indent(block, indent) + "\n" + rest;
+    }
+
+    /**
+     * 6: {@code send:}, after {@code prompt:} where the file has one and at
+     * the end where it does not. Every setting in it is at the default that
+     * matches what the plugin did before it existed.
+     */
+    static String send(String text, YamlConfiguration parsed) {
+        if (parsed.contains("send")) {
+            return text;
+        }
+        String section = String.join("\n",
+                "# When players are sent the packs.",
+                "# https://resourcepack.ai/docs/rp-engine/config#sending-the-pack",
+                "send:",
+                "  # Send the packs while the player is still connecting, so they arrive in",
+                "  # the world with them already loaded, rather than once they are in it.",
+                "  # Paper 1.21.7 or newer; anywhere else they are sent on join instead. A",
+                "  # big pack keeps the player on the loading screen until it has loaded.",
+                "  # Read at startup.",
+                "  before-join: false",
+                "",
+                "  # Send the packs when a player joins: everything, or with before-join on,",
+                "  # only what did not arrive before it. false sends nothing at join, for a",
+                "  # server that sends them itself.",
+                "  on-join: true",
+                "",
+                "  # Send everybody online the new packs after /rp reload. false keeps what",
+                "  # they have until they next join.",
+                "  on-reload: true",
+                "",
+                "  # How long after joining the packs are sent, in ticks (20 a second). Does",
+                "  # not apply to before-join.",
+                "  delay: 0",
+                "");
+        Matcher prompt = Pattern.compile("(?m)^prompt:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (prompt.find()) {
+            // The end of the prompt section: the next line that is not indented or blank.
+            Matcher next = Pattern.compile("(?m)^[^\\s]").matcher(text);
+            int end = next.find(prompt.end() + 1) ? next.start() : text.length();
+            // Back over the blank lines before it, so one sits either side of the new section.
+            String head = text.substring(0, end).replaceAll("\n+$", "\n");
+            return head + "\n" + section + (end < text.length() ? "\n" : "") + text.substring(end);
+        }
+        return (text.endsWith("\n") || text.isEmpty() ? text + "\n" : text + "\n\n") + section;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

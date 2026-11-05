@@ -104,6 +104,7 @@ import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
 import ai.resourcepack.engine.core.serve.BundleSessions;
 import ai.resourcepack.engine.core.serve.PackDelivery;
 import ai.resourcepack.engine.core.serve.PackSending;
+import ai.resourcepack.engine.core.serve.PaperPreJoin;
 import ai.resourcepack.engine.core.serve.ServerStack;
 import ai.resourcepack.engine.core.serve.LoginAddresses;
 import ai.resourcepack.engine.core.serve.PackHost;
@@ -360,6 +361,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * the same send. See {@link #onJoin}.
      */
     private final Set<UUID> holdingPacks = ConcurrentHashMap.newKeySet();
+
+    /** send.on-join: whether a join sends the packs a player does not already hold. */
+    private volatile boolean sendOnJoin = true;
+    /** send.on-reload: whether /rp reload sends everybody online the new builds. */
+    private volatile boolean sendOnReload = true;
+    /** send.delay, in ticks: how long after joining the packs go out. */
+    private volatile long sendDelayTicks = 0L;
+    /** Player -> the moment send.delay lets their packs go, in millis. */
+    private final Map<UUID, Long> sendNotBefore = new ConcurrentHashMap<>();
 
     /** The rigs the last build baked, so a newcomer's own can be stacked on exactly that build. */
     private RigAssets currentRigs;
@@ -1272,6 +1282,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         EngineOptions.seatOffset(getConfig(), seats, vehicles);
         recipes.allowVanillaRecipes(getConfig().getBoolean("items.vanilla-recipes", false));
         defaultBundle = getConfig().getString("default-bundle", "");
+        readSendSettings();
         if (vfxRuntime != null) {
             vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
                     ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
@@ -1815,7 +1826,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             ownRigs.put(player.getUniqueId(), pack);
             emoteStore.addNativeRig(self.key(), self.rig());
         }
-        if (!releasePacks(player) && pack != null) {
+        if (!releasePacks(player) && pack != null
+                && (sendOnJoin || !sessions.held(player.getUniqueId()).isEmpty())) {
             delivery.apply(player, desiredFor(player));
         }
     }
@@ -1853,6 +1865,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             heldOnlyForOthers.add(player.getUniqueId());
             return true;
         }
+        Long notBefore = sendNotBefore.get(player.getUniqueId());
+        if (notBefore != null && System.currentTimeMillis() < notBefore) {
+            // send.delay has not run out; its own timer releases them.
+            return true;
+        }
+        sendNotBefore.remove(player.getUniqueId());
         holdingPacks.remove(player.getUniqueId());
         if (player.isOnline()) {
             delivery.apply(player, desiredFor(player));
@@ -2267,6 +2285,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** How often uploaded packs are touched to keep them on the pack host: every six hours. */
     private static final long PACK_REFRESH_TICKS = 20L * 60 * 60 * 6;
 
+    /** The send: section and the prompt, which /rp reload reads again (all but send.before-join). */
+    private void readSendSettings() {
+        sendOnJoin = getConfig().getBoolean("send.on-join", true);
+        sendOnReload = getConfig().getBoolean("send.on-reload", true);
+        sendDelayTicks = Math.max(0L, getConfig().getLong("send.delay", 0L));
+        if (delivery != null) {
+            delivery.prompt(getConfig().getString("prompt.message", ""), getConfig().getBoolean("prompt.force", false));
+        }
+    }
+
     private void startHost() {
         defaultBundle = getConfig().getString("default-bundle", "");
         String address = getConfig().getString("host.public-address", DEFAULT_PUBLIC_ADDRESS);
@@ -2292,6 +2320,40 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 getConfig().getString("prompt.message", ""),
                 getConfig().getBoolean("prompt.force", false),
                 PackSending.forServer(compatibility), getLogger());
+        readSendSettings();
+        // Read here and only here: the listener is registered once.
+        if (getConfig().getBoolean("send.before-join", false) && mode != PackHost.Mode.NONE) {
+            boolean hooked = delivery.stacks() && PaperPreJoin.register(this, new PaperPreJoin.Source() {
+                @Override
+                public List<PackDelivery.PreJoin> plan(UUID player) {
+                    if (!isEnabled() || bedrock.isBedrock(player)) {
+                        return List.of();
+                    }
+                    return delivery.preJoinPlan(player, desiredFor(null));
+                }
+
+                @Override
+                public void done(UUID player, List<PackDelivery.PreJoin> sent, Map<UUID, String> statuses) {
+                    delivery.preJoined(player, sent, statuses);
+                }
+
+                @Override
+                public String prompt() {
+                    return delivery.prompt();
+                }
+
+                @Override
+                public boolean force() {
+                    return delivery.force();
+                }
+            });
+            if (hooked) {
+                startup("Sending", "Before join (send.before-join)");
+            } else {
+                getLogger().warning("send.before-join needs Paper 1.21.7 or newer, which this server is not, "
+                        + "so packs are sent when a player joins instead.");
+            }
+        }
         // So our other plugins (Dialog Engine) know a pack of ours when it
         // reaches a player and do not send theirs again over it.
         ai.resourcepack.common.shader.SiblingPacks.register(this, id -> {
@@ -2762,7 +2824,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // stack is already right.
         if (resend) {
             for (Player player : getServer().getOnlinePlayers()) {
-                delivery.apply(player, desiredFor(player));
+                if (sendOnReload || !started) {
+                    delivery.apply(player, desiredFor(player));
+                } else {
+                    // send.on-reload off: only somebody whose download of the
+                    // old build was cut short by this one, which they cannot
+                    // finish now its file is gone.
+                    delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
+                }
             }
         }
 
@@ -3180,18 +3249,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** The longest a join waits for its skin before sending the packs without it: two seconds. */
     private static final long JOIN_SKIN_WAIT_TICKS = 40L;
 
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
-        // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
-        // the real start of that session and this join is not.
-        joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
-        Player joined = event.getPlayer();
+    /** What a join sends, which send.on-join turns off. */
+    private void sendAtJoin(Player joined) {
         // Held for a moment while their skin is fetched, when it is one this
         // server's pack has no rig for: the pack that shows them their own rig
         // can then go in the same send as everything else, one loading screen
         // rather than two. offerOwnRig releases them; the timer is for a fetch
         // that is slow or fails.
         holdingPacks.add(joined.getUniqueId());
+        if (sendDelayTicks > 0) {
+            // send.delay: nothing goes before it has run out, whatever else
+            // would have released them sooner; this timer releases them then.
+            sendNotBefore.put(joined.getUniqueId(), System.currentTimeMillis() + sendDelayTicks * 50L);
+            Tasks.onLater(this, joined, () -> releasePacks(joined), sendDelayTicks);
+        }
         // Only when a bundle actually carries a merged shader: everywhere else
         // (nearly every server) a join sends at once, as it always did.
         if (!built.equals(builtUnmerged) && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
@@ -3206,6 +3277,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             Tasks.onLater(this, joined, () -> releasePacks(joined), JOIN_SKIN_WAIT_TICKS);
         } else {
             releasePacks(joined);
+        }
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        // putIfAbsent: a Geyser transfer skips onQuit, so the entry it left is
+        // the real start of that session and this join is not.
+        joinedAt.putIfAbsent(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        Player joined = event.getPlayer();
+        if (!sendOnJoin) {
+            // send.on-join off: nothing goes at join. Whatever went before it
+            // (send.before-join) is what they hold until a plugin or a command
+            // sends more. The skin is still noticed, for everybody's rigs.
+            if (skinCache != null) {
+                skinCache.noticed(joined);
+            }
+            announcePresence(joined, true);
+        } else {
+            sendAtJoin(joined);
         }
         // JOIN-triggered overlays, a tick later. The pack is still being
         // applied at this moment — `delivery.apply` above is what starts it —
@@ -3331,6 +3421,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         delivery.forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
         holdingPacks.remove(event.getPlayer().getUniqueId());
+        sendNotBefore.remove(event.getPlayer().getUniqueId());
         awaitingOthers.remove(event.getPlayer().getUniqueId());
         heldOnlyForOthers.remove(event.getPlayer().getUniqueId());
         dropOwnRig(event.getPlayer().getUniqueId());
