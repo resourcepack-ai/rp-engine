@@ -396,6 +396,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     /** The bundles as the last build wrote them, before any shader was merged into them. */
     private List<BuiltPack> builtUnmerged = List.of();
+    /**
+     * The bundles with shaders merged, before PackSquash. What anything that
+     * READS a bundle's files uses (the shader clash check, the Bedrock
+     * conversion): a squashed zip may be one only the game can open.
+     */
+    private List<BuiltPack> builtMerged = List.of();
+    /** pack.packsquash. */
+    private final ai.resourcepack.engine.core.pack.PackSquash packSquash =
+            new ai.resourcepack.engine.core.pack.PackSquash(getLogger());
     /** The merged copies of Studio pushes already handed to the pack host, by bundle name. */
     private final Set<String> servedMerges = ConcurrentHashMap.newKeySet();
 
@@ -2069,6 +2078,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        packSquash.shutdown();
         // Folia disables plugins only as the server stops, after every region
         // has stopped ticking, and from a thread that owns none of them: an
         // entity cannot be removed there at all (Folia throws from inside its
@@ -2293,6 +2303,15 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (delivery != null) {
             delivery.prompt(getConfig().getString("prompt.message", ""), getConfig().getBoolean("prompt.force", false));
         }
+    }
+
+    /** pack.packsquash, read at every build so /rp reload takes a change. */
+    private ai.resourcepack.engine.core.pack.PackSquash.Settings packSquashSettings() {
+        Path folder = getDataFolder().toPath();
+        return new ai.resourcepack.engine.core.pack.PackSquash.Settings(
+                getConfig().getBoolean("pack.packsquash.enabled", false),
+                folder.resolve(getConfig().getString("pack.packsquash.executable", "packsquash/packsquash")),
+                folder.resolve(getConfig().getString("pack.packsquash.options", "packsquash/packsquash.toml")));
     }
 
     private void startHost() {
@@ -2799,7 +2818,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // is sent the one pack they always were.
         shaderClashes.scanNow();
         builtUnmerged = builtReport.packs();
-        built = withMergedShaders(builtUnmerged);
+        builtMerged = withMergedShaders(builtUnmerged);
+        // At startup nobody is waiting, so a first squash is waited for; on a
+        // reload the server is, so a long one is served unsquashed meanwhile.
+        built = packSquash.squash(builtMerged, packSquashSettings(), started ? 20_000L : 600_000L);
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
@@ -2884,7 +2906,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private void checkShaderClashes() {
         List<Map.Entry<String, BuiltPack>> ours = new ArrayList<>();
-        for (BuiltPack pack : built) {
+        for (BuiltPack pack : builtMerged) {
             ours.add(Map.entry("RP Engine's bundle '" + pack.bundle() + "'", pack));
         }
         if (rigPack != null) {
@@ -2901,7 +2923,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * after a later read found them changed, and sent to whoever is online.
      */
     private void remergeShaders() {
-        built = withMergedShaders(builtUnmerged);
+        builtMerged = withMergedShaders(builtUnmerged);
+        built = packSquash.squash(builtMerged, packSquashSettings(), 20_000L);
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
@@ -3033,7 +3056,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("cache").resolve("vanilla-textures"), getLogger());
         }
         BuiltPack main = null;
-        for (BuiltPack pack : built) {
+        for (BuiltPack pack : builtMerged) {
             if (pack.bundle().equals(defaultBundle)) {
                 main = pack;
                 break;
@@ -3265,7 +3288,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         // Only when a bundle actually carries a merged shader: everywhere else
         // (nearly every server) a join sends at once, as it always did.
-        if (!built.equals(builtUnmerged) && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
+        if (!builtMerged.equals(builtUnmerged) && delivery.stacks() && !bedrock.isBedrock(joined.getUniqueId())) {
             awaitingOthers.add(joined.getUniqueId());
             Tasks.onLater(this, joined, () -> releaseForOthers(joined), OTHERS_WAIT_TICKS);
         }

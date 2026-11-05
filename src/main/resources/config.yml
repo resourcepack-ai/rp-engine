@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 6
+config-version: 7
 
 # How players download the packs this server builds.
 host:
@@ -65,6 +65,17 @@ pack:
 
   # Shown in the client's resource pack list, with the bundle name appended.
   description: "RP Engine"
+
+  # Run each pack through PackSquash (https://packsquash.aylas.org/) before
+  # players are sent it, for a smaller download. Download PackSquash for your
+  # server's system and put it at executable (both paths are inside
+  # plugins/RPEngine). Its options are in the options file, written for you
+  # the first time; the defaults keep every texture RP Engine's shaders read
+  # exact. A pack is only squashed again when it changes.
+  packsquash:
+    enabled: false
+    executable: "packsquash/packsquash"
+    options: "packsquash/packsquash.toml"
 
 # Live-testing a pack from ResourcePack AI Studio.
 sync:

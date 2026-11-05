@@ -192,4 +192,18 @@ class ConfigMigrationsTest {
         String noPrompt = "config-version: 5\nhost:\n  mode: upload\n";
         assertTrue(yaml(ConfigMigrations.migrate(noPrompt).text()).getBoolean("send.on-join"));
     }
+
+    @Test
+    void addsPackSquashOffUnderPack() throws Exception {
+        String old = "config-version: 6\npack:\n  description: \"Mine\"\n\nsync:\n  enabled: true\n";
+        YamlConfiguration after = yaml(ConfigMigrations.migrate(old).text());
+        assertEquals(ConfigMigrations.latest(), after.getInt("config-version"));
+        assertFalse(after.getBoolean("pack.packsquash.enabled"));
+        assertEquals("packsquash/packsquash", after.getString("pack.packsquash.executable"));
+        assertEquals("Mine", after.getString("pack.description"));
+        assertTrue(after.getBoolean("sync.enabled"));
+
+        String noPack = "config-version: 6\nhost:\n  mode: upload\n";
+        assertFalse(yaml(ConfigMigrations.migrate(noPack).text()).getBoolean("pack.packsquash.enabled", true));
+    }
 }
