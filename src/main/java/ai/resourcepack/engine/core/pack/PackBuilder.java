@@ -231,6 +231,19 @@ public final class PackBuilder {
                     new Sink(contentRoot, zip, writtenBy, diagnostics, generatedOverlays));
         }
         addGeneratedOverlays(overlays, generatedOverlays);
+        // The game loads no file with a capital in its path. After the
+        // contributors, so the models they wrote follow the files they name.
+        LowercasePaths.Result lowered = LowercasePaths.complete(zip);
+        lowered.renamed().forEach((namespace, files) -> diagnostics.add(Diagnostic.warning(namespace + "/assets",
+                files.size() + (files.size() == 1 ? " file has capital letters in its name (" : " files have capital letters in their names (")
+                        + String.join(", ", files.subList(0, Math.min(4, files.size())))
+                        + (files.size() > 4 ? ", ..." : "") + "), which Minecraft refuses to load. They are"
+                        + " lowercased in the built pack, and so is everything that names them. Rename them to"
+                        + " lowercase to quiet this.")));
+        lowered.clashes().forEach((namespace, files) -> diagnostics.add(Diagnostic.warning(namespace + "/assets",
+                "Minecraft refuses capital letters in a file's name, and these could not be lowercased because"
+                        + " the lowercase name is already taken, so they will not load: "
+                        + String.join(", ", files) + ".")));
         // Last, so it sees every model the contributors wrote as well.
         ModelAtlas.complete(zip);
 
