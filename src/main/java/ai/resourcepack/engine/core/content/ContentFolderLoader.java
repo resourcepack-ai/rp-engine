@@ -193,6 +193,16 @@ public final class ContentFolderLoader {
      * @param source which front door these packs count as
      */
     public LoadReport load(Path root, ContentSource source) {
+        return load(root, source, Map.of());
+    }
+
+    /**
+     * As {@link #load(Path, ContentSource)}, plus resource packs from outside
+     * the content folder ({@code pack.merge}), by namespace. Each is read as a
+     * plain resource pack in the content folder would be: art for the build,
+     * defining nothing.
+     */
+    public LoadReport load(Path root, ContentSource source, Map<String, Path> merged) {
         List<PackMeta> packs = new ArrayList<>();
         List<ContentDefinition> definitions = new ArrayList<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
@@ -211,7 +221,15 @@ public final class ContentFolderLoader {
                 loadPack(root, folder, source, packs, definitions, diagnostics, craftEngine);
             }
         }
-        return LoadReport.of(packs, definitions, diagnostics, defaultFontCodepoints(root, packs));
+        for (Map.Entry<String, Path> pack : merged.entrySet()) {
+            ClaimResult claim = registration.claim(pack.getKey(), source);
+            if (!claim.success()) {
+                diagnostics.add(Diagnostic.error(pack.getValue().toString(), claimMessage(pack.getKey(), claim)));
+                continue;
+            }
+            packs.add(PackMeta.of(pack.getKey(), source, null, null, null, List.of()));
+        }
+        return LoadReport.of(packs, definitions, diagnostics, defaultFontCodepoints(root, packs, merged));
     }
 
     /**
@@ -221,11 +239,11 @@ public final class ContentFolderLoader {
      * and its {@code overrides/}. The engine's glyphs share that file and are
      * allocated around these. See {@link LoadReport#takenCodepoints()}.
      */
-    private static Set<Integer> defaultFontCodepoints(Path root, List<PackMeta> packs) {
+    private static Set<Integer> defaultFontCodepoints(Path root, List<PackMeta> packs, Map<String, Path> merged) {
         Set<Integer> taken = new java.util.TreeSet<>();
         for (PackMeta pack : packs) {
-            Path folder = root.resolve(pack.namespace());
-            List<Path> fonts = PlainPack.is(folder)
+            Path folder = merged.getOrDefault(pack.namespace(), root.resolve(pack.namespace()));
+            List<Path> fonts = PlainPack.is(folder) || merged.containsKey(pack.namespace())
                     ? List.of(folder.resolve("assets/minecraft/font/default.json"))
                     : List.of(folder.resolve("resourcepack/assets/minecraft/font/default.json"),
                     folder.resolve("overrides/font/default.json"));

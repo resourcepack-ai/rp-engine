@@ -2560,8 +2560,20 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Everything goes, then the folder is read again. See clear().
         registry.clear();
 
+        // pack.merge: other plugins' packs, built in with the content.
+        ai.resourcepack.engine.core.pack.ExternalPacks.Resolved merging =
+                ai.resourcepack.engine.core.pack.ExternalPacks.resolve(getConfig().getStringList("pack.merge"),
+                        getDataFolder().toPath().toAbsolutePath().getParent(),
+                        getDataFolder().toPath().resolve("cache").resolve("merge"));
+        List<Diagnostic> mergeProblems = new ArrayList<>();
+        for (String problem : merging.problems()) {
+            mergeProblems.add(Diagnostic.warning("pack.merge", problem));
+        }
+        report(to, "config", mergeProblems);
+
         LoadReport loaded = new ContentFolderLoader(registry,
-                compatibility == null ? null : compatibility.version()).load(content, ContentSource.AUTHORED);
+                compatibility == null ? null : compatibility.version())
+                .load(content, ContentSource.AUTHORED, merging.packs());
         report(to, "content", loaded.diagnostics());
 
         ItemDefinitions.Result parsedItems = ItemDefinitions.parse(loaded);
@@ -2767,7 +2779,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(itemAssets)
                 .with(new SoundAssets())
                 .with(new FontAssets())
-                .with(new BlockAssets(blockStates));
+                .with(new BlockAssets(blockStates))
+                .merging(merging.packs());
         if (!rigsApart) {
             builder.with(rigAssets);
         }
