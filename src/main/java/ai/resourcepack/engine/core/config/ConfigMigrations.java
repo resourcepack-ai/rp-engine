@@ -65,7 +65,9 @@ public final class ConfigMigrations {
                     + " on-reload, delay)",
                     ConfigMigrations::send),
             new Migration(7, "added pack.packsquash, which runs each pack through PackSquash for a smaller download",
-                    ConfigMigrations::packSquash)
+                    ConfigMigrations::packSquash),
+            new Migration(8, "added pack.merge, which builds other plugins' resource packs into RP Engine's",
+                    ConfigMigrations::packMerge)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -395,6 +397,32 @@ public final class ConfigMigrations {
                 "  enabled: false",
                 "  executable: \"packsquash/packsquash\"",
                 "  options: \"packsquash/packsquash.toml\"");
+        Matcher pack = Pattern.compile("(?m)^pack:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!pack.find()) {
+            String section = "\npack:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, pack.end());
+        String rest = text.startsWith("\n", pack.end()) ? text.substring(pack.end() + 1) : text.substring(pack.end());
+        return text.substring(0, pack.end()) + "\n" + indent(block, indent) + "\n\n" + rest;
+    }
+
+    /** 8: {@code pack.merge}, empty, first under {@code pack:}. */
+    static String packMerge(String text, YamlConfiguration parsed) {
+        if (parsed.contains("pack.merge")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# Other resource packs to build into RP Engine's, so players are sent one",
+                "# pack instead of one per plugin: the pack another plugin generates, or one",
+                "# you downloaded. Each is a folder or a .zip, relative to the plugins folder.",
+                "# Read again on every /rp reload. Turn off the other plugin's own sending,",
+                "# or players get its pack twice. Where both ship the same file, your",
+                "# content/ wins.",
+                "# merge:",
+                "#   - \"ModelEngine/resource pack\"",
+                "#   - \"BetterHud/build.zip\"",
+                "merge: []");
         Matcher pack = Pattern.compile("(?m)^pack:[ \t]*(#[^\n]*)?$").matcher(text);
         if (!pack.find()) {
             String section = "\npack:\n" + indent(block, "  ") + "\n";

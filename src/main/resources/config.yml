@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 7
+config-version: 8
 
 # How players download the packs this server builds.
 host:
@@ -76,6 +76,17 @@ pack:
     enabled: false
     executable: "packsquash/packsquash"
     options: "packsquash/packsquash.toml"
+
+  # Other resource packs to build into RP Engine's, so players are sent one
+  # pack instead of one per plugin: the pack another plugin generates, or one
+  # you downloaded. Each is a folder or a .zip, relative to the plugins folder.
+  # Read again on every /rp reload. Turn off the other plugin's own sending,
+  # or players get its pack twice. Where both ship the same file, your
+  # content/ wins.
+  # merge:
+  #   - "ModelEngine/resource pack"
+  #   - "BetterHud/build.zip"
+  merge: []
 
 # Live-testing a pack from ResourcePack AI Studio.
 sync:

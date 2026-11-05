@@ -162,6 +162,15 @@ public final class PackBuilder {
      * assets are copied. Order is part of the output, so add them in a fixed
      * order rather than from anything iteration-order-dependent.
      */
+    /** Resource packs from outside the content folder, by namespace ({@code pack.merge}). */
+    private Map<String, Path> merged = Map.of();
+
+    /** Builds these in as plain resource packs, from where they are. See {@code ExternalPacks}. */
+    public PackBuilder merging(Map<String, Path> packs) {
+        this.merged = packs == null ? Map.of() : Map.copyOf(packs);
+        return this;
+    }
+
     public PackBuilder with(PackContributor contributor) {
         if (contributor != null) {
             contributors.add(contributor);
@@ -199,8 +208,8 @@ public final class PackBuilder {
         MetaSections sections = new MetaSections();
 
         for (String namespace : bundle.namespaces()) {
-            Path packFolder = contentRoot.resolve(namespace);
-            if (PlainPack.is(packFolder)) {
+            Path packFolder = merged.getOrDefault(namespace, contentRoot.resolve(namespace));
+            if (merged.containsKey(namespace) || PlainPack.is(packFolder)) {
                 // An ordinary resource pack: the whole folder is what a
                 // resourcepack/ folder would hold. See PlainPack.
                 copyTree(packFolder.resolve(ASSETS), ASSETS, namespace, bundle, zip, writtenBy, diagnostics);
