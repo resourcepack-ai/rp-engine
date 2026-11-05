@@ -63,7 +63,9 @@ public final class ConfigMigrations {
                     ConfigMigrations::hostFallback),
             new Migration(6, "added send:, which chooses when players are sent the packs (before-join, on-join,"
                     + " on-reload, delay)",
-                    ConfigMigrations::send)
+                    ConfigMigrations::send),
+            new Migration(7, "added pack.packsquash, which runs each pack through PackSquash for a smaller download",
+                    ConfigMigrations::packSquash)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -375,6 +377,32 @@ public final class ConfigMigrations {
             return head + "\n" + section + (end < text.length() ? "\n" : "") + text.substring(end);
         }
         return (text.endsWith("\n") || text.isEmpty() ? text + "\n" : text + "\n\n") + section;
+    }
+
+    /** 7: {@code pack.packsquash}, off, first under {@code pack:}. */
+    static String packSquash(String text, YamlConfiguration parsed) {
+        if (parsed.contains("pack.packsquash")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# Run each pack through PackSquash (https://packsquash.aylas.org/) before",
+                "# players are sent it, for a smaller download. Download PackSquash for your",
+                "# server's system and put it at executable (both paths are inside",
+                "# plugins/RPEngine). Its options are in the options file, written for you",
+                "# the first time; the defaults keep every texture RP Engine's shaders read",
+                "# exact. A pack is only squashed again when it changes.",
+                "packsquash:",
+                "  enabled: false",
+                "  executable: \"packsquash/packsquash\"",
+                "  options: \"packsquash/packsquash.toml\"");
+        Matcher pack = Pattern.compile("(?m)^pack:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!pack.find()) {
+            String section = "\npack:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, pack.end());
+        String rest = text.startsWith("\n", pack.end()) ? text.substring(pack.end() + 1) : text.substring(pack.end());
+        return text.substring(0, pack.end()) + "\n" + indent(block, indent) + "\n\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */
