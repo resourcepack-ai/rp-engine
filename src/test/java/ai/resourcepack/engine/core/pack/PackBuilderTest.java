@@ -95,6 +95,45 @@ class PackBuilderTest {
     }
 
     @Test
+    void aCapitalisedFileIsLoweredAndSoIsEveryNameForIt() throws IOException {
+        // Minecraft loads no file with a capital in its path: Aal.png was in
+        // the pack, named exactly, and still drew as the missing texture.
+        write("fish/pack.yml", "{}\n");
+        write("fish/assets/textures/item/Aal.png", "EEL");
+        write("fish/assets/textures/item/hai.png", "SHARK");
+        write("fish/assets/models/item/aal.json",
+                "{\"parent\":\"minecraft:item/generated\",\"textures\":{\"layer0\":\"fish:item/Aal\"}}");
+        write("fish/assets/lang/en_us.json", "{\"item.fish.aal\":\"fish:item/Aal\"}");
+
+        BuildReport report = build();
+        Map<String, byte[]> entries = read(report.pack("main").orElseThrow().file());
+
+        assertEquals("EEL", text(entries, "assets/fish/textures/item/aal.png"));
+        assertFalse(entries.containsKey("assets/fish/textures/item/Aal.png"));
+        assertEquals("SHARK", text(entries, "assets/fish/textures/item/hai.png"));
+        assertTrue(text(entries, "assets/fish/models/item/aal.json").contains("\"fish:item/aal\""));
+        assertTrue(text(entries, "assets/fish/lang/en_us.json").contains("fish:item/Aal"),
+                "words in a language file are not names");
+        assertTrue(report.diagnostics().stream().anyMatch(d -> d.message().contains("textures/item/Aal.png")),
+                report.diagnostics().toString());
+    }
+
+    @Test
+    void aCapitalisedFileWhoseLowercaseNameIsTakenIsLeftAndSaid() {
+        // Straight on the zip: a content folder on Windows cannot hold both.
+        DeterministicZip zip = new DeterministicZip();
+        zip.add("assets/fish/textures/item/Aal.png", "UPPER".getBytes(StandardCharsets.UTF_8));
+        zip.add("assets/fish/textures/item/aal.png", "LOWER".getBytes(StandardCharsets.UTF_8));
+
+        LowercasePaths.Result result = LowercasePaths.complete(zip);
+
+        assertEquals("LOWER", new String(zip.get("assets/fish/textures/item/aal.png"), StandardCharsets.UTF_8));
+        assertEquals("UPPER", new String(zip.get("assets/fish/textures/item/Aal.png"), StandardCharsets.UTF_8));
+        assertEquals(List.of("assets/fish/textures/item/Aal.png"), result.clashes().get("fish"));
+        assertTrue(result.renamed().isEmpty());
+    }
+
+    @Test
     void everyPackGetsAMcmeta() throws IOException {
         write("mypack/pack.yml", "{}\n");
 

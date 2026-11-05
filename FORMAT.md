@@ -53,6 +53,13 @@ every YAML definition lives in a category folder. That is why `models/` can be
 a folder of YAML while `.bbmodel` files sit in `assets/geometry/` without the
 two ever fighting over a name.
 
+**File names under `assets/` should be lowercase.** Minecraft refuses a capital
+letter anywhere in a resource path and skips the file, so `Aal.png` would draw
+as the missing texture. The built pack lowercases such a file and every name
+for it in the pack (an item's `texture: item/Aal` included) and the console
+lists them, but renaming them is what quiets the warning. Two files that
+differ only in case cannot both be kept and are reported.
+
 **`assets/` is namespaced and `overrides/` is not.** Everything under
 `assets/` lands under `assets/<your namespace>/` in the built pack, where it
 cannot collide with anybody. Everything under `overrides/` replaces a vanilla
