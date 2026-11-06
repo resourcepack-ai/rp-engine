@@ -53,7 +53,7 @@ class PluginYmlTest {
      * to a command is a decision this test makes somebody take.
      */
     private static final Set<String> ACT_ON_OTHERS =
-            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg", "stinger");
+            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg", "transition");
 
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
@@ -161,6 +161,20 @@ class PluginYmlTest {
             }
             assertTrue(children.contains("rpengine." + node + ": true"),
                     "rpengine.admin does not grant rpengine." + node);
+        }
+    }
+
+    @Test
+    void anOldNameRunsADeclaredSubcommandAndHasNoNodeOfItsOwn() throws IOException {
+        // /rp stinger is /rp transition under the name 0.2.63 shipped: it runs
+        // with the new node, and is neither offered nor declared.
+        String yml = pluginYml();
+        List<String> subs = usageSubcommands(yml);
+        Set<String> nodes = declaredNodes(yml);
+        for (var alias : EngineCommand.ALIASES.entrySet()) {
+            assertTrue(subs.contains(alias.getValue()), alias.getKey() + " names " + alias.getValue() + ", which is not a subcommand");
+            assertTrue(!subs.contains(alias.getKey()) && !nodes.contains(alias.getKey()),
+                    alias.getKey() + " is an old name and should not be in the usage line or have a node");
         }
     }
 

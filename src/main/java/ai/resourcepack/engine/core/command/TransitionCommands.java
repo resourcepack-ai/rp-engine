@@ -1,8 +1,8 @@
 package ai.resourcepack.engine.core.command;
 
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.StingerInfo;
-import ai.resourcepack.engine.core.stinger.StingerRuntime;
+import ai.resourcepack.engine.api.TransitionInfo;
+import ai.resourcepack.engine.core.transition.TransitionRuntime;
 
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -17,39 +17,44 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Stinger transitions: {@code stingers}, and
- * {@code stinger <name> [player|selector] [holdTicks]}.
+ * Transitions: {@code transitions}, and
+ * {@code transition <name> [player|selector] [holdTicks]}.
  *
- * <p>Plays the whole stinger, in, hold, out, which is what Studio's "Play in
+ * <p>Plays the whole transition, in, hold, out, which is what Studio's "Play in
  * game" relays (as the console, naming {@code @p}). A plugin that wants to do
  * something while the screen is covered uses the API instead.
+ *
+ * <p>0.2.63 called these {@code stinger} and {@code stingers}. Those words
+ * still run them (see {@code EngineCommand.ALIASES}), because Studio's "Play in
+ * game" sends {@code /rp stinger} to servers on either version, but they are
+ * not offered in the help or in completion.
  */
-public final class StingerCommands implements Area {
+public final class TransitionCommands implements Area {
 
     /** The longest hold a command may ask for: a minute. */
     private static final int MAX_HOLD = 1200;
 
-    private final StingerRuntime runtime;
+    private final TransitionRuntime runtime;
 
-    public StingerCommands(StingerRuntime runtime) {
+    public TransitionCommands(TransitionRuntime runtime) {
         this.runtime = runtime;
     }
 
     @Override
     public String title() {
-        return "Stingers";
+        return "Transitions";
     }
 
     @Override
     public List<Help> help() {
         return List.of(
-                Help.of("stingers", "each stinger transition this server can play"),
-                Help.of("stinger", "<name> [player] [holdTicks]", "cover a player's screen, hold, uncover it"));
+                Help.of("transitions", "each transition this server can play"),
+                Help.of("transition", "<name> [player] [holdTicks]", "cover a player's screen, hold, uncover it"));
     }
 
     @Override
     public boolean run(CommandSender sender, String sub, String[] args) {
-        if ("stingers".equals(sub)) {
+        if ("transitions".equals(sub)) {
             return list(sender);
         }
         return play(sender, args);
@@ -58,10 +63,10 @@ public final class StingerCommands implements Area {
     private boolean list(CommandSender sender) {
         List<ContentId> ids = runtime.ids();
         if (ids.isEmpty()) {
-            Reply.to(sender, "No stingers. Make one in Studio and sync or publish the pack.");
+            Reply.to(sender, "No transitions. Make one in Studio and sync or publish the pack.");
             return true;
         }
-        Reply.heading(sender, "Stingers", Reply.plural(ids.size(), "stinger") + ", play one with /rp stinger <name>");
+        Reply.heading(sender, "Transitions", Reply.plural(ids.size(), "transition") + ", play one with /rp transition <name>");
         for (ContentId id : ids) {
             runtime.info(id).ifPresent(info -> Reply.row(sender, id.toString(), info.name() + " · "
                     + seconds(info.inTicks()) + " in, " + seconds(info.holdTicks()) + " hold, "
@@ -72,15 +77,15 @@ public final class StingerCommands implements Area {
 
     private boolean play(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            Reply.to(sender, "/rp stinger <name> [player] [holdTicks]. /rp stingers lists them.");
+            Reply.to(sender, "/rp transition <name> [player] [holdTicks]. /rp transitions lists them.");
             return true;
         }
-        Optional<StingerInfo> found = runtime.find(args[1]);
+        Optional<TransitionInfo> found = runtime.find(args[1]);
         if (found.isEmpty()) {
-            Reply.to(sender, "No stinger called " + args[1] + ". /rp stingers lists them.");
+            Reply.to(sender, "No transition called " + args[1] + ". /rp transitions lists them.");
             return true;
         }
-        StingerInfo info = found.get();
+        TransitionInfo info = found.get();
 
         String who = null;
         String holdWord = null;
@@ -106,14 +111,14 @@ public final class StingerCommands implements Area {
 
         List<Player> targets = targets(sender, who);
         if (targets.isEmpty()) {
-            Reply.to(sender, who != null ? "No player matches " + who + "." : "/rp stinger <name> <player>, from the console.");
+            Reply.to(sender, who != null ? "No player matches " + who + "." : "/rp transition <name> <player>, from the console.");
             return true;
         }
         int played = 0;
         List<String> without = new ArrayList<>();
         for (Player target : targets) {
-            if (!Targets.permitted(sender, "stinger", target)) {
-                Targets.refuse(sender, "stinger", "play a stinger on");
+            if (!Targets.permitted(sender, "transition", target)) {
+                Targets.refuse(sender, "transition", "play a transition on");
                 return true;
             }
             if (runtime.play(target, info.id(), hold, null).isPresent()) {
@@ -166,7 +171,7 @@ public final class StingerCommands implements Area {
 
     @Override
     public List<String> complete(CommandSender sender, String sub, String[] args) {
-        if (!"stinger".equals(sub)) {
+        if (!"transition".equals(sub)) {
             return List.of();
         }
         if (args.length == 2) {
@@ -177,8 +182,8 @@ public final class StingerCommands implements Area {
             return startingWith(names, args[1]);
         }
         if (args.length == 3) {
-            List<String> out = new ArrayList<>(Targets.names(sender, "stinger"));
-            if (Targets.mayTargetOthers(sender, "stinger")) {
+            List<String> out = new ArrayList<>(Targets.names(sender, "transition"));
+            if (Targets.mayTargetOthers(sender, "transition")) {
                 out.addAll(List.of("@a", "@p"));
             }
             return startingWith(out, args[2]);

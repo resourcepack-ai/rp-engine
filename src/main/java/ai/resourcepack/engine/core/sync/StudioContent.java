@@ -246,7 +246,7 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
-    private volatile Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
     /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
     private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
@@ -448,7 +448,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
-        Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
         String last = "";
@@ -551,8 +551,12 @@ public final class StudioContent {
         return vfx;
     }
 
-    /** The pushed stinger transitions, keyed by {@code studio:<id>}. */
-    public Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> stingers() {
+    /**
+     * The pushed transitions, keyed by {@code studio:<id>}. Read from the
+     * manifest's {@code stingers} list, the name they shipped under (0.2.63)
+     * and still travel by.
+     */
+    public Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> transitions() {
         return stingers;
     }
 
@@ -856,26 +860,26 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.VfxInfo.Source.STUDIO, null), recipe)));
         }
 
-        Map<ContentId, ai.resourcepack.engine.core.stinger.StingerEntry> readStingers = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> readStingers = new LinkedHashMap<>();
         for (Stinger stinger : manifest.stingers == null ? List.<Stinger>of() : manifest.stingers) {
             // The character and the two phase colours are the whole stinger
             // as far as the engine goes; without them it has nothing to send.
             if (stinger == null || stinger.glyph == null || stinger.glyph.isEmpty()
-                    || !ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.in)
-                    || !ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.out)) {
-                if (log != null && stinger != null) log.warning("Pushed stinger " + stinger.id
+                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.in)
+                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.out)) {
+                if (log != null && stinger != null) log.warning("Pushed transition " + stinger.id
                         + " is missing its character or a #rrggbb colour, so it was skipped.");
                 continue;
             }
-            id(stinger.id, log, "stinger").ifPresent(id -> readStingers.put(id,
-                    new ai.resourcepack.engine.core.stinger.StingerEntry(
-                            new ai.resourcepack.engine.api.StingerInfo(id, stinger.name,
+            id(stinger.id, log, "transition").ifPresent(id -> readStingers.put(id,
+                    new ai.resourcepack.engine.core.transition.TransitionEntry(
+                            new ai.resourcepack.engine.api.TransitionInfo(id, stinger.name,
                                     stinger.inTicks == null ? 12 : stinger.inTicks,
                                     stinger.holdTicks == null ? 30 : stinger.holdTicks,
                                     stinger.outTicks == null ? 12 : stinger.outTicks,
                                     stinger.soundIn, stinger.soundOut),
                             stinger.glyph, stinger.in.toLowerCase(Locale.ROOT), stinger.out.toLowerCase(Locale.ROOT),
-                            ai.resourcepack.engine.core.stinger.StingerTitles.isColor(stinger.auto)
+                            ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.auto)
                                     ? stinger.auto.toLowerCase(Locale.ROOT) : null)));
         }
 
@@ -1624,9 +1628,9 @@ public final class StudioContent {
             manifest.vfx.add(effect);
         }
         manifest.stingers = new ArrayList<>();
-        for (ai.resourcepack.engine.core.stinger.StingerEntry entry : stingers.values()) {
+        for (ai.resourcepack.engine.core.transition.TransitionEntry entry : stingers.values()) {
             Stinger out = new Stinger();
-            ai.resourcepack.engine.api.StingerInfo info = entry.info();
+            ai.resourcepack.engine.api.TransitionInfo info = entry.info();
             out.id = info.id().path();
             out.name = info.name();
             out.glyph = entry.glyph();

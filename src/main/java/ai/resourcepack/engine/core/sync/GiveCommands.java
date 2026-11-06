@@ -38,8 +38,13 @@ public final class GiveCommands {
     private GiveCommands() {
     }
 
-    /** The engine's own subcommands Studio opens things with. */
-    private static final Set<String> RP_SUBCOMMANDS = Set.of("dialog", "screen", "hud", "shader", "sound", "egg", "cast", "stinger");
+    /**
+     * The engine's own subcommands Studio opens things with. {@code stinger}
+     * is {@code transition}'s old name, which Studio's "Play in game" still
+     * sends so that it works on 0.2.63 too.
+     */
+    private static final Set<String> RP_SUBCOMMANDS =
+            Set.of("dialog", "screen", "hud", "shader", "sound", "egg", "cast", "stinger", "transition");
 
     /** The engine's command and its aliases, as plugin.yml declares them. */
     private static final Set<String> RP_ROOTS = Set.of("rp", "rpe", "rpengine");
