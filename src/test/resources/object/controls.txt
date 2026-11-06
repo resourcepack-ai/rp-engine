@@ -1,0 +1,14 @@
+# A 3D shader object's control colour: state, previous state, start tick
+# (-1 for long ago), seed, and the 24-bit colour, in hex.
+# Written by Studio from the layout its item shader decodes; do not edit.
+# period 4000 settled 4000
+0 0 -1 0 000fa0
+1 0 0 0 001000
+3 1 123 7 71307b
+15 15 3999 15 ffff9f
+2 9 4000 3 392000
+5 4 24000 1 145000
+7 6 1234567 12 c67a07
+16 20 50 99 fff032
+-3 -1 10 -5 00000a
+4 2 9999999999 8 824f9f
