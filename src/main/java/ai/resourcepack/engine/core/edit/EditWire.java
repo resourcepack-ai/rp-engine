@@ -1,6 +1,5 @@
+// GENERATED from Studio's description of this wire. Do not edit by hand.
 package ai.resourcepack.engine.core.edit;
-
-import com.google.gson.JsonObject;
 
 import java.util.List;
 import java.util.Map;
@@ -11,11 +10,11 @@ import java.util.Map;
  *
  * <p>A server owner runs {@code /rp edit chair}, clicks a link, edits
  * the thing in a real editor in a browser, presses one button, and the file on
- * this machine changes. This class is the only place the wire is written down
- * on this side; the other end is studio's {@code lib/temp-edit/protocol.ts}.
- * <strong>The two have to agree and there is no shared type between a jar and
- * a Worker</strong> — the same standing arrangement the push manifest already
- * lives under.
+ * this machine changes.
+ *
+ * <p><strong>Generated.</strong> Studio writes this file from the same
+ * description it writes its own side from, so the two cannot disagree about a
+ * field's name or type. Do not edit it by hand.
  *
  * <p>Two properties of the wire are worth knowing before changing anything
  * here, because both were chosen rather than fallen into:
@@ -75,7 +74,7 @@ final class EditWire {
          * far end carrying a second copy of that reader, and the two drifting
          * would be a model that looks different in the editor than in game.
          */
-        JsonObject json;
+        com.google.gson.JsonObject json;
     }
 
     static final class Texture {
@@ -137,6 +136,8 @@ final class EditWire {
      * model pixels and converts at its own edge.
      */
     static final class Vehicle {
+        /** Opaque addon-owned configuration, transported without interpretation. */
+        Map<String, Map<String, Object>> addons;
         String name;
         String medium;
         double weight;
@@ -144,57 +145,73 @@ final class EditWire {
         double acceleration;
         double turnSpeed;
         /**
-         * How much bigger than built it is drawn. Boxed for the reason the push
-         * manifest boxes it: an absent primitive reads as zero, and a scale of
-         * zero is a vehicle drawn at no size. Absent means 1.
-         */
-        Double scale;
-        /**
-         * Whether space jumps it rather than braking it. Boxed like the scale:
-         * absent is false, the handbrake every land vehicle had before.
-         */
-        Boolean jump;
-        /**
-         * Whether it turns while standing still. Boxed like the rest, though
-         * an absent boolean already reads as the false that means "only while
-         * moving".
+         * Whether it turns while standing still — see
+         * {@code VehicleInfo.turnInPlace}.
+         *
+         * <p>Boxed like the numbers around it, though for once the unboxed
+         * default would have been right: gson leaves an absent boolean at
+         * false, which is what a manifest pushed before this existed means.
+         * Boxed anyway so this file has one rule about an absent field rather
+         * than one per type.
          */
         Boolean turnInPlace;
         /**
-         * Whether a rider's cape is drawn in it. Boxed, and here it matters:
-         * the default is TRUE, so an absent primitive's false would undress
-         * every rider of a vehicle edited by an older Studio.
+         * How much bigger than built it is drawn — see {@code VehicleInfo.scale}.
+         *
+         * <p><strong>Boxed, on the same argument as the flight numbers below.</strong>
+         * Gson leaves an absent primitive at zero, and a scale of zero is a
+         * vehicle drawn at no size at all — which is what every vehicle pushed
+         * before this field existed would become. Absent means 1.
          */
-        Boolean capes;
+        Double scale;
+        /**
+         * Whether space jumps it rather than braking it — see
+         * {@code VehicleInfo.jumps()}. Boxed so a manifest older than the field
+         * reads as absent, which is false, which is the handbrake every land
+         * vehicle had before.
+         */
+        Boolean jump;
         double hitboxWidth;
         double hitboxHeight;
         double hitboxLength;
         /**
-         * How it flies, sent only for {@code medium: air} and boxed so that an
-         * absent one is told from a zero — a {@code climbRate} of zero is an
-         * aircraft that cannot climb. Absent means the speed-derived defaults
-         * a file without a {@code flight:} block gets.
+         * How it flies, which only {@code medium: air} reads.
+         *
+         * <p><strong>Boxed, for the same reason the emitter's optional numbers
+         * are.</strong> Gson leaves an absent primitive at zero, and zero is a
+         * meaningful value for three of these that is not the right default —
+         * a {@code climbRate} of zero is an aircraft that cannot climb, which
+         * is what every vehicle pushed before this field existed would silently
+         * become. Absent means {@link VehicleFlight#forSpeed}, the behaviour
+         * those vehicles were built against.
          */
         Double takeoffSpeed;
         Double climbRate;
         Double diveRate;
         Double stallSink;
         List<Seat> seats;
+        /**
+         * State name to animation name. Absent on a manifest older than this,
+         * which is a vehicle that animates nothing.
+         */
         Map<String, String> animations;
         /**
-         * State name to a sound's id, whole — {@code mypack:engine}, exactly
-         * as the file writes it.
-         *
-         * <p><strong>Unlike the push manifest, which sends a bare id.</strong>
-         * There it can, because a pushed sound and the vehicle naming it are
-         * two halves of one pack in one namespace; here the sound is somebody
-         * else's content on somebody else's server and the namespace is the
-         * only thing saying which pack it belongs to.
+         * State name to SOUND id — the id of a sound in this same manifest,
+         * which becomes {@code studio:<id>} at this end like everything else
+         * on this path. Absent on a manifest older than this, which is a
+         * vehicle that makes no noise.
          */
         Map<String, String> sounds;
+        /**
+         * Whether a rider's cape is drawn in it — see
+         * {@code VehicleInfo.capes}.
+         *
+         * <p>Boxed, and this one HAS to be: the default is TRUE, so an absent
+         * primitive's false would take the cape off every rider in every
+         * vehicle pushed before this field existed.
+         */
+        Boolean capes;
         List<Emitter> particles;
-        /** Addon id to its opaque configuration block. */
-        Map<String, Map<String, Object>> addons;
     }
 
     static final class Seat {
@@ -205,14 +222,22 @@ final class EditWire {
         double z;
         double yaw;
         String name;
-        /** Absent is false, as on the push manifest. */
+        /**
+         * Whether this seat's occupant is drawn at all. Absent is false, which
+         * is every seat pushed before this existed.
+         */
         Boolean hidden;
+        /**
+         * State name to EMOTE id — what this seat's occupant wears while the
+         * vehicle is in that state. Absent on a manifest older than this.
+         */
         Map<String, String> animations;
     }
 
     static final class Emitter {
         String effect;
         List<String> states;
+        /** In BLOCKS, like a seat's — see {@link Vehicle}. */
         double x;
         double y;
         double z;
