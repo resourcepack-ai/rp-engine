@@ -1,10 +1,10 @@
-package ai.resourcepack.engine.core.stinger;
+package ai.resourcepack.engine.core.transition;
 
 import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.api.StingerInfo;
-import ai.resourcepack.engine.api.StingerPlay;
-import ai.resourcepack.engine.api.Stingers;
+import ai.resourcepack.engine.api.TransitionInfo;
+import ai.resourcepack.engine.api.TransitionPlay;
+import ai.resourcepack.engine.api.Transitions;
 
 import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
@@ -23,7 +23,7 @@ import java.util.function.BiPredicate;
 import java.util.logging.Level;
 
 /**
- * Plays stingers by sending titles; the pack's text shader does the drawing.
+ * Plays transitions by sending titles; the pack's text shader does the drawing.
  *
  * <p>Three steps per play, each on the player's own thread
  * ({@link Tasks#onLater}, so Folia is fine): the IN title (fading in over the
@@ -34,7 +34,7 @@ import java.util.logging.Level;
  * no fade, so a long or open-ended hold never runs past the title's stay, and
  * a client that dropped its title gets it back already covered.
  */
-public final class StingerRuntime implements Stingers, Listener {
+public final class TransitionRuntime implements Transitions, Listener {
 
     /** How often a held cover is sent again. */
     static final int REFRESH_TICKS = 40;
@@ -42,15 +42,15 @@ public final class StingerRuntime implements Stingers, Listener {
     static final int REFRESH_STAY = REFRESH_TICKS * 3;
 
     private final Plugin plugin;
-    private final StingerCatalogue catalogue;
+    private final TransitionCatalogue catalogue;
     private final BiPredicate<Player, ContentId> holds;
     private final Map<UUID, Play> playing = new ConcurrentHashMap<>();
 
     /**
-     * @param holds whether a player's pack holds a stinger: a stinger's glyph
+     * @param holds whether a player's pack holds a transition: a transition's glyph
      *              and shader are only in the pack it came in
      */
-    public StingerRuntime(Plugin plugin, StingerCatalogue catalogue, BiPredicate<Player, ContentId> holds) {
+    public TransitionRuntime(Plugin plugin, TransitionCatalogue catalogue, BiPredicate<Player, ContentId> holds) {
         this.plugin = plugin;
         this.catalogue = catalogue;
         this.holds = holds;
@@ -62,13 +62,13 @@ public final class StingerRuntime implements Stingers, Listener {
     }
 
     @Override
-    public Optional<StingerInfo> info(ContentId id) {
-        return catalogue.entry(id).map(StingerEntry::info);
+    public Optional<TransitionInfo> info(ContentId id) {
+        return catalogue.entry(id).map(TransitionEntry::info);
     }
 
     @Override
-    public Optional<StingerInfo> find(String name) {
-        return catalogue.find(name).map(StingerEntry::info);
+    public Optional<TransitionInfo> find(String name) {
+        return catalogue.find(name).map(TransitionEntry::info);
     }
 
     @Override
@@ -78,22 +78,22 @@ public final class StingerRuntime implements Stingers, Listener {
     }
 
     @Override
-    public Optional<StingerPlay> play(Player player, ContentId id, Runnable whenCovered) {
+    public Optional<TransitionPlay> play(Player player, ContentId id, Runnable whenCovered) {
         return catalogue.entry(id).flatMap(entry -> start(player, entry, entry.info().holdTicks(), whenCovered));
     }
 
     @Override
-    public Optional<StingerPlay> play(Player player, ContentId id, int holdTicks, Runnable whenCovered) {
+    public Optional<TransitionPlay> play(Player player, ContentId id, int holdTicks, Runnable whenCovered) {
         return catalogue.entry(id).flatMap(entry -> start(player, entry, Math.max(0, holdTicks), whenCovered));
     }
 
     @Override
-    public Optional<StingerPlay> cover(Player player, ContentId id, Runnable whenCovered) {
+    public Optional<TransitionPlay> cover(Player player, ContentId id, Runnable whenCovered) {
         return catalogue.entry(id).flatMap(entry -> start(player, entry, -1, whenCovered));
     }
 
     @Override
-    public Optional<StingerPlay> playing(Player player) {
+    public Optional<TransitionPlay> playing(Player player) {
         return player == null ? Optional.empty() : Optional.ofNullable(playing.get(player.getUniqueId()));
     }
 
@@ -119,7 +119,7 @@ public final class StingerRuntime implements Stingers, Listener {
      *
      * @param holdTicks how long it holds once covered, or -1 to hold until released
      */
-    private Optional<StingerPlay> start(Player player, StingerEntry entry, int holdTicks, Runnable whenCovered) {
+    private Optional<TransitionPlay> start(Player player, TransitionEntry entry, int holdTicks, Runnable whenCovered) {
         if (player == null || !player.isOnline() || !canPlay(player, entry.info().id())) {
             return Optional.empty();
         }
@@ -143,9 +143,9 @@ public final class StingerRuntime implements Stingers, Listener {
 
     private enum Phase { STARTING, IN, HOLD, OUT, DONE }
 
-    private final class Play implements StingerPlay {
+    private final class Play implements TransitionPlay {
         private final Player player;
-        private final StingerEntry entry;
+        private final TransitionEntry entry;
         private final int holdTicks;
         private final Runnable whenCovered;
         private final String inTitle;
@@ -156,13 +156,13 @@ public final class StingerRuntime implements Stingers, Listener {
         private Tasks.Handle step = Tasks.Handle.NONE;
         private Tasks.Handle refresh = Tasks.Handle.NONE;
 
-        Play(Player player, StingerEntry entry, int holdTicks, Runnable whenCovered) {
+        Play(Player player, TransitionEntry entry, int holdTicks, Runnable whenCovered) {
             this.player = player;
             this.entry = entry;
             this.holdTicks = holdTicks;
             this.whenCovered = whenCovered;
-            this.inTitle = StingerTitles.title(entry.inColor(), entry.glyph());
-            this.outTitle = StingerTitles.title(entry.outColor(), entry.glyph());
+            this.inTitle = TransitionTitles.title(entry.inColor(), entry.glyph());
+            this.outTitle = TransitionTitles.title(entry.outColor(), entry.glyph());
         }
 
         @Override
@@ -227,7 +227,7 @@ public final class StingerRuntime implements Stingers, Listener {
                 }
                 phase = Phase.IN;
             }
-            StingerInfo info = entry.info();
+            TransitionInfo info = entry.info();
             int stay = holdTicks < 0 ? REFRESH_STAY : holdTicks + REFRESH_STAY;
             player.sendTitle(inTitle, "", info.inTicks(), stay, 0);
             info.soundIn().ifPresent(this::sound);
@@ -245,7 +245,7 @@ public final class StingerRuntime implements Stingers, Listener {
                 try {
                     whenCovered.run();
                 } catch (Throwable e) {
-                    plugin.getLogger().log(Level.WARNING, "A stinger's covered callback (" + id() + ") threw", e);
+                    plugin.getLogger().log(Level.WARNING, "A transition's covered callback (" + id() + ") threw", e);
                 }
             }
             boolean leaveNow;
@@ -284,7 +284,7 @@ public final class StingerRuntime implements Stingers, Listener {
                 step.cancel();
                 refresh.cancel();
             }
-            StingerInfo info = entry.info();
+            TransitionInfo info = entry.info();
             player.sendTitle(outTitle, "", 0, 0, info.outTicks());
             info.soundOut().ifPresent(this::sound);
             schedule(this::finished, info.outTicks());
@@ -311,9 +311,9 @@ public final class StingerRuntime implements Stingers, Listener {
 
         private void sound(String sound) {
             try {
-                player.playSound(player.getLocation(), StingerTitles.soundKey(sound), SoundCategory.MASTER, 1f, 1f);
+                player.playSound(player.getLocation(), TransitionTitles.soundKey(sound), SoundCategory.MASTER, 1f, 1f);
             } catch (IllegalArgumentException ignored) {
-                // Not an id the server accepts; the stinger plays silent.
+                // Not an id the server accepts; the transition plays silent.
             }
         }
     }

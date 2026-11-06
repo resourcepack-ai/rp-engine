@@ -186,7 +186,7 @@ final class StudioWire {
      * A stinger transition: the character its title shows, the trigger
      * colours that make the pack's text shader play each half, and how long
      * each half runs. The drawing is all in the pack; the engine only sends
-     * titles ({@code core/stinger/}).
+     * titles ({@code core/transition/}).
      *
      * <p><strong>Boxed ticks</strong>: an absent one is Studio's default, never 0.
      */

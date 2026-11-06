@@ -4489,16 +4489,23 @@ A sprite is an item display. An effect stops starting new motes once it has
 many are alive across the server: past it the oldest effects end. Nothing is
 persistent.
 
-## Stinger transitions
+## Transitions
 
-A stinger covers a player's screen, holds while the server does something
-(a teleport, a match starting), and uncovers it. There is no `stingers/` folder:
-a stinger is drawn by shader code only Studio writes, so stingers come from
-Studio packs (a sync, a Studio zip in `content/`, or the pack this server
-publishes), named `studio:<id>`. `/rp stingers` lists them and
-`/rp stinger <name> [player|@a] [holdTicks]` plays one. It plays only for a
+A Transition covers a player's screen, holds while the server does something
+(a teleport, a match starting), and uncovers it. There is no `transitions/`
+folder: a Transition is drawn by shader code only Studio writes, so they come
+from Studio packs (a sync, a Studio zip in `content/`, or the pack this server
+publishes), named `studio:<id>`. `/rp transitions` lists them and
+`/rp transition <name> [player|@a] [holdTicks]` plays one
+(`rpengine.transitions`, `rpengine.transition`, and
+`rpengine.transition.others` to play one on somebody else). It plays only for a
 player holding the pack it came in. To run something while the screen is
-covered, use the API (`engine.stingers()`, API.md).
+covered, use the API (`engine.transitions()`, API.md).
+
+0.2.63 called these stingers. `/rp stinger` and `/rp stingers` still work as
+hidden aliases of the two commands, checking the new permissions; the old
+`rpengine.stinger*` permissions are gone, so a server that granted them by
+name grants the `rpengine.transition*` ones instead.
 
 ## Reserved
 

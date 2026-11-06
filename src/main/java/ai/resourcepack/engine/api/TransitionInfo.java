@@ -4,11 +4,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * What a stinger transition is to a plugin: an id, a name and how long each
- * half runs. The stinger itself is drawn by the pack's text shader; the engine
- * only times it. See {@link Stingers}.
+ * What a transition is to a plugin: an id, a name and how long each
+ * half runs. The transition itself is drawn by the pack's text shader; the engine
+ * only times it. See {@link Transitions}.
  */
-public final class StingerInfo {
+public final class TransitionInfo {
 
     private final ContentId id;
     private final String name;
@@ -18,7 +18,7 @@ public final class StingerInfo {
     private final String soundIn;
     private final String soundOut;
 
-    public StingerInfo(ContentId id, String name, int inTicks, int holdTicks, int outTicks,
+    public TransitionInfo(ContentId id, String name, int inTicks, int holdTicks, int outTicks,
                        String soundIn, String soundOut) {
         this.id = Objects.requireNonNull(id, "id");
         this.name = name == null || name.isBlank() ? id.path() : name;
@@ -43,7 +43,7 @@ public final class StingerInfo {
         return inTicks;
     }
 
-    /** Ticks it holds when {@link Stingers#play} is given no hold of its own. */
+    /** Ticks it holds when {@link Transitions#play} is given no hold of its own. */
     public int holdTicks() {
         return holdTicks;
     }

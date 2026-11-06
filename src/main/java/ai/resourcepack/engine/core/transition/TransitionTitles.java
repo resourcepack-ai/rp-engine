@@ -1,20 +1,20 @@
-package ai.resourcepack.engine.core.stinger;
+package ai.resourcepack.engine.core.transition;
 
 import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * The title text that plays a stinger: its character in a trigger colour,
+ * The title text that plays a transition: its character in a trigger colour,
  * written as legacy hex formatting ({@code §x§r§r§g§g§b§b}), which
  * {@code Player.sendTitle} understands on every server the engine runs on.
  * Studio's own vanilla commands write the same as JSON with
  * {@code "color": "#rrggbb"}.
  */
-public final class StingerTitles {
+public final class TransitionTitles {
 
     private static final Pattern HEX = Pattern.compile("#[0-9a-fA-F]{6}");
 
-    private StingerTitles() {
+    private TransitionTitles() {
     }
 
     /** Whether a colour is exactly {@code #rrggbb}, the only form a trigger colour can take. */

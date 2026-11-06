@@ -48,12 +48,12 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                          InterfaceCommands ui, EmoteCommands emote,
                          SyncCommands sync, LiquidCommands liquid,
                          VehicleCommands vehicles, ObjectCommands objects, EditCommands edit, Armor3dCommands armor3d,
-                         TextEffectCommands textEffects, VfxCommands vfx, StingerCommands stingers,
+                         TextEffectCommands textEffects, VfxCommands vfx, TransitionCommands transitions,
                          MusicCommands music) {
         this.registry = registry;
         this.built = built;
         this.emote = emote;
-        this.groups = List.of(content, models, ui, music, textEffects, vfx, stingers, emote, sync, liquid, vehicles, objects, edit, armor3d);
+        this.groups = List.of(content, models, ui, music, textEffects, vfx, transitions, emote, sync, liquid, vehicles, objects, edit, armor3d);
         for (Area area : groups) {
             for (String sub : area.subcommands()) {
                 areas.put(sub, area);
@@ -160,6 +160,17 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
     static final Set<String> PLUMBING = Set.of("var", "page", "slot", "click", "run", "quick");
 
     /**
+     * Old names that still run a subcommand, and the subcommand they run.
+     *
+     * <p>{@code stinger} and {@code stingers} were what 0.2.63 called
+     * {@code transition} and {@code transitions}, and Studio's "Play in game"
+     * sends {@code /rp stinger} to a server on any version since. An alias is
+     * the command it names in every way that matters, its permission included,
+     * but it is not completed and not in the help: nobody should learn it now.
+     */
+    static final Map<String, String> ALIASES = Map.of("stinger", "transition", "stingers", "transitions");
+
+    /**
      * Answering an invitation, which nobody needs permission to do.
      *
      * <p>The permission is checked on the first word, which is the subcommand
@@ -206,7 +217,8 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                 break;
         }
 
-        String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
+        String typed = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
+        String sub = ALIASES.getOrDefault(typed, typed);
         if (sub.equals("info") || sub.equals("help")) {
             return info(sender);
         }

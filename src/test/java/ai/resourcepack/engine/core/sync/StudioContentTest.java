@@ -623,15 +623,15 @@ class StudioContentTest {
     }
 
     @Test
-    void aStingerKeepsItsCharacterAndColoursAndSurvivesARestart(@TempDir Path dir) {
+    void aTransitionKeepsItsCharacterAndColoursAndSurvivesARestart(@TempDir Path dir) {
         StudioContent content = read(dir, "{\"packId\":\"p\",\"stingers\":["
                 + "{\"id\":\"arena\",\"name\":\"Arena\",\"glyph\":\"\ue900\",\"in\":\"#ec04fc\","
                 + "\"out\":\"#ec08fc\",\"auto\":\"#ec0cfc\",\"inTicks\":10,\"holdTicks\":40,\"outTicks\":14,"
                 + "\"soundIn\":\"entity.player.attack.sweep\"},"
                 + "{\"id\":\"bad\",\"name\":\"Bad\",\"glyph\":\"x\",\"in\":\"red\",\"out\":\"#ec08fc\"}]}");
         ContentId arena = ContentId.parse("studio:arena").orElseThrow();
-        assertEquals(1, content.stingers().size(), "a colour that is not #rrggbb plays nothing");
-        ai.resourcepack.engine.core.stinger.StingerEntry entry = content.stingers().get(arena);
+        assertEquals(1, content.transitions().size(), "a colour that is not #rrggbb plays nothing");
+        ai.resourcepack.engine.core.transition.TransitionEntry entry = content.transitions().get(arena);
         assertEquals("", entry.glyph());
         assertEquals("#ec04fc", entry.inColor());
         assertEquals("#ec08fc", entry.outColor());
@@ -644,9 +644,9 @@ class StudioContentTest {
         content.save(LOG);
         StudioContent reloaded = new StudioContent(dir.toFile());
         reloaded.load(LOG);
-        assertEquals("", reloaded.stingers().get(arena).glyph());
-        assertEquals(40, reloaded.stingers().get(arena).info().holdTicks());
-        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).stingers().size());
+        assertEquals("", reloaded.transitions().get(arena).glyph());
+        assertEquals(40, reloaded.transitions().get(arena).info().holdTicks());
+        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).transitions().size());
     }
 
     @Test
