@@ -2090,16 +2090,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return transitionRuntime;
     }
 
-    /**
-     * The same object as {@link #transitions()}.
-     *
-     * @deprecated renamed to {@link #transitions()} in 0.2.64; kept for plugins built against 0.2.63.
-     */
-    @Deprecated
-    public ai.resourcepack.engine.api.Transitions stingers() {
-        return transitionRuntime;
-    }
-
     /** The 3D shader objects this server holds, and the ones standing in its worlds. */
     public ai.resourcepack.engine.api.ShaderObjects shaderObjects() {
         return new ai.resourcepack.engine.core.object.ShaderObjectsImpl(objectRuntime);

@@ -160,17 +160,6 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
     static final Set<String> PLUMBING = Set.of("var", "page", "slot", "click", "run", "quick");
 
     /**
-     * Old names that still run a subcommand, and the subcommand they run.
-     *
-     * <p>{@code stinger} and {@code stingers} were what 0.2.63 called
-     * {@code transition} and {@code transitions}, and Studio's "Play in game"
-     * sends {@code /rp stinger} to a server on any version since. An alias is
-     * the command it names in every way that matters, its permission included,
-     * but it is not completed and not in the help: nobody should learn it now.
-     */
-    static final Map<String, String> ALIASES = Map.of("stinger", "transition", "stingers", "transitions");
-
-    /**
      * Answering an invitation, which nobody needs permission to do.
      *
      * <p>The permission is checked on the first word, which is the subcommand
@@ -217,8 +206,7 @@ public final class EngineCommand implements CommandExecutor, TabCompleter {
                 break;
         }
 
-        String typed = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
-        String sub = ALIASES.getOrDefault(typed, typed);
+        String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
         if (sub.equals("info") || sub.equals("help")) {
             return info(sender);
         }

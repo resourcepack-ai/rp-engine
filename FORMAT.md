@@ -4502,11 +4502,6 @@ publishes), named `studio:<id>`. `/rp transitions` lists them and
 player holding the pack it came in. To run something while the screen is
 covered, use the API (`engine.transitions()`, API.md).
 
-0.2.63 called these stingers. `/rp stinger` and `/rp stingers` still work as
-hidden aliases of the two commands, checking the new permissions; the old
-`rpengine.stinger*` permissions are gone, so a server that granted them by
-name grants the `rpengine.transition*` ones instead.
-
 ## Reserved
 
 `minecraft` and `realms` cannot be namespaces. Content there would write an
