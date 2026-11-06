@@ -1106,12 +1106,6 @@ replaces the one playing on them; a player leaving ends theirs quietly.
 Any thread; `whenCovered` runs on the player's own thread (their region's on
 Folia), so touch only them and their surroundings from it.
 
-Transitions were called stingers in 0.2.63, the release that introduced them.
-Since 0.2.64 the types are `Transitions`, `TransitionPlay` and `TransitionInfo`,
-and `engine.stingers()` is a deprecated alias of `engine.transitions()` that
-returns the same object. Code written against 0.2.63 needs its type names
-changed and nothing else.
-
 ## Custom mobs
 
 The mobs a content folder's `entities/` declares and the ones a Studio push

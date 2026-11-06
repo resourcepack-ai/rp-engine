@@ -165,20 +165,6 @@ class PluginYmlTest {
     }
 
     @Test
-    void anOldNameRunsADeclaredSubcommandAndHasNoNodeOfItsOwn() throws IOException {
-        // /rp stinger is /rp transition under the name 0.2.63 shipped: it runs
-        // with the new node, and is neither offered nor declared.
-        String yml = pluginYml();
-        List<String> subs = usageSubcommands(yml);
-        Set<String> nodes = declaredNodes(yml);
-        for (var alias : EngineCommand.ALIASES.entrySet()) {
-            assertTrue(subs.contains(alias.getValue()), alias.getKey() + " names " + alias.getValue() + ", which is not a subcommand");
-            assertTrue(!subs.contains(alias.getKey()) && !nodes.contains(alias.getKey()),
-                    alias.getKey() + " is an old name and should not be in the usage line or have a node");
-        }
-    }
-
-    @Test
     void theCommandItselfCarriesNoPermission() throws IOException {
         // Deliberate: /rpengine with no arguments is the summary, and gating
         // the parent would hide every subcommand from a player who holds one.

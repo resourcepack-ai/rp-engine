@@ -25,9 +25,6 @@ import org.bukkit.entity.Player;
  * <p>A new play on a player replaces the one already playing on them. Any
  * thread; {@code whenCovered} runs on the player's own thread (the main thread,
  * or their region's on Folia).
- *
- * <p>Called {@code Stingers} in 0.2.63, the release that introduced it; the
- * plugin's {@code stingers()} still answers with this same object.
  */
 public interface Transitions {
 

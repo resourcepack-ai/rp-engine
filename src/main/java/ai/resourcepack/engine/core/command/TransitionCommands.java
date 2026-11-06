@@ -23,11 +23,6 @@ import java.util.Set;
  * <p>Plays the whole transition, in, hold, out, which is what Studio's "Play in
  * game" relays (as the console, naming {@code @p}). A plugin that wants to do
  * something while the screen is covered uses the API instead.
- *
- * <p>0.2.63 called these {@code stinger} and {@code stingers}. Those words
- * still run them (see {@code EngineCommand.ALIASES}), because Studio's "Play in
- * game" sends {@code /rp stinger} to servers on either version, but they are
- * not offered in the help or in completion.
  */
 public final class TransitionCommands implements Area {
 
