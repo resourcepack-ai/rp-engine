@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,17 +37,18 @@ import java.util.logging.Logger;
  * server, as without a proxy.
  *
  * <p>The messages are RPE Proxy's {@code Wire} class, written out again here:
- * the two have to agree byte for byte.
+ * the two have to agree byte for byte, and {@code ProxyWireTest} holds both
+ * to the same recorded messages.
  */
 public final class ProxyBridge implements PluginMessageListener {
 
     public static final String CHANNEL = "rpengine:proxy";
 
-    private static final int VERSION = 2;
-    private static final byte STACK = 1;
-    private static final byte NEED = 2;
-    private static final byte CHUNK = 3;
-    private static final byte STATUS = 4;
+    static final int VERSION = 2;
+    static final byte STACK = 1;
+    static final byte NEED = 2;
+    static final byte CHUNK = 3;
+    static final byte STATUS = 4;
     private static final int CHUNK_SIZE = 256 * 1024;
 
     private final Plugin plugin;
@@ -95,24 +97,14 @@ public final class ProxyBridge implements PluginMessageListener {
         if (files.size() > 256) {
             files.clear();
         }
-        byte[] message = write(out -> {
-            out.writeByte(STACK);
-            out.writeUTF(prompt == null ? "" : prompt);
-            out.writeBoolean(force);
-            out.writeInt(packs.size());
-            for (BuiltPack pack : packs) {
-                if (pack.file() != null) {
-                    files.put(pack.sha1(), pack.file());
-                }
-                out.writeLong(pack.uuid().getMostSignificantBits());
-                out.writeLong(pack.uuid().getLeastSignificantBits());
-                out.writeUTF(pack.sha1());
-                out.writeUTF(identity.apply(pack.sha1()));
-                String link = url.apply(pack);
-                out.writeUTF(link == null ? "" : link);
-                out.writeLong(pack.size());
+        List<Entry> entries = new ArrayList<>(packs.size());
+        for (BuiltPack pack : packs) {
+            if (pack.file() != null) {
+                files.put(pack.sha1(), pack.file());
             }
-        });
+            entries.add(new Entry(pack.uuid(), pack.sha1(), identity.apply(pack.sha1()), url.apply(pack), pack.size()));
+        }
+        byte[] message = stackMessage(prompt, force, entries);
         player.sendPluginMessage(plugin, CHANNEL, message);
     }
 
@@ -121,17 +113,15 @@ public final class ProxyBridge implements PluginMessageListener {
         if (!CHANNEL.equals(channel) || message.length < 2 || message[0] != VERSION) {
             return;
         }
-        DataInputStream in = new DataInputStream(new ByteArrayInputStream(message, 2, message.length - 2));
         try {
             switch (message[1]) {
-                case NEED -> sendPack(player, in.readUTF());
+                case NEED -> sendPack(player, readNeed(message));
                 case STATUS -> {
-                    UUID pack = new UUID(in.readLong(), in.readLong());
-                    String status = in.readUTF();
-                    if (status.equals("SUCCESSFULLY_LOADED")) {
-                        loads.confirmed(player.getUniqueId(), pack);
-                    } else if (status.equals("DECLINED")) {
-                        loads.declined(player.getUniqueId(), pack);
+                    Status status = readStatus(message);
+                    if (status.status().equals("SUCCESSFULLY_LOADED")) {
+                        loads.confirmed(player.getUniqueId(), status.pack());
+                    } else if (status.status().equals("DECLINED")) {
+                        loads.declined(player.getUniqueId(), status.pack());
                     }
                 }
                 default -> {
@@ -159,17 +149,65 @@ public final class ProxyBridge implements PluginMessageListener {
         try (InputStream in = Files.newInputStream(file)) {
             for (int index = 0; index < total; index++) {
                 byte[] bytes = in.readNBytes(CHUNK_SIZE);
-                int i = index;
-                player.sendPluginMessage(plugin, CHANNEL, write(out -> {
-                    out.writeByte(CHUNK);
-                    out.writeUTF(sha1);
-                    out.writeInt(i);
-                    out.writeInt(total);
-                    out.writeInt(bytes.length);
-                    out.write(bytes);
-                }));
+                player.sendPluginMessage(plugin, CHANNEL, chunkMessage(sha1, index, total, bytes));
             }
         }
+    }
+
+    // ---- the messages ------------------------------------------------------
+    //
+    // Static, so a test can hold them to the bytes RPE Proxy writes and reads:
+    // src/test/resources/proxy-wire/messages.txt is the same file in both
+    // projects, and each one's test encodes and decodes every message in it.
+
+    /** One pack in a stack: what the proxy is told about it. */
+    record Entry(UUID id, String sha1, String source, String url, long size) {
+    }
+
+    /** What the player's game said about a pack, as the proxy passes it back. */
+    record Status(UUID pack, String status) {
+    }
+
+    static byte[] stackMessage(String prompt, boolean force, List<Entry> packs) {
+        return write(out -> {
+            out.writeByte(STACK);
+            out.writeUTF(prompt == null ? "" : prompt);
+            out.writeBoolean(force);
+            out.writeInt(packs.size());
+            for (Entry pack : packs) {
+                out.writeLong(pack.id().getMostSignificantBits());
+                out.writeLong(pack.id().getLeastSignificantBits());
+                out.writeUTF(pack.sha1());
+                out.writeUTF(pack.source());
+                out.writeUTF(pack.url() == null ? "" : pack.url());
+                out.writeLong(pack.size());
+            }
+        });
+    }
+
+    static byte[] chunkMessage(String sha1, int index, int total, byte[] bytes) {
+        return write(out -> {
+            out.writeByte(CHUNK);
+            out.writeUTF(sha1);
+            out.writeInt(index);
+            out.writeInt(total);
+            out.writeInt(bytes.length);
+            out.write(bytes);
+        });
+    }
+
+    static String readNeed(byte[] message) throws IOException {
+        return body(message).readUTF();
+    }
+
+    static Status readStatus(byte[] message) throws IOException {
+        DataInputStream in = body(message);
+        return new Status(new UUID(in.readLong(), in.readLong()), in.readUTF());
+    }
+
+    private static DataInputStream body(byte[] message) {
+        // Past the version and the type.
+        return new DataInputStream(new ByteArrayInputStream(message, 2, message.length - 2));
     }
 
     @FunctionalInterface
