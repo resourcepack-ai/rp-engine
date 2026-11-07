@@ -712,6 +712,20 @@ public final class PackBuilder {
             if (previous != null && FONT_FILE.matcher(path).matches() && mergeFont(file, path, namespace, zip, writtenBy)) {
                 continue;
             }
+            if (previous != null && ai.resourcepack.engine.core.dialog.DialogShaderRevision.applies(path)) {
+                // A Studio dialog's overlay shader: the newest copy wins, whoever
+                // sorts last (DialogShaderRevision), and saying so would only be noise.
+                try {
+                    byte[] mine = Files.readAllBytes(file);
+                    byte[] had = zip.get(path);
+                    if (ai.resourcepack.engine.core.dialog.DialogShaderRevision.pick(had, mine) == had) continue;
+                    zip.add(path, mine);
+                    writtenBy.put(path, namespace);
+                } catch (IOException e) {
+                    diagnostics.add(Diagnostic.error(namespace, "Could not read " + path + ". " + message(e)));
+                }
+                continue;
+            }
             if (previous != null) {
                 // Only reachable through overrides/ or a resource pack folder,
                 // since everything else is namespaced. Later-sorted wins, which is stable; the warning
