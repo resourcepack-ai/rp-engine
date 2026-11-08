@@ -386,6 +386,8 @@ public final class ItemAssets implements PackContributor {
             }
             piece.jukebox().flatMap(ModelInfo.Jukebox::playingModel)
                     .ifPresent(model -> named.putIfAbsent(model + "|jukebox playing-model", model));
+            piece.furnace().flatMap(ModelInfo.Furnace::litModel)
+                    .ifPresent(model -> named.putIfAbsent(model + "|furnace lit-model", model));
             piece.connects().forEach((shape, model) -> named.putIfAbsent(model + "|connects " + shape, model));
             for (Map.Entry<String, ContentId> entry : named.entrySet()) {
                 String where = entry.getKey().substring(entry.getKey().indexOf('|') + 1);

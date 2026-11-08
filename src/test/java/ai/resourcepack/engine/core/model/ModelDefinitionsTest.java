@@ -360,6 +360,72 @@ class ModelDefinitionsTest {
         assertTrue(info.withVehicleCollision(true).storage().isPresent());
     }
 
+    // ---- furnace --------------------------------------------------------
+
+    @Test
+    void aPieceCanBeAFurnace() throws IOException {
+        chair("  place:\n    furnace:\n      type: blast-furnace\n      title: Forge\n"
+                + "      lit-model: mypack:forge_on\n");
+
+        ModelInfo.Furnace furnace = one(parse(), "mypack:chair").furnace().orElseThrow();
+
+        assertEquals(ModelInfo.Furnace.Kind.BLAST_FURNACE, furnace.kind());
+        assertEquals("Forge", furnace.title().orElseThrow());
+        assertEquals("mypack:forge_on", furnace.litModel().orElseThrow().toString());
+    }
+
+    @Test
+    void furnaceTrueIsAPlainOneAndATypeNameIsThatType() throws IOException {
+        chair("  place:\n    furnace: true\n");
+        assertEquals(ModelInfo.Furnace.Kind.FURNACE, one(parse(), "mypack:chair").furnace().orElseThrow().kind());
+
+        chair("  place:\n    furnace: smoker\n");
+        assertEquals(ModelInfo.Furnace.Kind.SMOKER, one(parse(), "mypack:chair").furnace().orElseThrow().kind());
+    }
+
+    @Test
+    void aFurnaceWithAWrongTypeOrModelFallsBackAndSaysSo() throws IOException {
+        chair("  place:\n    furnace:\n      type: microwave\n      lit-model: not an id\n");
+
+        ModelDefinitions.Result result = parse();
+        ModelInfo.Furnace furnace = one(result, "mypack:chair").furnace().orElseThrow();
+
+        assertEquals(ModelInfo.Furnace.Kind.FURNACE, furnace.kind());
+        assertTrue(furnace.litModel().isEmpty());
+        assertEquals(2, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void storageBeatsAFurnaceAndSaysSo() throws IOException {
+        chair("  place:\n    storage: true\n    furnace: true\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:chair").furnace().isEmpty());
+        assertTrue(one(result, "mypack:chair").storage().isPresent());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void aFurnaceSurvivesTheOtherWithMethods() throws IOException {
+        chair("  place:\n    furnace: true\n");
+
+        assertTrue(one(parse(), "mypack:chair").withSeatOffset(1f, 1f).furnace().isPresent());
+    }
+
+    @Test
+    void fuelBurnsForTheGamesOwnLengths() {
+        assertEquals(20000, PieceFurnaces.burnTime("LAVA_BUCKET"));
+        assertEquals(1600, PieceFurnaces.burnTime("CHARCOAL"));
+        assertEquals(1200, PieceFurnaces.burnTime("OAK_CHEST_BOAT"));
+        assertEquals(800, PieceFurnaces.burnTime("OAK_HANGING_SIGN"));
+        assertEquals(200, PieceFurnaces.burnTime("WOODEN_PICKAXE"));
+        assertEquals(150, PieceFurnaces.burnTime("OAK_SLAB"));
+        assertEquals(50, PieceFurnaces.burnTime("WHITE_WOOL_SLAB"));
+        assertEquals(67, PieceFurnaces.burnTime("RED_CARPET"));
+        assertEquals(300, PieceFurnaces.burnTime("OAK_LOG"));
+    }
+
     // ---- jukebox --------------------------------------------------------
 
     @Test
