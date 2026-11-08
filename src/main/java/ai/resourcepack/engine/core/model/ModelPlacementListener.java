@@ -530,7 +530,11 @@ public final class ModelPlacementListener implements Listener {
         boolean free = block.getType().isAir() || ourBarrier || ourLight;
 
         if (solid) {
-            if (ourBarrier || !free) {
+            if (ourBarrier) {
+                reachPastBarrier(hitbox);
+                return;
+            }
+            if (!free) {
                 return;
             }
             // A display entity has no collision whatsoever. This is the only
@@ -538,6 +542,7 @@ public final class ModelPlacementListener implements Listener {
             data.remove(lightKey);
             block.setType(Material.BARRIER, false);
             data.set(solidKey, PersistentDataType.BYTE, (byte) 1);
+            reachPastBarrier(hitbox);
         } else if (light > 0) {
             if (!free) {
                 return;
@@ -562,6 +567,28 @@ public final class ModelPlacementListener implements Listener {
             data.remove(lightKey);
         }
     }
+
+    /**
+     * Makes a solid piece's hitbox stand a hair outside its barrier.
+     *
+     * <p>The client clicks whichever is nearer along the player's aim, and an
+     * entity has to be strictly nearer than the block to win. A one-block
+     * hitbox has its faces exactly on the barrier's, so which of the two got
+     * the click came down to rounding: most clicks landed on the barrier and
+     * did nothing. Only ever grows it, so a larger piece keeps its own size.
+     */
+    private static void reachPastBarrier(Interaction hitbox) {
+        if (hitbox.getInteractionWidth() < BARRIER_HITBOX_WIDTH) {
+            hitbox.setInteractionWidth(BARRIER_HITBOX_WIDTH);
+        }
+        if (hitbox.getInteractionHeight() < BARRIER_HITBOX_HEIGHT) {
+            hitbox.setInteractionHeight(BARRIER_HITBOX_HEIGHT);
+        }
+    }
+
+    /** A barrier's size and a hundredth of a block past each face a player can aim at. */
+    private static final float BARRIER_HITBOX_WIDTH = 1.02f;
+    private static final float BARRIER_HITBOX_HEIGHT = 1.01f;
 
     /**
      * What one part of an authored piece renders as.
@@ -1092,6 +1119,10 @@ public final class ModelPlacementListener implements Listener {
         }
         if (info.furnace().isPresent()) {
             furnaces.adopt(hitbox, info.furnace().get(), furnaceTitle(info));
+        }
+        // Pieces put down before the hitbox was made to clear its barrier.
+        if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)) {
+            reachPastBarrier(hitbox);
         }
     }
 
