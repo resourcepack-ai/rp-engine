@@ -6,6 +6,7 @@ import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
+import ai.resourcepack.engine.core.armor3d.Armor3dSet;
 import ai.resourcepack.engine.core.content.ContentFolderLoader;
 import ai.resourcepack.engine.core.pack.PackBuilder;
 import ai.resourcepack.engine.core.registry.ContentRegistryImpl;
@@ -68,7 +69,11 @@ class ItemsTest {
     }
 
     private Map<String, String> buildAndRead() throws IOException {
-        BuildReport report = new PackBuilder().with(new ItemAssets()).build(content, out, load());
+        return buildAndRead(new ItemAssets());
+    }
+
+    private Map<String, String> buildAndRead(ItemAssets assets) throws IOException {
+        BuildReport report = new PackBuilder().with(assets).build(content, out, load());
         Map<String, String> entries = new LinkedHashMap<>();
         try (InputStream in = Files.newInputStream(report.pack("main").orElseThrow().file());
              ZipInputStream zin = new ZipInputStream(in)) {
@@ -280,6 +285,31 @@ class ItemsTest {
         assertEquals("{\"parent\":\"minecraft:item/generated\",\"textures\":{\"layer0\":\"mypack:item/kart_icon\"}}",
                 zip.get("assets/mypack/models/item/kart_gui.json"));
         assertTrue(zip.containsKey("assets/mypack/textures/item/kart_icon.png"));
+    }
+
+    @Test
+    void aGuiIconSitsOnTopOfA3dArmourPiece() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "blood_helmet:\n  material: NETHERITE_HELMET\n  armor: head\n"
+                + "  armor3d: blood\n  gui: {texture: blood_helmet_icon}\n"
+                + "plain_helmet:\n  material: NETHERITE_HELMET\n  armor: head\n  armor3d: blood\n");
+        write("mypack/assets/textures/item/blood_helmet_icon.png", "PNG");
+        var helmet = Armor3dSet.Piece.HELMET;
+        Armor3dSet set = new Armor3dSet("mypack:blood", "Blood", Map.of(helmet,
+                new Armor3dSet.Worn(helmet, "armor3d:mypack:blood/helmet", List.of(), null)),
+                List.of(), "mypack:armor3d/blood/");
+        ItemAssets assets = new ItemAssets().withArmor3d(Map.of("mypack:blood", set));
+
+        Map<String, String> zip = buildAndRead(assets);
+
+        // The inventory gets the icon; everywhere else, the head included, the piece.
+        assertEquals("{\"model\":{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
+                        + "\"cases\":[{\"when\":\"gui\","
+                        + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/blood_helmet_gui\"}}],"
+                        + "\"fallback\":{\"type\":\"minecraft:model\",\"model\":\"mypack:item/armor3d/blood/helmet\"}}}",
+                zip.get("assets/mypack/items/blood_helmet.json"));
+        assertEquals(java.util.Set.of(ContentId.parse("mypack:blood_helmet").orElseThrow()), assets.armourLooks(),
+                "only the one with a look of its own keeps its item_model");
     }
 
     @Test

@@ -7,6 +7,7 @@ import ai.resourcepack.engine.api.ContentKind;
 import ai.resourcepack.engine.api.ItemInfo;
 import ai.resourcepack.engine.api.LoadReport;
 import ai.resourcepack.engine.api.ModelInfo;
+import ai.resourcepack.engine.core.armor3d.Armor3dSet;
 import ai.resourcepack.engine.core.model.ModelDefinitions;
 import ai.resourcepack.engine.core.model.ModelRigs;
 import ai.resourcepack.engine.core.pack.PackContributor;
@@ -130,6 +131,29 @@ public final class ItemAssets implements PackContributor {
     public ItemAssets withBlockItems(java.util.Collection<ItemInfo> items) {
         this.blockItems = items == null ? List.of() : List.copyOf(items);
         return this;
+    }
+
+    /** The 3D armour sets the content folder authored, by id; see {@link #armourModel}. */
+    private Map<String, Armor3dSet> armour3d = Map.of();
+
+    /** The items whose own definition draws their 3D armour piece; see {@link #armourLooks}. */
+    private final Set<ContentId> armourLooks = new java.util.LinkedHashSet<>();
+
+    /** The authored 3D armour sets, so an item wearing one can still have looks of its own. */
+    public ItemAssets withArmor3d(Map<String, Armor3dSet> sets) {
+        this.armour3d = sets == null ? Map.of() : Map.copyOf(sets);
+        return this;
+    }
+
+    /**
+     * The items with {@code armor3d:} whose own item definition this build
+     * made draw the armour piece, with a {@code gui:} or {@code first-person:}
+     * look of their own on top. A stack of one keeps naming its own definition
+     * rather than the piece's, which has neither look. Read after the build,
+     * like {@link #rigs}.
+     */
+    public Set<ContentId> armourLooks() {
+        return Set.copyOf(armourLooks);
     }
 
     /**
@@ -504,6 +528,14 @@ public final class ItemAssets implements PackContributor {
                 cases.add("{\"when\":\"gui\","
                         + "\"model\":{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "_gui\"}}");
             }
+            String armour = cases.isEmpty() ? null : armourModel(item);
+            if (armour != null) {
+                // Everywhere but where its own looks are asked for, an item
+                // wearing a 3D piece is that piece: a helmet's model is what
+                // the game draws on the head.
+                look = "{\"type\":\"minecraft:model\",\"model\":\"" + armour + "\"}";
+                armourLooks.add(id);
+            }
             if (!cases.isEmpty()) {
                 look = "{\"type\":\"minecraft:select\",\"property\":\"minecraft:display_context\","
                         + "\"cases\":[" + String.join(",", cases) + "],\"fallback\":" + look + "}";
@@ -527,6 +559,27 @@ public final class ItemAssets implements PackContributor {
         if (item.armor3d().isEmpty()) {
             item.armor().ifPresent(slot -> writeEquipment(item, namespace, slot, into));
         }
+    }
+
+    /**
+     * The model of the 3D armour piece an item wears, when the set is one this
+     * content folder authored and has that piece; null otherwise, and the
+     * item's definition is left as it was (the stack is pointed at the piece's
+     * own definition when it is made, so this one goes unused).
+     */
+    private String armourModel(ItemInfo item) {
+        if (item.armor3d().isEmpty() || item.armor().isEmpty()) {
+            return null;
+        }
+        String typed = item.armor3d().get();
+        Armor3dSet set = armour3d.get(typed.contains(":") ? typed : item.id().namespace() + ":" + typed);
+        if (set == null) {
+            return null;
+        }
+        return Armor3dSet.Piece.forArmor(item.armor().get())
+                .flatMap(set::piece)
+                .map(worn -> set.modelFile(worn.item()))
+                .orElse(null);
     }
 
     /**

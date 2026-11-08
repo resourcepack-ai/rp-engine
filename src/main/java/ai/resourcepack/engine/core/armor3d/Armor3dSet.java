@@ -78,6 +78,20 @@ public final class Armor3dSet {
             return Optional.empty();
         }
 
+        /** The piece an item's {@code armor:} slot ({@code head}, {@code chest}, {@code legs}, {@code feet}) wears. */
+        public static Optional<Piece> forArmor(String slot) {
+            if (slot == null) {
+                return Optional.empty();
+            }
+            return switch (slot) {
+                case "head" -> Optional.of(HELMET);
+                case "chest" -> Optional.of(CHESTPLATE);
+                case "legs" -> Optional.of(LEGGINGS);
+                case "feet" -> Optional.of(BOOTS);
+                default -> Optional.empty();
+            };
+        }
+
         /** What a player calls it: "Helmet". */
         public String label() {
             return Character.toUpperCase(wire.charAt(0)) + wire.substring(1);
@@ -224,5 +238,19 @@ public final class Armor3dSet {
             return null;
         }
         return itemModelRoot + model.substring(model.lastIndexOf('/') + 1);
+    }
+
+    /**
+     * The block model behind {@link #itemModel}, for an item definition that
+     * draws the piece itself: {@code christmas:item/armor3d/santa/helmet}.
+     * Null for a pushed set.
+     */
+    public String modelFile(String model) {
+        String definition = itemModel(model);
+        if (definition == null) {
+            return null;
+        }
+        int colon = definition.indexOf(':');
+        return definition.substring(0, colon + 1) + "item/" + definition.substring(colon + 1);
     }
 }
