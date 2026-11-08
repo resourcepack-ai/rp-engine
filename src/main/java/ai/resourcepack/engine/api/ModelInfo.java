@@ -129,6 +129,85 @@ public final class ModelInfo {
     }
 
     /**
+     * A piece that cooks: an oven, a stove, a forge that does not look like a
+     * furnace.
+     *
+     * <p>Right-click opens the game's own furnace screen, with its fuel, input
+     * and result slots and its flame and arrow, and the piece smelts with the
+     * server's own recipes and the game's fuel times. A display entity cannot
+     * be a furnace block, so the slots and the progress are kept on the piece,
+     * exactly as the barrier stands in for collision and the light block for
+     * light.
+     */
+    public static final class Furnace {
+
+        /** Which of the game's three cooking blocks it works like. */
+        public enum Kind {
+            /** Everything a furnace smelts, at a furnace's speed. */
+            FURNACE("Furnace"),
+            /** Food only, twice as fast, burning fuel twice as fast. */
+            SMOKER("Smoker"),
+            /** Ores, armour and tools only, twice as fast, burning fuel twice as fast. */
+            BLAST_FURNACE("Blast Furnace");
+
+            private final String title;
+
+            Kind(String title) {
+                this.title = title;
+            }
+
+            /** The name the format writes, {@code blast_furnace} for {@link #BLAST_FURNACE}. */
+            public String key() {
+                return name().toLowerCase(java.util.Locale.ROOT);
+            }
+
+            /** What the screen is called when nothing else names it. */
+            public String title() {
+                return title;
+            }
+        }
+
+        private final Kind kind;
+        private final String title;
+        private final ContentId litModel;
+
+        private Furnace(Kind kind, String title, ContentId litModel) {
+            this.kind = kind;
+            this.title = title;
+            this.litModel = litModel;
+        }
+
+        /**
+         * @param kind     null for a furnace
+         * @param title    what the screen is called, or null for the item's name
+         * @param litModel what the piece looks like while it burns, or null to
+         *                 look the same
+         */
+        public static Furnace of(Kind kind, String title, ContentId litModel) {
+            return new Furnace(kind == null ? Kind.FURNACE : kind,
+                    title == null || title.isBlank() ? null : title, litModel);
+        }
+
+        /** Which recipes it cooks, and how fast. */
+        public Kind kind() {
+            return kind;
+        }
+
+        /** What the screen is called, {@code &} colour codes and all, or empty for the item's name. */
+        public java.util.Optional<String> title() {
+            return java.util.Optional.ofNullable(title);
+        }
+
+        /**
+         * The item (or model) whose model the piece wears while it burns, the
+         * oven with its door glowing, or empty to stay as it is.
+         */
+        public java.util.Optional<ContentId> litModel() {
+            return java.util.Optional.ofNullable(litModel);
+        }
+    }
+
+    /**
      * One look a click cycles a piece into: a lamp switched on, a door swung
      * open, a television showing something.
      *
@@ -442,6 +521,7 @@ public final class ModelInfo {
     private ModelShape shape = ModelShape.NONE;
     private StorageSpec storage;
     private Jukebox jukebox;
+    private Furnace furnace;
     private java.util.List<State> states = java.util.List.of();
     private long stateResetTicks;
     private String baseSound;
@@ -641,6 +721,13 @@ public final class ModelInfo {
         return changed;
     }
 
+    /** The same model, cooking like a furnace — or not, for null. */
+    public ModelInfo withFurnace(Furnace furnace) {
+        ModelInfo changed = copy();
+        changed.furnace = furnace;
+        return changed;
+    }
+
     /**
      * The same model, with looks a click cycles through.
      *
@@ -684,6 +771,7 @@ public final class ModelInfo {
         made.shape = shape;
         made.storage = storage;
         made.jukebox = jukebox;
+        made.furnace = furnace;
         made.states = states;
         made.stateResetTicks = stateResetTicks;
         made.baseSound = baseSound;
@@ -764,6 +852,11 @@ public final class ModelInfo {
     /** The jukebox it is, or empty for a piece that plays nothing. */
     public java.util.Optional<Jukebox> jukebox() {
         return java.util.Optional.ofNullable(jukebox);
+    }
+
+    /** The furnace it is, or empty for a piece that cooks nothing. */
+    public java.util.Optional<Furnace> furnace() {
+        return java.util.Optional.ofNullable(furnace);
     }
 
     /**

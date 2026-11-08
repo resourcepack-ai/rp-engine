@@ -115,6 +115,24 @@ public final class ModelPlacementListener implements Listener {
         this.partKey = host.key("part-index");
         this.placedYawKey = host.key("model-yaw");
         this.placedScaleKey = host.key(RigAnimator.SCALE_KEY);
+        this.furnaces = new PieceFurnaces(plugin, items, hitbox -> {
+            ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
+            if (info != null) {
+                refreshLook(hitbox, info);
+            }
+        });
+    }
+
+    /** Cooks in the pieces that are furnaces. Registered as a listener by the plugin. */
+    private final PieceFurnaces furnaces;
+
+    public PieceFurnaces furnaces() {
+        return furnaces;
+    }
+
+    /** What a furnace's screen is called when the pack did not say: the item's name. */
+    private String furnaceTitle(ModelInfo info) {
+        return items.info(info.item()).flatMap(ai.resourcepack.engine.api.ItemInfo::name).orElse(null);
     }
 
     /** Who to tell when a piece comes or goes, for players the displays do not reach. */
@@ -616,6 +634,14 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        // A furnace opens on a plain click too, and is the game's own furnace
+        // screen: an oven that smelts like the block it stands in for.
+        if (piece != null && piece.furnace().isPresent() && !sitInstead) {
+            event.setCancelled(true);
+            furnaces.open(clicker, hitbox, piece.furnace().get(), furnaceTitle(piece));
+            return;
+        }
+
         // A disc in hand goes in; a disc already in comes out. Anything else
         // is not a jukebox click and carries on down the chain.
         if (piece != null && piece.jukebox().isPresent() && jukeboxes != null && !sitInstead
@@ -667,7 +693,8 @@ public final class ModelPlacementListener implements Listener {
      * after it is placed.
      */
     private static boolean changesLook(ModelInfo info) {
-        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent() || !info.connects().isEmpty()) {
+        if (info.jukebox().flatMap(ModelInfo.Jukebox::playingModel).isPresent() || !info.connects().isEmpty()
+                || info.furnace().flatMap(ModelInfo.Furnace::litModel).isPresent()) {
             return true;
         }
         for (ModelInfo.State state : info.states()) {
@@ -690,6 +717,10 @@ public final class ModelPlacementListener implements Listener {
         Optional<ContentId> playing = info.jukebox().flatMap(ModelInfo.Jukebox::playingModel);
         if (playing.isPresent() && jukeboxes != null && jukeboxes.holding(hitbox)) {
             return playing.get();
+        }
+        Optional<ContentId> lit = info.furnace().flatMap(ModelInfo.Furnace::litModel);
+        if (lit.isPresent() && furnaces.lit(hitbox)) {
+            return lit.get();
         }
         Optional<ContentId> stated = info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model);
         if (stated.isPresent()) {
@@ -893,6 +924,11 @@ public final class ModelPlacementListener implements Listener {
                         "jukebox playing-model: does nothing on an animated piece, whose look is its "
                                 + "parts. It plays without changing."));
             }
+            if (info.furnace().flatMap(ModelInfo.Furnace::litModel).isPresent()) {
+                found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                        "furnace lit-model: does nothing on an animated piece, whose look is its "
+                                + "parts. It cooks without changing."));
+            }
             for (int i = 0; i < info.states().size(); i++) {
                 ModelInfo.State state = info.states().get(i);
                 if (state.model().isPresent() || state.moves()) {
@@ -1054,6 +1090,9 @@ public final class ModelPlacementListener implements Listener {
         if (growth != null && info.grow().isPresent()) {
             growth.track(hitbox);
         }
+        if (info.furnace().isPresent()) {
+            furnaces.adopt(hitbox, info.furnace().get(), furnaceTitle(info));
+        }
     }
 
     /** Every booked reset forgotten. The plugin is going, and its tasks with it. */
@@ -1107,6 +1146,7 @@ public final class ModelPlacementListener implements Listener {
                 if (storages != null) {
                     storages.close(storageKey(entity.getUniqueId()));
                 }
+                furnaces.unload((Interaction) entity);
                 // Not checked while its chunk is away. The time still counts,
                 // so it may grow at the first check after it comes back — one
                 // stage, because what it grows into starts its own clock then.
@@ -1280,6 +1320,12 @@ public final class ModelPlacementListener implements Listener {
         if (jukeboxes != null && jukeboxes.holding(hitbox)) {
             jukeboxes.eject(hitbox, info == null ? 1f
                     : info.jukebox().map(ModelInfo.Jukebox::volume).orElse(1f));
+        }
+
+        // A furnace's slots go on the ground and its experience with them,
+        // whatever the pack now says, because what is in them is somebody's.
+        if (furnaces.holdsAnything(hitbox) || (info != null && info.furnace().isPresent())) {
+            spill(hitbox.getWorld(), where, furnaces.removed(hitbox));
         }
 
         // A door due to shut itself has nothing to shut.

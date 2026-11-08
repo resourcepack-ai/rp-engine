@@ -749,6 +749,51 @@ The record is sent once, when it goes in, as vanilla's is: somebody who walks up
 halfway through hears nothing until the next disc, and a restart does not resume
 it. The disc is still in the piece either way.
 
+### A furnace
+
+An oven, a stove, a forge that works like the real thing but looks like your model:
+
+```yaml
+oven:
+  material: PAPER
+  model: oven
+  place:
+    solid: true
+    furnace:
+      type: furnace             # furnace | smoker | blast_furnace
+      title: "Oven"             # & colour codes. Default: the item's name
+      lit-model: mypack:oven_on # what it looks like while it burns
+```
+
+`furnace: true` is a plain furnace with every default, and `furnace: smoker` is
+that type with everything else left alone. Right-click opens the game's own
+furnace screen, with its fuel, flame, arrow and recipe book.
+
+| Type | What it cooks | Speed |
+|---|---|---|
+| `furnace` | Everything a furnace smelts | A furnace's |
+| `smoker` | Food | Twice as fast, and fuel lasts half as long |
+| `blast_furnace` | Ores, armour and tools | Twice as fast, and fuel lasts half as long |
+
+It cooks by the server's own recipes, so a datapack's, another plugin's and
+your own [`smelting`, `smoking` and `blasting` recipes](#recipes) all work, and
+fuel burns for as long as it does in the game. A custom item is kept out of
+vanilla's recipes, as it is in a real furnace. Taking from the result slot gives
+the experience, and everybody who opens one sees the same three slots.
+
+`lit-model` is an item id whose model the piece wears while fuel is burning (or
+a model id with no item of its own), and it goes back to its own model when the
+fire goes out. It does nothing on an [animated](#animating-one) piece, whose
+look is its moving parts; the load says so.
+
+It cooks while its chunk is loaded and pauses while it is not, as a real furnace
+does, and carries on after a restart with its slots, fuel and progress. Breaking
+one spills what is in it and drops its experience.
+
+**A hopper cannot reach one**, because a display entity is not a block. A piece
+that is also a seat opens on a plain click and sits on a sneaking one, and
+`storage:` beats `furnace:` on a piece that has both; the load says so.
+
 ### States: lamps, doors and screens
 
 A click can change a piece. Each entry under `states:` is one more look a click
@@ -826,7 +871,7 @@ the load says so. Give it a right-click animation as well and both happen on a
 click: the state changes and the animation plays.
 
 A piece with states takes a plain click; sneaking on one that is also a seat
-sits. A container takes every click before its states would, and a jukebox
+sits. A container or a furnace takes every click before its states would, and a jukebox
 takes the ones that put a disc in or take one out.
 
 ### Joining up: sofas and counters

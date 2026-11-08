@@ -187,6 +187,21 @@ public final class ModelDefinitions {
                             + "It only opens."));
         }
 
+        ModelInfo.Furnace furnace = furnace(body, origin, where, diagnostics);
+        if (furnace != null && storage != null) {
+            // Both want the plain click and both are a screen of slots. The
+            // container came first and keeps the click; the furnace goes.
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "furnace: and storage: both open a screen on a click. It is storage; the furnace "
+                            + "is ignored."));
+            furnace = null;
+        }
+        if (furnace != null && jukebox != null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "jukebox: is never reached on a piece with furnace:, which takes the click first. "
+                            + "It only cooks."));
+        }
+
         // Absent is TRUE, unlike `solid` beside it: a vehicle driving through a
         // bollard is wrong in every pack that has one, so the exception is the
         // thing worth writing down. See ModelInfo.vehicleCollision.
@@ -209,6 +224,7 @@ public final class ModelDefinitions {
                 .withShape(shape)
                 .withStorage(storage)
                 .withJukebox(jukebox)
+                .withFurnace(furnace)
                 .withStates(states(body, origin, where, diagnostics),
                         stateReset(body, origin, where, diagnostics),
                         soundKey(body, "base-sound", origin, where, diagnostics))
@@ -509,6 +525,63 @@ public final class ModelDefinitions {
             return null;
         }
         return lower;
+    }
+
+    /**
+     * A {@code furnace:} block, {@code furnace: true} for a plain furnace, or
+     * {@code furnace: smoker} for that kind with every default. Null for a
+     * piece that cooks nothing.
+     */
+    static ModelInfo.Furnace furnace(DefinitionNode body, String origin, String where,
+                                     List<Diagnostic> diagnostics) {
+        if (!body.has("furnace")) {
+            return null;
+        }
+        Optional<DefinitionNode> block = body.node("furnace");
+        if (block.isEmpty()) {
+            Optional<Boolean> on = body.bool("furnace");
+            if (on.isPresent()) {
+                return on.get() ? ModelInfo.Furnace.of(null, null, null) : null;
+            }
+            Optional<String> named = body.string("furnace");
+            if (named.isPresent()) {
+                return ModelInfo.Furnace.of(furnaceKind(named.get(), origin, where, diagnostics), null, null);
+            }
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "furnace: should be a block of settings, true, or a type. It cooks nothing."));
+            return null;
+        }
+        DefinitionNode furnace = block.get();
+        ModelInfo.Furnace.Kind kind = furnace.string("type")
+                .map(type -> furnaceKind(type, origin, where, diagnostics))
+                .orElse(ModelInfo.Furnace.Kind.FURNACE);
+        ContentId lit = null;
+        Optional<String> declaredModel = furnace.string("lit-model");
+        if (declaredModel.isPresent()) {
+            lit = ContentId.parse(declaredModel.get().trim()).orElse(null);
+            if (lit == null) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace lit-model: " + declaredModel.get() + " is not a namespace:id. "
+                                + "The piece looks the same while it burns."));
+            }
+        }
+        return ModelInfo.Furnace.of(kind, furnace.string("title").orElse(null), lit);
+    }
+
+    private static ModelInfo.Furnace.Kind furnaceKind(String written, String origin, String where,
+                                                      List<Diagnostic> diagnostics) {
+        String key = written.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
+        if (key.equals("BLAST") || key.equals("BLASTFURNACE")) {
+            key = "BLAST_FURNACE";
+        }
+        try {
+            return ModelInfo.Furnace.Kind.valueOf(key);
+        } catch (IllegalArgumentException e) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "furnace type: " + written + " is not one of furnace, smoker, blast_furnace. "
+                            + "Using furnace."));
+            return ModelInfo.Furnace.Kind.FURNACE;
+        }
     }
 
     /**
