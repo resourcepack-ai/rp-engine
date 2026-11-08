@@ -1341,7 +1341,11 @@ if (!Files.exists(content.resolve(".version")) || !Files.readString(content.reso
 ```
 
 `reload()` is `/rp reload`: main thread, every bundle rebuilt and re-sent, so
-call it once after your files are in place and only when they changed. Use a
+call it once after your files are in place and only when they changed. The
+content itself is replaced before it returns; once the server is running, the
+zips are built off the main thread and `ContentLoadEvent` fires when they have
+been sent. Called from your `onEnable`, before the first tick, all of it is done
+before it returns. Use a
 namespace nobody else would — your plugin's name — and put your plugin's name
 in `depend` so you enable after the engine. The engine has already built its
 packs by the time you enable; the reload is what folds yours in. Everything in

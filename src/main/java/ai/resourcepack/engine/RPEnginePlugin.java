@@ -283,6 +283,25 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private VehicleRuntime vehicles;
     /** Whether a rebuild has finished once, which is what tells the two causes apart. */
     private boolean started;
+    /**
+     * Whether the server has ticked once since this plugin enabled. Until it
+     * has, nobody can be online, so a rebuild (an addon's {@link #reload} from
+     * its onEnable) builds its zips there and then; after, they are built off
+     * the main thread. See {@link #rebuild(CommandSender, ContentLoadEvent.Cause, boolean)}.
+     */
+    private volatile boolean ticking;
+    /** Whether a rebuild's zips are being built off the main thread right now. */
+    private boolean building;
+    /**
+     * A rebuild asked for while one was building, run when it finishes: who
+     * asked, and whether anybody wanted the result sent. Several collapse into
+     * one, since each would read the same folder.
+     */
+    private CommandSender rebuildNextFor;
+    private ContentLoadEvent.Cause rebuildNextWhy;
+    private boolean rebuildNextResend;
+    /** A later shader scan found something new while a rebuild was building. */
+    private boolean remergeAfterBuild;
 
     private CustomBlocks blocks;
     private ai.resourcepack.engine.core.block.BlockGrowth blockGrowth;
@@ -1173,6 +1192,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         startHost();
         registerCommands();
         rebuild(getServer().getConsoleSender());
+        // The first tick comes after every plugin has enabled.
+        Tasks.global(this, () -> ticking = true);
 
         // A random id every thirty seconds and nothing else, so we know how
         // many servers run this. See Heartbeat for exactly what goes.
@@ -1567,6 +1588,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * <p>Main thread only, and not cheap: every pack is rebuilt and re-sent
      * to everybody online. Call it once, after your files are in place, not
      * per file.
+     *
+     * <p>The content (items, models, dialogs, everything the API answers) is
+     * replaced before this returns. Once the server is running, the packs are
+     * then built off the main thread and sent when they are ready, and
+     * {@link ContentLoadEvent} fires at that point; from an onEnable, before
+     * the first tick, all of it happens before this returns.
      */
     public void reload() {
         reloadContent(getServer().getConsoleSender());
@@ -1688,10 +1715,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         }
         // The content only, not config.yml as well: a skin arriving is not
         // somebody asking for their edited settings to take effect.
+        // Its finish re-sends only the downloads it cut short.
         rebuild(getServer().getConsoleSender(), ContentLoadEvent.Cause.RELOAD, false);
-        for (Player player : getServer().getOnlinePlayers()) {
-            delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
-        }
     }
 
     /**
@@ -2571,6 +2596,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      *               whose caller decides who needs one - see {@link #rebakeSoon}
      */
     private void rebuild(CommandSender to, ContentLoadEvent.Cause why, boolean resend) {
+        if (building) {
+            // The registry is replaced below while the last build is still
+            // writing zips from it, so this one waits its turn.
+            boolean queued = rebuildNextFor != null;
+            rebuildNextFor = to;
+            rebuildNextWhy = why;
+            rebuildNextResend |= resend;
+            if (!queued && !(to instanceof ConsoleCommandSender)) {
+                EngineCommand.say(to, "A rebuild is already running. This one starts when it finishes.");
+            }
+            return;
+        }
         // content/ is yours and output/ is ours. The names are doing real work
         // here: a folder called packs/ reads as "put your packs in me", which is
         // the one mistake a new user is most likely to make on day one.
@@ -2824,31 +2861,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (!rigsApart) {
             builder.with(rigAssets);
         }
-        BuildReport builtReport = builder
-                .with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
+        builder.with(new ai.resourcepack.engine.core.armor3d.Armor3dAssets(parsedArmour, armourDrawn))
                 .with(new ai.resourcepack.engine.core.textfx.TextEffectAssets(parsedEffects.effects(), effectIndices,
                         compatibility.packFormat()))
                 .with(new ai.resourcepack.engine.core.vfx.VfxAssets(parsedVfx.effects(),
-                        compatibility.has(ai.resourcepack.engine.api.Feature.VFX)))
-                .build(content, output, loaded);
-        report(to, "build", builtReport.diagnostics());
-        // After the build, because the build is the last thing that can ask
-        // for a number. An assignment that is not on disk is one that changes
-        // on the next restart, and a changed number is a changed item.
-        modelNumbers.save(getLogger());
-
-        // The rigs the build found, handed to the same store a studio push
-        // fills. Under one pack id, so a reload REPLACES them: a model whose
-        // animation somebody deleted stops being animated, which a per-key
-        // merge would not do. Studio's rigs are keyed by their own pack ids
-        // and are untouched by this.
-        registerAuthoredRigs(itemAssets.rigs());
-        // Items with armor3d: and a gui: icon keep their own item_model,
-        // which this build made draw the armour piece outside the inventory.
-        armourOwnLooks = itemAssets.armourLooks();
-        // Only now is it known which placed pieces animate, and a few
-        // `place:` settings mean nothing on one that does.
-        report(to, "model", placements.rigDiagnostics());
+                        compatibility.has(ai.resourcepack.engine.api.Feature.VFX)));
 
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.
@@ -2865,7 +2882,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         readFolderStudioContent(content, to);
 
         // The content folder has just replaced the registry wholesale, which
-        // knows nothing about the pack somebody is already wearing.
+        // knows nothing about the pack somebody is already wearing. Before the
+        // zips are built, so a reload's build never leaves a pushed pack's
+        // sounds and screens unnameable while it runs.
         registerPushedContent();
 
         // The other plugins' packs are read on every build, since a reload is
@@ -2873,68 +2892,160 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // a text shader of theirs is merged into the bundle itself, so a player
         // is sent the one pack they always were.
         shaderClashes.scanNow();
-        builtUnmerged = builtReport.packs();
-        builtMerged = withMergedShaders(builtUnmerged);
-        // At startup nobody is waiting, so a first squash is waited for; on a
-        // reload the server is, so a long one is served unsquashed meanwhile.
-        built = packSquash.squash(builtMerged, packSquashSettings(), started ? 20_000L : 600_000L);
-        for (BuiltPack pack : built) {
-            packHost.register(pack);
-        }
-        publishRigs(rigAssets, rigsApart);
-        buildBedrockContent(output);
 
-        String summary = plural(loaded.packs().size(), "pack") + ", "
-                + plural(loaded.definitions().size(), "definition") + ", "
-                + plural(built.size(), "bundle") + " built, "
-                + plural(recipes.size(), "recipe")
-                + (recipes.replacedCount() > 0 ? " (" + recipes.replacedCount() + " replacing vanilla's)" : "")
-                + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig")
-                        + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "");
-        if (banner != null && to instanceof ConsoleCommandSender) {
-            banner.ok("Content", summary);
-        } else {
-            to.sendMessage("[RPEngine] " + summary + ".");
-        }
+        // The zips: every file of every pack read, deflated and written, then
+        // merged with other plugins' text shaders and squashed. Seconds on a
+        // big folder (a reported 11 on 26.2 with a vehicle pack merged in),
+        // which on the main thread is a frozen server and Paper's watchdog
+        // dumping threads. So once the server is ticking it runs off it, and
+        // everything above, which is what commands and the API read, is
+        // already in place; players keep the last build until this one is
+        // sent. At startup nobody is waiting, and a first squash is waited for.
+        ai.resourcepack.engine.core.pack.PackSquash.Settings squashSettings = packSquashSettings();
+        long squashWait = started ? 20_000L : 600_000L;
+        java.util.function.Supplier<BuiltZips> makeZips = () -> {
+            BuildReport report = builder.build(content, output, loaded);
+            List<BuiltPack> merged = withMergedShaders(report.packs());
+            return new BuiltZips(report, merged, packSquash.squash(merged, squashSettings, squashWait));
+        };
+        java.util.function.Consumer<BuiltZips> finish = zips -> {
+            report(to, "build", zips.report().diagnostics());
+            // After the build, because the build is the last thing that can ask
+            // for a number. An assignment that is not on disk is one that changes
+            // on the next restart, and a changed number is a changed item.
+            modelNumbers.save(getLogger());
 
-        // Everybody online is holding a pack that may no longer exist, so they
-        // are re-sent before they notice. Nothing is sent to a player whose
-        // stack is already right.
-        if (resend) {
+            // The rigs the build found, handed to the same store a studio push
+            // fills. Under one pack id, so a reload REPLACES them: a model whose
+            // animation somebody deleted stops being animated, which a per-key
+            // merge would not do. Studio's rigs are keyed by their own pack ids
+            // and are untouched by this.
+            registerAuthoredRigs(itemAssets.rigs());
+            // Items with armor3d: and a gui: icon keep their own item_model,
+            // which this build made draw the armour piece outside the inventory.
+            armourOwnLooks = itemAssets.armourLooks();
+            // Only now is it known which placed pieces animate, and a few
+            // `place:` settings mean nothing on one that does.
+            report(to, "model", placements.rigDiagnostics());
+
+            builtUnmerged = zips.report().packs();
+            builtMerged = zips.merged();
+            built = zips.squashed();
+            for (BuiltPack pack : built) {
+                packHost.register(pack);
+            }
+            publishRigs(rigAssets, rigsApart);
+            buildBedrockContent(output);
+
+            String summary = plural(loaded.packs().size(), "pack") + ", "
+                    + plural(loaded.definitions().size(), "definition") + ", "
+                    + plural(built.size(), "bundle") + " built, "
+                    + plural(recipes.size(), "recipe")
+                    + (recipes.replacedCount() > 0 ? " (" + recipes.replacedCount() + " replacing vanilla's)" : "")
+                    + (rigAssets.count() > 0 ? ", " + plural(rigAssets.count(), "emote rig")
+                            + (rigPack != null ? " (a pack of their own, stacked on top)" : "") : "");
+            if (banner != null && to instanceof ConsoleCommandSender) {
+                banner.ok("Content", summary);
+            } else {
+                to.sendMessage("[RPEngine] " + summary + ".");
+            }
+
+            // Everybody online is holding a pack that may no longer exist, so they
+            // are re-sent before they notice. Nothing is sent to a player whose
+            // stack is already right.
             for (Player player : getServer().getOnlinePlayers()) {
-                if (sendOnReload || !started) {
+                if (resend && (sendOnReload || !started)) {
                     delivery.apply(player, desiredFor(player));
                 } else {
-                    // send.on-reload off: only somebody whose download of the
-                    // old build was cut short by this one, which they cannot
-                    // finish now its file is gone.
+                    // send.on-reload off, or a rebake nobody asked for: only
+                    // somebody whose download of the old build was cut short
+                    // by this one, which they cannot finish now its file is gone.
                     delivery.resendUnfinished(player, defaultBundle, desiredFor(player));
                 }
             }
-        }
 
-        checkShaderClashes();
-        // At startup, again a while later: a plugin that builds its pack as it
-        // enables (after this one) may have changed what the first read found.
-        if (!started) {
-            shaderClashes.scanLater(ai.resourcepack.engine.core.pack.ShaderClashWatch.SECOND_SCAN_DELAY_TICKS,
-                    changed -> {
-                        if (changed) {
-                            remergeShaders();
-                        }
-                        checkShaderClashes();
-                    });
-        }
+            checkShaderClashes();
+            // At startup, again a while later: a plugin that builds its pack as it
+            // enables (after this one) may have changed what the first read found.
+            if (!started) {
+                shaderClashes.scanLater(ai.resourcepack.engine.core.pack.ShaderClashWatch.SECOND_SCAN_DELAY_TICKS,
+                        changed -> {
+                            if (changed) {
+                                remergeShaders();
+                            }
+                            checkShaderClashes();
+                        });
+            }
 
-        // Last, and that is the whole contract: a listener runs once every
-        // question the API can answer is answerable. A plugin holding anything
-        // resolved rather than an id needs this on a reload as much as it
-        // needs it at startup, which is why one event carries both.
-        started = true;
-        getServer().getPluginManager().callEvent(
-                new ai.resourcepack.engine.api.event.RigPackBuildEvent(rigAssets.count(), rigPack != null, false));
-        getServer().getPluginManager().callEvent(new ContentLoadEvent(
-                why, loaded.packs().size(), loaded.definitions().size()));
+            // Last, and that is the whole contract: a listener runs once every
+            // question the API can answer is answerable. A plugin holding anything
+            // resolved rather than an id needs this on a reload as much as it
+            // needs it at startup, which is why one event carries both.
+            started = true;
+            getServer().getPluginManager().callEvent(
+                    new ai.resourcepack.engine.api.event.RigPackBuildEvent(rigAssets.count(), rigPack != null, false));
+            getServer().getPluginManager().callEvent(new ContentLoadEvent(
+                    why, loaded.packs().size(), loaded.definitions().size()));
+        };
+
+        if (!ticking) {
+            finish.accept(makeZips.get());
+            return;
+        }
+        building = true;
+        if (!(to instanceof ConsoleCommandSender)) {
+            EngineCommand.say(to, "Content reloaded. Building the packs...");
+        }
+        Tasks.async(this, () -> {
+            BuiltZips made = null;
+            RuntimeException failed = null;
+            try {
+                made = makeZips.get();
+            } catch (RuntimeException e) {
+                failed = e;
+            }
+            BuiltZips zips = made;
+            RuntimeException problem = failed;
+            try {
+                Tasks.global(this, () -> {
+                    building = false;
+                    if (!isEnabled()) {
+                        return;
+                    }
+                    if (problem != null) {
+                        getLogger().log(java.util.logging.Level.SEVERE, "Building the packs failed", problem);
+                        to.sendMessage("[RPEngine] Building the packs failed: " + problem
+                                + ". Players keep the last build. The console has the details.");
+                    } else {
+                        finish.accept(zips);
+                    }
+                    afterBuild();
+                });
+            } catch (IllegalStateException | org.bukkit.plugin.IllegalPluginAccessException e) {
+                // Disabled while it built: nothing is left to hand the zips to.
+            }
+        });
+    }
+
+    /** What a rebuild's zips came to: the build, merged with other plugins' shaders, then squashed. */
+    private record BuiltZips(BuildReport report, List<BuiltPack> merged, List<BuiltPack> squashed) {
+    }
+
+    /** Whatever waited for a build that has just finished. */
+    private void afterBuild() {
+        if (remergeAfterBuild) {
+            remergeAfterBuild = false;
+            remergeShaders();
+        }
+        if (rebuildNextFor != null) {
+            CommandSender to = rebuildNextFor;
+            ContentLoadEvent.Cause why = rebuildNextWhy;
+            boolean resend = rebuildNextResend;
+            rebuildNextFor = null;
+            rebuildNextWhy = null;
+            rebuildNextResend = false;
+            rebuild(to, why, resend);
+        }
     }
 
     /**
@@ -2979,6 +3090,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * after a later read found them changed, and sent to whoever is online.
      */
     private void remergeShaders() {
+        if (building) {
+            // The build running now merged against the last read; this one's
+            // turn is when it finishes.
+            remergeAfterBuild = true;
+            return;
+        }
         builtMerged = withMergedShaders(builtUnmerged);
         built = packSquash.squash(builtMerged, packSquashSettings(), 20_000L);
         for (BuiltPack pack : built) {
