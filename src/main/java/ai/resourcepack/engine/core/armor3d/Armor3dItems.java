@@ -91,6 +91,16 @@ public final class Armor3dItems {
      * read through paper's definition whatever the stack is made of.
      */
     public void dress(ItemMeta meta, Armor3dSet set, Armor3dSet.Worn worn) {
+        dress(meta, set, worn, false);
+    }
+
+    /**
+     * @param ownLooks whether the item's own definition draws this piece with
+     *                 looks of its own on top (a {@code gui:} icon), so the
+     *                 {@code item_model} it already names is kept. Only an
+     *                 authored set can be drawn that way.
+     */
+    public void dress(ItemMeta meta, Armor3dSet set, Armor3dSet.Worn worn, boolean ownLooks) {
         // The art at index 0; the Bedrock marker, when studio numbered the
         // piece, at index 1, which is where Geyser's mapping looks.
         tags.write(meta, worn.bedrockSlot() == null ? List.of(worn.item())
@@ -98,6 +108,9 @@ public final class Armor3dItems {
         meta.getPersistentDataContainer().set(pieceKey, PersistentDataType.STRING,
                 set.id() + "/" + worn.piece().wire());
         equipping.wear(meta, worn.piece().slot(), worn.asset());
+        if (ownLooks && set.authored()) {
+            return;
+        }
         String itemModel = set.itemModel(worn.item());
         naming.name(meta, itemModel != null ? itemModel : "minecraft:paper");
     }

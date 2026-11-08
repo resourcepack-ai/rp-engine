@@ -208,6 +208,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private volatile StudioContent pushedAll = StudioContent.union(List.of());
     /** 3D armour: the pieces, and the displays on whoever has them on. See core/armor3d. */
     private ai.resourcepack.engine.core.armor3d.Armor3dItems armor3dItems;
+    /** Items whose own definition draws their 3D armour piece with a gui: icon on top; see ItemAssets.armourLooks. */
+    private volatile java.util.Set<ContentId> armourOwnLooks = java.util.Set.of();
     private ai.resourcepack.engine.core.armor3d.WornArmour wornArmour;
     private ai.resourcepack.engine.core.armor3d.Wardrobe armor3dWardrobe;
     /**
@@ -1004,19 +1006,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 if (set == null) {
                     return "armor3d: there is no 3D armour set called " + written;
                 }
-                ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece piece = switch (slot) {
-                    case "head" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.HELMET;
-                    case "chest" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.CHESTPLATE;
-                    case "legs" -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.LEGGINGS;
-                    default -> ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.BOOTS;
-                };
+                ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece piece =
+                        ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.forArmor(slot)
+                                .orElse(ai.resourcepack.engine.core.armor3d.Armor3dSet.Piece.BOOTS);
                 // Not Optional.map: a null from it is an empty Optional, which
                 // reported "has no boots" for every piece it had just dressed.
                 java.util.Optional<ai.resourcepack.engine.core.armor3d.Armor3dSet.Worn> worn = set.piece(piece);
                 if (worn.isEmpty()) {
                     return "armor3d: " + written + " has no " + piece.wire();
                 }
-                dresser.dress(meta, set, worn.get());
+                dresser.dress(meta, set, worn.get(), armourOwnLooks.contains(item));
                 return null;
             });
         }
@@ -2812,7 +2811,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         ItemAssets itemAssets = new ItemAssets(
                 compatibility.itemEra().needsNumbers() ? modelNumbers : null,
                 compatibility.has(ai.resourcepack.engine.api.Feature.ARMOUR_ART))
-                .withBlockItems(blockItems);
+                .withBlockItems(blockItems)
+                .withArmor3d(parsedArmour.sets());
         PackBuilder builder = new PackBuilder(
                 compatibility.packFormat(),
                 getConfig().getString("pack.description", "RP Engine"))
@@ -2843,6 +2843,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // merge would not do. Studio's rigs are keyed by their own pack ids
         // and are untouched by this.
         registerAuthoredRigs(itemAssets.rigs());
+        // Items with armor3d: and a gui: icon keep their own item_model,
+        // which this build made draw the armour piece outside the inventory.
+        armourOwnLooks = itemAssets.armourLooks();
         // Only now is it known which placed pieces animate, and a few
         // `place:` settings mean nothing on one that does.
         report(to, "model", placements.rigDiagnostics());

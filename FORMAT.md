@@ -155,6 +155,9 @@ Held, worn, dropped or placed, the item is still its own model. Minecraft
 1.21.4 and newer, like `first-person:`; on an older server the model is drawn
 in inventories too, with a warning.
 
+On an item with `armor3d:` it works the same way: the slot shows the icon, and
+everywhere else (worn, held, dropped) the item is the 3D piece.
+
 **`pull:` is the look of each stage of being drawn**, the way a vanilla bow has
 three; `charged:` and `charged-firework:` are a crossbow's loaded looks:
 
