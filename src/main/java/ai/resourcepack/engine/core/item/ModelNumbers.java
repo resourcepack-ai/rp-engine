@@ -99,7 +99,7 @@ public final class ModelNumbers {
      * <p>The only way in. There is deliberately no release, no renumber and no
      * way to set one by hand.
      */
-    public int of(ContentId id) {
+    public synchronized int of(ContentId id) {
         String key = id.toString();
         Integer existing = numbers.get(key);
         if (existing != null) {
@@ -112,7 +112,7 @@ public final class ModelNumbers {
     }
 
     /** The number an id already has, or empty if it has never been asked for. */
-    public Optional<Integer> existing(ContentId id) {
+    public synchronized Optional<Integer> existing(ContentId id) {
         return Optional.ofNullable(numbers.get(id.toString()));
     }
 
@@ -124,7 +124,7 @@ public final class ModelNumbers {
      * things and that order is not worth constraining. A load hands everything
      * it found to this first, and after that {@code of} only ever finds them.
      */
-    public void assignAll(Iterable<ContentId> ids) {
+    public synchronized void assignAll(Iterable<ContentId> ids) {
         TreeMap<String, ContentId> sorted = new TreeMap<>();
         for (ContentId id : ids) {
             sorted.put(id.toString(), id);
@@ -135,12 +135,12 @@ public final class ModelNumbers {
     }
 
     /** How many ids have ever been given a number. */
-    public int size() {
+    public synchronized int size() {
         return numbers.size();
     }
 
     /** Every assignment, id to number, for a status command or a test. */
-    public Map<String, Integer> all() {
+    public synchronized Map<String, Integer> all() {
         return Collections.unmodifiableMap(new TreeMap<>(numbers));
     }
 
@@ -151,7 +151,7 @@ public final class ModelNumbers {
      * exists is precisely how every number moves at once, and it would look
      * like a clean start rather than a disaster.
      */
-    public void load(Logger logger) {
+    public synchronized void load(Logger logger) {
         if (!file.exists()) {
             return;
         }
@@ -188,7 +188,7 @@ public final class ModelNumbers {
     }
 
     /** Writes only when something was actually assigned. */
-    public void save(Logger logger) {
+    public synchronized void save(Logger logger) {
         if (!dirty) {
             return;
         }
