@@ -909,6 +909,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(placements, this);
         getServer().getPluginManager().registerEvents(storages, this);
         getServer().getPluginManager().registerEvents(placements.furnaces(), this);
+        getServer().getPluginManager().registerEvents(placements.brewers(), this);
         growth.start();
         getServer().getPluginManager().registerEvents(seats, this);
         // Separately, because the event it wants is in a different package on
@@ -2218,6 +2219,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (placements != null) {
             // Every furnace written back the same way, cooking state and all.
             guarded("furnaces", placements.furnaces()::closeAll);
+            guarded("brewing stands", placements.brewers()::closeAll);
         }
         if (growth != null) {
             growth.stop();

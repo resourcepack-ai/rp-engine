@@ -436,6 +436,13 @@ class ModelDefinitionsTest {
     }
 
     @Test
+    void aPieceCanBeABrewingStand() throws IOException {
+        chair("  place:\n    station: brewing_stand\n");
+
+        assertEquals(ModelInfo.Station.BREWING_STAND, one(parse(), "mypack:chair").station().orElseThrow());
+    }
+
+    @Test
     void anUnknownStationOpensNothingAndSaysSo() throws IOException {
         chair("  place:\n    station: microwave\n");
 

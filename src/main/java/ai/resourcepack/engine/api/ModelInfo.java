@@ -219,7 +219,8 @@ public final class ModelInfo {
         SMITHING_TABLE("Upgrade Gear"),
         GRINDSTONE("Repair & Disenchant"),
         LOOM("Loom"),
-        CARTOGRAPHY_TABLE("Cartography Table");
+        CARTOGRAPHY_TABLE("Cartography Table"),
+        BREWING_STAND("Brewing Stand");
 
         private final String title;
 

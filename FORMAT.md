@@ -808,16 +808,22 @@ workbench:
 ```
 
 `station:` is one of `crafting_table`, `enchanting_table`, `anvil`,
-`stonecutter`, `smithing_table`, `grindstone`, `loom` or `cartography_table`.
-Right-click opens that block's own screen and the game does the rest, so
-recipes, costs and everything else are the game's. Whatever is left in the
+`stonecutter`, `smithing_table`, `grindstone`, `loom`, `cartography_table` or
+`brewing_stand`. Right-click opens that block's own screen and the game does the
+rest, so recipes, costs and everything else are the game's. Whatever is left in the
 screen goes back to the player when it closes, as it does with the real block.
 
 An enchanting table counts the bookshelves around the piece. An anvil never
 wears out. Each screen has the game's own title.
 
-The last six need Paper, or Spigot 1.21 or newer; on anything older the load
-says so and the piece opens nothing. A container or a furnace on the same piece
+A `brewing_stand` keeps its bottles, reagent and fuel on the piece, like a
+[furnace](#a-furnace): it brews while its chunk is loaded, carries on after a
+restart, spills what is in it when broken, and hoppers cannot reach it. It brews
+the server's own potions, including your [`brewing` recipes](#recipes), and
+needs Paper 1.20.5 or newer, or Minecraft 26.1 or newer.
+
+The six between the enchanting table and the brewing stand need Paper, or Spigot
+1.21 or newer; on anything older the load says so and the piece opens nothing. A container or a furnace on the same piece
 takes the click, and the load says that too.
 
 ### States: lamps, doors and screens
