@@ -196,6 +196,13 @@ public final class ModelDefinitions {
                             + "is ignored."));
             furnace = null;
         }
+        ModelInfo.Station station = station(body, origin, where, diagnostics);
+        if (station != null && (storage != null || furnace != null)) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "station: and " + (storage != null ? "storage:" : "furnace:") + " both open a screen on a "
+                            + "click, and the station is ignored."));
+            station = null;
+        }
         if (furnace != null && jukebox != null) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "jukebox: is never reached on a piece with furnace:, which takes the click first. "
@@ -225,6 +232,7 @@ public final class ModelDefinitions {
                 .withStorage(storage)
                 .withJukebox(jukebox)
                 .withFurnace(furnace)
+                .withStation(station)
                 .withStates(states(body, origin, where, diagnostics),
                         stateReset(body, origin, where, diagnostics),
                         soundKey(body, "base-sound", origin, where, diagnostics))
@@ -566,6 +574,24 @@ public final class ModelDefinitions {
             }
         }
         return ModelInfo.Furnace.of(kind, furnace.string("title").orElse(null), lit);
+    }
+
+    /** A {@code station:} naming one of the game's work blocks. Null for a piece that is none. */
+    static ModelInfo.Station station(DefinitionNode body, String origin, String where,
+                                     List<Diagnostic> diagnostics) {
+        if (!body.has("station")) {
+            return null;
+        }
+        String written = body.string("station").orElse("").trim();
+        String key = written.toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
+        try {
+            return ModelInfo.Station.valueOf(key);
+        } catch (IllegalArgumentException e) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "station: " + written + " is not one of crafting_table, enchanting_table, anvil, stonecutter, "
+                            + "smithing_table, grindstone, loom, cartography_table. It opens nothing."));
+            return null;
+        }
     }
 
     private static ModelInfo.Furnace.Kind furnaceKind(String written, String origin, String where,

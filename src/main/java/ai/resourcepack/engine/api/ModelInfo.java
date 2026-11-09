@@ -208,6 +208,37 @@ public final class ModelInfo {
     }
 
     /**
+     * One of the game's work blocks a piece can stand in for. Right-click
+     * opens that block's own screen, and the game does the rest.
+     */
+    public enum Station {
+        CRAFTING_TABLE("Crafting"),
+        ENCHANTING_TABLE("Enchant"),
+        ANVIL("Repair & Name"),
+        STONECUTTER("Stonecutter"),
+        SMITHING_TABLE("Upgrade Gear"),
+        GRINDSTONE("Repair & Disenchant"),
+        LOOM("Loom"),
+        CARTOGRAPHY_TABLE("Cartography Table");
+
+        private final String title;
+
+        Station(String title) {
+            this.title = title;
+        }
+
+        /** The name the format writes, {@code crafting_table} for {@link #CRAFTING_TABLE}. */
+        public String key() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        /** The game's own English name for the screen. */
+        public String title() {
+            return title;
+        }
+    }
+
+    /**
      * One look a click cycles a piece into: a lamp switched on, a door swung
      * open, a television showing something.
      *
@@ -522,6 +553,7 @@ public final class ModelInfo {
     private StorageSpec storage;
     private Jukebox jukebox;
     private Furnace furnace;
+    private Station station;
     private java.util.List<State> states = java.util.List.of();
     private long stateResetTicks;
     private String baseSound;
@@ -721,6 +753,13 @@ public final class ModelInfo {
         return changed;
     }
 
+    /** The same model, opening one of the game's work screens — or not, for null. */
+    public ModelInfo withStation(Station station) {
+        ModelInfo changed = copy();
+        changed.station = station;
+        return changed;
+    }
+
     /** The same model, cooking like a furnace — or not, for null. */
     public ModelInfo withFurnace(Furnace furnace) {
         ModelInfo changed = copy();
@@ -772,6 +811,7 @@ public final class ModelInfo {
         made.storage = storage;
         made.jukebox = jukebox;
         made.furnace = furnace;
+        made.station = station;
         made.states = states;
         made.stateResetTicks = stateResetTicks;
         made.baseSound = baseSound;
@@ -852,6 +892,11 @@ public final class ModelInfo {
     /** The jukebox it is, or empty for a piece that plays nothing. */
     public java.util.Optional<Jukebox> jukebox() {
         return java.util.Optional.ofNullable(jukebox);
+    }
+
+    /** The work block it stands in for, or empty for a piece that is none. */
+    public java.util.Optional<Station> station() {
+        return java.util.Optional.ofNullable(station);
     }
 
     /** The furnace it is, or empty for a piece that cooks nothing. */
