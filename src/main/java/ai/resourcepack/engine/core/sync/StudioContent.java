@@ -241,6 +241,7 @@ public final class StudioContent {
      * again: a model absent here goes down exactly as built.
      */
     private volatile Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> variations = Map.of();
+    private volatile Map<String, String> works = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = Map.of();
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
@@ -415,6 +416,7 @@ public final class StudioContent {
         copy.vehicles = vehicles;
         copy.vehiclePassable = vehiclePassable;
         copy.variations = variations;
+        copy.works = works;
         copy.dialogs = dialogs;
         copy.armor3d = armor3d;
         copy.objects = objects;
@@ -443,6 +445,7 @@ public final class StudioContent {
         Map<ContentId, VehicleInfo> vehicles = new LinkedHashMap<>();
         Set<String> passable = new java.util.LinkedHashSet<>();
         Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> varied = new LinkedHashMap<>();
+        Map<String, String> worked = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.DialogInfo> dialogs = new LinkedHashMap<>();
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
@@ -462,6 +465,7 @@ public final class StudioContent {
             vehicles.putAll(pack.vehicles);
             passable.addAll(pack.vehiclePassable);
             varied.putAll(pack.variations);
+            worked.putAll(pack.works);
             dialogs.putAll(pack.dialogs);
             armor.putAll(pack.armor3d);
             objects.putAll(pack.objects);
@@ -482,6 +486,7 @@ public final class StudioContent {
         all.vehicles = Map.copyOf(vehicles);
         all.vehiclePassable = Set.copyOf(passable);
         all.variations = Map.copyOf(varied);
+        all.works = Map.copyOf(worked);
         all.dialogs = Map.copyOf(dialogs);
         all.armor3d = Map.copyOf(armor);
         all.objects = Map.copyOf(objects);
@@ -594,6 +599,11 @@ public final class StudioContent {
      * or {@link ai.resourcepack.engine.api.ModelInfo.Variation#NONE} for a
      * model this has never heard of.
      */
+    /** The game block a pushed model works as (a furnace kind or a station), or null for none. */
+    public String modelWorks(String id) {
+        return id == null ? null : works.get(id);
+    }
+
     public ai.resourcepack.engine.api.ModelInfo.Variation modelVariation(String id) {
         ai.resourcepack.engine.api.ModelInfo.Variation found = id == null ? null : variations.get(id);
         return found == null ? ai.resourcepack.engine.api.ModelInfo.Variation.NONE : found;
@@ -614,7 +624,7 @@ public final class StudioContent {
     /** Whether there is anything at all. */
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
-                && vehiclePassable.isEmpty() && variations.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
+                && vehiclePassable.isEmpty() && variations.isEmpty() && works.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
                 && textEffects.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && mobs.isEmpty();
     }
 
@@ -727,6 +737,7 @@ public final class StudioContent {
 
         Set<String> readPassable = new java.util.LinkedHashSet<>();
         Map<String, ai.resourcepack.engine.api.ModelInfo.Variation> readVariations = new LinkedHashMap<>();
+        Map<String, String> readWorks = new LinkedHashMap<>();
         for (Model model : manifest.models == null ? List.<Model>of() : manifest.models) {
             if (model == null || model.id == null || model.id.isEmpty()) {
                 continue;
@@ -737,6 +748,9 @@ public final class StudioContent {
             ai.resourcepack.engine.api.ModelInfo.Variation variation = variationOf(model.variation);
             if (!variation.isNone()) {
                 readVariations.put(model.id, variation);
+            }
+            if (model.works != null && !model.works.isBlank()) {
+                readWorks.put(model.id, model.works.trim());
             }
         }
 
@@ -912,6 +926,7 @@ public final class StudioContent {
         vehicles = Map.copyOf(readVehicles);
         vehiclePassable = Set.copyOf(readPassable);
         variations = Map.copyOf(readVariations);
+        works = Map.copyOf(readWorks);
         dialogs = Map.copyOf(readDialogs);
         armor3d = Map.copyOf(readArmor);
         objects = Map.copyOf(readObjects);
@@ -1519,9 +1534,11 @@ public final class StudioContent {
         manifest.models = new ArrayList<>();
         Set<String> modelIds = new java.util.LinkedHashSet<>(vehiclePassable);
         modelIds.addAll(variations.keySet());
+        modelIds.addAll(works.keySet());
         for (String id : modelIds) {
             Model model = new Model();
             model.id = id;
+            model.works = works.get(id);
             if (vehiclePassable.contains(id)) {
                 model.vehicleCollision = Boolean.FALSE;
             }

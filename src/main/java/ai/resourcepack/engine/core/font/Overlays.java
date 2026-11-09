@@ -859,6 +859,11 @@ public final class Overlays {
      * surrounding text is drawn in and it comes out muddy. Then the negative
      * space, then the glyph.
      */
+    /** What a container opened as this screen is called: its picture, or empty for one that is not loaded. */
+    public Optional<String> screenTitle(ContentId id) {
+        return screen(id).map(Overlays::title);
+    }
+
     private static String title(OverlayInfo info) {
         // A container title is a legacy string too, so it is the same run the
         // boss bar draws. One builder, so the two cannot drift.

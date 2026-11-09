@@ -174,6 +174,30 @@ public final class BlockDefinitions {
         if (storage.isPresent()) {
             block = block.withStorage(storage.get());
         }
+        ai.resourcepack.engine.api.ModelInfo.Furnace furnace =
+                ai.resourcepack.engine.core.model.ModelDefinitions.furnace(body, origin, where, diagnostics);
+        ai.resourcepack.engine.api.ModelInfo.Station station =
+                ai.resourcepack.engine.core.model.ModelDefinitions.station(body, origin, where, diagnostics);
+        if ((furnace != null || station != null) && storage.isPresent()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "furnace: and station: are ignored on a block with storage:, which takes the click."));
+            furnace = null;
+            station = null;
+        }
+        if (furnace != null && station != null) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "station: is ignored on a block with furnace:, which takes the click."));
+            station = null;
+        }
+        if (furnace != null) {
+            ContentId litInto = body.node("furnace").flatMap(node -> node.string("lit-into"))
+                    .flatMap(written -> ContentId.parse(written.trim())).orElse(null);
+            block = block.withFurnace(furnace, litInto);
+        }
+        if (station != null) {
+            block = block.withStation(station,
+                    ai.resourcepack.engine.core.model.ModelDefinitions.stationScreen(body));
+        }
         Optional<String> itemTexture = body.string("item-texture").or(() -> body.string("item_texture"));
         if (itemTexture.isPresent()) {
             block = block.withItemTexture(itemTexture.get().trim());

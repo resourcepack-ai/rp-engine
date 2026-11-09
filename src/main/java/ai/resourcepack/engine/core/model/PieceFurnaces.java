@@ -4,25 +4,24 @@ import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Items;
 import ai.resourcepack.engine.api.ModelInfo;
-import ai.resourcepack.engine.core.storage.ItemBytes;
+import ai.resourcepack.engine.api.Sounds;
+import ai.resourcepack.engine.api.event.PieceCookEvent;
+import ai.resourcepack.engine.core.sound.SoundAt;
+import ai.resourcepack.engine.core.vehicle.VehicleParticles;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Keyed;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Particle;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.ExperienceOrb;
 import org.bukkit.entity.HumanEntity;
-import org.bukkit.entity.Interaction;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.BlastingRecipe;
 import org.bukkit.inventory.CookingRecipe;
@@ -37,237 +36,262 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
- * Placed pieces that cook: an oven, a stove, a forge.
+ * Things that cook: an oven, a stove, a forge, placed as a model or a custom
+ * block.
  *
  * <p><strong>The furnace is simulated, not borrowed.</strong> A display entity
  * cannot be a furnace block, and a real furnace hidden somewhere would still be
  * a block the client draws, so the three slots and the four numbers a furnace
- * runs on (fuel left, the fuel's length, cooking progress, the recipe's length)
- * are kept on the piece's hitbox and stepped here once a tick with the game's
- * own rules: the same order of checks, the same fuel lengths, the server's own
- * recipes. The screen is the game's furnace screen, a real {@code FurnaceMenu},
- * so its slots behave as a furnace's do and its flame and arrow are driven by
- * the same four numbers through {@link HumanEntity#setWindowProperty}.
+ * runs on are kept on the thing (see {@link PieceMachines}) and stepped here
+ * once a tick with the game's own rules: the same order of checks, the same
+ * fuel lengths, the server's own recipes. The screen is the game's furnace
+ * screen, a real {@code FurnaceMenu}, so its slots behave as a furnace's do and
+ * its flame and arrow are driven by the same four numbers.
  *
  * <p>The screen is always the FURNACE screen, whatever the kind. The game's
  * smoker and blast furnace screens are the same picture, and Bukkit only lets a
- * plugin set the progress of a screen whose type is the furnace's, so a smoker
- * opened as a smoker would never show its arrow move.
- *
- * <p>Like the rest of a placed piece, the state lives in the world: on the
- * hitbox, saved with its chunk. A piece cooks while its chunk is loaded, as a
- * vanilla furnace does, and pauses while it is not. While one is cooking or
- * open it is LIVE: one inventory, ticking on the piece's own scheduler (its
- * region's on Folia), written back to the hitbox every few seconds, on every
- * close, when its chunk unloads and when the plugin stops. A live one with
- * nothing to do and nobody looking is written back and let go.
+ * plugin set the progress of a screen whose type is the furnace's.
  *
  * <p>Experience is kept per piece and handed out when somebody takes from the
  * result slot, or dropped as orbs when the piece is broken, as vanilla does.
  *
  * <p>Custom items are kept out of vanilla's recipes the way the engine keeps
- * them out of a real furnace's: a tomato carried on paper is not paper to an
- * oven either.
+ * them out of a real furnace's.
  */
-public final class PieceFurnaces implements Listener {
+public final class PieceFurnaces extends PieceMachines<ModelInfo.Furnace, PieceFurnaces.One> {
 
     /** Input, fuel, result: the furnace screen's own order. */
     static final int INPUT = 0;
     static final int FUEL = 1;
     static final int RESULT = 2;
 
-    /** How often a live furnace with changes is written back, in ticks. */
-    private static final int SAVE_EVERY = 100;
-
     /** How long a recipe list is trusted before it is read again, in ms. A reload adds recipes. */
     private static final long RECIPES_FOR_MS = 10_000L;
 
-    private final Plugin plugin;
     private final Items items;
-    private final Consumer<Interaction> litChanged;
-
-    private final NamespacedKey slotsKey;
-    private final NamespacedKey stateKey;
-    private final NamespacedKey xpKey;
-
-    /** Every live furnace, by hitbox. */
-    private final Map<UUID, Live> live = new ConcurrentHashMap<>();
-
-    private final Map<ModelInfo.Furnace.Kind, List<CookingRecipe<?>>> recipes = new EnumMap<>(ModelInfo.Furnace.Kind.class);
+    private final VehicleParticles particles;
+    private final List<Consumer<Anchor>> litListeners = new ArrayList<>();
+    private final Map<ModelInfo.Furnace.Kind, List<CookingRecipe<?>>> recipes =
+            new EnumMap<>(ModelInfo.Furnace.Kind.class);
     private volatile long recipesReadAt;
     private volatile Boolean fuelSetsSpeed;
+    private Sounds sounds;
+    private Function<Anchor, Float> yaws = anchor -> 0f;
 
-    /**
-     * @param litChanged told when a piece starts or stops burning, to put on
-     *                   or take off its lit look
-     */
-    PieceFurnaces(Plugin plugin, Items items, Consumer<Interaction> litChanged) {
-        this.plugin = plugin;
+    PieceFurnaces(Plugin plugin, Items items) {
+        super(plugin, "furnace");
         this.items = items;
-        this.litChanged = litChanged;
-        this.slotsKey = new NamespacedKey(plugin, "furnace");
-        this.stateKey = new NamespacedKey(plugin, "furnace-state");
-        this.xpKey = new NamespacedKey(plugin, "furnace-xp");
+        this.particles = new VehicleParticles(plugin.getLogger());
     }
 
-    // ---- what the piece is doing ---------------------------------------
+    /** Told when a custom block starts or stops burning, to put on or take off its look. */
+    public void onBlockLit(java.util.function.BiConsumer<org.bukkit.block.Block, Boolean> listener) {
+        onLit(anchor -> {
+            if (anchor instanceof BlockAnchor) {
+                listener.accept(anchor.block(), lit(anchor));
+            }
+        });
+    }
 
-    /** Whether this piece is burning fuel right now. */
-    boolean lit(Interaction hitbox) {
-        Live one = live.get(hitbox.getUniqueId());
+    void onLit(Consumer<Anchor> listener) {
+        litListeners.add(listener);
+    }
+
+    void sounds(Sounds sounds) {
+        this.sounds = sounds;
+    }
+
+    /** Which way a thing faces, so a particle offset turns with it. */
+    void yaws(Function<Anchor, Float> yaws) {
+        this.yaws = yaws;
+    }
+
+    /** Whether this thing is burning fuel right now. */
+    boolean lit(Anchor anchor) {
+        One one = liveAt(anchor);
         if (one != null) {
             return one.lit > 0;
         }
-        int[] state = hitbox.getPersistentDataContainer().get(stateKey, PersistentDataType.INTEGER_ARRAY);
+        int[] state = keptState(anchor);
         return state != null && state.length > 0 && state[0] > 0;
     }
 
-    /** Whether anything about a furnace is kept on this hitbox. */
-    boolean holdsAnything(Interaction hitbox) {
-        PersistentDataContainer data = hitbox.getPersistentDataContainer();
-        return data.has(slotsKey, PersistentDataType.BYTE_ARRAY) || data.has(stateKey, PersistentDataType.INTEGER_ARRAY)
-                || data.has(xpKey, PersistentDataType.FLOAT);
+    @Override
+    protected int slotCount() {
+        return 3;
     }
 
-    // ---- opening ---------------------------------------------------------
-
-    /**
-     * Opens the piece's furnace for {@code player}.
-     *
-     * @param fallbackTitle what to call it when the pack did not: the item's name
-     * @return whether a screen opened
-     */
-    boolean open(Player player, Interaction hitbox, ModelInfo.Furnace spec, String fallbackTitle) {
-        Live one = wake(hitbox, spec, fallbackTitle);
-        if (one == null) {
-            player.sendMessage(ChatColor.RED + "This furnace's contents could not be read, so it was not opened. "
-                    + "Nothing in it has been touched.");
-            return false;
-        }
-        if (player.openInventory(one.inventory) == null) {
-            return false;
-        }
-        show(player, one);
-        return true;
+    @Override
+    protected InventoryType screenType() {
+        return InventoryType.FURNACE;
     }
 
-    /**
-     * A piece coming back with its chunk, or standing there at startup: if it
-     * was cooking, or has something it could start cooking, it carries on.
-     */
-    void adopt(Interaction hitbox, ModelInfo.Furnace spec, String fallbackTitle) {
-        if (live.containsKey(hitbox.getUniqueId()) || !holdsAnything(hitbox)) {
-            return;
-        }
-        int[] state = hitbox.getPersistentDataContainer().get(stateKey, PersistentDataType.INTEGER_ARRAY);
-        boolean busy = state != null && state.length >= 3 && (state[0] > 0 || state[2] > 0);
-        if (!busy) {
-            ItemStack[] slots = readSlots(hitbox);
-            busy = slots != null && present(slots[INPUT]) && present(slots[FUEL]);
-        }
-        if (busy) {
-            wake(hitbox, spec, fallbackTitle);
-        }
+    @Override
+    protected One make(Anchor anchor, ContentId piece, ModelInfo.Furnace spec) {
+        return new One(anchor, piece, spec);
     }
 
-    /** The live furnace for this piece, made live from what is kept on it if it was not. Null if unreadable. */
-    private Live wake(Interaction hitbox, ModelInfo.Furnace spec, String fallbackTitle) {
-        Live one = live.get(hitbox.getUniqueId());
-        if (one != null) {
-            one.spec = spec;
-            return one;
-        }
-        ItemStack[] slots = readSlots(hitbox);
-        if (slots == null) {
-            return null;
-        }
-        String title = colour(spec.title().orElse(
-                fallbackTitle == null || fallbackTitle.isBlank() ? spec.kind().title() : fallbackTitle));
-        one = new Live(hitbox.getUniqueId(), spec, hitbox.getLocation().add(0, 0.5, 0));
-        one.inventory = Bukkit.createInventory(one, InventoryType.FURNACE, title);
-        one.inventory.setContents(slots);
-        int[] state = hitbox.getPersistentDataContainer().get(stateKey, PersistentDataType.INTEGER_ARRAY);
-        if (state != null && state.length >= 4) {
+    @Override
+    protected int[] state(One one) {
+        return one.lit == 0 && one.litDuration == 0 && one.cook == 0 && one.cookTotal == 0
+                ? null : new int[]{one.lit, one.litDuration, one.cook, one.cookTotal};
+    }
+
+    @Override
+    protected void restore(One one, int[] state) {
+        if (state.length >= 4) {
             one.lit = Math.max(0, state[0]);
             one.litDuration = Math.max(0, state[1]);
             one.cook = Math.max(0, state[2]);
             one.cookTotal = Math.max(0, state[3]);
         }
-        Float xp = hitbox.getPersistentDataContainer().get(xpKey, PersistentDataType.FLOAT);
+    }
+
+    @Override
+    protected boolean working(int[] state, ItemStack[] slots) {
+        return (state != null && state.length >= 3 && (state[0] > 0 || state[2] > 0))
+                || (present(slots[INPUT]) && present(slots[FUEL]));
+    }
+
+    @Override
+    protected ContentId screenOf(ModelInfo.Furnace spec) {
+        return spec.screen().orElse(null);
+    }
+
+    @Override
+    protected void readExtra(One one, PersistentDataContainer data) {
+        Float xp = data.get(xpKey(one.anchor), PersistentDataType.FLOAT);
         one.xp = xp == null ? 0f : xp;
-        one.lastInput = copyOf(slots[INPUT]);
-        live.put(one.hitbox, one);
-        Live ticking = one;
-        one.ticker = Tasks.onTimer(plugin, hitbox, () -> tick(ticking), 1L, 1L);
-        return one;
+        one.lastInput = copyOf(one.inventory.getItem(INPUT));
     }
 
-    private ItemStack[] readSlots(Interaction hitbox) {
-        byte[] bytes = hitbox.getPersistentDataContainer().get(slotsKey, PersistentDataType.BYTE_ARRAY);
-        ItemStack[] slots = new ItemStack[3];
-        if (bytes == null) {
-            return slots;
-        }
-        try {
-            ItemStack[] read = ItemBytes.read(bytes);
-            System.arraycopy(read, 0, slots, 0, Math.min(3, read.length));
-            return slots;
-        } catch (IOException e) {
-            // Opened empty, this would be saved back empty. Refused instead,
-            // and the bytes stay where they are.
-            plugin.getLogger().severe("Did not open the furnace " + hitbox.getUniqueId() + ": its contents are "
-                    + e.getMessage());
-            return null;
+    @Override
+    protected void writeExtra(One one, PersistentDataContainer data) {
+        if (one.xp > 0f) {
+            data.set(xpKey(one.anchor), PersistentDataType.FLOAT, one.xp);
+        } else {
+            data.remove(xpKey(one.anchor));
         }
     }
 
-    // ---- ticking ---------------------------------------------------------
+    private NamespacedKey xpKey(Anchor anchor) {
+        return anchor.key(plugin, "furnace-xp");
+    }
 
-    private void tick(Live one) {
-        Entity entity = Bukkit.getEntity(one.hitbox);
-        if (!(entity instanceof Interaction) || !entity.isValid()) {
-            // Gone without the unload or the break reaching us: nothing left
-            // to write onto. Let go, and anybody still looking loses the view.
-            forget(one);
-            for (HumanEntity viewer : new ArrayList<>(one.inventory.getViewers())) {
-                viewer.closeInventory();
+    @Override
+    protected void broken(Anchor anchor, One one) {
+        PersistentDataContainer data = anchor.data();
+        Float kept = data.get(xpKey(anchor), PersistentDataType.FLOAT);
+        float xp = one != null ? one.xp : kept == null ? 0f : kept;
+        data.remove(xpKey(anchor));
+        orbs(anchor.centre(), (int) Math.floor(xp));
+    }
+
+    @Override
+    protected int[] slotsFacing(HopperSide side) {
+        switch (side) {
+            case ABOVE:
+                return new int[]{INPUT};
+            case SIDE:
+                return new int[]{FUEL};
+            default:
+                return new int[]{RESULT, FUEL};
+        }
+    }
+
+    @Override
+    protected boolean canInsert(One one, int slot, ItemStack item) {
+        return slot == INPUT || (slot == FUEL && burnTime(item, one.spec.kind()) > 0);
+    }
+
+    @Override
+    protected boolean canExtract(One one, int slot, ItemStack item) {
+        return slot == RESULT || item.getType() == Material.BUCKET || item.getType() == Material.WATER_BUCKET;
+    }
+
+    @Override
+    protected boolean idle(One one) {
+        return one.lit == 0 && one.cook == 0 && !canStart(one);
+    }
+
+    @Override
+    protected void afterStep(One one) {
+        boolean isLit = one.lit > 0;
+        if (isLit != one.wasLit) {
+            one.wasLit = isLit;
+            one.dirty = true;
+            save(one);
+            for (Consumer<Anchor> listener : litListeners) {
+                listener.accept(one.anchor);
             }
+        }
+        if (isLit) {
+            effects(one);
+        }
+    }
+
+    private void effects(One one) {
+        ModelInfo.Furnace.Effects effects = one.spec.effects();
+        World world = one.at.getWorld();
+        if (world == null) {
             return;
         }
-        Interaction hitbox = (Interaction) entity;
-        boolean wasLit = one.lit > 0;
-        if (step(one)) {
-            one.dirty = true;
+        ModelInfo.Furnace.Particles spec = effects.particles();
+        if (spec != null && ++one.sinceParticle >= spec.every()) {
+            one.sinceParticle = 0;
+            Particle particle = particles.resolve(spec.type());
+            if (particle != null) {
+                try {
+                    world.spawnParticle(particle, particleAt(one, spec), spec.count(), spec.spread(), spec.spread(),
+                            spec.spread(), 0.0);
+                } catch (IllegalArgumentException wantsData) {
+                    // A particle that takes colour or a block. A wrong pick
+                    // should cost its smoke, never the furnace.
+                    one.spec = one.spec.withEffects(effects.withoutParticles());
+                    plugin.getLogger().warning("Particle " + spec.type() + " cannot be used on a furnace.");
+                }
+            }
         }
-        boolean isLit = one.lit > 0;
-        for (HumanEntity viewer : one.inventory.getViewers()) {
-            show(viewer, one);
+        if (effects.soundOn() && ThreadLocalRandom.current().nextInt(100) == 0) {
+            String sound = effects.sound().orElseGet(() -> defaultSound(one.spec.kind()));
+            SoundAt.play(sounds, one.at, sound, SoundCategory.BLOCKS, 1f, 1f);
         }
-        if (isLit && ThreadLocalRandom.current().nextInt(100) == 0) {
-            crackle(one);
+    }
+
+    private Location particleAt(One one, ModelInfo.Furnace.Particles spec) {
+        Location base = one.at.clone().subtract(0, 0.5, 0);
+        if (!spec.positioned()) {
+            double top = one.anchor.hitbox() == null ? 1.05 : one.anchor.hitbox().getInteractionHeight() + 0.05;
+            return base.add(0, top, 0);
         }
-        if (wasLit != isLit) {
-            save(one, hitbox);
-            litChanged.accept(hitbox);
-        } else if (one.dirty && ++one.sinceSave >= SAVE_EVERY) {
-            save(one, hitbox);
-        }
-        if (!isLit && one.cook == 0 && one.inventory.getViewers().isEmpty() && !canStart(one)) {
-            save(one, hitbox);
-            forget(one);
+        // The same frame as a seat's offset: right, up, forward of the piece.
+        double radians = Math.toRadians(yaws.apply(one.anchor));
+        double sin = Math.sin(radians);
+        double cos = Math.cos(radians);
+        return base.add(spec.right() * cos - spec.forward() * sin, spec.up(),
+                spec.right() * sin + spec.forward() * cos);
+    }
+
+    private static String defaultSound(ModelInfo.Furnace.Kind kind) {
+        switch (kind) {
+            case SMOKER:
+                return "minecraft:block.smoker.smoke";
+            case BLAST_FURNACE:
+                return "minecraft:block.blastfurnace.fire_crackle";
+            default:
+                return "minecraft:block.furnace.fire_crackle";
         }
     }
 
@@ -276,7 +300,8 @@ public final class PieceFurnaces implements Listener {
      *
      * @return whether anything a save would keep changed
      */
-    private boolean step(Live one) {
+    @Override
+    protected boolean step(One one) {
         Inventory inventory = one.inventory;
         ItemStack input = inventory.getItem(INPUT);
         boolean changed = false;
@@ -284,9 +309,6 @@ public final class PieceFurnaces implements Listener {
         // A different input starts its cooking from nothing, as setting a
         // furnace's input slot to a different item does.
         if (!same(input, one.lastInput)) {
-            if (one.cook != 0 || !present(input)) {
-                changed = true;
-            }
             one.cook = 0;
             CookingRecipe<?> recipe = present(input) ? recipeFor(one, input) : null;
             one.cookTotal = recipe == null ? 0 : cookTicks(one, recipe);
@@ -336,7 +358,7 @@ public final class PieceFurnaces implements Listener {
     }
 
     /** Whether there is fuel to light and something it would cook. */
-    private boolean canStart(Live one) {
+    private boolean canStart(One one) {
         ItemStack input = one.inventory.getItem(INPUT);
         ItemStack fuel = one.inventory.getItem(FUEL);
         if (!present(input) || !present(fuel) || burnTime(fuel, one.spec.kind()) <= 0) {
@@ -364,28 +386,38 @@ public final class PieceFurnaces implements Listener {
         return out.getAmount() + result.getAmount() <= room;
     }
 
-    private void burn(Live one, CookingRecipe<?> recipe) {
+    private void burn(One one, CookingRecipe<?> recipe) {
         Inventory inventory = one.inventory;
-        ItemStack result = recipe.getResult().clone();
+        ItemStack input = inventory.getItem(INPUT);
+        ItemStack single = input.clone();
+        single.setAmount(1);
+        PieceCookEvent event = new PieceCookEvent(one.piece, one.at, one.anchor.hitbox(), single,
+                recipe.getResult().clone());
+        Bukkit.getPluginManager().callEvent(event);
+        if (event.isCancelled()) {
+            return;
+        }
+        ItemStack result = event.result();
         ItemStack out = inventory.getItem(RESULT);
         if (!present(out)) {
             inventory.setItem(RESULT, result);
-        } else {
+        } else if (out.isSimilar(result)
+                && out.getAmount() + result.getAmount() <= Math.min(inventory.getMaxStackSize(), out.getMaxStackSize())) {
             out.setAmount(out.getAmount() + result.getAmount());
             inventory.setItem(RESULT, out);
+        } else if (one.at.getWorld() != null) {
+            // A listener changed the result to something the slot cannot take.
+            one.at.getWorld().dropItemNaturally(one.at, result);
         }
-        ItemStack input = inventory.getItem(INPUT);
-        if (input != null) {
-            // A wet sponge dried with a bucket in the fuel slot fills it, as in a real furnace.
-            if (input.getType() == Material.WET_SPONGE) {
-                ItemStack fuel = inventory.getItem(FUEL);
-                if (fuel != null && fuel.getType() == Material.BUCKET && fuel.getAmount() == 1) {
-                    inventory.setItem(FUEL, new ItemStack(Material.WATER_BUCKET));
-                }
+        // A wet sponge dried with a bucket in the fuel slot fills it, as in a real furnace.
+        if (input.getType() == Material.WET_SPONGE) {
+            ItemStack fuel = inventory.getItem(FUEL);
+            if (fuel != null && fuel.getType() == Material.BUCKET && fuel.getAmount() == 1) {
+                inventory.setItem(FUEL, new ItemStack(Material.WATER_BUCKET));
             }
-            input.setAmount(input.getAmount() - 1);
-            inventory.setItem(INPUT, input.getAmount() > 0 ? input : null);
         }
+        input.setAmount(input.getAmount() - 1);
+        inventory.setItem(INPUT, input.getAmount() > 0 ? input : null);
         one.xp += recipe.getExperience();
     }
 
@@ -407,41 +439,22 @@ public final class PieceFurnaces implements Listener {
      * class before 1.21 and is an interface since, so no call on one compiled
      * here can link on both sides of that.
      */
-    private static void show(HumanEntity viewer, Live one) {
+    @Override
+    protected void show(HumanEntity viewer, One one) {
         viewer.setWindowProperty(InventoryView.Property.BURN_TIME, one.lit);
         viewer.setWindowProperty(InventoryView.Property.TICKS_FOR_CURRENT_FUEL, one.litDuration);
         viewer.setWindowProperty(InventoryView.Property.COOK_TIME, one.cook);
         viewer.setWindowProperty(InventoryView.Property.TICKS_FOR_CURRENT_SMELTING, one.cookTotal);
     }
 
-    private static void crackle(Live one) {
-        World world = one.at.getWorld();
-        if (world == null) {
-            return;
-        }
-        String sound;
-        switch (one.spec.kind()) {
-            case SMOKER:
-                sound = "minecraft:block.smoker.smoke";
-                break;
-            case BLAST_FURNACE:
-                sound = "minecraft:block.blastfurnace.fire_crackle";
-                break;
-            default:
-                sound = "minecraft:block.furnace.fire_crackle";
-                break;
-        }
-        world.playSound(one.at, sound, SoundCategory.BLOCKS, 1f, 1f);
-    }
-
     // ---- recipes and fuel --------------------------------------------------
 
-    private CookingRecipe<?> recipeFor(Live one, ItemStack input) {
-        if (one.lastRecipe != null && accepts(one.lastRecipe, input)) {
+    private CookingRecipe<?> recipeFor(One one, ItemStack input) {
+        if (one.lastRecipe != null && accepts(one, one.lastRecipe, input)) {
             return one.lastRecipe;
         }
         for (CookingRecipe<?> recipe : recipes(one.spec.kind())) {
-            if (accepts(recipe, input)) {
+            if (accepts(one, recipe, input)) {
                 one.lastRecipe = recipe;
                 return recipe;
             }
@@ -450,7 +463,7 @@ public final class PieceFurnaces implements Listener {
     }
 
     /**
-     * How many ticks this recipe takes in this kind of furnace.
+     * How many ticks this recipe takes in this one, at its {@code speed:}.
      *
      * <p>Up to 1.21 a smoker's and a blast furnace's recipes state the fast
      * time themselves. From 26.1 they state the furnace's time and the game
@@ -458,12 +471,12 @@ public final class PieceFurnaces implements Listener {
      * only the recipe's number, so which of the two this server does is read
      * off one vanilla recipe.
      */
-    private int cookTicks(Live one, CookingRecipe<?> recipe) {
+    private int cookTicks(One one, CookingRecipe<?> recipe) {
         int ticks = recipe.getCookingTime();
-        if (one.spec.kind() == ModelInfo.Furnace.Kind.FURNACE || !fuelSetsSpeed()) {
-            return ticks;
+        if (one.spec.kind() != ModelInfo.Furnace.Kind.FURNACE && fuelSetsSpeed()) {
+            ticks = (ticks + 1) / 2;
         }
-        return (ticks + 1) / 2;
+        return Math.max(1, (int) Math.ceil(ticks / one.spec.speed()));
     }
 
     private boolean fuelSetsSpeed() {
@@ -476,8 +489,8 @@ public final class PieceFurnaces implements Listener {
         return known;
     }
 
-    private boolean accepts(CookingRecipe<?> recipe, ItemStack input) {
-        if (!recipe.getInputChoice().test(input)) {
+    private boolean accepts(One one, CookingRecipe<?> recipe, ItemStack input) {
+        if (!recipe.getInputChoice().test(input) || !allowed(one.spec, recipe)) {
             return false;
         }
         // A custom item is its material underneath, and vanilla matches on
@@ -488,6 +501,33 @@ public final class PieceFurnaces implements Listener {
             return true;
         }
         return custom.equals(items.idOf(recipe.getResult()));
+    }
+
+    /**
+     * Whether a piece's {@code recipes:} lets this one through. An engine
+     * recipe is registered under a key of the plugin's own, so the id a pack
+     * wrote is compared in that form as well.
+     */
+    private boolean allowed(ModelInfo.Furnace spec, Recipe recipe) {
+        if (spec.recipes().isEmpty()) {
+            return true;
+        }
+        if (!(recipe instanceof Keyed)) {
+            return false;
+        }
+        NamespacedKey key = ((Keyed) recipe).getKey();
+        String written = key.toString();
+        for (String id : spec.recipes()) {
+            if (id.equals(written) || engineKey(id).equals(written)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String engineKey(String id) {
+        return plugin.getName().toLowerCase(Locale.ROOT) + ":"
+                + id.replace(':', '_').replace('/', '_').toLowerCase(Locale.ROOT);
     }
 
     private static boolean isVanilla(Recipe recipe) {
@@ -604,10 +644,10 @@ public final class PieceFurnaces implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onClick(InventoryClickEvent event) {
         InventoryHolder holder = event.getInventory().getHolder();
-        if (!(holder instanceof Live) || event.getRawSlot() != RESULT || !(event.getWhoClicked() instanceof Player)) {
+        if (!(holder instanceof One) || event.getRawSlot() != RESULT || !(event.getWhoClicked() instanceof Player)) {
             return;
         }
-        Live one = (Live) holder;
+        One one = (One) holder;
         Player player = (Player) event.getWhoClicked();
         ItemStack before = one.inventory.getItem(RESULT);
         int had = before == null ? 0 : before.getAmount();
@@ -620,7 +660,7 @@ public final class PieceFurnaces implements Listener {
         }, 1L);
     }
 
-    private void award(Live one, Location at) {
+    private void award(One one, Location at) {
         int whole = (int) Math.floor(one.xp);
         float part = one.xp - whole;
         if (part > 0 && ThreadLocalRandom.current().nextFloat() < part) {
@@ -639,144 +679,6 @@ public final class PieceFurnaces implements Listener {
         at.getWorld().spawn(at, ExperienceOrb.class).setExperience(amount);
     }
 
-    // ---- closing, unloading, breaking ------------------------------------
-
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder() instanceof Live)) {
-            return;
-        }
-        Live one = (Live) event.getInventory().getHolder();
-        if (one.finished) {
-            return;
-        }
-        Entity entity = Bukkit.getEntity(one.hitbox);
-        if (entity instanceof Interaction && entity.isValid() && Tasks.owns(entity)) {
-            save(one, (Interaction) entity);
-        }
-    }
-
-    /** Its chunk is unloading: written back while there is something to write onto, and let go. */
-    void unload(Interaction hitbox) {
-        Live one = live.get(hitbox.getUniqueId());
-        if (one == null) {
-            return;
-        }
-        save(one, hitbox);
-        forget(one);
-        close(one);
-    }
-
-    /**
-     * The piece is being broken: every view of it closed and emptied first,
-     * then its slots handed back for the caller to spill, and its experience
-     * dropped where it stood.
-     */
-    List<ItemStack> removed(Interaction hitbox) {
-        Live one = live.get(hitbox.getUniqueId());
-        ItemStack[] slots;
-        float xp;
-        if (one != null) {
-            forget(one);
-            slots = one.inventory.getContents().clone();
-            for (int i = 0; i < slots.length; i++) {
-                slots[i] = slots[i] == null ? null : slots[i].clone();
-            }
-            one.inventory.clear();
-            close(one);
-            xp = one.xp;
-        } else {
-            slots = readSlots(hitbox);
-            Float kept = hitbox.getPersistentDataContainer().get(xpKey, PersistentDataType.FLOAT);
-            xp = kept == null ? 0f : kept;
-            if (slots == null) {
-                // Unreadable, and what carried it is about to go. Said loudly;
-                // a later engine may still read the log's bytes.
-                plugin.getLogger().severe("A furnace was broken whose contents could not be read: "
-                        + hitbox.getUniqueId());
-                slots = new ItemStack[0];
-            }
-        }
-        PersistentDataContainer data = hitbox.getPersistentDataContainer();
-        data.remove(slotsKey);
-        data.remove(stateKey);
-        data.remove(xpKey);
-        orbs(hitbox.getLocation().add(0, 0.5, 0), (int) Math.floor(xp));
-        List<ItemStack> out = new ArrayList<>();
-        for (ItemStack slot : slots) {
-            if (present(slot)) {
-                out.add(slot);
-            }
-        }
-        return out;
-    }
-
-    /** Everything written back and closed. The plugin is going. */
-    public void closeAll() {
-        for (Live one : new ArrayList<>(live.values())) {
-            Entity entity = Bukkit.getEntity(one.hitbox);
-            if (entity instanceof Interaction && entity.isValid()) {
-                save(one, (Interaction) entity);
-            }
-            forget(one);
-            close(one);
-        }
-    }
-
-    /** How many furnaces are cooking or open right now. */
-    public int liveCount() {
-        return live.size();
-    }
-
-    private void save(Live one, Interaction hitbox) {
-        PersistentDataContainer data = hitbox.getPersistentDataContainer();
-        ItemStack[] slots = one.inventory.getContents();
-        if (!ItemBytes.anything(slots)) {
-            data.remove(slotsKey);
-        } else {
-            try {
-                data.set(slotsKey, PersistentDataType.BYTE_ARRAY, ItemBytes.write(slots));
-            } catch (IOException | RuntimeException e) {
-                plugin.getLogger().severe("Could not save the furnace " + one.hitbox + ": " + e.getMessage()
-                        + ". The last saved contents are kept.");
-            }
-        }
-        if (one.lit == 0 && one.litDuration == 0 && one.cook == 0 && one.cookTotal == 0) {
-            data.remove(stateKey);
-        } else {
-            data.set(stateKey, PersistentDataType.INTEGER_ARRAY,
-                    new int[]{one.lit, one.litDuration, one.cook, one.cookTotal});
-        }
-        if (one.xp > 0f) {
-            data.set(xpKey, PersistentDataType.FLOAT, one.xp);
-        } else {
-            data.remove(xpKey);
-        }
-        one.dirty = false;
-        one.sinceSave = 0;
-    }
-
-    private void forget(Live one) {
-        one.finished = true;
-        live.remove(one.hitbox, one);
-        if (one.ticker != null) {
-            one.ticker.cancel();
-            one.ticker = null;
-        }
-    }
-
-    private static void close(Live one) {
-        for (HumanEntity viewer : new ArrayList<>(one.inventory.getViewers())) {
-            viewer.closeInventory();
-        }
-    }
-
-    // ---- helpers -------------------------------------------------------------
-
-    private static boolean present(ItemStack stack) {
-        return stack != null && !stack.getType().isAir() && stack.getAmount() > 0;
-    }
-
     private static boolean same(ItemStack a, ItemStack b) {
         if (!present(a) || !present(b)) {
             return present(a) == present(b);
@@ -788,19 +690,8 @@ public final class PieceFurnaces implements Listener {
         return present(stack) ? stack.clone() : null;
     }
 
-    private static String colour(String text) {
-        return ChatColor.translateAlternateColorCodes('&',
-                ai.resourcepack.engine.core.textfx.TextEffectCatalogue.formatInstalled(text));
-    }
-
-    /** One furnace somebody has open or that is cooking, and the holder of its inventory. */
-    static final class Live implements InventoryHolder {
-
-        final UUID hitbox;
-        ModelInfo.Furnace spec;
-        final Location at;
-        Inventory inventory;
-        Tasks.Handle ticker;
+    /** One furnace somebody has open or that is cooking. */
+    static final class One extends Live<ModelInfo.Furnace> {
 
         /** Ticks of fuel left. */
         int lit;
@@ -812,25 +703,14 @@ public final class PieceFurnaces implements Listener {
         int cookTotal;
         /** Experience cooked and not yet handed out. */
         float xp;
-
         /** The input as the last tick saw it, to notice a different one. */
         ItemStack lastInput;
         CookingRecipe<?> lastRecipe;
+        boolean wasLit;
+        int sinceParticle;
 
-        boolean dirty;
-        int sinceSave;
-        /** Set once it has been let go; a close after that saves nothing. */
-        boolean finished;
-
-        Live(UUID hitbox, ModelInfo.Furnace spec, Location at) {
-            this.hitbox = hitbox;
-            this.spec = spec;
-            this.at = at;
-        }
-
-        @Override
-        public Inventory getInventory() {
-            return inventory;
+        One(Anchor anchor, ContentId piece, ModelInfo.Furnace spec) {
+            super(anchor, piece, spec);
         }
     }
 }

@@ -185,7 +185,7 @@ public final class VehicleParticles {
      * one answer here because the caller does the same thing with all three,
      * and the log line tells them apart.
      */
-    private Particle resolve(String written) {
+    public Particle resolve(String written) {
         if (written == null || written.isEmpty()) {
             return null;
         }

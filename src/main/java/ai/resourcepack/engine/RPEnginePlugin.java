@@ -702,6 +702,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Read at each placement, so a push that changes a model's random turn
         // or size reaches the next one without a restart.
         rigPlacement.variations(id -> pushedAll.modelVariation(id));
+        rigPlacement.behaviours(id -> pushedAll.modelWorks(id));
         models = new ModelsImpl(animator, rigs, rigPlacement);
 
         emoteStore = new EmoteStore(getDataFolder());
@@ -856,6 +857,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         storages = new ai.resourcepack.engine.core.storage.Storages(this, sounds);
         placements.storages(storages);
         blocks.storages(storages);
+        placements.overlays(overlays);
+        blocks.machines(placements.furnaces(), placements.brewers());
+        rigPlacement.machines(this, placements.furnaces(), placements.brewers());
         placements.sounds(sounds);
         // A piece that is a jukebox asks this what a disc plays: a material
         // on every version, a data component from 1.21. See Discs.
@@ -2699,6 +2703,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 Geometry.measure(content, parsedItems.items().values(), getLogger()::fine));
         report(to, "model", parsedModels.diagnostics());
         placements.replace(parsedModels.model());
+        placements.furnaces().adoptLoadedBlocks();
+        placements.brewers().adoptLoadedBlocks();
+        rigPlacement.adoptMachines();
         placementCatalogue = parsedModels.model();
         // Which loaded pieces grow, and which are mid-way through a reset,
         // asked of the world again: this load may have changed both, and the

@@ -1216,6 +1216,8 @@ All cancellable unless the row says otherwise.
 | `ModelPlaceEvent` | A model is about to be put down. `stack()` is the live stack in the player's hand it is placed from, to read what the item carries; null when a plugin placed it |
 | `ModelPlacedEvent` | A model was put down and is standing. `placement()` is its handle, `stack()` the stack it came from before one was taken off: where to move what the item carries onto the placement's `data()`. Not cancellable |
 | `ModelBreakEvent` | A model is about to be broken. `hitbox()` is its Interaction entity (the UUID that tells two copies of one model apart) and `placement()` its handle. Carries a drop flag separate from cancelling |
+| `PieceCookEvent` | A placed model or custom block that works as a furnace finished cooking one item. `piece()`, `location()`, `hitbox()` (null for a block), `input()`, and `result()` with `setResult`. Cancelling leaves the input where it is and starts it cooking again |
+| `PieceBrewEvent` | A placed model or custom block that works as a brewing stand finished a brew. `reagent()`, and `results()`, the three bottle slots in order with null where nothing changes; set an entry to change it. Cancelling leaves the bottles and the reagent as they are |
 | `ModelInteractEvent` | A placed model was right-clicked, a content-folder piece or a Studio model. `hitbox()`, `placement()`, and `clickedPosition()` for where on the hitbox. Cancelling stops everything the engine would do with the click |
 | `ModelAnimationEvent` | A rig is about to play an animation |
 | `ModelAnimationEndEvent` | One ended — finished, replaced or stopped. Not cancellable |

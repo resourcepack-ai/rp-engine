@@ -23,7 +23,7 @@ import java.lang.reflect.Method;
  * {@code MenuType} on Spigot from 1.21. Both are looked up by name, since the
  * API this compiles against has only one of them and the oldest has neither.
  */
-final class StationScreens {
+public final class StationScreens {
 
     private StationScreens() {
     }
@@ -40,7 +40,7 @@ final class StationScreens {
      *              which is only the Spigot route
      * @return whether a screen opened
      */
-    static boolean open(Player player, ModelInfo.Station station, Location at, String title) {
+    public static boolean open(Player player, ModelInfo.Station station, Location at, String title) {
         switch (station) {
             case CRAFTING_TABLE:
                 return player.openWorkbench(at, true) != null;
