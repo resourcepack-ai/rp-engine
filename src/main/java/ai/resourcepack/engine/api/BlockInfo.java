@@ -388,6 +388,10 @@ public final class BlockInfo {
     private Growth growth;
     private Behaviour behaviour = Behaviour.NONE;
     private StorageSpec storage;
+    private ModelInfo.Furnace furnace;
+    private ContentId litInto;
+    private ModelInfo.Station station;
+    private ContentId stationScreen;
     private int light;
 
     /**
@@ -469,6 +473,10 @@ public final class BlockInfo {
         to.growth = growth;
         to.behaviour = behaviour;
         to.storage = storage;
+        to.furnace = furnace;
+        to.litInto = litInto;
+        to.station = station;
+        to.stationScreen = stationScreen;
         to.light = light;
         return to;
     }
@@ -534,6 +542,41 @@ public final class BlockInfo {
     }
 
     /** Engine internal; the same block, holding things. */
+    public BlockInfo withFurnace(ModelInfo.Furnace furnace, ContentId litInto) {
+        BlockInfo changed = copy();
+        changed.furnace = furnace;
+        changed.litInto = litInto;
+        return changed;
+    }
+
+    /** The same block, opening one of the game's work screens — or not, for null. */
+    public BlockInfo withStation(ModelInfo.Station station, ContentId screen) {
+        BlockInfo changed = copy();
+        changed.station = station;
+        changed.stationScreen = screen;
+        return changed;
+    }
+
+    /** The furnace it is, or empty. */
+    public Optional<ModelInfo.Furnace> furnace() {
+        return Optional.ofNullable(furnace);
+    }
+
+    /** The block it becomes while it burns, or empty to stay as it is. */
+    public Optional<ContentId> litInto() {
+        return Optional.ofNullable(litInto);
+    }
+
+    /** The work block it is, or empty. */
+    public Optional<ModelInfo.Station> station() {
+        return Optional.ofNullable(station);
+    }
+
+    /** The screen whose art a brewing stand opens with, or empty. */
+    public Optional<ContentId> stationScreen() {
+        return Optional.ofNullable(stationScreen);
+    }
+
     public BlockInfo withStorage(StorageSpec storage) {
         BlockInfo changed = copy();
         changed.storage = storage;

@@ -116,12 +116,118 @@ public final class ModelPlacementListener implements Listener {
         this.placedYawKey = host.key("model-yaw");
         this.placedScaleKey = host.key(RigAnimator.SCALE_KEY);
         this.brewers = new PieceBrewers(plugin);
-        this.furnaces = new PieceFurnaces(plugin, items, hitbox -> {
-            ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
-            if (info != null) {
-                refreshLook(hitbox, info);
+        this.furnaces = new PieceFurnaces(plugin, items);
+        furnaces.onLit(this::litChanged);
+        furnaces.yaws(anchor -> anchor.hitbox() == null ? 0f : yawOf(anchor.hitbox()));
+        furnaces.finder(block -> hitboxAt(block).flatMap(this::furnaceAt));
+        brewers.finder(block -> hitboxAt(block).flatMap(this::brewerAt));
+    }
+
+    private float yawOf(Interaction hitbox) {
+        Float stored = hitbox.getPersistentDataContainer().get(placedYawKey, PersistentDataType.FLOAT);
+        return stored != null ? stored : hitbox.getLocation().getYaw();
+    }
+
+    private static PieceMachines.Anchor anchorOf(Interaction hitbox) {
+        return new PieceMachines.HitboxAnchor(hitbox);
+    }
+
+    /** The hitbox of a piece standing in {@code block}, for a hopper beside it. */
+    private Optional<Interaction> hitboxAt(Block block) {
+        for (Entity entity : block.getWorld().getNearbyEntities(block.getLocation().add(0.5, 0.5, 0.5), 0.6, 0.6, 0.6,
+                found -> found instanceof Interaction && found.getLocation().getBlock().equals(block))) {
+            if (entity.getPersistentDataContainer().has(idKey, PersistentDataType.STRING)) {
+                return Optional.of((Interaction) entity);
             }
-        });
+        }
+        return Optional.empty();
+    }
+
+    private Optional<PieceMachines.Found<ModelInfo.Furnace>> furnaceAt(Interaction hitbox) {
+        return idOf(hitbox).map(model::get).filter(info -> info.furnace().isPresent()).map(info ->
+                new PieceMachines.Found<>(anchorOf(hitbox), info.furnace().get(), info.id(), furnaceName(info)));
+    }
+
+    private Optional<PieceMachines.Found<ContentId>> brewerAt(Interaction hitbox) {
+        return idOf(hitbox).map(model::get)
+                .filter(info -> info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent())
+                .map(info -> new PieceMachines.Found<>(anchorOf(hitbox), info.stationScreen().orElse(null), info.id(),
+                        stationName(info)));
+    }
+
+    /** What a furnace's screen is called: the pack's word, the item's name, or the kind's. */
+    private String furnaceName(ModelInfo info) {
+        ModelInfo.Furnace furnace = info.furnace().get();
+        String name = furnaceTitle(info);
+        return furnace.title().orElse(name == null ? furnace.kind().title() : name);
+    }
+
+    private String stationName(ModelInfo info) {
+        String name = furnaceTitle(info);
+        return name == null ? info.station().get().title() : name;
+    }
+
+    /** Puts a piece's burning look on or takes it off. Safe to repeat. */
+    private void litChanged(PieceMachines.Anchor anchor) {
+        Interaction hitbox = anchor.hitbox();
+        if (hitbox == null || !hitbox.isValid()) {
+            return;
+        }
+        ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
+        if (info == null || info.furnace().isEmpty()) {
+            return;
+        }
+        refreshLook(hitbox, info);
+        ModelInfo.Furnace.Effects effects = info.furnace().get().effects();
+        boolean lit = furnaces.lit(anchor);
+        if (effects.glow()) {
+            for (String raw : displayIdsOf(hitbox)) {
+                try {
+                    Entity display = Bukkit.getEntity(UUID.fromString(raw));
+                    if (display instanceof ItemDisplay) {
+                        ((ItemDisplay) display).setBrightness(lit ? new Display.Brightness(15, 15) : null);
+                    }
+                } catch (IllegalArgumentException malformed) {
+                    // That one display, and nothing else.
+                }
+            }
+        }
+        int state = stateOf(hitbox);
+        if (effects.light() > 0 && !info.solidIn(state)) {
+            anchor(hitbox, false, lit ? effects.light() : info.lightIn(state));
+        }
+        if (effects.animation() != null && animator != null) {
+            if (lit) {
+                animator.play(hitbox, effects.animation(), false);
+            } else {
+                animator.stop(hitbox);
+            }
+        }
+    }
+
+    /** Screens' art for a furnace or brewing stand, and what to say when one names art that is not there. */
+    private ai.resourcepack.engine.core.font.Overlays overlays;
+
+    public void overlays(ai.resourcepack.engine.core.font.Overlays overlays) {
+        this.overlays = overlays;
+        furnaces.screens(overlays::screenTitle);
+        brewers.screens(overlays::screenTitle);
+    }
+
+    private void checkScreen(ContentId screen, String container, String owner,
+                             List<ai.resourcepack.engine.api.Diagnostic> found) {
+        if (overlays == null) {
+            return;
+        }
+        Optional<ai.resourcepack.engine.api.OverlayInfo> art = overlays.screen(screen);
+        if (art.isEmpty()) {
+            found.add(ai.resourcepack.engine.api.Diagnostic.warning(owner,
+                    "screen: " + screen + " is not a screen on this server. It opens the plain one."));
+        } else if (!container.equalsIgnoreCase(art.get().container())) {
+            found.add(ai.resourcepack.engine.api.Diagnostic.warning(owner,
+                    "screen: " + screen + " was drawn for " + art.get().container() + ", and this opens as " + container
+                            + ". Its art will be out of place."));
+        }
     }
 
     /** Brews in the pieces that are brewing stands. Registered as a listener by the plugin. */
@@ -143,7 +249,7 @@ public final class ModelPlacementListener implements Listener {
         String name = furnaceTitle(info);
         String title = name == null ? station.title() : org.bukkit.ChatColor.translateAlternateColorCodes('&', name);
         if (station == ModelInfo.Station.BREWING_STAND) {
-            brewers.open(player, hitbox, title);
+            brewers.open(player, anchorOf(hitbox), info.stationScreen().orElse(null), info.id(), title);
             return;
         }
         if (!StationScreens.open(player, station, hitbox.getLocation(), title)) {
@@ -210,6 +316,7 @@ public final class ModelPlacementListener implements Listener {
 
     public void sounds(ai.resourcepack.engine.api.Sounds sounds) {
         this.sounds = sounds;
+        furnaces.sounds(sounds);
     }
 
     /** Plays discs in a piece that is a jukebox. Null until wired. */
@@ -686,7 +793,7 @@ public final class ModelPlacementListener implements Listener {
         // screen: an oven that smelts like the block it stands in for.
         if (piece != null && piece.furnace().isPresent() && !sitInstead) {
             event.setCancelled(true);
-            furnaces.open(clicker, hitbox, piece.furnace().get(), furnaceTitle(piece));
+            furnaces.open(clicker, anchorOf(hitbox), piece.furnace().get(), piece.id(), furnaceName(piece));
             return;
         }
 
@@ -775,7 +882,7 @@ public final class ModelPlacementListener implements Listener {
             return playing.get();
         }
         Optional<ContentId> lit = info.furnace().flatMap(ModelInfo.Furnace::litModel);
-        if (lit.isPresent() && furnaces.lit(hitbox)) {
+        if (lit.isPresent() && furnaces.lit(anchorOf(hitbox))) {
             return lit.get();
         }
         Optional<ContentId> stated = info.state(stateOf(hitbox)).flatMap(ModelInfo.State::model);
@@ -972,6 +1079,19 @@ public final class ModelPlacementListener implements Listener {
     public List<ai.resourcepack.engine.api.Diagnostic> rigDiagnostics() {
         List<ai.resourcepack.engine.api.Diagnostic> found = new ArrayList<>();
         for (ModelInfo info : model.values()) {
+            info.furnace().ifPresent(furnace -> {
+                furnace.screen().ifPresent(screen -> checkScreen(screen, "furnace", info.id().toString(), found));
+                if (furnace.effects().light() > 0 && info.solid()) {
+                    found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                            "furnace effects light: does nothing on a solid piece, because one block cannot be a "
+                                    + "barrier and a light. Use glow: true."));
+                }
+                if (furnace.effects().animation() != null && !isRig(info)) {
+                    found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                            "furnace effects animation: does nothing on a piece that is not animated."));
+                }
+            });
+            info.stationScreen().ifPresent(screen -> checkScreen(screen, "brewing", info.id().toString(), found));
             if (info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent() && !brewers.available()) {
                 found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
                         "station: brewing_stand needs Paper 1.20.5 or newer, or Minecraft 26.1 or newer. "
@@ -1158,11 +1278,10 @@ public final class ModelPlacementListener implements Listener {
             growth.track(hitbox);
         }
         if (info.furnace().isPresent()) {
-            furnaces.adopt(hitbox, info.furnace().get(), furnaceTitle(info));
+            furnaces.adopt(anchorOf(hitbox), info.furnace().get(), info.id(), furnaceName(info));
         }
         if (info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent()) {
-            String name = furnaceTitle(info);
-            brewers.adopt(hitbox, name == null ? ModelInfo.Station.BREWING_STAND.title() : name);
+            brewers.adopt(anchorOf(hitbox), info.stationScreen().orElse(null), info.id(), stationName(info));
         }
         // Pieces put down before the hitbox was made to clear its barrier.
         if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)) {
@@ -1221,8 +1340,8 @@ public final class ModelPlacementListener implements Listener {
                 if (storages != null) {
                     storages.close(storageKey(entity.getUniqueId()));
                 }
-                furnaces.unload((Interaction) entity);
-                brewers.unload((Interaction) entity);
+                furnaces.unload(anchorOf((Interaction) entity));
+                brewers.unload(anchorOf((Interaction) entity));
                 // Not checked while its chunk is away. The time still counts,
                 // so it may grow at the first check after it comes back — one
                 // stage, because what it grows into starts its own clock then.
@@ -1400,14 +1519,14 @@ public final class ModelPlacementListener implements Listener {
 
         // A furnace's slots go on the ground and its experience with them,
         // whatever the pack now says, because what is in them is somebody's.
-        if (furnaces.holdsAnything(hitbox) || (info != null && info.furnace().isPresent())) {
-            spill(hitbox.getWorld(), where, furnaces.removed(hitbox));
+        if (furnaces.holdsAnything(anchorOf(hitbox)) || (info != null && info.furnace().isPresent())) {
+            spill(hitbox.getWorld(), where, furnaces.removed(anchorOf(hitbox)));
         }
 
         // Likewise a brewing stand's bottles, reagent and fuel.
-        if (brewers.holdsAnything(hitbox)
+        if (brewers.holdsAnything(anchorOf(hitbox))
                 || (info != null && info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent())) {
-            spill(hitbox.getWorld(), where, brewers.removed(hitbox));
+            spill(hitbox.getWorld(), where, brewers.removed(anchorOf(hitbox)));
         }
 
         // A door due to shut itself has nothing to shut.

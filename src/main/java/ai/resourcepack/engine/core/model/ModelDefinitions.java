@@ -232,7 +232,7 @@ public final class ModelDefinitions {
                 .withStorage(storage)
                 .withJukebox(jukebox)
                 .withFurnace(furnace)
-                .withStation(station)
+                .withStation(station, station == null ? null : stationScreen(body))
                 .withStates(states(body, origin, where, diagnostics),
                         stateReset(body, origin, where, diagnostics),
                         soundKey(body, "base-sound", origin, where, diagnostics))
@@ -540,7 +540,7 @@ public final class ModelDefinitions {
      * {@code furnace: smoker} for that kind with every default. Null for a
      * piece that cooks nothing.
      */
-    static ModelInfo.Furnace furnace(DefinitionNode body, String origin, String where,
+    public static ModelInfo.Furnace furnace(DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
         if (!body.has("furnace")) {
             return null;
@@ -573,16 +573,117 @@ public final class ModelDefinitions {
                                 + "The piece looks the same while it burns."));
             }
         }
-        return ModelInfo.Furnace.of(kind, furnace.string("title").orElse(null), lit);
+        float speed = 1f;
+        if (furnace.has("speed")) {
+            Optional<Double> declared = furnace.decimal("speed");
+            if (declared.isEmpty() || !(declared.get() > 0) || declared.get() > 100) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace speed: " + furnace.raw("speed") + " should be a number above 0 and at most 100. "
+                                + "Using 1."));
+            } else {
+                speed = declared.get().floatValue();
+            }
+        }
+        ContentId screen = null;
+        Optional<String> declaredScreen = furnace.string("screen");
+        if (declaredScreen.isPresent()) {
+            screen = ContentId.parse(declaredScreen.get().trim()).orElse(null);
+            if (screen == null) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace screen: " + declaredScreen.get() + " is not a namespace:id. It opens the plain screen."));
+            }
+        }
+        return ModelInfo.Furnace.of(kind, furnace.string("title").orElse(null), lit)
+                .withTuning(speed, furnace.strings("recipes"))
+                .withEffects(effects(furnace, origin, where, diagnostics))
+                .withScreen(screen);
+    }
+
+    /** A furnace's {@code effects:} block, or {@code effects: false} for none. */
+    private static ModelInfo.Furnace.Effects effects(DefinitionNode furnace, String origin, String where,
+                                                     List<Diagnostic> diagnostics) {
+        if (!furnace.has("effects")) {
+            return ModelInfo.Furnace.Effects.DEFAULT;
+        }
+        Optional<DefinitionNode> block = furnace.node("effects");
+        if (block.isEmpty()) {
+            Optional<Boolean> on = furnace.bool("effects");
+            if (on.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace effects: should be a block of settings, true or false. Using the defaults."));
+            }
+            return on.orElse(Boolean.TRUE) ? ModelInfo.Furnace.Effects.DEFAULT : ModelInfo.Furnace.Effects.NONE;
+        }
+        DefinitionNode effects = block.get();
+        ModelInfo.Furnace.Effects base = ModelInfo.Furnace.Effects.DEFAULT;
+        ModelInfo.Furnace.Particles particles = particles(effects, base.particles(), origin, where, diagnostics);
+        String sound = null;
+        if (effects.has("sound")) {
+            Optional<Boolean> on = effects.bool("sound");
+            sound = on.isPresent() ? (on.get() ? null : "") : effects.string("sound").orElse(null);
+        }
+        int light = 0;
+        if (effects.has("light")) {
+            Optional<Integer> declared = effects.integer("light");
+            if (declared.isEmpty() || declared.get() < 0 || declared.get() > 15) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace effects light: " + effects.raw("light") + " should be 0-15. It gives no light."));
+            } else {
+                light = declared.get();
+            }
+        }
+        return new ModelInfo.Furnace.Effects(particles, sound, effects.bool("glow").orElse(Boolean.FALSE), light,
+                effects.string("animation").orElse(null));
+    }
+
+    private static ModelInfo.Furnace.Particles particles(DefinitionNode effects, ModelInfo.Furnace.Particles standard,
+                                                         String origin, String where, List<Diagnostic> diagnostics) {
+        if (!effects.has("particles")) {
+            return standard;
+        }
+        Optional<DefinitionNode> block = effects.node("particles");
+        if (block.isEmpty()) {
+            Optional<Boolean> on = effects.bool("particles");
+            if (on.isPresent()) {
+                return on.get() ? standard : null;
+            }
+            Optional<String> named = effects.string("particles");
+            return named.map(type -> new ModelInfo.Furnace.Particles(type.trim(), standard.count(), standard.every(),
+                    standard.spread(), false, 0, 0, 0)).orElse(standard);
+        }
+        DefinitionNode node = block.get();
+        List<String> offset = node.strings("offset");
+        boolean positioned = offset.size() == 3;
+        if (!offset.isEmpty() && !positioned) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "furnace effects particles offset: should be [right, up, forward]. They come from the top."));
+        }
+        double[] at = new double[3];
+        if (positioned) {
+            try {
+                for (int i = 0; i < 3; i++) {
+                    at[i] = Double.parseDouble(offset.get(i).trim());
+                }
+            } catch (NumberFormatException e) {
+                positioned = false;
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "furnace effects particles offset: " + offset + " is not three numbers. They come from the top."));
+            }
+        }
+        return new ModelInfo.Furnace.Particles(node.string("type").orElse(standard.type()).trim(),
+                Math.max(1, Math.min(50, node.integer("count").orElse(standard.count()))),
+                Math.max(1, node.integer("every").orElse(standard.every())),
+                Math.max(0, node.decimal("spread").orElse(standard.spread())), positioned, at[0], at[1], at[2]);
     }
 
     /** A {@code station:} naming one of the game's work blocks. Null for a piece that is none. */
-    static ModelInfo.Station station(DefinitionNode body, String origin, String where,
+    public static ModelInfo.Station station(DefinitionNode body, String origin, String where,
                                      List<Diagnostic> diagnostics) {
         if (!body.has("station")) {
             return null;
         }
-        String written = body.string("station").orElse("").trim();
+        String written = body.node("station").flatMap(node -> node.string("type"))
+                .or(() -> body.string("station")).orElse("").trim();
         String key = written.toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
         try {
             return ModelInfo.Station.valueOf(key);
@@ -592,6 +693,12 @@ public final class ModelDefinitions {
                             + "smithing_table, grindstone, loom, cartography_table, brewing_stand. It opens nothing."));
             return null;
         }
+    }
+
+    /** The art a {@code station:} block names for its screen, or null. */
+    public static ContentId stationScreen(DefinitionNode body) {
+        return body.node("station").flatMap(node -> node.string("screen"))
+                .flatMap(written -> ContentId.parse(written.trim())).orElse(null);
     }
 
     private static ModelInfo.Furnace.Kind furnaceKind(String written, String origin, String where,

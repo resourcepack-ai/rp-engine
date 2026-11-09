@@ -125,6 +125,13 @@ public final class CustomBlocks implements Listener {
      * inside the item it gives back.
      */
     private List<ItemStack> emptied(BlockInfo block, Block where) {
+        if (furnaces != null && machine(block).furnace().isPresent()) {
+            return furnaces.removedBlock(where);
+        }
+        if (brewers != null && machine(block).station()
+                .filter(ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND::equals).isPresent()) {
+            return brewers.removedBlock(where);
+        }
         if (storages == null || block.storage().isEmpty()) {
             return List.of();
         }
@@ -144,7 +151,69 @@ public final class CustomBlocks implements Listener {
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, BlockInfo> loaded) {
         this.blocks = loaded == null ? Map.of() : Map.copyOf(loaded);
+        Map<ContentId, BlockInfo> burning = new java.util.HashMap<>();
+        for (BlockInfo block : this.blocks.values()) {
+            block.litInto().ifPresent(lit -> burning.put(lit, block));
+        }
+        this.burning = burning;
         reindex();
+    }
+
+    /** The furnace each burning look belongs to, by the burning block's id. */
+    private volatile Map<ContentId, BlockInfo> burning = Map.of();
+
+    /** The block as its definition has it: a furnace, for the look it wears while it burns. */
+    private BlockInfo machine(BlockInfo block) {
+        return burning.getOrDefault(block.id(), block);
+    }
+
+    private ai.resourcepack.engine.core.model.PieceFurnaces furnaces;
+    private ai.resourcepack.engine.core.model.PieceBrewers brewers;
+
+    /** Where a block's furnace: and brewing stand run. */
+    public void machines(ai.resourcepack.engine.core.model.PieceFurnaces furnaces,
+                         ai.resourcepack.engine.core.model.PieceBrewers brewers) {
+        this.furnaces = furnaces;
+        this.brewers = brewers;
+        furnaces.blockFinder(this::furnaceAt);
+        furnaces.onBlockLit(this::litChanged);
+        brewers.blockFinder(this::brewerAt);
+    }
+
+    private Optional<ai.resourcepack.engine.core.model.PieceMachines.BlockMachine<ai.resourcepack.engine.api.ModelInfo.Furnace>> furnaceAt(Block where) {
+        return at(where).map(this::machine).filter(block -> block.furnace().isPresent())
+                .map(block -> new ai.resourcepack.engine.core.model.PieceMachines.BlockMachine<>(block.furnace().get(),
+                        block.id(), block.furnace().get().title().or(block::name)
+                        .orElse(block.furnace().get().kind().title())));
+    }
+
+    private Optional<ai.resourcepack.engine.core.model.PieceMachines.BlockMachine<ContentId>> brewerAt(Block where) {
+        return at(where).map(this::machine)
+                .filter(block -> block.station().filter(ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND::equals).isPresent())
+                .map(block -> new ai.resourcepack.engine.core.model.PieceMachines.BlockMachine<>(
+                        block.stationScreen().orElse(null), block.id(),
+                        block.name().orElse(ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND.title())));
+    }
+
+    /** Swaps a furnace block for its burning look, or back. */
+    private void litChanged(Block where, boolean lit) {
+        Optional<Placed> found = placedAt(where);
+        if (found.isEmpty()) {
+            return;
+        }
+        BlockInfo base = machine(found.get().block());
+        if (base.litInto().isEmpty()) {
+            return;
+        }
+        BlockInfo target = lit ? info(base.litInto().get()).orElse(null) : base;
+        if (target == null || target.id().equals(found.get().block().id())) {
+            return;
+        }
+        if (target.shape() == BlockInfo.Shape.CUBE && target.properties().equals(found.get().block().properties())) {
+            setState(where, target, found.get().state());
+        } else {
+            turnInto(where, target.id());
+        }
     }
 
     /** Every block id, in the order the pack declared them. */
@@ -630,7 +699,7 @@ public final class CustomBlocks implements Listener {
         org.bukkit.Location at = where.getLocation().add(0.5, 0.5, 0.5);
         boolean kept = false;
         if (count > 0) {
-            ContentId dropped = block.drop().orElse(block.id());
+            ContentId dropped = machine(block).drop().orElse(machine(block).id());
             Optional<ItemStack> made = items.create(dropped);
             if (made.isPresent()) {
                 ItemStack stack = made.get();
@@ -897,6 +966,21 @@ public final class CustomBlocks implements Listener {
             if (!cube) {
                 // A shaped container (a cabinet door) opens rather than swings.
                 event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+            }
+        }
+        if (!used) {
+            BlockInfo machine = machine(block);
+            Block clicked = event.getClickedBlock();
+            if (machine.furnace().isPresent() && furnaces != null) {
+                used = furnaces.openBlock(event.getPlayer(), clicked, machine.furnace().get(), machine.id(),
+                        machine.furnace().get().title().or(machine::name).orElse(machine.furnace().get().kind().title()));
+            } else if (machine.station().filter(ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND::equals).isPresent()
+                    && brewers != null) {
+                used = brewers.openBlock(event.getPlayer(), clicked, machine.stationScreen().orElse(null), machine.id(),
+                        machine.name().orElse(ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND.title()));
+            } else if (machine.station().isPresent()) {
+                used = ai.resourcepack.engine.core.model.StationScreens.open(event.getPlayer(), machine.station().get(),
+                        clicked.getLocation(), machine.name().orElse(machine.station().get().title()));
             }
         }
         if (!used && block.behaviour().stripInto().isPresent() && held != null

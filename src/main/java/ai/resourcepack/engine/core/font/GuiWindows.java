@@ -104,6 +104,17 @@ public final class GuiWindows {
         int[] window = WINDOWS.get(container);
         return window == null
                 ? Optional.empty()
-                : Optional.of(TITLE_X + (SHEET_SIZE - window[0]) / 2);
+                : Optional.of(CENTRED_TITLES.contains(container)
+                        ? SHEET_SIZE - ((SHEET_SIZE + window[0]) / 2 + 1)
+                        : TITLE_X + (SHEET_SIZE - window[0]) / 2);
     }
+
+    /**
+     * The screens whose title the game centres rather than starting at the left.
+     * Where a centred title starts depends on its own width, so the shift above
+     * assumes the art ends at the window's right edge; art drawn past that
+     * states its own {@code offset:}.
+     */
+    private static final java.util.Set<String> CENTRED_TITLES =
+            java.util.Set.of("dispenser", "furnace", "grindstone", "brewing");
 }

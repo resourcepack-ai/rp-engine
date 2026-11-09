@@ -407,6 +407,66 @@ class ModelDefinitionsTest {
     }
 
     @Test
+    void aFurnaceCanBeTuned() throws IOException {
+        chair("  place:\n    furnace:\n      speed: 2.5\n      recipes: [mypack:pizza]\n"
+                + "      screen: mypack:oven_ui\n");
+
+        ModelInfo.Furnace furnace = one(parse(), "mypack:chair").furnace().orElseThrow();
+
+        assertEquals(2.5f, furnace.speed());
+        assertEquals(java.util.Set.of("mypack:pizza"), furnace.recipes());
+        assertEquals("mypack:oven_ui", furnace.screen().orElseThrow().toString());
+    }
+
+    @Test
+    void aFurnaceSpeedOutOfRangeFallsBackAndSaysSo() throws IOException {
+        chair("  place:\n    furnace:\n      speed: -3\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertEquals(1f, one(result, "mypack:chair").furnace().orElseThrow().speed());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void aFurnaceBurnsWithSmokeAndCrackleUntilToldOtherwise() throws IOException {
+        chair("  place:\n    furnace: true\n");
+        assertEquals(ModelInfo.Furnace.Effects.DEFAULT,
+                one(parse(), "mypack:chair").furnace().orElseThrow().effects());
+
+        chair("  place:\n    furnace:\n      effects: false\n");
+        ModelInfo.Furnace.Effects none = one(parse(), "mypack:chair").furnace().orElseThrow().effects();
+        assertTrue(none.particles() == null && !none.soundOn());
+    }
+
+    @Test
+    void aFurnacesEffectsAreTheAuthors() throws IOException {
+        chair("  place:\n    furnace:\n      effects:\n        sound: false\n        glow: true\n"
+                + "        light: 13\n        animation: burn\n        particles:\n          type: flame\n"
+                + "          count: 3\n          every: 5\n          offset: [0, 0.4, 0.45]\n");
+
+        ModelInfo.Furnace.Effects effects = one(parse(), "mypack:chair").furnace().orElseThrow().effects();
+
+        assertTrue(!effects.soundOn() && effects.glow());
+        assertEquals(13, effects.light());
+        assertEquals("burn", effects.animation());
+        assertEquals("flame", effects.particles().type());
+        assertEquals(5, effects.particles().every());
+        assertTrue(effects.particles().positioned());
+        assertEquals(0.45, effects.particles().forward());
+    }
+
+    @Test
+    void aStationBlockCanNameItsScreen() throws IOException {
+        chair("  place:\n    station: { type: brewing_stand, screen: mypack:art }\n");
+
+        ModelInfo info = one(parse(), "mypack:chair");
+
+        assertEquals(ModelInfo.Station.BREWING_STAND, info.station().orElseThrow());
+        assertEquals("mypack:art", info.stationScreen().orElseThrow().toString());
+    }
+
+    @Test
     void aFurnaceSurvivesTheOtherWithMethods() throws IOException {
         chair("  place:\n    furnace: true\n");
 

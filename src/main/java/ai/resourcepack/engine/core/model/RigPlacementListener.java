@@ -128,6 +128,137 @@ public final class RigPlacementListener implements Listener {
         this.itemScaleKey = host.key("rig-item-scale");
     }
 
+    private org.bukkit.plugin.Plugin machinesPlugin;
+    private PieceFurnaces furnaces;
+    private PieceBrewers brewers;
+
+    /** What a pushed model works as, by its bare id: a furnace kind, a station, or null. */
+    private java.util.function.Function<String, String> behaviours = id -> null;
+
+    public void behaviours(java.util.function.Function<String, String> behaviours) {
+        this.behaviours = behaviours == null ? id -> null : behaviours;
+    }
+
+    /** Where a pushed model that is a furnace or brewing stand runs. */
+    public void machines(org.bukkit.plugin.Plugin plugin, PieceFurnaces furnaces, PieceBrewers brewers) {
+        this.machinesPlugin = plugin;
+        this.furnaces = furnaces;
+        this.brewers = brewers;
+        furnaces.finder(block -> studioHitboxAt(block).flatMap(this::furnaceOf));
+        brewers.finder(block -> studioHitboxAt(block).flatMap(this::brewerOf));
+    }
+
+    /** Pushed models already standing in a loaded chunk, at startup and after a push. */
+    public void adoptMachines() {
+        if (machinesPlugin != null) {
+            ai.resourcepack.engine.core.Regions.loaded(machinesPlugin, Interaction.class, this::adoptMachine);
+        }
+    }
+
+    private void adoptMachine(Interaction hitbox) {
+        furnaceOf(hitbox).ifPresent(found -> furnaces.adopt(found.anchor(), found.spec(), found.piece(), found.title()));
+        brewerOf(hitbox).ifPresent(found -> brewers.adopt(found.anchor(), found.spec(), found.piece(), found.title()));
+    }
+
+    private java.util.Optional<Interaction> studioHitboxAt(Block block) {
+        for (Entity entity : block.getWorld().getNearbyEntities(block.getLocation().add(0.5, 0.5, 0.5), 0.6, 0.6, 0.6,
+                found -> found instanceof Interaction && found.getLocation().getBlock().equals(block))) {
+            if (entity.getPersistentDataContainer().has(modelKey, PersistentDataType.STRING)
+                    && !entity.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) {
+                return java.util.Optional.of((Interaction) entity);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static ai.resourcepack.engine.api.ContentId studioId(String modelId) {
+        return ai.resourcepack.engine.api.ContentId.of("studio", modelId.toLowerCase(java.util.Locale.ROOT)).orElse(null);
+    }
+
+    private String behaviourOf(Interaction hitbox) {
+        if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return null;
+        String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        return modelId == null ? null : behaviours.apply(modelId);
+    }
+
+    private static ai.resourcepack.engine.api.ModelInfo.Furnace furnaceSpec(String behaviour) {
+        if (behaviour == null) return null;
+        try {
+            return ai.resourcepack.engine.api.ModelInfo.Furnace.of(ai.resourcepack.engine.api.ModelInfo.Furnace.Kind
+                    .valueOf(behaviour.toUpperCase(java.util.Locale.ROOT)), null, null);
+        } catch (IllegalArgumentException notAFurnace) {
+            return null;
+        }
+    }
+
+    private static ai.resourcepack.engine.api.ModelInfo.Station stationSpec(String behaviour) {
+        if (behaviour == null) return null;
+        try {
+            return ai.resourcepack.engine.api.ModelInfo.Station.valueOf(behaviour.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException notAStation) {
+            return null;
+        }
+    }
+
+    private java.util.Optional<PieceMachines.Found<ai.resourcepack.engine.api.ModelInfo.Furnace>> furnaceOf(Interaction hitbox) {
+        ai.resourcepack.engine.api.ModelInfo.Furnace spec = furnaceSpec(behaviourOf(hitbox));
+        if (spec == null) return java.util.Optional.empty();
+        String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        return java.util.Optional.of(new PieceMachines.Found<>(new PieceMachines.HitboxAnchor(hitbox), spec,
+                studioId(modelId), spec.kind().title()));
+    }
+
+    private java.util.Optional<PieceMachines.Found<ai.resourcepack.engine.api.ContentId>> brewerOf(Interaction hitbox) {
+        if (stationSpec(behaviourOf(hitbox)) != ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND) {
+            return java.util.Optional.empty();
+        }
+        String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        return java.util.Optional.of(new PieceMachines.Found<>(new PieceMachines.HitboxAnchor(hitbox), null,
+                studioId(modelId), ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND.title()));
+    }
+
+    /** Opens what a pushed model works as. @return whether it works as anything */
+    private boolean useMachine(Player player, Interaction hitbox) {
+        String behaviour = behaviourOf(hitbox);
+        if (behaviour == null || furnaces == null) return false;
+        java.util.Optional<PieceMachines.Found<ai.resourcepack.engine.api.ModelInfo.Furnace>> furnace = furnaceOf(hitbox);
+        if (furnace.isPresent()) {
+            PieceMachines.Found<ai.resourcepack.engine.api.ModelInfo.Furnace> found = furnace.get();
+            furnaces.open(player, found.anchor(), found.spec(), found.piece(), found.title());
+            return true;
+        }
+        java.util.Optional<PieceMachines.Found<ai.resourcepack.engine.api.ContentId>> brewer = brewerOf(hitbox);
+        if (brewer.isPresent()) {
+            PieceMachines.Found<ai.resourcepack.engine.api.ContentId> found = brewer.get();
+            brewers.open(player, found.anchor(), found.spec(), found.piece(), found.title());
+            return true;
+        }
+        ai.resourcepack.engine.api.ModelInfo.Station station = stationSpec(behaviour);
+        if (station == null) return false;
+        StationScreens.open(player, station, hitbox.getLocation(), station.title());
+        return true;
+    }
+
+    @EventHandler
+    public void onMachinesLoad(org.bukkit.event.world.EntitiesLoadEvent event) {
+        if (furnaces == null) return;
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof Interaction) adoptMachine((Interaction) entity);
+        }
+    }
+
+    @EventHandler
+    public void onMachinesUnload(org.bukkit.event.world.EntitiesUnloadEvent event) {
+        if (furnaces == null) return;
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof Interaction && behaviourOf((Interaction) entity) != null) {
+                PieceMachines.Anchor anchor = new PieceMachines.HitboxAnchor((Interaction) entity);
+                furnaces.unload(anchor);
+                brewers.unload(anchor);
+            }
+        }
+    }
+
     /** Where a pushed model's random turn and size come from, by its bare id. */
     public void variations(java.util.function.Function<String, ai.resourcepack.engine.api.ModelInfo.Variation> variations) {
         this.variations = variations == null
@@ -335,6 +466,10 @@ public final class RigPlacementListener implements Listener {
                         .orElse(null),
                 hitbox, placement(hitbox), event.getClickedPosition());
         Bukkit.getPluginManager().callEvent(clicked);
+        if (!clicked.isCancelled() && useMachine(event.getPlayer(), hitbox)) {
+            event.setCancelled(true);
+            return;
+        }
         if (clicked.isCancelled() || !animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) return;
         event.setCancelled(true);
         animator.trigger(hitbox, RigAnimations.TRIGGER_RIGHT_CLICK, event.getPlayer());
@@ -409,6 +544,21 @@ public final class RigPlacementListener implements Listener {
      * read, a call from code has its own answer to both.
      */
     void breakRig(Interaction hitbox, String modelId, boolean dropItem) {
+        if (furnaces != null) {
+            PieceMachines.Anchor anchor = new PieceMachines.HitboxAnchor(hitbox);
+            Location spillAt = hitbox.getLocation().add(0, 0.5, 0);
+            List<ItemStack> inside = new java.util.ArrayList<>();
+            if (furnaces.holdsAnything(anchor) || furnaceSpec(behaviours.apply(modelId)) != null) {
+                inside.addAll(furnaces.removed(anchor));
+            }
+            if (brewers.holdsAnything(anchor)
+                    || stationSpec(behaviours.apply(modelId)) == ai.resourcepack.engine.api.ModelInfo.Station.BREWING_STAND) {
+                inside.addAll(brewers.removed(anchor));
+            }
+            for (ItemStack stack : inside) {
+                hitbox.getWorld().dropItemNaturally(spillAt, stack);
+            }
+        }
         // Prefer the exact item a static display holds. Animated rigs rebuild
         // from the model id: their displays hold part items, which aren't a
         // valid inventory form.

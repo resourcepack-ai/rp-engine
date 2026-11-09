@@ -170,6 +170,10 @@ public final class ModelInfo {
         private final Kind kind;
         private final String title;
         private final ContentId litModel;
+        private float speed = 1f;
+        private java.util.Set<String> recipes = java.util.Set.of();
+        private Effects effects = Effects.DEFAULT;
+        private ContentId screen;
 
         private Furnace(Kind kind, String title, ContentId litModel) {
             this.kind = kind;
@@ -188,6 +192,42 @@ public final class ModelInfo {
                     title == null || title.isBlank() ? null : title, litModel);
         }
 
+        private Furnace copy() {
+            Furnace made = new Furnace(kind, title, litModel);
+            made.speed = speed;
+            made.recipes = recipes;
+            made.effects = effects;
+            made.screen = screen;
+            return made;
+        }
+
+        /**
+         * The same furnace, tuned.
+         *
+         * @param speed   how much faster than the recipes say, 1 being as written
+         * @param recipes the only recipes it cooks, by id; empty for all of its kind's
+         */
+        public Furnace withTuning(float speed, java.util.Collection<String> recipes) {
+            Furnace changed = copy();
+            changed.speed = speed > 0f ? speed : 1f;
+            changed.recipes = recipes == null ? java.util.Set.of() : java.util.Set.copyOf(recipes);
+            return changed;
+        }
+
+        /** The same furnace, with other effects while it burns. */
+        public Furnace withEffects(Effects effects) {
+            Furnace changed = copy();
+            changed.effects = effects == null ? Effects.DEFAULT : effects;
+            return changed;
+        }
+
+        /** The same furnace, with a screen's art over its window — or not, for null. */
+        public Furnace withScreen(ContentId screen) {
+            Furnace changed = copy();
+            changed.screen = screen;
+            return changed;
+        }
+
         /** Which recipes it cooks, and how fast. */
         public Kind kind() {
             return kind;
@@ -204,6 +244,63 @@ public final class ModelInfo {
          */
         public java.util.Optional<ContentId> litModel() {
             return java.util.Optional.ofNullable(litModel);
+        }
+
+        /** How much faster than its recipes it cooks. 1 is as written. */
+        public float speed() {
+            return speed;
+        }
+
+        /** The only recipes it cooks, by id. Empty for every recipe of its kind. */
+        public java.util.Set<String> recipes() {
+            return recipes;
+        }
+
+        /** What it does while it burns. */
+        public Effects effects() {
+            return effects;
+        }
+
+        /** The screen whose art it opens with, or empty for the game's own. */
+        public java.util.Optional<ContentId> screen() {
+            return java.util.Optional.ofNullable(screen);
+        }
+
+        /** Where particles come from while one burns, and what they are. */
+        public record Particles(String type, int count, int every, double spread, boolean positioned, double right,
+                                double up, double forward) {
+        }
+
+        /**
+         * What a furnace does while it burns. Everything is the author's to
+         * change or turn off.
+         *
+         * @param particles null for none
+         * @param soundKey  a sound key, null for the kind's own, "" for silence
+         * @param glow      whether the model is drawn fully lit while it burns
+         * @param light     real light while it burns, 0 for none
+         * @param animation an animated piece's animation while it burns, or null
+         */
+        public record Effects(Particles particles, String soundKey, boolean glow, int light, String animation) {
+
+            /** Smoke rising from the top and the kind's own crackle. */
+            public static final Effects DEFAULT = new Effects(
+                    new Particles("smoke", 1, 10, 0.08, false, 0, 0, 0), null, false, 0, null);
+
+            /** Nothing at all. */
+            public static final Effects NONE = new Effects(null, "", false, 0, null);
+
+            public boolean soundOn() {
+                return soundKey == null || !soundKey.isEmpty();
+            }
+
+            public java.util.Optional<String> sound() {
+                return soundKey == null || soundKey.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(soundKey);
+            }
+
+            public Effects withoutParticles() {
+                return new Effects(null, soundKey, glow, light, animation);
+            }
         }
     }
 
@@ -555,6 +652,7 @@ public final class ModelInfo {
     private Jukebox jukebox;
     private Furnace furnace;
     private Station station;
+    private ContentId stationScreen;
     private java.util.List<State> states = java.util.List.of();
     private long stateResetTicks;
     private String baseSound;
@@ -756,8 +854,14 @@ public final class ModelInfo {
 
     /** The same model, opening one of the game's work screens — or not, for null. */
     public ModelInfo withStation(Station station) {
+        return withStation(station, null);
+    }
+
+    /** As above, with a screen's art over a brewing stand's window. */
+    public ModelInfo withStation(Station station, ContentId screen) {
         ModelInfo changed = copy();
         changed.station = station;
+        changed.stationScreen = screen;
         return changed;
     }
 
@@ -813,6 +917,7 @@ public final class ModelInfo {
         made.jukebox = jukebox;
         made.furnace = furnace;
         made.station = station;
+        made.stationScreen = stationScreen;
         made.states = states;
         made.stateResetTicks = stateResetTicks;
         made.baseSound = baseSound;
@@ -898,6 +1003,11 @@ public final class ModelInfo {
     /** The work block it stands in for, or empty for a piece that is none. */
     public java.util.Optional<Station> station() {
         return java.util.Optional.ofNullable(station);
+    }
+
+    /** The screen whose art a brewing stand opens with, or empty for the game's own. */
+    public java.util.Optional<ContentId> stationScreen() {
+        return java.util.Optional.ofNullable(stationScreen);
     }
 
     /** The furnace it is, or empty for a piece that cooks nothing. */

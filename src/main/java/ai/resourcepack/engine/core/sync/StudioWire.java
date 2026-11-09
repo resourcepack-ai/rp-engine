@@ -395,6 +395,11 @@ final class StudioWire {
         /** Boxed for the reason every optional field here is. Absent is TRUE. */
         Boolean vehicleCollision;
         /**
+         * Which game block a placed copy works as, or absent for none. The names are
+         * those of a content folder's furnace and station keys.
+         */
+        String works;
+        /**
          * How a player's placement turns and sizes it at random, or absent for
          * not at all. The other fact a zip has no field for, and sent on the
          * same terms: only for the models that have one.

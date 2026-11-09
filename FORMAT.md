@@ -763,7 +763,27 @@ oven:
       type: furnace             # furnace | smoker | blast_furnace
       title: "Oven"             # & colour codes. Default: the item's name
       lit-model: mypack:oven_on # what it looks like while it burns
+      speed: 2                  # 2 cooks twice as fast as the recipe says
+      recipes: [mypack:pizza]   # only these recipes. Leave out for all of its kind's
+      screen: mypack:oven_ui    # art for its screen, a screen with container: furnace
+      effects:                  # what it does while it burns. false turns it all off
+        particles: { type: flame, count: 2, every: 4, spread: 0.05, offset: [0, 0.4, 0.45] }
+        sound: mypack:crackle   # false for silence. Leave out for the kind's own
+        glow: true              # the model is drawn fully lit
+        light: 13               # real light, 0-15. Not on a solid piece
+        animation: burning      # an animated piece's animation while it burns
 ```
+
+`effects: false` turns everything off, and each effect can be set or turned off
+on its own. Left alone, a burning furnace gives off a little smoke and makes the
+kind's own crackle. `particles:` can be `false`, a particle's name, or the block
+above: `every` is in ticks, and `offset` is `[right, up, forward]` in blocks from
+the bottom middle of the piece, turned with it. Without an `offset` they come
+from the top. `glow` is the one to use on a solid piece, which cannot also give
+light: one block cannot be a barrier and a light.
+
+`recipes:` takes recipe ids, your own (`mypack:pizza`) or the game's
+(`minecraft:cooked_beef`), and each must be a recipe of the furnace's kind.
 
 `furnace: true` is a plain furnace with every default, and `furnace: smoker` is
 that type with everything else left alone. Right-click opens the game's own
@@ -790,8 +810,17 @@ It cooks while its chunk is loaded and pauses while it is not, as a real furnace
 does, and carries on after a restart with its slots, fuel and progress. Breaking
 one spills what is in it and drops its experience.
 
-**A hopper cannot reach one**, because a display entity is not a block. A piece
-that is also a seat opens on a plain click and sits on a sneaking one, and
+**Hoppers work as they do on the real block.** One pointing in from above fills
+the input and one pointing in from the side fills the fuel, and one directly
+underneath takes the result and any empty bucket. A brewing stand takes its
+reagent from above and bottles and blaze powder from the side, and gives up its
+finished bottles below. A powered hopper does nothing.
+
+A screen's art goes over the furnace's window the same way it does on a real
+one, so draw it as a `container: furnace` screen (`container: brewing` for a
+brewing stand, under `station: { type: brewing_stand, screen: mypack:art }`).
+
+A piece that is also a seat opens on a plain click and sits on a sneaking one, and
 `storage:` beats `furnace:` on a piece that has both; the load says so.
 
 ### A work block
@@ -818,13 +847,27 @@ wears out. Each screen has the game's own title.
 
 A `brewing_stand` keeps its bottles, reagent and fuel on the piece, like a
 [furnace](#a-furnace): it brews while its chunk is loaded, carries on after a
-restart, spills what is in it when broken, and hoppers cannot reach it. It brews
+restart, spills what is in it when broken, and hoppers work on it. It brews
 the server's own potions, including your [`brewing` recipes](#recipes), and
 needs Paper 1.20.5 or newer, or Minecraft 26.1 or newer.
 
 The six between the enchanting table and the brewing stand need Paper, or Spigot
 1.21 or newer; on anything older the load says so and the piece opens nothing. A container or a furnace on the same piece
 takes the click, and the load says that too.
+
+A custom block can be one too. `furnace:` and `station:` work under a block as
+they do under `place:`, kept in the chunk, and `lit-into:` under `furnace:` names
+another block to become while it burns, which is where a block's burning look
+and light go:
+
+```yaml
+stone_oven:
+  model: stone_oven
+  furnace: { speed: 2, lit-into: mypack:stone_oven_lit }
+stone_oven_lit:
+  model: stone_oven_lit
+  light: 13
+```
 
 ### States: lamps, doors and screens
 
