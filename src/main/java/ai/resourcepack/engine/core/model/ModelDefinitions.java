@@ -589,7 +589,7 @@ public final class ModelDefinitions {
         } catch (IllegalArgumentException e) {
             diagnostics.add(Diagnostic.warning(origin, where,
                     "station: " + written + " is not one of crafting_table, enchanting_table, anvil, stonecutter, "
-                            + "smithing_table, grindstone, loom, cartography_table. It opens nothing."));
+                            + "smithing_table, grindstone, loom, cartography_table, brewing_stand. It opens nothing."));
             return null;
         }
     }

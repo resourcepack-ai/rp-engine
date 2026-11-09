@@ -115,12 +115,20 @@ public final class ModelPlacementListener implements Listener {
         this.partKey = host.key("part-index");
         this.placedYawKey = host.key("model-yaw");
         this.placedScaleKey = host.key(RigAnimator.SCALE_KEY);
+        this.brewers = new PieceBrewers(plugin);
         this.furnaces = new PieceFurnaces(plugin, items, hitbox -> {
             ModelInfo info = idOf(hitbox).map(model::get).orElse(null);
             if (info != null) {
                 refreshLook(hitbox, info);
             }
         });
+    }
+
+    /** Brews in the pieces that are brewing stands. Registered as a listener by the plugin. */
+    private final PieceBrewers brewers;
+
+    public PieceBrewers brewers() {
+        return brewers;
     }
 
     /** Cooks in the pieces that are furnaces. Registered as a listener by the plugin. */
@@ -134,6 +142,10 @@ public final class ModelPlacementListener implements Listener {
         ModelInfo.Station station = info.station().get();
         String name = furnaceTitle(info);
         String title = name == null ? station.title() : org.bukkit.ChatColor.translateAlternateColorCodes('&', name);
+        if (station == ModelInfo.Station.BREWING_STAND) {
+            brewers.open(player, hitbox, title);
+            return;
+        }
         if (!StationScreens.open(player, station, hitbox.getLocation(), title)) {
             player.sendMessage(org.bukkit.ChatColor.RED + "This server cannot open that screen.");
         }
@@ -960,7 +972,13 @@ public final class ModelPlacementListener implements Listener {
     public List<ai.resourcepack.engine.api.Diagnostic> rigDiagnostics() {
         List<ai.resourcepack.engine.api.Diagnostic> found = new ArrayList<>();
         for (ModelInfo info : model.values()) {
-            if (info.station().isPresent() && !StationScreens.available(info.station().get())) {
+            if (info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent() && !brewers.available()) {
+                found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                        "station: brewing_stand needs Paper 1.20.5 or newer, or Minecraft 26.1 or newer. "
+                                + "It opens nothing on this server."));
+            }
+            if (info.station().filter(one -> one != ModelInfo.Station.BREWING_STAND).isPresent()
+                    && !StationScreens.available(info.station().get())) {
                 found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
                         "station: " + info.station().get().key() + " needs Paper, or Spigot 1.21 or newer. "
                                 + "It opens nothing on this server."));
@@ -1142,6 +1160,10 @@ public final class ModelPlacementListener implements Listener {
         if (info.furnace().isPresent()) {
             furnaces.adopt(hitbox, info.furnace().get(), furnaceTitle(info));
         }
+        if (info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent()) {
+            String name = furnaceTitle(info);
+            brewers.adopt(hitbox, name == null ? ModelInfo.Station.BREWING_STAND.title() : name);
+        }
         // Pieces put down before the hitbox was made to clear its barrier.
         if (hitbox.getPersistentDataContainer().has(solidKey, PersistentDataType.BYTE)) {
             reachPastBarrier(hitbox);
@@ -1200,6 +1222,7 @@ public final class ModelPlacementListener implements Listener {
                     storages.close(storageKey(entity.getUniqueId()));
                 }
                 furnaces.unload((Interaction) entity);
+                brewers.unload((Interaction) entity);
                 // Not checked while its chunk is away. The time still counts,
                 // so it may grow at the first check after it comes back — one
                 // stage, because what it grows into starts its own clock then.
@@ -1379,6 +1402,12 @@ public final class ModelPlacementListener implements Listener {
         // whatever the pack now says, because what is in them is somebody's.
         if (furnaces.holdsAnything(hitbox) || (info != null && info.furnace().isPresent())) {
             spill(hitbox.getWorld(), where, furnaces.removed(hitbox));
+        }
+
+        // Likewise a brewing stand's bottles, reagent and fuel.
+        if (brewers.holdsAnything(hitbox)
+                || (info != null && info.station().filter(ModelInfo.Station.BREWING_STAND::equals).isPresent())) {
+            spill(hitbox.getWorld(), where, brewers.removed(hitbox));
         }
 
         // A door due to shut itself has nothing to shut.
