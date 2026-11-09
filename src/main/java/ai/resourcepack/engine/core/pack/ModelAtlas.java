@@ -4,9 +4,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -32,15 +34,34 @@ import java.util.regex.Pattern;
  * items atlas second. An atlas file from a pack adds to the game's rather
  * than replacing it, so one entry per texture is all it takes, and one a
  * pack already shipped is kept and added to.
+ *
+ * <p><strong>A block model cannot draw {@code item/} at all from 1.21.11.</strong>
+ * The client rejects a block model with a sprite in the items atlas, and a
+ * rejected model draws as the black and magenta cube while the same file drawn
+ * as an item is fine. A custom block's Blockbench art is written to
+ * {@code textures/item/}, so this hit every one of them. Listing the texture
+ * in the blocks atlas under its own name does not help, because a sprite in
+ * both atlases still counts as the items atlas's. So the same file goes in
+ * under a second name, {@code <namespace>:block/item/...}, which only the
+ * blocks atlas has, and the block model is pointed at that.
  */
 final class ModelAtlas {
 
     static final String BLOCKS = "assets/minecraft/atlases/blocks.json";
 
-    private static final Pattern MODEL = Pattern.compile("assets/([^/]+)/models/.+\\.json");
+    private static final Pattern MODEL = Pattern.compile("assets/[^/]+/models/(.+)\\.json");
 
     /** Folders the game's own atlases already stitch, on some version or all. */
     private static final List<String> STITCHED = List.of("block/", "item/");
+
+    /** Where a model's path says a blockstate draws it. */
+    private static final String BLOCK_MODELS = "block/";
+
+    /** The folder of textures only the items atlas stitches, from 1.21.11. */
+    private static final String ITEM_TEXTURES = "item/";
+
+    /** What goes in front of an {@code item/} texture to name it for the blocks atlas. */
+    private static final String BLOCK_ALIAS = "block/";
 
     private ModelAtlas() {
     }
@@ -51,11 +72,12 @@ final class ModelAtlas {
      * @return how many textures were added
      */
     static int complete(DeterministicZip zip) {
-        Set<String> needed = new LinkedHashSet<>();
+        // Sprite name to the texture file it is drawn from; the same for all but aliases.
+        Map<String, String> needed = new LinkedHashMap<>();
         for (String path : new ArrayList<>(zip.paths())) {
             Matcher model = MODEL.matcher(path);
             if (model.matches()) {
-                collect(zip, zip.get(path), model.group(1), needed);
+                collect(zip, path, model.group(1).startsWith(BLOCK_MODELS), needed);
             }
         }
         if (needed.isEmpty()) {
@@ -66,15 +88,19 @@ final class ModelAtlas {
         Set<String> listed = new LinkedHashSet<>();
         for (JsonElement source : sources) {
             if (source.isJsonObject() && source.getAsJsonObject().has("resource")) {
-                listed.add(location(source.getAsJsonObject().get("resource").getAsString(), "minecraft"));
+                JsonObject entry = source.getAsJsonObject();
+                listed.add(location(entry.get(entry.has("sprite") ? "sprite" : "resource").getAsString(), "minecraft"));
             }
         }
         int added = 0;
-        for (String texture : needed) {
-            if (listed.add(texture)) {
+        for (Map.Entry<String, String> texture : needed.entrySet()) {
+            if (listed.add(texture.getKey())) {
                 JsonObject single = new JsonObject();
                 single.addProperty("type", "single");
-                single.addProperty("resource", texture);
+                single.addProperty("resource", texture.getValue());
+                if (!texture.getKey().equals(texture.getValue())) {
+                    single.addProperty("sprite", texture.getKey());
+                }
                 sources.add(single);
                 added++;
             }
@@ -85,11 +111,14 @@ final class ModelAtlas {
         return added;
     }
 
-    /** The textures one model names that are shipped here and stitched by nothing. */
-    private static void collect(DeterministicZip zip, byte[] bytes, String modelNamespace, Set<String> into) {
+    /**
+     * The textures one model names that are shipped here and an atlas has to
+     * be told about, pointing a block model at the alias of any it cannot draw.
+     */
+    private static void collect(DeterministicZip zip, String modelPath, boolean blockModel, Map<String, String> into) {
         JsonObject model;
         try {
-            JsonElement parsed = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8));
+            JsonElement parsed = JsonParser.parseString(new String(zip.get(modelPath), StandardCharsets.UTF_8));
             if (!parsed.isJsonObject()) {
                 return;
             }
@@ -100,6 +129,7 @@ final class ModelAtlas {
         if (!model.has("textures") || !model.get("textures").isJsonObject()) {
             return;
         }
+        boolean rewritten = false;
         for (Map.Entry<String, JsonElement> slot : model.getAsJsonObject("textures").entrySet()) {
             if (!slot.getValue().isJsonPrimitive()) {
                 continue;
@@ -113,14 +143,25 @@ final class ModelAtlas {
             String texture = location(reference, "minecraft");
             int colon = texture.indexOf(':');
             String path = texture.substring(colon + 1);
+            // Only art this pack ships: one it does not is either the game's
+            // own, in an atlas already, or missing, and an entry fixes neither.
+            boolean shipped = zip.has("assets/" + texture.substring(0, colon) + "/textures/" + path + ".png");
+            if (blockModel && path.startsWith(ITEM_TEXTURES) && shipped) {
+                String alias = texture.substring(0, colon + 1) + BLOCK_ALIAS + path;
+                into.put(alias, texture);
+                slot.setValue(new JsonPrimitive(alias));
+                rewritten = true;
+                continue;
+            }
             if (STITCHED.stream().anyMatch(path::startsWith)) {
                 continue;
             }
-            // Only art this pack ships: one it does not is either the game's
-            // own, in an atlas already, or missing, and an entry fixes neither.
-            if (zip.has("assets/" + texture.substring(0, colon) + "/textures/" + path + ".png")) {
-                into.add(texture);
+            if (shipped) {
+                into.put(texture, texture);
             }
+        }
+        if (rewritten) {
+            zip.add(modelPath, model.toString().getBytes(StandardCharsets.UTF_8));
         }
     }
 

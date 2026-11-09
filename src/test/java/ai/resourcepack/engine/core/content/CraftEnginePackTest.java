@@ -1263,7 +1263,8 @@ class CraftEnginePackTest {
                 built.diagnostics().toString());
         Map<String, String> zip = read(built);
         assertTrue(zip.get("assets/shop/models/item/stool.json").contains("shop:item/stool"));
-        assertTrue(zip.get("assets/shop/models/block/marble.json").contains("shop:item/marble"));
+        assertTrue(zip.get("assets/shop/models/block/marble.json").contains("shop:block/item/marble"));
+        assertTrue(zip.get("assets/minecraft/atlases/blocks.json").contains("shop:item/marble"));
         assertTrue(zip.get("assets/minecraft/font/default.json").contains("shop:font/heart.png"));
     }
 
