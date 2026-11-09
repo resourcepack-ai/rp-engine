@@ -130,6 +130,15 @@ public final class ModelPlacementListener implements Listener {
         return furnaces;
     }
 
+    private void openStation(Player player, Interaction hitbox, ModelInfo info) {
+        ModelInfo.Station station = info.station().get();
+        String name = furnaceTitle(info);
+        String title = name == null ? station.title() : org.bukkit.ChatColor.translateAlternateColorCodes('&', name);
+        if (!StationScreens.open(player, station, hitbox.getLocation(), title)) {
+            player.sendMessage(org.bukkit.ChatColor.RED + "This server cannot open that screen.");
+        }
+    }
+
     /** What a furnace's screen is called when the pack did not say: the item's name. */
     private String furnaceTitle(ModelInfo info) {
         return items.info(info.item()).flatMap(ai.resourcepack.engine.api.ItemInfo::name).orElse(null);
@@ -669,6 +678,14 @@ public final class ModelPlacementListener implements Listener {
             return;
         }
 
+        // A work block opens the game's own screen for it, and the game does
+        // the rest.
+        if (piece != null && piece.station().isPresent() && !sitInstead) {
+            event.setCancelled(true);
+            openStation(clicker, hitbox, piece);
+            return;
+        }
+
         // A disc in hand goes in; a disc already in comes out. Anything else
         // is not a jukebox click and carries on down the chain.
         if (piece != null && piece.jukebox().isPresent() && jukeboxes != null && !sitInstead
@@ -943,6 +960,11 @@ public final class ModelPlacementListener implements Listener {
     public List<ai.resourcepack.engine.api.Diagnostic> rigDiagnostics() {
         List<ai.resourcepack.engine.api.Diagnostic> found = new ArrayList<>();
         for (ModelInfo info : model.values()) {
+            if (info.station().isPresent() && !StationScreens.available(info.station().get())) {
+                found.add(ai.resourcepack.engine.api.Diagnostic.warning(info.id().toString(),
+                        "station: " + info.station().get().key() + " needs Paper, or Spigot 1.21 or newer. "
+                                + "It opens nothing on this server."));
+            }
             if (!isRig(info)) {
                 continue;
             }

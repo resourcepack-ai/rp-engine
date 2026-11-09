@@ -426,6 +426,35 @@ class ModelDefinitionsTest {
         assertEquals(300, PieceFurnaces.burnTime("OAK_LOG"));
     }
 
+    // ---- station --------------------------------------------------------
+
+    @Test
+    void aPieceCanBeAWorkBlock() throws IOException {
+        chair("  place:\n    station: smithing-table\n");
+
+        assertEquals(ModelInfo.Station.SMITHING_TABLE, one(parse(), "mypack:chair").station().orElseThrow());
+    }
+
+    @Test
+    void anUnknownStationOpensNothingAndSaysSo() throws IOException {
+        chair("  place:\n    station: microwave\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:chair").station().isEmpty());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
+    @Test
+    void aContainerBeatsAStationAndSaysSo() throws IOException {
+        chair("  place:\n    storage: true\n    station: anvil\n");
+
+        ModelDefinitions.Result result = parse();
+
+        assertTrue(one(result, "mypack:chair").station().isEmpty());
+        assertEquals(1, result.diagnostics().size(), result.diagnostics().toString());
+    }
+
     // ---- jukebox --------------------------------------------------------
 
     @Test

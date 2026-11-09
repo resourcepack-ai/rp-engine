@@ -794,6 +794,32 @@ one spills what is in it and drops its experience.
 that is also a seat opens on a plain click and sits on a sneaking one, and
 `storage:` beats `furnace:` on a piece that has both; the load says so.
 
+### A work block
+
+A crafting table, an anvil, a workbench that looks like your model:
+
+```yaml
+workbench:
+  material: PAPER
+  model: workbench
+  place:
+    solid: true
+    station: crafting_table
+```
+
+`station:` is one of `crafting_table`, `enchanting_table`, `anvil`,
+`stonecutter`, `smithing_table`, `grindstone`, `loom` or `cartography_table`.
+Right-click opens that block's own screen and the game does the rest, so
+recipes, costs and everything else are the game's. Whatever is left in the
+screen goes back to the player when it closes, as it does with the real block.
+
+An enchanting table counts the bookshelves around the piece. An anvil never
+wears out. Each screen has the game's own title.
+
+The last six need Paper, or Spigot 1.21 or newer; on anything older the load
+says so and the piece opens nothing. A container or a furnace on the same piece
+takes the click, and the load says that too.
+
 ### States: lamps, doors and screens
 
 A click can change a piece. Each entry under `states:` is one more look a click
