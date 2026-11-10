@@ -99,14 +99,17 @@ final class NexoOraxen {
     static Map<ContentKind, Map<String, Object>> translate(DefinitionNode document,
                                                              String namespace, String origin,
                                                              List<Diagnostic> diagnostics) {
-        return translate(document, namespace, origin, diagnostics, ArmourLayers.NONE);
+        return translate(document, namespace, origin, diagnostics, ArmourLayers.NONE, NexoArt.NONE);
     }
 
-    /** @param layers the armour layer PNGs in the pack, which both plugins find by name */
+    /**
+     * @param layers the armour layer PNGs in the pack, which both plugins find by name
+     * @param art    which file each reference means in the folder it was copied to
+     */
     static Map<ContentKind, Map<String, Object>> translate(DefinitionNode document,
                                                              String namespace, String origin,
                                                              List<Diagnostic> diagnostics,
-                                                             ArmourLayers layers) {
+                                                             ArmourLayers layers, NexoArt art) {
         Map<String, Object> items = new LinkedHashMap<>();
         Map<String, Object> blocks = new LinkedHashMap<>();
         for (String id : document.keys()) {
@@ -129,10 +132,10 @@ final class NexoOraxen {
             }
             if (blockMechanic != null) {
                 blocks.put(id, NexoOraxenBlocks.block(document, item, blockMechanic,
-                        mechanics.node(blockMechanic).orElseThrow(), id, namespace, origin, diagnostics));
+                        mechanics.node(blockMechanic).orElseThrow(), id, namespace, art, origin, diagnostics));
             } else {
-                Map<String, Object> translated = item(item, id, namespace, origin, diagnostics);
-                armour(item, id, namespace, origin, diagnostics, translated, layers);
+                Map<String, Object> translated = item(item, id, namespace, art, origin, diagnostics);
+                armour(item, id, namespace, art, origin, diagnostics, translated, layers);
                 items.put(id, translated);
             }
         }
@@ -144,7 +147,7 @@ final class NexoOraxen {
 
     // ---- items --------------------------------------------------------------
 
-    private static Map<String, Object> item(DefinitionNode item, String id, String namespace,
+    private static Map<String, Object> item(DefinitionNode item, String id, String namespace, NexoArt art,
                                              String origin, List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("material", item.string("material").orElse("PAPER"));
@@ -160,7 +163,7 @@ final class NexoOraxen {
                 : !item.strings("itemflags").isEmpty() ? item.strings("itemflags") : item.strings("item_flags");
         if (!flags.isEmpty()) out.put("flags", flags);
         attributes(item, id, origin, diagnostics).ifPresent(attributes -> out.put("attributes", attributes));
-        art(item, id, namespace, origin, diagnostics, out);
+        art(item, id, namespace, art, origin, diagnostics, out);
         components(item, id, origin, diagnostics, out);
 
         section(item, "Mechanics").ifPresent(mechanics -> {
@@ -209,15 +212,15 @@ final class NexoOraxen {
      * builds a shape this engine does not generate, and saying so beats a
      * flat sprite nobody can explain.
      */
-    private static void art(DefinitionNode item, String id, String namespace, String origin,
+    private static void art(DefinitionNode item, String id, String namespace, NexoArt art, String origin,
                             List<Diagnostic> diagnostics, Map<String, Object> out) {
         DefinitionNode pack = section(item, "Pack").orElse(DefinitionNode.empty());
-        pack.string("model").flatMap(model -> localPath(model, namespace, id, origin, diagnostics, "Pack.model"))
+        pack.string("model").flatMap(model -> localPath(model, namespace, art, id, origin, diagnostics, "Pack.model"))
                 .ifPresent(model -> out.put("model", model));
         if (!out.containsKey("model")) {
             List<String> layers = textures(pack);
             if (!layers.isEmpty()) {
-                localPath(layers.get(0), namespace, id, origin, diagnostics, "Pack.texture")
+                localPath(layers.get(0), namespace, art, id, origin, diagnostics, "Pack.texture")
                         .ifPresent(texture -> out.put("texture", texture));
                 String parent = pack.string("parent_model").orElse("item/generated")
                         .replace("minecraft:", "");
@@ -235,7 +238,7 @@ final class NexoOraxen {
         }
         if (!out.containsKey("model")) {
             section(item, "Components").flatMap(components -> components.string("item_model"))
-                    .flatMap(model -> localPath(model, namespace, id, origin, diagnostics, "Components.item_model"))
+                    .flatMap(model -> localPath(model, namespace, art, id, origin, diagnostics, "Components.item_model"))
                     .ifPresent(model -> out.put("model", model));
         }
     }
@@ -340,7 +343,7 @@ final class NexoOraxen {
      * <p>What does not: an elytra's wings, which are not drawn on a body, and
      * a 3D helmet, which has no layer art and is worn as a hat, as it is there.
      */
-    private static void armour(DefinitionNode item, String id, String namespace, String origin,
+    private static void armour(DefinitionNode item, String id, String namespace, NexoArt files, String origin,
                                List<Diagnostic> diagnostics, Map<String, Object> out, ArmourLayers layers) {
         DefinitionNode equippable = section(item, "Components")
                 .flatMap(components -> components.node("equippable")).orElse(null);
@@ -384,7 +387,7 @@ final class NexoOraxen {
         // found by its name.
         List<Diagnostic> written = new ArrayList<>();
         Optional<String> art = custom.string("layer" + layer).or(() -> custom.string("layer_" + layer))
-                .flatMap(path -> localPath(path, namespace, id, origin, written, "Pack.CustomArmor.layer" + layer))
+                .flatMap(path -> localPath(path, namespace, files, id, origin, written, "Pack.CustomArmor.layer" + layer))
                 .or(() -> layers.find(set, layer));
         if (art.isEmpty()) diagnostics.addAll(written);
         if (art.isPresent()) {
@@ -1087,22 +1090,30 @@ final class NexoOraxen {
         return id.contains(":") ? id : namespace + ":" + id;
     }
 
-    /** A resource location is a path after its own namespace; foreign art is not ours to copy. */
-    static Optional<String> localPath(String reference, String namespace, String id,
+    /**
+     * What a reference means here: a path of this pack's own, or a resource
+     * location the pack ships in its {@code resourcepack/} folder.
+     */
+    static Optional<String> localPath(String reference, String namespace, NexoArt art, String id,
                                       String origin, List<Diagnostic> diagnostics, String field) {
         String value = reference.endsWith(".json") || reference.endsWith(".png")
                 ? reference.substring(0, reference.length() - (reference.endsWith(".json") ? 5 : 4)) : reference;
         int colon = value.indexOf(':');
         if (colon < 0) {
-            return Optional.of(value);
+            return Optional.of(art.bare(value));
         }
         String declared = value.substring(0, colon);
-        if (!declared.equals(namespace)) {
-            diagnostics.add(Diagnostic.warning(origin, id,
-                    field + " points at " + reference + ", outside this pack's namespace. "
-                            + "RP Engine cannot copy somebody else's asset, so it was skipped."));
-            return Optional.empty();
+        String path = value.substring(colon + 1);
+        if (declared.equals(namespace)) {
+            return Optional.of(path);
         }
-        return Optional.of(value.substring(colon + 1));
+        if (art.ships(declared, path)) {
+            return Optional.of(value);
+        }
+        diagnostics.add(Diagnostic.warning(origin, id,
+                field + " points at " + reference + ", outside this pack's namespace, and it is not in this "
+                        + "folder, so it was skipped. Copy that namespace's files to resourcepack/assets/"
+                        + declared + "/ to bring it across."));
+        return Optional.empty();
     }
 }

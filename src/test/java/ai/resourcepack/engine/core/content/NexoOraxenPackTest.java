@@ -130,6 +130,75 @@ class NexoOraxenPackTest {
     }
 
     @Test
+    void aWholeNexoPackIsReadFromItsResourcepackFolder() throws IOException {
+        write("wilden/items/furniture.yml", """
+                clock:
+                  material: PAPER
+                  Pack:
+                    model: livingroom/clock
+                sticker:
+                  material: PAPER
+                  Pack:
+                    texture: stickers/star
+                key:
+                  material: PAPER
+                  Pack:
+                    model: plny:galactic/key
+                """);
+        write("wilden/resourcepack/assets/minecraft/models/livingroom/clock.json", "{\"elements\":[]}");
+        bytes("wilden/resourcepack/assets/minecraft/textures/stickers/star.png", new byte[] {1});
+        write("wilden/resourcepack/assets/plny/models/galactic/key.json", "{\"elements\":[]}");
+
+        LoadReport report = load();
+        var items = ItemDefinitions.parse(report).items();
+        assertEquals("minecraft:livingroom/clock", items.get(id("wilden:clock")).model().orElseThrow());
+        assertEquals("minecraft:stickers/star", items.get(id("wilden:sticker")).texture());
+        assertEquals("plny:galactic/key", items.get(id("wilden:key")).model().orElseThrow());
+        assertFalse(warned(report, null, "are not in this folder"));
+        assertFalse(warned(report, null, "outside this pack's namespace"));
+
+        Map<String, byte[]> pack = build(report);
+        assertTrue(pack.containsKey("assets/minecraft/textures/stickers/star.png"));
+        assertTrue(new String(pack.get("assets/wilden/models/item/sticker.json")).contains("minecraft:stickers/star"));
+        assertFalse(new String(pack.get("assets/wilden/models/item/clock.json")).contains("item/generated"),
+                "the clock is its own model, not the missing-art sprite");
+        assertFalse(new String(pack.get("assets/wilden/models/item/key.json")).contains("item/generated"),
+                "the key is its own model, not the missing-art sprite");
+    }
+
+    @Test
+    void aPathInThePacksOwnLayoutStaysItsOwn() throws IOException {
+        write("wilden/items/furniture.yml", """
+                clock:
+                  material: PAPER
+                  Pack:
+                    model: livingroom/clock
+                """);
+        write("wilden/assets/models/livingroom/clock.json", "{\"elements\":[]}");
+        write("wilden/resourcepack/assets/minecraft/models/livingroom/clock.json", "{\"elements\":[]}");
+
+        assertEquals("livingroom/clock", ItemDefinitions.parse(load()).items().get(id("wilden:clock")).model().orElseThrow());
+    }
+
+    @Test
+    void artThatIsNowhereIsSaidOnceForThePack() throws IOException {
+        write("wilden/items/furniture.yml", """
+                clock:
+                  material: PAPER
+                  Pack:
+                    model: livingroom/clock
+                table:
+                  material: PAPER
+                  Pack:
+                    model: livingroom/table
+                """);
+
+        LoadReport report = load();
+        assertEquals(1, report.diagnostics().stream().filter(d -> d.message().contains("are not in this folder")).count());
+        assertTrue(warned(report, null, "2 model and texture paths"));
+    }
+
+    @Test
     void componentOnlyNexoItemsAndFurnitureUseTheEngineForms() throws IOException {
         write("pack/items.yml", """
                 modern:

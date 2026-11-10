@@ -64,8 +64,8 @@ final class NexoOraxenBlocks {
     }
 
     static Map<String, Object> block(DefinitionNode document, DefinitionNode item, String mechanicName,
-                                     DefinitionNode mechanic, String id, String namespace, String origin,
-                                     List<Diagnostic> diagnostics) {
+                                     DefinitionNode mechanic, String id, String namespace, NexoArt files,
+                                     String origin, List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         DefinitionNode pack = NexoOraxen.section(item, "Pack").orElse(DefinitionNode.empty());
         String type = mechanic.string("type").orElse("").trim().toUpperCase(Locale.ROOT);
@@ -87,8 +87,8 @@ final class NexoOraxenBlocks {
             }
         }
 
-        art(item, pack, mechanic, shape, id, namespace, origin, diagnostics, out);
-        directional(document, mechanic, shape, id, namespace, origin, diagnostics, out);
+        art(item, pack, mechanic, shape, id, namespace, files, origin, diagnostics, out);
+        directional(document, mechanic, shape, id, namespace, files, origin, diagnostics, out);
 
         NexoOraxen.breaking(mechanic, id, namespace, origin, diagnostics, out);
         NexoOraxen.sound(mechanic, id, origin, diagnostics, out);
@@ -132,8 +132,8 @@ final class NexoOraxenBlocks {
      * file, generated from {@code parent_model} the way both plugins do.
      */
     private static void art(DefinitionNode item, DefinitionNode pack, DefinitionNode mechanic, String shape,
-                            String id, String namespace, String origin, List<Diagnostic> diagnostics,
-                            Map<String, Object> out) {
+                            String id, String namespace, NexoArt files, String origin,
+                            List<Diagnostic> diagnostics, Map<String, Object> out) {
         List<String> layers = NexoOraxen.textures(pack);
         Map<String, String> slots = textureMap(pack);
         Optional<String> declared = mechanic.string("model")
@@ -149,7 +149,7 @@ final class NexoOraxenBlocks {
             Map<String, String> shapeTextures = shapeTextures(mechanic, layers, slots, shape);
             if (!shapeTextures.isEmpty() && (generated || declared.isEmpty())) {
                 Map<String, String> local = new LinkedHashMap<>();
-                shapeTextures.forEach((slot, texture) -> NexoOraxen.localPath(texture, namespace, id, origin,
+                shapeTextures.forEach((slot, texture) -> NexoOraxen.localPath(texture, namespace, files, id, origin,
                         diagnostics, "textures").ifPresent(path -> local.put(slot, path)));
                 if (local.size() == 1 && local.containsKey("all")) {
                     out.put("texture", local.get("all"));
@@ -160,13 +160,13 @@ final class NexoOraxenBlocks {
             }
         }
         if (generated) {
-            Map<String, Object> model = generatedModel(pack, layers, slots, shape, id, namespace, origin, diagnostics);
+            Map<String, Object> model = generatedModel(pack, layers, slots, shape, id, namespace, files, origin, diagnostics);
             if (model != null) {
                 out.put("model", model);
             }
             return;
         }
-        declared.flatMap(value -> NexoOraxen.localPath(value, namespace, id, origin, diagnostics, "model"))
+        declared.flatMap(value -> NexoOraxen.localPath(value, namespace, files, id, origin, diagnostics, "model"))
                 .ifPresent(value -> out.put("model", value));
     }
 
@@ -219,7 +219,7 @@ final class NexoOraxenBlocks {
      */
     private static Map<String, Object> generatedModel(DefinitionNode pack, List<String> layers,
                                                       Map<String, String> slots, String shape, String id,
-                                                      String namespace, String origin,
+                                                      String namespace, NexoArt files, String origin,
                                                       List<Diagnostic> diagnostics) {
         String parent = pack.string("parent_model")
                 .orElse(shape.equals("plant") ? "block/cross" : "block/cube_all").trim();
@@ -229,13 +229,13 @@ final class NexoOraxenBlocks {
         Map<String, Object> textures = new LinkedHashMap<>();
         if (!slots.isEmpty()) {
             for (Map.Entry<String, String> slot : slots.entrySet()) {
-                NexoOraxen.localPath(slot.getValue(), namespace, id, origin, diagnostics, "Pack.textures")
+                NexoOraxen.localPath(slot.getValue(), namespace, files, id, origin, diagnostics, "Pack.textures")
                         .ifPresent(path -> textures.put(slot.getKey(), path));
             }
         } else {
             List<String> paths = new ArrayList<>();
             for (String layer : layers) {
-                NexoOraxen.localPath(layer, namespace, id, origin, diagnostics, "Pack.texture").ifPresent(paths::add);
+                NexoOraxen.localPath(layer, namespace, files, id, origin, diagnostics, "Pack.texture").ifPresent(paths::add);
             }
             if (paths.isEmpty()) {
                 return null;
@@ -297,7 +297,7 @@ final class NexoOraxenBlocks {
      * otherwise the one model is turned, which is what both plugins do.
      */
     private static void directional(DefinitionNode document, DefinitionNode mechanic, String shape, String id,
-                                    String namespace, String origin, List<Diagnostic> diagnostics,
+                                    String namespace, NexoArt files, String origin, List<Diagnostic> diagnostics,
                                     Map<String, Object> out) {
         Optional<DefinitionNode> found = mechanic.node("directional");
         if (found.isEmpty()) {
@@ -338,7 +338,7 @@ final class NexoOraxenBlocks {
             if (part.isEmpty()) {
                 continue;
             }
-            Optional<String> model = modelOf(document, part.get(), namespace, id, origin, diagnostics);
+            Optional<String> model = modelOf(document, part.get(), namespace, files, id, origin, diagnostics);
             if (model.isPresent()) {
                 appearances.put(property + "=" + direction, model.get());
             } else {
@@ -353,8 +353,8 @@ final class NexoOraxenBlocks {
     }
 
     /** The model a sibling item in the same file is drawn with. */
-    private static Optional<String> modelOf(DefinitionNode document, String itemId, String namespace, String id,
-                                            String origin, List<Diagnostic> diagnostics) {
+    private static Optional<String> modelOf(DefinitionNode document, String itemId, String namespace, NexoArt files,
+                                            String id, String origin, List<Diagnostic> diagnostics) {
         String bare = itemId.contains(":") ? itemId.substring(itemId.indexOf(':') + 1) : itemId;
         Optional<DefinitionNode> sibling = document.node(bare);
         if (sibling.isEmpty()) {
@@ -366,7 +366,7 @@ final class NexoOraxenBlocks {
             model = model.or(() -> mechanics.node(name).flatMap(block -> block.string("model")));
         }
         model = model.or(() -> NexoOraxen.section(sibling.get(), "Pack").flatMap(pack -> pack.string("model")));
-        return model.flatMap(value -> NexoOraxen.localPath(value, namespace, id, origin, diagnostics, "model"));
+        return model.flatMap(value -> NexoOraxen.localPath(value, namespace, files, id, origin, diagnostics, "model"));
     }
 
     /** The sub-mechanics with an equivalent here, and a reason for each of the rest. */

@@ -669,6 +669,11 @@ public final class ItemAssets implements PackContributor {
 
     /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */
     private void writeSprite(ItemInfo item, String namespace, String modelPath, Contribution into) {
+        writeSprite(item, namespace, modelPath, true, into);
+    }
+
+    private void writeSprite(ItemInfo item, String namespace, String modelPath, boolean checkTexture,
+                             Contribution into) {
         // A namespaced texture is a resource location, written as it is: a
         // CraftEngine pack names minecraft:item/custom/ruby and ships the PNG
         // in its own resource pack folder.
@@ -678,8 +683,8 @@ public final class ItemAssets implements PackContributor {
         String textureNamespace = texture.substring(0, texture.indexOf(':'));
         // Only a texture a pack in this bundle is meant to ship can be missing;
         // one in another namespace may be the game's own.
-        if (!ModelSources.isLocation(item.texture()) || bundle == null
-                || bundle.namespaces().contains(textureNamespace)) {
+        if (checkTexture && (!ModelSources.isLocation(item.texture()) || bundle == null
+                || bundle.namespaces().contains(textureNamespace))) {
             requireTexture(item, namespace, Geometry.zipPathOf(texture), into);
         }
     }
@@ -704,8 +709,10 @@ public final class ItemAssets implements PackContributor {
                                     + "and it is read directly.");
             // Falls back to the sprite, so the item still exists and still
             // stacks. An item that vanishes because its art is missing is a
-            // much worse failure than one that renders wrong.
-            writeSprite(item, namespace, modelPath, into);
+            // much worse failure than one that renders wrong. The error above
+            // is the whole story, so the sprite does not add a second one
+            // about a default path nobody wrote.
+            writeSprite(item, namespace, modelPath, false, into);
             return;
         }
         String sourcePath = source.get().path();
@@ -714,7 +721,7 @@ public final class ItemAssets implements PackContributor {
             into.error(namespace + "/items", item.id().path(),
                     sourcePath + " is not a model file. Blockbench writes one "
                             + "with File > Export > Java Block/Item model.");
-            writeSprite(item, namespace, modelPath, into);
+            writeSprite(item, namespace, modelPath, false, into);
             return;
         }
         // The source was copied in with the rest of assets/. It has been read
