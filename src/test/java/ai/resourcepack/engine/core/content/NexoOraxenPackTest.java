@@ -167,6 +167,44 @@ class NexoOraxenPackTest {
     }
 
     @Test
+    void aNexoGlyphIsReadFromItsResourcepackFolder() throws IOException {
+        // An items file is what marks a folder with no pack.yml as one of theirs.
+        write("wilden/items.yml", """
+                ruby:
+                  material: PAPER
+                  Pack: { model: wilden:ruby }
+                """);
+        write("wilden/glyphs/emoji.yml", """
+                chest:
+                  texture: emojis/chest
+                  height: 8
+                  ascent: 7
+                own:
+                  texture: emojis/own
+                  height: 8
+                  ascent: 7
+                shop:
+                  texture: shop:icons/coin
+                  height: 8
+                  ascent: 7
+                gone:
+                  texture: emojis/gone
+                  height: 8
+                  ascent: 7
+                """);
+        bytes("wilden/resourcepack/assets/minecraft/textures/emojis/chest.png", new byte[] {1});
+        bytes("wilden/assets/textures/font/emojis/own.png", new byte[] {2});
+        bytes("wilden/resourcepack/assets/shop/textures/icons/coin.png", new byte[] {3});
+
+        LoadReport report = load();
+        var icons = IconDefinitions.parse(report, PackFiles.folder(content)).icons();
+        assertEquals("minecraft:emojis/chest", icons.get(id("wilden:chest")).file());
+        assertEquals("emojis/own", icons.get(id("wilden:own")).file());
+        assertEquals("shop:icons/coin", icons.get(id("wilden:shop")).file());
+        assertTrue(warned(report, null, "1 model and texture paths"));
+    }
+
+    @Test
     void aPathInThePacksOwnLayoutStaysItsOwn() throws IOException {
         write("wilden/items/furniture.yml", """
                 clock:

@@ -74,24 +74,24 @@ final class NexoOraxenGlyph {
         return false;
     }
 
-    static Map<String, Object> translate(DefinitionNode document, String namespace, String origin,
+    static Map<String, Object> translate(DefinitionNode document, String namespace, NexoArt art, String origin,
                                          List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         for (String id : document.keys()) {
             DefinitionNode glyph = document.node(id).orElse(DefinitionNode.empty());
             if (glyph.has("reference")) {
-                reference(document, glyph, namespace, id, origin, diagnostics)
+                reference(document, glyph, namespace, art, id, origin, diagnostics)
                         .ifPresent(icon -> out.put(id, chat(glyph, icon, id, origin, diagnostics)));
                 continue;
             }
             if (glyph.has("gif")) {
-                gif(glyph, namespace, id, origin, diagnostics)
+                gif(glyph, namespace, art, id, origin, diagnostics)
                         .ifPresent(icon -> out.put(id, chat(glyph, icon, id, origin, diagnostics)));
                 continue;
             }
             String texture = glyph.string("texture").orElse(null);
             if (texture == null) continue;
-            String file = localPath(texture, namespace, id, origin, diagnostics);
+            String file = localPath(texture, namespace, art, ".png", id, origin, diagnostics);
             if (file == null) continue;
 
             Map<String, Object> icon = new LinkedHashMap<>();
@@ -148,11 +148,11 @@ final class NexoOraxenGlyph {
      * own size, so there is nothing for it to shift; {@code ascent} is the knob
      * that moves an icon.
      */
-    private static Optional<Map<String, Object>> gif(DefinitionNode glyph, String namespace, String id,
+    private static Optional<Map<String, Object>> gif(DefinitionNode glyph, String namespace, NexoArt art, String id,
                                                      String origin, List<Diagnostic> diagnostics) {
         String reference = glyph.string("gif").orElse("");
         String bare = reference.endsWith(".gif") ? reference.substring(0, reference.length() - 4) : reference;
-        String file = bare.isEmpty() ? null : localPath(bare, namespace, id, origin, diagnostics);
+        String file = bare.isEmpty() ? null : localPath(bare, namespace, art, ".gif", id, origin, diagnostics);
         if (file == null) return Optional.empty();
         Map<String, Object> icon = new LinkedHashMap<>();
         icon.put("gif", file + ".gif");
@@ -176,7 +176,7 @@ final class NexoOraxenGlyph {
      * draws that cell, at the sheet's height and ascent unless it says its own.
      */
     private static Optional<Map<String, Object>> reference(DefinitionNode document, DefinitionNode glyph,
-                                                           String namespace, String id, String origin,
+                                                           String namespace, NexoArt art, String id, String origin,
                                                            List<Diagnostic> diagnostics) {
         String target = glyph.string("reference").orElse("");
         DefinitionNode sheet = document.node(target).orElse(null);
@@ -186,7 +186,7 @@ final class NexoOraxenGlyph {
                     "references " + target + ", which is not a glyph with a texture in this file, so it was skipped."));
             return Optional.empty();
         }
-        String file = localPath(texture, namespace, id, origin, diagnostics);
+        String file = localPath(texture, namespace, art, ".png", id, origin, diagnostics);
         if (file == null) return Optional.empty();
         int rows = sheet.integer("rows").orElse(1);
         int columns = sheet.integer("columns").orElse(1);
@@ -250,22 +250,28 @@ final class NexoOraxenGlyph {
     }
 
     /**
-     * The texture as a path under {@code assets/textures/font/}, which is
-     * where icons are read from. A path that already starts with
-     * {@code font/} is that folder written out.
+     * The texture as a name under {@code assets/textures/font/}, which is
+     * where icons are read from, or a resource location the pack ships in its
+     * {@code resourcepack/} folder.
      */
-    private static String localPath(String texture, String namespace, String id, String origin,
-                                    List<Diagnostic> diagnostics) {
+    private static String localPath(String texture, String namespace, NexoArt art, String extension, String id,
+                                    String origin, List<Diagnostic> diagnostics) {
         String value = texture.endsWith(".png") ? texture.substring(0, texture.length() - 4) : texture;
         int colon = value.indexOf(':');
-        if (colon >= 0) {
-            if (!value.substring(0, colon).equals(namespace)) {
-                diagnostics.add(Diagnostic.warning(origin, id,
-                        "Glyph texture " + texture + " is outside this pack's namespace, so it was skipped."));
-                return null;
-            }
-            value = value.substring(colon + 1);
+        if (colon < 0) {
+            return art.glyph(value, extension);
         }
-        return value.startsWith("font/") ? value.substring("font/".length()) : value;
+        String declared = value.substring(0, colon);
+        String path = value.substring(colon + 1);
+        if (declared.equals(namespace)) {
+            return path.startsWith("font/") ? path.substring("font/".length()) : path;
+        }
+        if (art.shipsImage(declared, path, extension)) {
+            return value;
+        }
+        diagnostics.add(Diagnostic.warning(origin, id,
+                "Glyph texture " + texture + " is outside this pack's namespace and not in this folder, so it was "
+                        + "skipped. Copy that namespace's files to resourcepack/assets/" + declared + "/ to bring it across."));
+        return null;
     }
 }

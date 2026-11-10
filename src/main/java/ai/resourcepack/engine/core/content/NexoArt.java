@@ -63,6 +63,39 @@ final class NexoArt {
         return exists(root + "models/" + path + ".json") || exists(root + "textures/" + path + ".png");
     }
 
+    /**
+     * What a glyph's texture means: a name under the pack's own
+     * {@code textures/font/}, which is where an icon is read from, or a
+     * {@code minecraft:} location, which is what the plugins read it as.
+     *
+     * @param extension {@code .png}, or {@code .gif} for a GIF glyph
+     */
+    String glyph(String path, String extension) {
+        String drawn = path.startsWith("font/") ? path.substring("font/".length()) : path;
+        if (pack == null) {
+            return drawn;
+        }
+        String inFont = "font/" + drawn;
+        for (String folder : OWN_TEXTURES) {
+            if (exists(folder + inFont + extension)) {
+                return drawn;
+            }
+        }
+        if (shipsImage(namespace, inFont, extension)) {
+            return drawn;
+        }
+        if (shipsImage("minecraft", path, extension)) {
+            return "minecraft:" + path;
+        }
+        missing.add(path);
+        return drawn;
+    }
+
+    /** Whether the {@code resourcepack/} folder holds an image at {@code owner:path}. */
+    boolean shipsImage(String owner, String path, String extension) {
+        return pack != null && exists(ModelSources.RESOURCE_PACK + "/assets/" + owner + "/textures/" + path + extension);
+    }
+
     /** How many different paths named no file at all. */
     int missing() {
         return missing.size();
