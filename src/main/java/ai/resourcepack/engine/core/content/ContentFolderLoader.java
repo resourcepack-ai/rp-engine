@@ -795,6 +795,7 @@ public final class ContentFolderLoader {
         // Their armour art is found by file name, so the pack is looked
         // through once, and only if it holds one of their item files.
         ArmourLayers layers = null;
+        NexoArt art = NexoArt.of(folder, namespace.name());
         for (Path file : nexoOraxenConfigFiles(folder, diagnostics, relative(root, folder))) {
             String origin = relative(root, file);
             Optional<DefinitionNode> document = readMap(file, origin, diagnostics);
@@ -818,12 +819,21 @@ public final class ContentFolderLoader {
                 layers = ArmourLayers.index(folder, namespace.name());
             }
             for (Map.Entry<ContentKind, Map<String, Object>> kind
-                    : NexoOraxen.translate(document.get(), namespace.name(), origin, diagnostics, layers).entrySet()) {
+                    : NexoOraxen.translate(document.get(), namespace.name(), origin, diagnostics, layers, art).entrySet()) {
                 DefinitionNode translated = DefinitionNode.of(kind.getValue());
                 for (String path : translated.keys()) {
                     define(kind.getKey(), namespace, translated, path, origin, seen, definitions, diagnostics);
                 }
             }
+        }
+        // Once for the pack rather than once per item: on a real server this
+        // is hundreds of items with one cause.
+        if (art.missing() > 0) {
+            diagnostics.add(Diagnostic.warning(relative(root, folder),
+                    art.missing() + " model and texture paths in these items are not in this folder. Nexo reads a "
+                            + "path with no namespace from assets/minecraft/, so copy plugins/Nexo/pack/assets/ here "
+                            + "as resourcepack/assets/, and unzip anything in pack/external_packs/ into it too. "
+                            + "Oraxen's pack/models/ and pack/textures/ go here as models/ and textures/."));
         }
     }
 
