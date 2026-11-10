@@ -826,15 +826,7 @@ public final class ContentFolderLoader {
                 }
             }
         }
-        // Once for the pack rather than once per item: on a real server this
-        // is hundreds of items with one cause.
-        if (art.missing() > 0) {
-            diagnostics.add(Diagnostic.warning(relative(root, folder),
-                    art.missing() + " model and texture paths in these items are not in this folder. Nexo reads a "
-                            + "path with no namespace from assets/minecraft/, so copy plugins/Nexo/pack/assets/ here "
-                            + "as resourcepack/assets/, and unzip anything in pack/external_packs/ into it too. "
-                            + "Oraxen's pack/models/ and pack/textures/ go here as models/ and textures/."));
-        }
+        warnMissingArt(art, relative(root, folder), diagnostics);
     }
 
     private static String claimMessage(String namespace, ClaimResult claim) {
@@ -870,6 +862,7 @@ public final class ContentFolderLoader {
     private void loadCategory(Path root, Path folder, ContentKind kind, Namespace namespace,
                               List<ContentDefinition> definitions, List<Diagnostic> diagnostics) {
         Set<ContentId> unregisteredSeen = new HashSet<>();
+        NexoArt glyphArt = kind == ContentKind.FONT ? NexoArt.of(folder.getParent(), namespace.name()) : NexoArt.NONE;
         for (Path file : sortedDefinitionFiles(folder, diagnostics, relative(root, folder),
                 kind == ContentKind.EMOTE || kind == ContentKind.VFX)) {
             String origin = relative(root, file);
@@ -918,7 +911,7 @@ public final class ContentFolderLoader {
             }
             if (kind == ContentKind.FONT && NexoOraxenGlyph.looksLikeOne(document.get())) {
                 DefinitionNode translated = DefinitionNode.of(NexoOraxenGlyph.translate(document.get(), namespace.name(),
-                        origin, diagnostics));
+                        glyphArt, origin, diagnostics));
                 for (String path : translated.keys()) {
                     define(kind, namespace, translated, path, origin, unregisteredSeen, definitions, diagnostics);
                 }
@@ -939,6 +932,21 @@ public final class ContentFolderLoader {
                 define(kind, namespace, document.get(), path, origin,
                         unregisteredSeen, definitions, diagnostics);
             }
+        }
+        warnMissingArt(glyphArt, relative(root, folder), diagnostics);
+    }
+
+    /**
+     * Once for the pack rather than once per item: on a real server this is
+     * hundreds of entries with one cause.
+     */
+    private static void warnMissingArt(NexoArt art, String origin, List<Diagnostic> diagnostics) {
+        if (art.missing() > 0) {
+            diagnostics.add(Diagnostic.warning(origin,
+                    art.missing() + " model and texture paths in these files are not in this folder. Nexo reads a "
+                            + "path with no namespace from assets/minecraft/, so copy plugins/Nexo/pack/assets/ here "
+                            + "as resourcepack/assets/, and unzip anything in pack/external_packs/ into it too. "
+                            + "Oraxen's pack/models/ and pack/textures/ go here as models/ and textures/."));
         }
     }
 
