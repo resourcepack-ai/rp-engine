@@ -205,6 +205,22 @@ class NexoOraxenPackTest {
     }
 
     @Test
+    void aWholePackNestedAsANamespaceIsNamed() throws IOException {
+        write("wilden/items.yml", """
+                fish:
+                  material: COD
+                  Pack:
+                    texture: abbys_goodies:pyrofish/fish
+                """);
+        bytes("wilden/resourcepack/assets/ItemsAdder/assets/abbys_goodies/textures/pyrofish/fish.png", new byte[] {1});
+        bytes("wilden/resourcepack/assets/minecraft/textures/item/fine.png", new byte[] {2});
+
+        LoadReport report = load();
+        assertEquals(1, report.diagnostics().stream().filter(d -> d.message().contains("whole resource pack")).count());
+        assertTrue(warned(report, null, "resourcepack/assets/ItemsAdder/assets/ up into resourcepack/assets/"));
+    }
+
+    @Test
     void aPathInThePacksOwnLayoutStaysItsOwn() throws IOException {
         write("wilden/items/furniture.yml", """
                 clock:

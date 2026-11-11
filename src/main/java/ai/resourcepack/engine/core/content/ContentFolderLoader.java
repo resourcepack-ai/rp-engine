@@ -455,6 +455,7 @@ public final class ContentFolderLoader {
         // which is the whole point.
         loadItemsAdderConfigs(root, folder, claimed, definitions, diagnostics);
         loadNexoOraxenConfigs(root, folder, claimed, definitions, diagnostics);
+        warnNestedPacks(root, folder, diagnostics);
         loadCraftEngine(craftEngine, claimed, definitions, diagnostics);
         // An ItemsAdder pack keeps its own art in models/, so only a pack
         // that is not one reads BetterModel's .bbmodel files from there.
@@ -827,6 +828,33 @@ public final class ContentFolderLoader {
             }
         }
         warnMissingArt(art, relative(root, folder), diagnostics);
+    }
+
+    /**
+     * A whole resource pack dropped into {@code resourcepack/assets/} as if it
+     * were one namespace ({@code resourcepack/assets/ItemsAdder/assets/...}).
+     * Everything in it is copied where the game never looks, and the only thing
+     * that used to say so was a warning about capital letters.
+     */
+    private static void warnNestedPacks(Path root, Path folder, List<Diagnostic> diagnostics) {
+        Path assets = folder.resolve("resourcepack").resolve("assets");
+        if (!Files.isDirectory(assets)) {
+            return;
+        }
+        try (Stream<Path> children = Files.list(assets)) {
+            for (Path namespace : children.sorted().toList()) {
+                if (Files.isDirectory(namespace.resolve("assets"))) {
+                    String name = namespace.getFileName().toString();
+                    diagnostics.add(Diagnostic.warning(relative(root, namespace),
+                            "is a whole resource pack rather than a namespace: it has its own assets/ folder inside "
+                                    + "it, so nothing in it is where the game looks. Move the folders in "
+                                    + "resourcepack/assets/" + name + "/assets/ up into resourcepack/assets/, then "
+                                    + "delete resourcepack/assets/" + name + "/."));
+                }
+            }
+        } catch (IOException e) {
+            // An unreadable folder is reported by the builder when it copies it.
+        }
     }
 
     private static String claimMessage(String namespace, ClaimResult claim) {
