@@ -95,7 +95,7 @@ class NexoOraxenPackTest {
         var items = ItemDefinitions.parse(load()).items();
         ItemInfo ruby = items.get(ContentId.parse("nexo_pack:ruby").orElseThrow());
         ItemInfo sticker = items.get(ContentId.parse("nexo_pack:sticker").orElseThrow());
-        assertEquals("Ruby", ruby.name().orElseThrow());
+        assertEquals("&rRuby", ruby.name().orElseThrow());
         assertEquals("item/ruby", ruby.model().orElseThrow());
         assertEquals("item/sticker", sticker.texture());
     }
@@ -218,6 +218,27 @@ class NexoOraxenPackTest {
         LoadReport report = load();
         assertEquals(1, report.diagnostics().stream().filter(d -> d.message().contains("whole resource pack")).count());
         assertTrue(warned(report, null, "resourcepack/assets/ItemsAdder/assets/ up into resourcepack/assets/"));
+    }
+
+    @Test
+    void miniMessageNamesAndLoreBecomeColourCodesAndNamesAreNotItalic() throws IOException {
+        write("wilden/items.yml", """
+                cape:
+                  itemname: "<dark_purple>Darth Cape"
+                  material: PAPER
+                  lore:
+                    - "<gray>Worn by <bold>somebody</bold>"
+                  Pack: { model: wilden:cape }
+                fish:
+                  itemname: Basic fish
+                  material: COD
+                  Pack: { model: wilden:fish }
+                """);
+
+        var items = ItemDefinitions.parse(load()).items();
+        assertEquals("&r&5Darth Cape", items.get(id("wilden:cape")).name().orElseThrow());
+        assertEquals(List.of("&7Worn by &lsomebody"), items.get(id("wilden:cape")).lore());
+        assertEquals("&rBasic fish", items.get(id("wilden:fish")).name().orElseThrow());
     }
 
     @Test
@@ -386,7 +407,7 @@ class NexoOraxenPackTest {
                 """);
 
         var sword = ItemDefinitions.parse(load()).items().get(ContentId.parse("pack:ruby_sword").orElseThrow());
-        assertEquals("Ruby Sword", sword.name().orElseThrow());
+        assertEquals("&rRuby Sword", sword.name().orElseThrow());
         assertEquals(1, sword.stats().modifiers().size());
         assertEquals("attack_damage", sword.stats().modifiers().get(0).attribute());
         // Detailed form, so the operation is not read as a second attribute.
