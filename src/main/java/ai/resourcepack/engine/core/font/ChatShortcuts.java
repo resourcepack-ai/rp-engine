@@ -158,28 +158,6 @@ final class ChatShortcuts {
         return changed ? out.append(message.substring(at)).toString() : message;
     }
 
-    /**
-     * What chat offers somebody as they type: {@code :name:} for every icon
-     * {@code allowed} lets them use (or {@code :pack:name:} for one whose bare
-     * name another pack has), then its aliases, sorted.
-     */
-    List<String> completions(Predicate<IconInfo> allowed) {
-        java.util.TreeSet<String> out = new java.util.TreeSet<>();
-        for (IconInfo icon : byId.values()) {
-            if (!allowed.test(icon)) {
-                continue;
-            }
-            String path = icon.id().path();
-            out.add(byPath.get(path) == icon ? ":" + path + ":" : ":" + icon.id() + ":");
-        }
-        aliases.forEach((alias, icon) -> {
-            if (allowed.test(icon)) {
-                out.add(alias);
-            }
-        });
-        return List.copyOf(out);
-    }
-
     /** The icon one match names, or null. */
     private IconInfo resolve(Matcher matcher) {
         String alias = aliases.isEmpty() ? null : matcher.group("alias");
