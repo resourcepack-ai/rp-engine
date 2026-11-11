@@ -4,24 +4,14 @@ import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.IconInfo;
 import ai.resourcepack.engine.api.Icons;
 
-import ai.resourcepack.common.scheduler.Tasks;
-
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.plugin.Plugin;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -73,82 +63,17 @@ public final class ChatIcons implements Listener {
     /** What somebody needs to be allowed to use them. */
     public static final String PERMISSION = "rpengine.chat.icons";
 
-    private final Plugin plugin;
     private final Icons icons;
-    private final BooleanSupplier enabled;
-    /** What each player was last offered, which is what has to be taken back before offering again. */
-    private final Map<UUID, List<String>> offered = new ConcurrentHashMap<>();
+    private final boolean enabled;
 
     public ChatIcons(Icons icons, boolean enabled) {
-        this(null, icons, () -> enabled);
-    }
-
-    /**
-     * @param plugin  schedules the suggestions onto each player's own thread;
-     *                null offers none, which is what a test wants
-     * @param enabled asked on every message, so {@code chat.icons} follows the
-     *                config through {@code /rp reload}: a server owner turns it
-     *                on, reloads, and expects it on. It was read once at start
-     *                for a long time, and a reload looked like it did nothing.
-     */
-    public ChatIcons(Plugin plugin, Icons icons, BooleanSupplier enabled) {
-        this.plugin = plugin;
         this.icons = icons;
         this.enabled = enabled;
     }
 
-    /**
-     * The shortcuts somebody may type, offered by the client as they type, as
-     * Nexo and ItemsAdder do: somebody who has to remember {@code :bubble_tea:}
-     * by heart does not use it. Given at join and again after every reload,
-     * since that is when the icons, the setting or the permissions change.
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onJoin(PlayerJoinEvent event) {
-        offer(event.getPlayer());
-    }
-
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        offered.remove(event.getPlayer().getUniqueId());
-    }
-
-    /** Offers every online player the shortcuts they may use now, after a reload. */
-    public void offerAll() {
-        if (plugin == null) {
-            return;
-        }
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            Tasks.on(plugin, player, () -> offer(player));
-        }
-    }
-
-    private void offer(Player player) {
-        if (plugin == null || !player.isOnline()) {
-            return;
-        }
-        List<String> previous = offered.remove(player.getUniqueId());
-        if (previous != null && !previous.isEmpty()) {
-            player.removeCustomChatCompletions(previous);
-        }
-        if (!enabled.getAsBoolean() || !player.hasPermission(PERMISSION)) {
-            return;
-        }
-        List<String> next = shortcuts().completions(icon -> icon.permission().map(player::hasPermission).orElse(true));
-        if (!next.isEmpty()) {
-            player.addCustomChatCompletions(next);
-            offered.put(player.getUniqueId(), next);
-        }
-    }
-
-    /** What {@link #offerAll} would offer somebody who may use every icon; for tests. */
-    List<String> completions() {
-        return shortcuts().completions(icon -> true);
-    }
-
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (!enabled.getAsBoolean()) {
+        if (!enabled) {
             return;
         }
         Player player = event.getPlayer();
