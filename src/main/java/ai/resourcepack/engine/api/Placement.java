@@ -16,7 +16,10 @@ import java.util.Optional;
  * <p>A handle is a view of entities, not a snapshot - the rig it names can be
  * broken by a player at any moment, after which {@link #play} returns false
  * rather than throwing. Holding one across ticks is fine; it just stops
- * working when the rig does, which {@link #isValid()} answers.
+ * working when the rig does, which {@link #isValid()} answers. It also keeps
+ * working across its chunk unloading and loading again: the hitbox is found
+ * again by UUID, so {@link #hitbox()} may return a different object than it
+ * did before, for the same entity.
  *
  * <p><b>Two handles on the same rig are equal and hash alike</b>, so they can
  * be kept in a Set or compared directly. Every lookup returns a fresh object,
@@ -123,7 +126,11 @@ public interface Placement {
 
     boolean stop();
 
-    /** Whether the rig is still standing. False once anything has removed it. */
+    /**
+     * Whether the rig is still standing. False once anything has removed it,
+     * and also while its chunk is unloaded, since nothing there can be reached;
+     * {@link #remove} loads that chunk to reach it.
+     */
     boolean isValid();
 
     /**

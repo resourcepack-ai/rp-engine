@@ -286,46 +286,88 @@ public final class ModelsImpl implements Models {
 
     private final class Handle implements Placement {
 
-        private final Interaction hitbox;
+        /**
+         * The hitbox as last seen. Not final: a Bukkit entity object dies when
+         * its chunk unloads, and the entity that comes back with the chunk is a
+         * new object with the same UUID. A handle held across that would
+         * otherwise answer "gone" for a model still standing in the world, and
+         * refuse to remove it.
+         */
+        private Interaction hitbox;
 
         private Handle(Interaction hitbox) {
             this.hitbox = hitbox;
         }
 
+        /**
+         * The live hitbox, found again by UUID when the one held has gone stale.
+         *
+         * @param load whether to load the chunk it was last seen in, for a
+         *             caller that must reach it (removing it). A question
+         *             (is it valid, what is it playing) never loads a chunk.
+         */
+        private Interaction live(boolean load) {
+            if (hitbox.isValid()) return hitbox;
+            java.util.UUID id = hitbox.getUniqueId();
+            Entity found = Bukkit.getEntity(id);
+            if (found == null && load) {
+                Location last = hitbox.getLocation();
+                if (last.getWorld() != null) {
+                    try {
+                        for (Entity e : last.getWorld().getChunkAt(last).getEntities()) {
+                            if (e.getUniqueId().equals(id)) {
+                                found = e;
+                                break;
+                            }
+                        }
+                    } catch (RuntimeException notHere) {
+                        // Folia refuses a chunk this thread does not own. The
+                        // model is then out of reach from here, not gone.
+                    }
+                }
+            }
+            if (found instanceof Interaction && found.isValid()) hitbox = (Interaction) found;
+            return hitbox;
+        }
+
+        private Interaction live() {
+            return live(false);
+        }
+
         @Override
         public String modelId() {
-            String rig = animator.modelIdOf(hitbox);
+            String rig = animator.modelIdOf(live());
             if (rig != null) return rig;
             // A still content-folder piece: no rig, but an id of its own.
             ModelPlacementListener pieces = authored;
-            return pieces == null ? null : pieces.idOf(hitbox).map(Object::toString).orElse(null);
+            return pieces == null ? null : pieces.idOf(live()).map(Object::toString).orElse(null);
         }
 
         @Override
         public Location location() {
-            return hitbox.getLocation();
+            return live().getLocation();
         }
 
         @Override
         public Interaction hitbox() {
-            return hitbox;
+            return live();
         }
 
         @Override
         public List<String> animations() {
-            return animator.animationNamesOf(animator.modelIdOf(hitbox));
+            return animator.animationNamesOf(animator.modelIdOf(live()));
         }
 
         @Override
         public Optional<Double> playhead() {
             Host.requireMainThread();
-            return Optional.ofNullable(animator.playheadOn(hitbox));
+            return Optional.ofNullable(animator.playheadOn(live()));
         }
 
         @Override
         public Optional<String> playing() {
             Host.requireMainThread();
-            return Optional.ofNullable(animator.playingOn(hitbox));
+            return Optional.ofNullable(animator.playingOn(live()));
         }
 
         @Override
@@ -336,29 +378,30 @@ public final class ModelsImpl implements Models {
         @Override
         public boolean play(String animation, boolean restart) {
             Host.requireMainThread();
-            return animator.play(hitbox, animation, restart);
+            return animator.play(live(), animation, restart);
         }
 
         @Override
         public boolean seek(double seconds) {
             Host.requireMainThread();
-            return animator.seek(hitbox, seconds);
+            return animator.seek(live(), seconds);
         }
 
         @Override
         public boolean stop() {
             Host.requireMainThread();
-            return animator.stop(hitbox);
+            return animator.stop(live());
         }
 
         @Override
         public boolean isValid() {
-            return hitbox.isValid();
+            return live().isValid();
         }
 
         @Override
         public boolean remove(boolean dropItem) {
             Host.requireMainThread();
+            Interaction hitbox = live(true);
             if (!hitbox.isValid()) return false;
             // A content-folder piece, animated or still, comes apart the way a
             // player's punch takes it apart: its barrier and light go, its
@@ -386,7 +429,7 @@ public final class ModelsImpl implements Models {
         @Override
         public PersistentDataContainer data() {
             Host.requireMainThread();
-            return hitbox.getPersistentDataContainer();
+            return live().getPersistentDataContainer();
         }
 
         /**
