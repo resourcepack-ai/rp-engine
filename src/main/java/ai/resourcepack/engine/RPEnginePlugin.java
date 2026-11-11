@@ -1059,12 +1059,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // what people type in chat the moment it is installed is a plugin
         // somebody has to find the setting for in a hurry.
         getServer().getPluginManager().registerEvents(
-                new ChatIcons(icons, getConfig().getBoolean("chat.icons", false)), this);
+                new ChatIcons(icons, () -> getConfig().getBoolean("chat.icons", false)), this);
         // On by default, unlike icons: nothing happens until somebody with
         // a permission types <fx:...>, which nobody types by accident.
         getServer().getPluginManager().registerEvents(
                 new ai.resourcepack.engine.core.textfx.ChatTextEffects(textEffects,
-                        getConfig().getBoolean("chat.text-effects", true)), this);
+                        () -> getConfig().getBoolean("chat.text-effects", true)), this);
         // The client and the relay each need the other: the client dispatches
         // to the relay, the relay answers down the client. Nothing fires until
         // open() below, so the lambdas can read a field set on the next line.
