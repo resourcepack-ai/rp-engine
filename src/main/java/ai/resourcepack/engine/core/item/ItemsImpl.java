@@ -42,6 +42,8 @@ public final class ItemsImpl implements Items {
 
     private final Plugin plugin;
     private final NamespacedKey key;
+    /** Which part fills each slot, as {@code slot=namespace:id;...}: the record on every era. */
+    private final NamespacedKey partsKey;
     private final ItemModelWiring wiring;
     private final ItemComponents components;
     private final Equipping equipping;
@@ -57,6 +59,7 @@ public final class ItemsImpl implements Items {
     public ItemsImpl(Plugin plugin, Compatibility compatibility, ModelNumbers numbers) {
         this.plugin = plugin;
         this.key = new NamespacedKey(plugin, "id");
+        this.partsKey = new NamespacedKey(plugin, "parts");
         this.wiring = ItemModelWiring.forEra(compatibility.itemEra(), numbers);
         this.components = ItemComponents.forServer(compatibility);
         this.equipping = Equipping.forServer(compatibility);
@@ -326,6 +329,67 @@ public final class ItemsImpl implements Items {
      * correct, and a diagnostic would tell an author to fix something that is
      * not wrong.
      */
+    @Override
+    public Map<String, ContentId> partsOf(ItemStack stack) {
+        ItemInfo item = idOf(stack).map(items::get).orElse(null);
+        if (item == null || item.parts().isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> held = new java.util.HashMap<>();
+        ItemMeta meta = stack.getItemMeta();
+        String written = meta == null ? null
+                : meta.getPersistentDataContainer().get(partsKey, PersistentDataType.STRING);
+        if (written != null) {
+            for (String pair : written.split(";")) {
+                int at = pair.indexOf('=');
+                if (at > 0) {
+                    held.put(pair.substring(0, at), pair.substring(at + 1));
+                }
+            }
+        }
+        // A slot the stack does not name, or names with a part the pack no
+        // longer offers there, holds the first option: what it is drawn as.
+        Map<String, ContentId> out = new java.util.LinkedHashMap<>();
+        item.parts().forEach((slot, options) -> out.put(slot, ContentId.parse(held.getOrDefault(slot, ""))
+                .filter(options::contains)
+                .orElse(options.get(0))));
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    @Override
+    public Optional<ItemStack> withParts(ItemStack stack, Map<String, ContentId> parts) {
+        ItemInfo item = idOf(stack).map(items::get).orElse(null);
+        if (item == null || item.parts().isEmpty() || parts == null) {
+            return Optional.empty();
+        }
+        Map<String, ContentId> now = new java.util.LinkedHashMap<>(partsOf(stack));
+        for (Map.Entry<String, ContentId> entry : parts.entrySet()) {
+            List<ContentId> options = item.parts().get(entry.getKey());
+            if (options == null || !options.contains(entry.getValue())) {
+                return Optional.empty();
+            }
+            now.put(entry.getKey(), entry.getValue());
+        }
+        ItemStack out = stack.clone();
+        ItemMeta meta = out.getItemMeta();
+        if (meta == null) {
+            return Optional.empty();
+        }
+        StringBuilder record = new StringBuilder();
+        List<String> chosen = new ArrayList<>(now.size());
+        for (Map.Entry<String, ContentId> entry : now.entrySet()) {
+            if (record.length() > 0) {
+                record.append(';');
+            }
+            record.append(entry.getKey()).append('=').append(entry.getValue());
+            chosen.add(entry.getValue().toString());
+        }
+        meta.getPersistentDataContainer().set(partsKey, PersistentDataType.STRING, record.toString());
+        wiring.parts(meta, chosen);
+        out.setItemMeta(meta);
+        return Optional.of(out);
+    }
+
     private ItemComponents.Warner warnerFor(ItemInfo item) {
         return (option, needs) -> plugin.getLogger().warning(
                 item.id() + ": " + option + " needs Minecraft " + needs.since()

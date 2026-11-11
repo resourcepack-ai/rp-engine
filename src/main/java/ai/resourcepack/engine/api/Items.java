@@ -67,4 +67,35 @@ public interface Items {
      * @return whether the model was applied; false if the stack has no meta
      */
     boolean wearModel(ItemStack stack, ContentId modelId);
+
+    /**
+     * Which part fills each slot of an item made of parts ({@code parts:} in
+     * its definition), in slot order.
+     *
+     * <p>A slot the stack has never been given a part for holds that slot's
+     * first option, which is also what it is drawn with, so every slot always
+     * has an answer. Empty for a stack that is not an item made of parts.
+     */
+    java.util.Map<String, ContentId> partsOf(ItemStack stack);
+
+    /**
+     * A copy of {@code stack} with some of its parts changed; slots not named
+     * keep what they had. How a crafting recipe or a plugin's own workbench
+     * puts a tool together:
+     *
+     * <pre>{@code
+     * items.create(ContentId.of("tools", "pickaxe").get())
+     *     .flatMap(pick -> items.withParts(pick, Map.of(
+     *         "head", ContentId.of("tools", "gold_head").get(),
+     *         "handle", ContentId.of("tools", "birch_handle").get())));
+     * }</pre>
+     *
+     * Only the look and this record change: the stack's name, lore, damage
+     * and everything else are yours to set to match.
+     *
+     * @return the new stack, or empty if {@code stack} is not an item made of
+     *         parts, or a slot is not one of its own, or a part is not one of
+     *         that slot's options. Main thread only.
+     */
+    Optional<ItemStack> withParts(ItemStack stack, java.util.Map<String, ContentId> parts);
 }

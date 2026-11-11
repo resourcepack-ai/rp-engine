@@ -34,6 +34,15 @@ public interface ItemModelWiring {
     void apply(ItemMeta meta, ContentId id);
 
     /**
+     * Tells the client which part fills each slot of an item made of parts:
+     * one {@code custom_model_data} string per slot, in slot order, which is
+     * what the item's definition chooses on. Nothing on the numbered arm,
+     * where a client cannot draw an item out of several models.
+     */
+    default void parts(ItemMeta meta, java.util.List<String> chosen) {
+    }
+
+    /**
      * The arm for an era.
      *
      * @param numbers the allocator, needed only by the numbered arm. It is

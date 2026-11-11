@@ -66,6 +66,24 @@ renamed in an anvil is still itself, and a vanilla diamond somebody called
 `create` is main thread only, like everything that touches an `ItemStack`.
 `ids()` and `info()` are safe from any thread.
 
+### Items made of parts
+
+```java
+Items items = engine.items();
+ItemStack pick = items.create(ContentId.of("tools", "pickaxe").orElseThrow()).orElseThrow();
+pick = items.withParts(pick, Map.of(
+        "head", ContentId.of("tools", "gold_head").orElseThrow(),
+        "handle", ContentId.of("tools", "birch_handle").orElseThrow())).orElseThrow();
+Map<String, ContentId> parts = items.partsOf(pick);   // {handle=tools:birch_handle, head=tools:gold_head}
+```
+
+For an item with `parts:` in its definition. `withParts` returns a changed
+copy (slots you leave out keep what they had), or empty when the stack is not
+an item made of parts, the slot is not one of its own, or the part is not one
+of that slot's options. `partsOf` always answers every slot, with the first
+option for a slot never set. `ItemInfo.parts()` lists the slots and their
+options. Only the look and the record change; name, lore and stats are yours.
+
 ## Models
 
 ```java

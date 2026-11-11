@@ -215,6 +215,27 @@ does not stop it loading.
 There is deliberately **no `furniture/` folder**: putting a model down is
 something an item does, not a kind of content. See below.
 
+## Items made of parts
+
+```yaml
+# items/tools.yml
+pickaxe:
+  material: IRON_PICKAXE
+  parts:                      # slot: [the items that can fill it]
+    handle: [oak_handle, birch_handle]
+    head: [iron_head, gold_head]
+```
+
+Each option is an item of its own (a bare name is in this pack). A stack is
+drawn as the models of the parts it holds, one layer per slot in the order
+written, by a `minecraft:composite` item definition whose slot `i` is a
+`select` on the stack's `custom_model_data` string at index `i`. Which parts a
+stack holds is also kept in its persistent data, so it survives on every era.
+A slot nothing has been set in draws its first option. The item writes no
+model of its own on 1.21.4+; below 1.21.4 it draws as its own texture or
+model, with a warning. Up to 16 slots. A crafting recipe fills the slots from
+its ingredients (see Recipes, `a | b`), and plugins use `Items.withParts`.
+
 ## Making an item do something
 
 ```yaml
@@ -4398,6 +4419,11 @@ the way a vanilla ingredient should. `minecraft:diamond` is the material too.
 A third spelling, **a vanilla potion**, is the material, a slash and the potion
 type: `potion/awkward`, `splash_potion/healing`. It is what a brewing recipe
 usually starts from.
+
+**An ingredient may be several items**, any of which will do: `"mypack:iron_head
+| mypack:gold_head"` (quoted). Shaped and shapeless recipes only. When the
+result is an item made of `parts:`, each ingredient that is one of a slot's
+options fills that slot, so one recipe makes every combination.
 
 ### Smithing, brewing and anvils
 
