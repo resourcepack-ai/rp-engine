@@ -515,6 +515,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private PackDelivery delivery;
     private List<BuiltPack> built = List.of();
     private String defaultBundle = "";
+    /** Typing icons in chat; null until enable, which is after the first load. */
+    private ChatIcons chatIcons;
 
     @Override
     public void onLoad() {
@@ -1058,8 +1060,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Off unless a server asks for it: a plugin that starts rewriting
         // what people type in chat the moment it is installed is a plugin
         // somebody has to find the setting for in a hurry.
-        getServer().getPluginManager().registerEvents(
-                new ChatIcons(icons, () -> getConfig().getBoolean("chat.icons", false)), this);
+        chatIcons = new ChatIcons(this, icons, () -> getConfig().getBoolean("chat.icons", false));
+        getServer().getPluginManager().registerEvents(chatIcons, this);
+        // Players already online (a /reload, PlugMan) get theirs now; anybody
+        // later gets them as they join.
+        chatIcons.offerAll();
         // On by default, unlike icons: nothing happens until somebody with
         // a permission types <fx:...>, which nobody types by accident.
         getServer().getPluginManager().registerEvents(
@@ -2786,6 +2791,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "icons", parsedIcons.diagnostics());
         icons.replace(parsedIcons.icons());
+        if (chatIcons != null) {
+            // New icons, the setting or permissions may have changed: what
+            // chat suggests follows them.
+            chatIcons.offerAll();
+        }
         rankTagWearers.replace(parsedIcons);
         registerRankTagPermissions();
 

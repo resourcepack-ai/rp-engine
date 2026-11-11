@@ -34,6 +34,13 @@ class ChatIconsTest {
 
     private final ChatIcons chat = new ChatIcons(icons(), true);
 
+    @Test
+    void chatSuggestsEveryShortcutOnceAndTheNamespacedOneWhereTwoShareAName() {
+        assertEquals(List.of("(y)", ":crown:", ":heart:", ":king:", ":love:", ":otherpack:wave:", ":smile:",
+                        ":thumbs:", ":wave:", "<3"),
+                chat.completions());
+    }
+
     private static Icons icons() {
         Map<ContentId, IconInfo> all = new LinkedHashMap<>();
         put(all, "mypack", "wave", WAVE);
