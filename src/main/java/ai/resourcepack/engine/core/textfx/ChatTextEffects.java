@@ -30,9 +30,10 @@ public final class ChatTextEffects implements Listener {
     public static final String PREFIX = "rpengine.chat.effects.";
 
     private final TextEffectCatalogue effects;
-    private final boolean enabled;
+    private final java.util.function.BooleanSupplier enabled;
 
-    public ChatTextEffects(TextEffectCatalogue effects, boolean enabled) {
+    /** @param enabled asked on every message, so {@code chat.text-effects} follows {@code /rp reload} */
+    public ChatTextEffects(TextEffectCatalogue effects, java.util.function.BooleanSupplier enabled) {
         this.effects = effects;
         this.enabled = enabled;
     }
@@ -49,7 +50,7 @@ public final class ChatTextEffects implements Listener {
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (!enabled || !TextEffectTags.mightMatch(event.getMessage())) {
+        if (!enabled.getAsBoolean() || !TextEffectTags.mightMatch(event.getMessage())) {
             return;
         }
         Player player = event.getPlayer();

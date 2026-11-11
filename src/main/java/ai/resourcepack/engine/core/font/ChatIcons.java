@@ -12,6 +12,7 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -64,16 +65,26 @@ public final class ChatIcons implements Listener {
     public static final String PERMISSION = "rpengine.chat.icons";
 
     private final Icons icons;
-    private final boolean enabled;
+    private final BooleanSupplier enabled;
 
     public ChatIcons(Icons icons, boolean enabled) {
+        this(icons, () -> enabled);
+    }
+
+    /**
+     * @param enabled asked on every message, so {@code chat.icons} follows the
+     *                config through {@code /rp reload}: a server owner turns it
+     *                on, reloads, and expects it on. It was read once at start
+     *                for a long time, and a reload looked like it did nothing.
+     */
+    public ChatIcons(Icons icons, BooleanSupplier enabled) {
         this.icons = icons;
         this.enabled = enabled;
     }
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onChat(AsyncPlayerChatEvent event) {
-        if (!enabled) {
+        if (!enabled.getAsBoolean()) {
             return;
         }
         Player player = event.getPlayer();
