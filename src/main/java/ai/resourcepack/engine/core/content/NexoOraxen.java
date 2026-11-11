@@ -151,11 +151,19 @@ final class NexoOraxen {
                                              String origin, List<Diagnostic> diagnostics) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("material", item.string("material").orElse("PAPER"));
+        // Both plugins write names and lore in MiniMessage, and ours are & codes,
+        // so <dark_purple> came out as the words "<dark_purple>". A name also
+        // starts with &r: Nexo's itemname is the game's item name, which is not
+        // italic, and a custom name with no colour code in front of it is.
         item.string("itemname").or(() -> item.string("displayname"))
                 .or(() -> item.string("display_name"))
                 .or(() -> item.string("customname"))
-                .ifPresent(name -> out.put("name", name));
-        if (!item.strings("lore").isEmpty()) out.put("lore", item.strings("lore"));
+                .ifPresent(name -> out.put("name", "&r" + text(name)));
+        if (!item.strings("lore").isEmpty()) {
+            List<String> lore = new ArrayList<>();
+            for (String line : item.strings("lore")) lore.add(text(line));
+            out.put("lore", lore);
+        }
         if (item.bool("unbreakable").orElse(Boolean.FALSE)) out.put("unbreakable", true);
 
         enchantments(item, id, origin, diagnostics).ifPresent(enchants -> out.put("enchantments", enchants));
@@ -241,6 +249,14 @@ final class NexoOraxen {
                     .flatMap(model -> localPath(model, namespace, art, id, origin, diagnostics, "Components.item_model"))
                     .ifPresent(model -> out.put("model", model));
         }
+    }
+
+    /**
+     * MiniMessage as & codes, the way CraftEngine's text is converted: colours
+     * and decorations come across, a gradient as its first colour.
+     */
+    private static String text(String miniMessage) {
+        return CraftEngineText.convert(miniMessage, key -> null).text();
     }
 
     /** Every texture layer, in the order Nexo/Oraxen would layer them. */
