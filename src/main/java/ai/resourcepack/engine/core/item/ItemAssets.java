@@ -180,6 +180,7 @@ public final class ItemAssets implements PackContributor {
         readGui(loaded, into);
         readUseStates(loaded, into);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
+        parsedItems = parsed.items();
         for (ItemInfo item : parsed.items().values()) {
             if (!bundle.namespaces().contains(item.id().namespace())) {
                 continue;
@@ -470,6 +471,52 @@ public final class ItemAssets implements PackContributor {
         }
     }
 
+    /** This build's items, for an item made of parts to find its options' models. */
+    private Map<ContentId, ItemInfo> parsedItems = Map.of();
+
+    /**
+     * An item made of parts, as one definition: each slot a choice on the
+     * stack's {@code custom_model_data} string at the slot's position, drawn
+     * together. A stack that names no part in a slot (one fresh from /rp give)
+     * draws that slot's first option, so it always looks like a whole thing.
+     *
+     * @return the definition, or null when no slot has an option to draw
+     */
+    private String partsLook(ItemInfo item, Contribution into) {
+        List<String> layers = new ArrayList<>();
+        int index = 0;
+        for (Map.Entry<String, List<ContentId>> slot : item.parts().entrySet()) {
+            List<String> cases = new ArrayList<>();
+            String first = null;
+            for (ContentId option : slot.getValue()) {
+                ItemInfo part = parsedItems.get(option);
+                if (part == null) {
+                    part = blockItems.stream().filter(one -> one.id().equals(option)).findFirst().orElse(null);
+                }
+                if (part == null) {
+                    into.warn(item.id().namespace() + "/items", item.id().path(), "parts." + slot.getKey()
+                            + ": " + option + " is not an item any pack defines, so it draws nothing.");
+                    continue;
+                }
+                ContentId model = part.modelId();
+                String look = "{\"type\":\"minecraft:model\",\"model\":\""
+                        + model.namespace() + ":item/" + model.path() + "\"}";
+                if (first == null) {
+                    first = look;
+                }
+                cases.add("{\"when\":\"" + option + "\",\"model\":" + look + "}");
+            }
+            if (first != null) {
+                layers.add("{\"type\":\"minecraft:select\",\"property\":\"minecraft:custom_model_data\","
+                        + "\"index\":" + index + ",\"cases\":[" + String.join(",", cases) + "],"
+                        + "\"fallback\":" + first + "}");
+            }
+            index++;
+        }
+        return layers.isEmpty() ? null
+                : "{\"type\":\"minecraft:composite\",\"models\":[" + String.join(",", layers) + "]}";
+    }
+
     private void writeItem(ItemInfo item, Contribution into) {
         ContentId id = item.id();
         String namespace = id.namespace();
@@ -499,6 +546,12 @@ public final class ItemAssets implements PackContributor {
                         "first-person: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
                                 + "it is seen. On this one the item's own model is drawn in first person too.");
             }
+            if (!item.parts().isEmpty()) {
+                into.warn(namespace + "/items", id.path(),
+                        "parts: needs Minecraft 1.21.4 or newer, where the client can draw an item out of "
+                                + "several models. On this one it is drawn as its own texture or model, "
+                                + "whatever parts it holds; the parts are still kept on every stack.");
+            }
             if (gui.containsKey(id)) {
                 into.warn(namespace + "/items", id.path(),
                         "gui: needs Minecraft 1.21.4 or newer, where an item can be drawn by where "
@@ -513,6 +566,10 @@ public final class ItemAssets implements PackContributor {
             }
         } else {
             String look = "{\"type\":\"minecraft:model\",\"model\":\"" + modelRef + "\"}";
+            String assembled = item.parts().isEmpty() ? null : partsLook(item, into);
+            if (assembled != null) {
+                look = assembled;
+            }
             // The game picks by where the item is being drawn: the holder's own
             // view gets the first-person model, an inventory the gui one, and
             // everything else (a third-person view, the ground) the item's own.
@@ -550,7 +607,9 @@ public final class ItemAssets implements PackContributor {
             into.add("assets/" + namespace + "/items/" + id.path() + ".json", json("{\"model\":" + look + "}"));
         }
 
-        if (item.model().isPresent()) {
+        if (!numbered && !item.parts().isEmpty()) {
+            // Drawn entirely from its parts' models; nothing of its own to write.
+        } else if (item.model().isPresent()) {
             writeModel(item, namespace, modelPath, into);
         } else {
             writeSprite(item, namespace, modelPath, into);

@@ -123,7 +123,70 @@ public final class ItemDefinitions {
                 .withLiquid(liquid(body, origin, where, diagnostics))
                 .withArmorTexture(armorTexture(body, origin, where, diagnostics))
                 .withArmor3d(armor3d(body, origin, where, diagnostics))
-                .withVanillaRecipes(body.bool("vanilla-recipes").orElse(Boolean.FALSE)));
+                .withVanillaRecipes(body.bool("vanilla-recipes").orElse(Boolean.FALSE))
+                .withParts(parts(body, definition.id(), origin, diagnostics)));
+    }
+
+    /** Most slots an item may have, since each one is a layer drawn on every stack of it. */
+    private static final int MAX_PARTS = 16;
+
+    /**
+     * {@code parts:}, the slots an item is built from, in drawing order:
+     *
+     * <pre>
+     * pickaxe:
+     *   material: iron_pickaxe
+     *   parts:
+     *     handle: [oak_handle, birch_handle]
+     *     head: [iron_pickaxe_head, gold_pickaxe_head]
+     * </pre>
+     *
+     * Each option is an item, by id; a bare name is in the item's own
+     * namespace. Whether each one exists is checked when the pack is built,
+     * because it may belong to a pack that has not loaded yet.
+     */
+    static Map<String, List<ContentId>> parts(DefinitionNode body, ContentId id,
+                                              String origin, List<Diagnostic> diagnostics) {
+        DefinitionNode declared = body.node("parts").orElse(null);
+        if (declared == null) {
+            if (body.has("parts")) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "parts: is a map of slot names to the items that can fill them, like "
+                                + "parts: {handle: [oak_handle], head: [iron_head]}. It was ignored."));
+            }
+            return Map.of();
+        }
+        Map<String, List<ContentId>> out = new LinkedHashMap<>();
+        for (String slot : declared.keys()) {
+            if (out.size() == MAX_PARTS) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "parts: has more than " + MAX_PARTS + " slots; the rest were ignored."));
+                break;
+            }
+            if (!slot.matches("[a-z0-9_.-]+")) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(), "parts." + slot
+                        + ": a slot name is lower case letters, digits, _ . and -. It was ignored."));
+                continue;
+            }
+            List<ContentId> options = new ArrayList<>();
+            for (String written : declared.strings(slot)) {
+                String text = written.trim().toLowerCase(Locale.ROOT);
+                Optional<ContentId> option = ContentId.parse(text.contains(":") ? text : id.namespace() + ":" + text);
+                if (option.isEmpty()) {
+                    diagnostics.add(Diagnostic.warning(origin, id.path(),
+                            "parts." + slot + ": " + written + " is not an item id. It was left out."));
+                } else if (!options.contains(option.get())) {
+                    options.add(option.get());
+                }
+            }
+            if (options.isEmpty()) {
+                diagnostics.add(Diagnostic.warning(origin, id.path(),
+                        "parts." + slot + " names no items, so it was ignored."));
+                continue;
+            }
+            out.put(slot, List.copyOf(options));
+        }
+        return out;
     }
 
     /**

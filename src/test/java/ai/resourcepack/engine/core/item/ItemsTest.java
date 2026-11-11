@@ -331,6 +331,51 @@ class ItemsTest {
     }
 
     @Test
+    void anItemMadeOfPartsIsDrawnFromItsPartsModels() throws IOException {
+        write("tools/pack.yml", "{}\n");
+        write("tools/items/parts.yml", "oak_handle:\n  material: STICK\n"
+                + "birch_handle:\n  material: STICK\n"
+                + "iron_head:\n  material: PAPER\n"
+                + "gold_head:\n  material: PAPER\n"
+                + "pickaxe:\n  material: IRON_PICKAXE\n"
+                + "  parts:\n    handle: [oak_handle, birch_handle]\n    head: [iron_head, tools:gold_head]\n");
+        for (String part : List.of("oak_handle", "birch_handle", "iron_head", "gold_head")) {
+            write("tools/assets/textures/item/" + part + ".png", "PNG");
+        }
+
+        ItemInfo pickaxe = one(items(), "tools:pickaxe");
+        assertEquals(List.of("handle", "head"), List.copyOf(pickaxe.parts().keySet()));
+        assertEquals(List.of(ContentId.parse("tools:iron_head").orElseThrow(),
+                ContentId.parse("tools:gold_head").orElseThrow()), pickaxe.parts().get("head"));
+
+        Map<String, String> zip = buildAndRead();
+        assertEquals("{\"model\":{\"type\":\"minecraft:composite\",\"models\":["
+                        + "{\"type\":\"minecraft:select\",\"property\":\"minecraft:custom_model_data\",\"index\":0,"
+                        + "\"cases\":[{\"when\":\"tools:oak_handle\",\"model\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/oak_handle\"}},"
+                        + "{\"when\":\"tools:birch_handle\",\"model\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/birch_handle\"}}],"
+                        + "\"fallback\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/oak_handle\"}},"
+                        + "{\"type\":\"minecraft:select\",\"property\":\"minecraft:custom_model_data\",\"index\":1,"
+                        + "\"cases\":[{\"when\":\"tools:iron_head\",\"model\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/iron_head\"}},"
+                        + "{\"when\":\"tools:gold_head\",\"model\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/gold_head\"}}],"
+                        + "\"fallback\":{\"type\":\"minecraft:model\",\"model\":\"tools:item/iron_head\"}}]}}",
+                zip.get("assets/tools/items/pickaxe.json"));
+        // Nothing of its own: no texture for it exists, and none is asked for.
+        assertFalse(zip.containsKey("assets/tools/models/item/pickaxe.json"));
+    }
+
+    @Test
+    void aPartThatIsNotAnItemIsReportedAndLeftOut() throws IOException {
+        write("tools/pack.yml", "{}\n");
+        write("tools/items/parts.yml", "iron_head:\n  material: PAPER\n"
+                + "axe:\n  material: IRON_AXE\n  parts:\n    head: [iron_head, nothing_here]\n");
+        write("tools/assets/textures/item/iron_head.png", "PNG");
+
+        BuildReport report = new PackBuilder().with(new ItemAssets()).build(content, out, load());
+        assertTrue(report.diagnostics().stream().map(Diagnostic::message)
+                .anyMatch(message -> message.contains("tools:nothing_here")), report.diagnostics().toString());
+    }
+
+    @Test
     void anItemWithoutAFirstPersonModelKeepsItsPlainDefinition() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "ruby:\n  material: DIAMOND\n");

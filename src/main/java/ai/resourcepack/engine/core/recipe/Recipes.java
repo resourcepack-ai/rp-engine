@@ -93,13 +93,15 @@ public final class Recipes {
     /**
      * The listeners that keep custom items out of vanilla's recipes: the guard,
      * and on a server with a crafter, the crafter's arm of it. See
-     * {@link VanillaRecipeGuard}. Registered once by the plugin.
+     * {@link VanillaRecipeGuard}. Registered once by the plugin. Also the
+     * one that fills in an item made of parts from what it was crafted from,
+     * {@link PartAssembly}, which has to run after the guard.
      */
     public List<Listener> vanillaGuards() {
         if (compatibility.has(Feature.CRAFTER)) {
-            return List.of(guard, new CrafterGuard(guard));
+            return List.of(guard, new CrafterGuard(guard), new PartAssembly(items));
         }
-        return List.of(guard);
+        return List.of(guard, new PartAssembly(items));
     }
 
     /** {@code items.vanilla-recipes}: true lets every custom item into vanilla's recipes. */
@@ -250,6 +252,39 @@ public final class Recipes {
         return item;
     }
 
+    /**
+     * A crafting ingredient, which may be several items any of which will do:
+     * {@code tools:iron_head | tools:gold_head}. What an item made of parts is
+     * crafted from, one recipe for every combination.
+     */
+    private Optional<RecipeChoice> anyOf(RecipeInfo info, String written, List<String> problems) {
+        if (written == null || written.indexOf('|') < 0) {
+            return resolve(info, written, "ingredient", problems).map(RecipeItem::exact);
+        }
+        List<ItemStack> exact = new ArrayList<>();
+        List<org.bukkit.Material> plain = new ArrayList<>();
+        for (String one : written.split("[|]")) {
+            Optional<RecipeItem> item = resolve(info, one, "ingredient", problems);
+            if (item.isEmpty()) {
+                return Optional.empty();
+            }
+            RecipeChoice choice = item.get().exact();
+            if (choice instanceof RecipeChoice.ExactChoice) {
+                exact.addAll(((RecipeChoice.ExactChoice) choice).getChoices());
+            } else {
+                plain.add(item.get().material());
+            }
+        }
+        if (exact.isEmpty()) {
+            return Optional.of(new RecipeChoice.MaterialChoice(plain));
+        }
+        // Mixed: a plain material is matched as a plain stack of itself.
+        for (org.bukkit.Material material : plain) {
+            exact.add(new ItemStack(material));
+        }
+        return Optional.of(new RecipeChoice.ExactChoice(exact));
+    }
+
     private Optional<Recipe> build(RecipeInfo info, List<String> problems) {
         Optional<RecipeItem> result = resolve(info, info.result(), "result", problems);
         if (result.isEmpty()) {
@@ -263,22 +298,22 @@ public final class Recipes {
                 ShapedRecipe recipe = new ShapedRecipe(key, made);
                 recipe.shape(info.rows().toArray(new String[0]));
                 for (Map.Entry<String, String> entry : info.keys().entrySet()) {
-                    Optional<RecipeItem> choice = resolve(info, entry.getValue(), "ingredient", problems);
+                    Optional<RecipeChoice> choice = anyOf(info, entry.getValue(), problems);
                     if (choice.isEmpty()) {
                         return Optional.empty();
                     }
-                    recipe.setIngredient(entry.getKey().charAt(0), choice.get().exact());
+                    recipe.setIngredient(entry.getKey().charAt(0), choice.get());
                 }
                 return Optional.of(recipe);
             }
             case SHAPELESS: {
                 ShapelessRecipe recipe = new ShapelessRecipe(key, made);
                 for (String ingredient : info.ingredients()) {
-                    Optional<RecipeItem> choice = resolve(info, ingredient, "ingredient", problems);
+                    Optional<RecipeChoice> choice = anyOf(info, ingredient, problems);
                     if (choice.isEmpty()) {
                         return Optional.empty();
                     }
-                    recipe.addIngredient(choice.get().exact());
+                    recipe.addIngredient(choice.get());
                 }
                 return Optional.of(recipe);
             }

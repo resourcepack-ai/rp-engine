@@ -21,4 +21,11 @@ final class DefinitionsWiring implements ItemModelWiring {
     public void apply(ItemMeta meta, ContentId id) {
         meta.setItemModel(new NamespacedKey(id.namespace(), id.path()));
     }
+
+    @Override
+    public void parts(ItemMeta meta, java.util.List<String> chosen) {
+        org.bukkit.inventory.meta.components.CustomModelDataComponent data = meta.getCustomModelDataComponent();
+        data.setStrings(chosen);
+        meta.setCustomModelDataComponent(data);
+    }
 }
