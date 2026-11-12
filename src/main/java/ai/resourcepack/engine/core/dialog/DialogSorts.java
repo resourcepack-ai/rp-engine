@@ -66,6 +66,26 @@ import java.util.regex.Pattern;
  *
  * Nothing here knows where a slot is or what a piece looks like: it answers
  * placeholders, and the conditions do the rest.
+ *
+ * <h2>A list that scrolls</h2>
+ *
+ * The same insertion carries a second kind of rule: a LIST whose first row is
+ * not item one ({@link Scroll}). Studio's list rows say {@code {warps_1}},
+ * {@code {warps_2}}... and a list told to start at {@code {warps_from}} (a
+ * setting a stepper in the dialog moves) carries
+ *
+ * <pre>
+ *   {"list":"warps","start":"{warps_from}"}
+ * </pre>
+ *
+ * after which row k's names are item {@code k + start - 1}'s: with
+ * {@code warps_from} at 6, {@code {warps_1}} is the sixth warp and
+ * {@code {warps_1_note}} its note, for the text, the conditions and the
+ * clicks alike. A list that COUNTS ({@code "count"} beside it) has no items to
+ * look up: its row k says {@code {home_k}}, answered with the number itself,
+ * or nothing past the count, which is what hides the row. An engine older than
+ * this reads such a rule as a sorted box with no name, and shows the list
+ * from item one.
  */
 public final class DialogSorts {
 
@@ -80,6 +100,12 @@ public final class DialogSorts {
 
     /** What a value counts as a number: Studio's {@code conditionNumber}, so both ends agree. */
     private static final Pattern NUMBER = Pattern.compile("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?");
+
+    /** A list row's name past its list's: the row, and a field of it ({@code 3}, {@code 3_note}). */
+    private static final Pattern ROW = Pattern.compile("(\\d{1,3})(?:_([a-z0-9_]+))?");
+
+    /** The furthest item a scrolled list reaches: a row's number has three digits. */
+    static final int MAX_ITEM = 999;
 
     /** Bounds on what one dialog may ask of this: Studio's are lower. */
     private static final int MAX_CHILDREN = 64;
@@ -98,17 +124,67 @@ public final class DialogSorts {
      * A dialog worked out for one player: its JSON with the rules taken out,
      * and what they answer.
      */
-    public record Sorted(String json, Map<String, String> values) {
+    public record Sorted(String json, Map<String, String> values, List<Scroll> scrolls) {
 
-        /** {@code lookup}, answering this dialog's sort placeholders first. */
+        public Sorted(String json, Map<String, String> values) {
+            this(json, values, List.of());
+        }
+
+        /** {@code lookup}, answering this dialog's sort placeholders and scrolled list rows first. */
         public Function<String, Optional<String>> over(Function<String, Optional<String>> lookup) {
-            if (values.isEmpty()) {
+            if (values.isEmpty() && scrolls.isEmpty()) {
                 return lookup;
             }
             return name -> {
-                String mine = values.get(name.toLowerCase(Locale.ROOT));
-                return mine != null ? Optional.of(mine) : lookup.apply(name);
+                String key = name.toLowerCase(Locale.ROOT);
+                String mine = values.get(key);
+                if (mine != null) {
+                    return Optional.of(mine);
+                }
+                for (Scroll scroll : scrolls) {
+                    Optional<String> row = scroll.answer(key, lookup);
+                    if (row != null) {
+                        return row;
+                    }
+                }
+                return lookup.apply(name);
             };
+        }
+    }
+
+    /**
+     * A list whose first row shows item {@code offset + 1}. {@code count} is a
+     * counting list's count (0 when nothing filled it), or -1 for a list the
+     * server fills.
+     */
+    public record Scroll(String list, int offset, int count) {
+
+        /**
+         * A row name of this list moved on by the offset: the moved item's
+         * value, or a counting list's number. Null when {@code key} is no row
+         * of this list.
+         */
+        Optional<String> answer(String key, Function<String, Optional<String>> lookup) {
+            if (!key.startsWith(list + "_")) {
+                return null;
+            }
+            java.util.regex.Matcher m = ROW.matcher(key.substring(list.length() + 1));
+            if (!m.matches()) {
+                return null;
+            }
+            int row = Integer.parseInt(m.group(1));
+            if (row < 1) {
+                return null;
+            }
+            int item = row + offset;
+            String field = m.group(2);
+            if (count >= 0 && field == null) {
+                return Optional.of(item <= count ? String.valueOf(item) : "");
+            }
+            if (item > MAX_ITEM) {
+                return Optional.of("");
+            }
+            return lookup.apply(list + "_" + item + (field == null ? "" : "_" + field));
         }
     }
 
@@ -135,10 +211,49 @@ public final class DialogSorts {
         Map<String, Boolean> known = new HashMap<>();
         Predicate<String> holds = e -> e == null || e.isBlank()
                 || known.computeIfAbsent(e, x -> DialogConditions.test(x, lookup, permission));
+        List<Scroll> scrolls = new ArrayList<>();
         for (JsonObject spec : specs) {
-            values.putAll(arrange(spec, lookup, holds));
+            if (spec.has("list")) {
+                Scroll scroll = scroll(spec, lookup);
+                if (scroll != null) {
+                    scrolls.add(scroll);
+                }
+            } else {
+                values.putAll(arrange(spec, lookup, holds));
+            }
         }
-        return new Sorted(GSON.toJson(root), values);
+        // A list whose name begins another's (warps, warps_vip) is asked first.
+        scrolls.sort((a, b) -> b.list().length() - a.list().length());
+        return new Sorted(GSON.toJson(root), values, List.copyOf(scrolls));
+    }
+
+    /**
+     * A scrolled list's rule for the player: where it starts (1 when its start
+     * is not a number, and never past {@link #MAX_ITEM}), and a counting
+     * list's count. Null for a list with no name a list may have.
+     */
+    static Scroll scroll(JsonObject spec, Function<String, Optional<String>> lookup) {
+        String list = string(spec, "list");
+        if (list == null || !NAME.matcher(list).matches()) {
+            return null;
+        }
+        int start = whole(string(spec, "start"), lookup, 1);
+        String count = string(spec, "count");
+        return new Scroll(list, Math.min(Math.max(start, 1), MAX_ITEM) - 1,
+                count == null ? -1 : Math.min(Math.max(whole(count, lookup, 0), 0), MAX_ITEM));
+    }
+
+    /** A value filled for the player as a whole number (rounded down), or {@code fallback}. */
+    private static int whole(String text, Function<String, Optional<String>> lookup, int fallback) {
+        if (text == null) {
+            return fallback;
+        }
+        String filled = DialogConditions.fill(text, lookup).trim().replace(",", "");
+        if (!NUMBER.matcher(filled).matches()) {
+            return fallback;
+        }
+        double n = Math.floor(Double.parseDouble(filled));
+        return n > MAX_ITEM ? MAX_ITEM : n < -MAX_ITEM ? -MAX_ITEM : (int) n;
     }
 
     /** Every sorted box's rules, each component that carried them emptied. */
