@@ -246,6 +246,8 @@ public final class StudioContent {
     private volatile Map<String, Armor3dSet> armor3d = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> textEffects = Map.of();
+    /** The pushed icons, so a server can list and name them; the pictures are the pack's own. */
+    private volatile Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
@@ -421,6 +423,7 @@ public final class StudioContent {
         copy.armor3d = armor3d;
         copy.objects = objects;
         copy.textEffects = textEffects;
+        copy.icons = icons;
         copy.vfx = vfx;
         copy.stingers = stingers;
         copy.mobs = mobs;
@@ -450,6 +453,7 @@ public final class StudioContent {
         Map<String, Armor3dSet> armor = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
@@ -470,6 +474,7 @@ public final class StudioContent {
             armor.putAll(pack.armor3d);
             objects.putAll(pack.objects);
             effects.putAll(pack.textEffects);
+            icons.putAll(pack.icons);
             vfx.putAll(pack.vfx);
             stingers.putAll(pack.stingers);
             // A mob's skills go with the mob: a later push of it with none
@@ -491,6 +496,7 @@ public final class StudioContent {
         all.armor3d = Map.copyOf(armor);
         all.objects = Map.copyOf(objects);
         all.textEffects = Map.copyOf(effects);
+        all.icons = Map.copyOf(icons);
         all.vfx = Map.copyOf(vfx);
         all.stingers = Map.copyOf(stingers);
         all.mobs = Map.copyOf(mobs);
@@ -544,6 +550,15 @@ public final class StudioContent {
     /** The pushed 3D shader objects, keyed by {@code studio:<id>}. */
     public Map<ContentId, ai.resourcepack.engine.api.ShaderObjectInfo> objects() {
         return objects;
+    }
+
+    /**
+     * The pushed icons, keyed by {@code studio:<id>}. Drawn by the pack they came
+     * in, so the engine never builds them into its own: this is only so
+     * {@code /rp icons} lists them and {@code :studio:<id>:} types them.
+     */
+    public Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons() {
+        return icons;
     }
 
     /** The pushed text effects, keyed by {@code studio:<id>}. */
@@ -625,7 +640,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && variations.isEmpty() && works.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && mobs.isEmpty();
+                && textEffects.isEmpty() && icons.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -858,6 +873,21 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.TextEffectInfo.Source.STUDIO, null)));
         }
 
+        Map<ContentId, ai.resourcepack.engine.api.IconInfo> readIcons = new LinkedHashMap<>();
+        for (Icon icon : manifest.icons == null ? List.<Icon>of() : manifest.icons) {
+            // A character outside the Private Use Area is an icon drawn over a
+            // real letter, which the pack may do; anything not a character at
+            // all is nothing to name.
+            if (icon == null || icon.codepoint == null || !Character.isValidCodePoint(icon.codepoint)
+                    || icon.codepoint <= 0x20) {
+                continue;
+            }
+            int height = icon.height == null || icon.height <= 0 ? 8 : icon.height;
+            int ascent = icon.ascent == null ? Math.min(height, 7) : icon.ascent;
+            id(icon.id, log, "icon").ifPresent(id -> readIcons.put(id,
+                    ai.resourcepack.engine.api.IconInfo.of(id, "studio/" + id.path(), height, ascent, icon.codepoint)));
+        }
+
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> readVfx = new LinkedHashMap<>();
         for (Vfx effect : manifest.vfx == null ? List.<Vfx>of() : manifest.vfx) {
             if (effect == null || effect.recipe == null) {
@@ -931,6 +961,7 @@ public final class StudioContent {
         armor3d = Map.copyOf(readArmor);
         objects = Map.copyOf(readObjects);
         textEffects = Map.copyOf(readEffects);
+        icons = Map.copyOf(readIcons);
         vfx = Map.copyOf(readVfx);
         stingers = Map.copyOf(readStingers);
         mobs = Map.copyOf(readMobs);
@@ -938,7 +969,7 @@ public final class StudioContent {
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size() + vfx.size() + stingers.size()
+                        + armor3d.size() + objects.size() + textEffects.size() + icons.size() + vfx.size() + stingers.size()
                         + mobs.size());
     }
 
@@ -1406,6 +1437,9 @@ public final class StudioContent {
         for (ContentId id : textEffects.keySet()) {
             claimed.define(ContentKind.TEXT_EFFECT, id.path());
         }
+        for (ContentId id : icons.keySet()) {
+            claimed.define(ContentKind.FONT, id.path());
+        }
         for (ContentId id : vfx.keySet()) {
             claimed.define(ContentKind.VFX, id.path());
         }
@@ -1635,6 +1669,16 @@ public final class StudioContent {
             effect.name = info.name();
             effect.color = info.color();
             manifest.textEffects.add(effect);
+        }
+        manifest.icons = new ArrayList<>();
+        for (ai.resourcepack.engine.api.IconInfo info : icons.values()) {
+            Icon icon = new Icon();
+            icon.id = info.id().path();
+            icon.name = info.id().path();
+            icon.codepoint = info.codepoint();
+            icon.height = info.height();
+            icon.ascent = info.ascent();
+            manifest.icons.add(icon);
         }
         manifest.vfx = new ArrayList<>();
         for (ai.resourcepack.engine.core.vfx.VfxEntry entry : vfx.values()) {

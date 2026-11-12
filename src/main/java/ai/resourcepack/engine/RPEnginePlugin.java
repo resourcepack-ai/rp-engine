@@ -468,6 +468,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * that catalogue without losing the pushed half or keeping a stale one.
      */
     private Map<ContentId, SoundInfo> authoredSounds = Map.of();
+    /** The content folder's icons, which a push's are listed beside (see {@link #replaceIcons}). */
+    private Map<ContentId, ai.resourcepack.engine.api.IconInfo> authoredIcons = Map.of();
     /** The content folder's own vehicles, kept so a push can be merged over them. */
     private Map<ContentId, ai.resourcepack.engine.api.VehicleInfo> authoredVehicles = Map.of();
     /** The content folder's mobs, kept apart so a push can lay its own over them. */
@@ -1375,7 +1377,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     found.add(read);
                     getLogger().info("Studio pack " + entry.getKey() + "/: " + read.huds().size()
                             + " shader object(s) and HUD(s), " + read.dialogs().size() + " dialog(s), "
-                            + read.screens().size() + " screen(s), " + read.sounds().size() + " sound(s)");
+                            + read.screens().size() + " screen(s), " + read.sounds().size() + " sound(s), "
+                            + read.icons().size() + " icon(s)");
                 }
             } catch (IOException e) {
                 report(to, "content", List.of(ai.resourcepack.engine.api.Diagnostic.warning(where,
@@ -1443,6 +1446,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vehicles.replace(allVehicles);
         creatures.replace(withPushedMobs());
         replaceSkills();
+        replaceIcons();
         // A vehicle already parked from a previous push of the same pack gets
         // its seats and its model back the moment its definition returns.
         // Without this, re-syncing leaves a chassis in the world that the
@@ -1450,6 +1454,23 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         vehicles.adoptLoaded();
         if (objectRuntime != null) {
             objectRuntime.start();
+        }
+    }
+
+    /**
+     * The icon catalogue: the content folder's, and every live push's under
+     * {@code studio:}. A pushed icon is drawn by the pack it came in, so this
+     * only makes it listable and typeable ({@code :studio:heart:}); the engine
+     * never builds one into its own pack, nor into its Bedrock pack.
+     */
+    private void replaceIcons() {
+        Map<ContentId, ai.resourcepack.engine.api.IconInfo> all = new LinkedHashMap<>(authoredIcons);
+        pushedAll.icons().forEach(all::putIfAbsent);
+        icons.replace(all);
+        if (chatIcons != null) {
+            // New icons, the setting or permissions may have changed: what
+            // chat suggests follows them.
+            chatIcons.offerAll();
         }
     }
 
@@ -2790,12 +2811,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         IconDefinitions.Result parsedIcons = IconDefinitions.parse(loaded,
                 ai.resourcepack.engine.core.pack.PackFiles.folder(content));
         report(to, "icons", parsedIcons.diagnostics());
-        icons.replace(parsedIcons.icons());
-        if (chatIcons != null) {
-            // New icons, the setting or permissions may have changed: what
-            // chat suggests follows them.
-            chatIcons.offerAll();
-        }
+        authoredIcons = parsedIcons.icons();
+        replaceIcons();
         rankTagWearers.replace(parsedIcons);
         registerRankTagPermissions();
 
@@ -3308,7 +3325,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     "assets/" + shape.namespace() + "/models/item/" + shape.path() + ".json", mob.turn()));
         }
         List<ai.resourcepack.engine.core.bedrock.BedrockContent.Icon> bedrockIcons = new ArrayList<>();
-        for (ContentId id : icons.ids()) {
+        for (ContentId id : authoredIcons.keySet()) {
             // One Bedrock glyph per frame, each its own cell of the strip. A
             // Bedrock player is sent the same characters a Java one is, so a
             // scoreboard showing frame five to both has to have a frame five

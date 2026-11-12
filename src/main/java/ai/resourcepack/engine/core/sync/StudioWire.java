@@ -37,6 +37,7 @@ final class StudioWire {
         List<TextEffect> textEffects;
         List<Vfx> vfx;
         List<Stinger> stingers;
+        List<Icon> icons;
         List<Mob> mobs;
         /**
          * Written by {@link StudioContent#save} only, and read only by {@link StudioContent#load}: that
@@ -202,6 +203,19 @@ final class StudioWire {
         Integer outTicks;
         String soundIn;
         String soundOut;
+    }
+
+    /**
+     * An icon: its name and the character the pack draws it at. The picture
+     * is in the pack's default font and needs nothing from here; this is so a
+     * server can NAME it ({@code :studio:heart:}) and list it.
+     */
+    static final class Icon {
+        String id;
+        String name;
+        Integer codepoint;
+        Integer height;
+        Integer ascent;
     }
 
     /**
