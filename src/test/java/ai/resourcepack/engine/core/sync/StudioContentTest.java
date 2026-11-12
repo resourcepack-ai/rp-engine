@@ -672,6 +672,28 @@ class StudioContentTest {
     }
 
     @Test
+    void anIconIsNamedByItsCharacterAndSurvivesARestart(@TempDir Path dir) {
+        StudioContent content = read(dir, "{\"packId\":\"p\",\"icons\":["
+                + "{\"id\":\"heart\",\"name\":\"Heart\",\"codepoint\":57344,\"height\":9,\"ascent\":8},"
+                + "{\"id\":\"space\",\"name\":\"Space\",\"codepoint\":32,\"height\":8,\"ascent\":7}]}");
+        ContentId heart = ContentId.parse("studio:heart").orElseThrow();
+        assertEquals(1, content.icons().size(), "a space is not a character anybody can be shown");
+        assertEquals("", content.icons().get(heart).character());
+        assertEquals(9, content.icons().get(heart).height());
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        assertEquals(0xE000, reloaded.icons().get(heart).codepoint());
+        assertEquals(8, reloaded.icons().get(heart).ascent());
+        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).icons().size());
+
+        ContentRegistryImpl registry = new ContentRegistryImpl();
+        reloaded.register(registry, LOG);
+        assertTrue(registry.contains(heart, ContentKind.FONT));
+    }
+
+    @Test
     void aPushedMobIsReadSavedAndReadBack(@TempDir Path dir) {
         String json = """
                 {"packId":"zoo",
