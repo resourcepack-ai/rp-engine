@@ -1160,14 +1160,20 @@ public final class DialogsImpl implements Dialogs {
                 .map(json -> DialogLinks.holdsCommand(json, click)).orElse(false)) {
             return Optional.empty();
         }
-        return info(viewer, shown.id()).map(info -> info.consoleCommands().get(key))
+        return info(viewer, shown.id()).flatMap(info -> Optional.ofNullable(info.consoleCommands().get(key))
                 .map(commands -> {
+                    // Read as the dialog's text is: a sorted box's slots and a
+                    // scrolled list's rows answer what this player was shown.
+                    java.util.function.Function<String, Optional<String>> lookup = lookup(viewer, shown.values());
+                    if (DialogSorts.any(info.json())) {
+                        lookup = DialogSorts.apply(info.json(), lookup, permissions(viewer)).over(lookup);
+                    }
                     List<String> out = new java.util.ArrayList<>();
                     for (String line : commands.split("\n")) {
-                        out.add(filledCommand(viewer, line, shown.values()));
+                        out.add(filledCommand(line, lookup));
                     }
                     return out;
-                });
+                }));
     }
 
     /**
@@ -1175,13 +1181,13 @@ public final class DialogsImpl implements Dialogs {
      * ({@link #filled}), or empty when what they say leaves no command (a line
      * break, say): the same pass, run over the command as a JSON string.
      */
-    String filledCommand(Player viewer, String command, Map<String, String> values) {
+    private static String filledCommand(String command, java.util.function.Function<String, Optional<String>> lookup) {
         if (!DialogPlaceholders.any(command)) {
             return command;
         }
         com.google.gson.Gson gson = new com.google.gson.Gson();
         try {
-            String filled = gson.fromJson(DialogPlaceholders.fill(gson.toJson(command), lookup(viewer, values), false), String.class);
+            String filled = gson.fromJson(DialogPlaceholders.fill(gson.toJson(command), lookup, false), String.class);
             String run = DialogInfo.consoleCommand(filled);
             return run == null ? "" : run;
         } catch (RuntimeException e) {

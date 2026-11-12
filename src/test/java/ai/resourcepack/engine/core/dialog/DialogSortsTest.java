@@ -148,4 +148,74 @@ class DialogSortsTest {
     void aSpecWithoutAProperNameAnswersNothing() {
         assertTrue(arrange("{\"name\":\"Shop!\",\"slots\":2,\"children\":[{}]}", Map.of()).isEmpty());
     }
+
+    /** A body carrying one rule, run through apply for a player with these values. */
+    private static Function<String, Optional<String>> scrolled(String rule, Map<String, String> values) {
+        JsonObject carrier = new JsonObject();
+        carrier.addProperty("text", "");
+        carrier.addProperty("insertion", DialogSorts.SORT + rule);
+        Function<String, Optional<String>> lookup = name -> Optional.ofNullable(values.get(name));
+        DialogSorts.Sorted sorted = DialogSorts.apply(carrier.toString(), lookup, p -> false);
+        assertFalse(sorted.json().contains(DialogSorts.SORT));
+        return sorted.over(lookup);
+    }
+
+    @Test
+    void aScrolledListsRowsAreTheItemsFromItsStart() {
+        Map<String, String> values = Map.of("from", "3", "warps_3", "Arena", "warps_4", "Docks", "warps_4_note", "PvP",
+                "warps_1", "Spawn");
+        Function<String, Optional<String>> lookup = scrolled("{\"list\":\"warps\",\"start\":\"{from}\"}", values);
+        assertEquals(Optional.of("Arena"), lookup.apply("warps_1"));
+        assertEquals(Optional.of("Docks"), lookup.apply("warps_2"));
+        assertEquals(Optional.of("PvP"), lookup.apply("warps_2_note"));
+        // Not a row of it: answered as ever.
+        assertEquals(Optional.of("3"), lookup.apply("from"));
+        assertEquals(Optional.empty(), lookup.apply("warps_count"));
+    }
+
+    @Test
+    void aStartThatIsNoNumberOrBelowOneIsTheFirstItem() {
+        Map<String, String> values = Map.of("warps_1", "Spawn", "zero", "0", "words", "lots");
+        assertEquals(Optional.of("Spawn"), scrolled("{\"list\":\"warps\",\"start\":\"{zero}\"}", values).apply("warps_1"));
+        assertEquals(Optional.of("Spawn"), scrolled("{\"list\":\"warps\",\"start\":\"{words}\"}", values).apply("warps_1"));
+        assertEquals(Optional.of("Spawn"), scrolled("{\"list\":\"warps\",\"start\":\"{unset}\"}", values).apply("warps_1"));
+    }
+
+    @Test
+    void aCountingListsRowIsItsNumberAndEmptyPastTheCount() {
+        Map<String, String> values = Map.of("from", "4", "homes", "5", "home_6_label", "Base");
+        Function<String, Optional<String>> lookup = scrolled("{\"list\":\"home\",\"start\":\"{from}\",\"count\":\"{homes}\"}", values);
+        assertEquals(Optional.of("4"), lookup.apply("home_1"));
+        assertEquals(Optional.of("5"), lookup.apply("home_2"));
+        assertEquals(Optional.of(""), lookup.apply("home_3"));
+        assertEquals(Optional.of("Base"), lookup.apply("home_3_label"));
+        // A count nothing filled shows no rows, as an unscrolled list does.
+        assertEquals(Optional.of(""), scrolled("{\"list\":\"home\",\"start\":\"2\",\"count\":\"{none}\"}", values).apply("home_1"));
+    }
+
+    @Test
+    void aRowConditionHidesARowPastTheEnd() {
+        Map<String, String> values = Map.of("from", "2", "homes", "2");
+        Function<String, Optional<String>> lookup = scrolled("{\"list\":\"home\",\"start\":\"{from}\",\"count\":\"{homes}\"}", values);
+        assertTrue(DialogConditions.test("{home_1?*:1|-:0}", lookup, p -> false));
+        assertFalse(DialogConditions.test("{home_2?*:1|-:0}", lookup, p -> false));
+    }
+
+    @Test
+    void aLongerListNameIsNotTakenForAShorterOnesRow() {
+        JsonObject a = new JsonObject();
+        a.addProperty("text", "");
+        a.addProperty("insertion", DialogSorts.SORT + "{\"list\":\"warps\",\"start\":\"3\"}");
+        JsonObject b = new JsonObject();
+        b.addProperty("text", "");
+        b.addProperty("insertion", DialogSorts.SORT + "{\"list\":\"warps_vip\",\"start\":\"2\"}");
+        com.google.gson.JsonArray both = new com.google.gson.JsonArray();
+        both.add(a);
+        both.add(b);
+        Map<String, String> values = Map.of("warps_3", "Arena", "warps_vip_2", "Lounge");
+        Function<String, Optional<String>> lookup = name -> Optional.ofNullable(values.get(name));
+        Function<String, Optional<String>> over = DialogSorts.apply(both.toString(), lookup, p -> false).over(lookup);
+        assertEquals(Optional.of("Arena"), over.apply("warps_1"));
+        assertEquals(Optional.of("Lounge"), over.apply("warps_vip_1"));
+    }
 }
