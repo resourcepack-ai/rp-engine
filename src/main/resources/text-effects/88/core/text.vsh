@@ -99,6 +99,7 @@ int rtx_corner() {
     return right ? (bottom ? 2 : 3) : (bottom ? 1 : 0);
 }
 
+
 // Runs after vanilla's main, so everything vanilla set is already set; only a
 // letter in a text effect's colour is changed.
 void rtx_vertex() {
