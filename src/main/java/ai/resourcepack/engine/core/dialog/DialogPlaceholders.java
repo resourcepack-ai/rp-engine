@@ -316,7 +316,7 @@ public final class DialogPlaceholders {
                     at = m.end();
                 }
             } else if (value.isPresent()) {
-                String clean = clean(value.get());
+                String clean = inCommand(json, m.start()) ? forCommand(value.get()) : clean(value.get());
                 char before = m.start() > 0 ? json.charAt(m.start() - 1) : 0;
                 if (before >= LIVE_MARK_BASE && before < LIVE_MARK_END) {
                     clean = fitLive(clean, before);
@@ -529,7 +529,74 @@ public final class DialogPlaceholders {
      * command that is refused takes the whole dialog with it.
      */
     static String clean(String value) {
-        return LEGACY.matcher(value).replaceAll("");
+        String out = LEGACY.matcher(value).replaceAll("");
+        // Control characters the game will not draw or take: gone. A line break
+        // stays, which words may hold; inCommand decides where it may not.
+        StringBuilder kept = null;
+        for (int i = 0; i < out.length(); i++) {
+            char c = out.charAt(i);
+            boolean drop = (c < ' ' && c != '\n') || c == 0x7f;
+            if (drop && kept == null) {
+                kept = new StringBuilder(out.length()).append(out, 0, i);
+            } else if (!drop && kept != null) {
+                kept.append(c);
+            }
+        }
+        return kept == null ? out : kept.toString();
+    }
+
+    /**
+     * A value as a command may hold it: the game refuses a command with a line
+     * break, a control character or a section sign in it, and refuses the whole
+     * dialog with it, so each line break becomes a space.
+     */
+    static String forCommand(String value) {
+        return clean(value).replace('\n', ' ');
+    }
+
+    /** The JSON keys whose strings are commands: a click's and a button's {@code command}, a dynamic action's {@code template}. */
+    private static final java.util.Set<String> COMMAND_KEYS = java.util.Set.of("command", "template");
+
+    /**
+     * Whether position {@code at} of the JSON text is inside a string that is
+     * a command ({@link #COMMAND_KEYS}): the string it is in, and the key before
+     * that string's colon.
+     */
+    static boolean inCommand(String json, int at) {
+        // The quote that opens the string `at` is in: the nearest unescaped one before it.
+        int open = -1;
+        for (int i = at - 1; i >= 0; i--) {
+            if (json.charAt(i) == '"') {
+                int slashes = 0;
+                for (int j = i - 1; j >= 0 && json.charAt(j) == '\\'; j--) {
+                    slashes++;
+                }
+                if (slashes % 2 == 0) {
+                    open = i;
+                    break;
+                }
+            }
+        }
+        if (open < 0) {
+            return false;
+        }
+        int i = open - 1;
+        while (i >= 0 && Character.isWhitespace(json.charAt(i))) {
+            i--;
+        }
+        if (i < 0 || json.charAt(i) != ':') {
+            return false;
+        }
+        i--;
+        while (i >= 0 && Character.isWhitespace(json.charAt(i))) {
+            i--;
+        }
+        if (i < 0 || json.charAt(i) != '"') {
+            return false;
+        }
+        int end = i;
+        int start = json.lastIndexOf('"', end - 1);
+        return start >= 0 && COMMAND_KEYS.contains(json.substring(start + 1, end));
     }
 
     /** A value as the inside of a JSON string. */
