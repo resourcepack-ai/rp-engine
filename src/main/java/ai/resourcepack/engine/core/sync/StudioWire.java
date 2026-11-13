@@ -38,6 +38,7 @@ final class StudioWire {
         List<Vfx> vfx;
         List<Stinger> stingers;
         List<Icon> icons;
+        List<Tooltip> tooltips;
         List<Mob> mobs;
         /**
          * Written by {@link StudioContent#save} only, and read only by {@link StudioContent#load}: that
@@ -216,6 +217,26 @@ final class StudioWire {
         Integer codepoint;
         Integer height;
         Integer ascent;
+    }
+
+    /**
+     * A designed tooltip, as the item components that show it. The picture
+     * is a font of tiles in the pack; an item shows it with an empty name,
+     * one lore line of {@code text} in {@code font} and {@code color} (no
+     * italics, no shadow), {@code emptyLines} empty lore lines so the box is
+     * tall enough, {@code style} as its tooltip style and {@code hidden} as
+     * the components its tooltip hides. Minecraft 1.21.5 and newer.
+     */
+    static final class Tooltip {
+        String id;
+        String name;
+        String font;
+        String text;
+        String color;
+        Integer emptyLines;
+        String style;
+        List<String> hidden;
+        Boolean glint;
     }
 
     /**

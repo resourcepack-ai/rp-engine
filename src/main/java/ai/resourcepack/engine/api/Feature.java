@@ -267,6 +267,22 @@ public enum Feature {
                     + "pack carries none of their sprites."),
 
     /**
+     * A designed tooltip from a Studio pack on an item: {@code tooltip:} in its
+     * definition.
+     *
+     * <p>The picture is font glyphs in the item's lore, and showing it as
+     * drawn needs three things the game added one at a time: an empty tooltip
+     * box ({@code tooltip_style}, 1.21.2), lore with no shadow
+     * ({@code shadow_color}, 1.21.4) and the game's own lines hidden under it
+     * ({@code tooltip_display}, 1.21.5). Studio ships no tooltip in a pack for
+     * a version below that, so there is nothing to show.
+     */
+    ITEM_TOOLTIPS(
+            McVersion.of(1, 21, 5),
+            "Studio Tooltips on items",
+            "An item's tooltip: is ignored and the item shows its own name and lore."),
+
+    /**
      * Any item made playable in a jukebox by the {@code jukebox_playable}
      * component, rather than only the vanilla discs.
      *

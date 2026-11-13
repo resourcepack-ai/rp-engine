@@ -343,6 +343,53 @@ sword:
   item is given, not a load error — the registries need a running server, and
   the definition parser deliberately does not have one.
 
+## A designed tooltip
+
+A Tooltip made in ResourcePack AI Studio is a picture shown in place of an
+item's hover box. `tooltip:` puts one on an item:
+
+```yaml
+legend_blade:
+  material: DIAMOND_SWORD
+  name: "&6Legend Blade"     # shown only where the tooltip cannot be
+  tooltip: legendary         # or studio:legendary
+```
+
+The id is the Tooltip's id in Studio, in the `studio` namespace that pushed
+content lands in (a bare id means that namespace; any other is a load warning
+and the key is ignored). The Studio pack it comes from has to be one the server
+holds: pushed to it, published to it, or exported and dropped into the content
+folder. Its manifest says, for each Tooltip, the components that show it, and
+every stack of the item the engine makes carries them:
+
+- `item_name` empty, so nothing is written over the picture or above the hotbar;
+- `lore`: one line of the picture's characters in the Tooltip's font (white,
+  or the colour the pack's text shader animates; not italic, no shadow), then
+  enough empty lines to make the box as tall as the picture;
+- `tooltip_style` naming the empty box the pack ships;
+- `tooltip_display` hiding the lines the game would add (attributes,
+  enchantments and so on);
+- `enchantment_glint_override: true` when the Tooltip shimmers.
+
+**The tooltip replaces the item's own `name:` and `lore:`**, which are not put
+on the stack while it wears one, and its `flags:` hiding lines make no
+difference. They stay worth writing: an item shows its own name and lore when
+the server is older than Minecraft 1.21.5 (one console line per item says so),
+when no Studio pack the server holds has that Tooltip (one console line naming
+the item and the id, said again after a reload or whenever the Studio packs
+change), or when the server's item parser refuses the components.
+
+Bukkit has no API for most of these, so the stack goes through the server's own
+item parser: the item's components as the server writes them, less the ones the
+tooltip sets, and the tooltip's after them, the way `/give` reads its argument.
+The same on Spigot and Paper.
+
+A stack keeps what it was made with. Its picture is in the pack, so a redrawn
+Tooltip shows on stacks already in inventories; a change of height, of moving
+or not, or of shimmer needs a fresh stack. Recipe results are made when the
+content folder loads, so one wears a Tooltip from a pack that arrives later
+(a published pack, fetched after start) from the next `/rp reload`.
+
 ## WorldGuard
 
 Two region flags, if WorldGuard is installed:

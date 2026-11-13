@@ -47,6 +47,8 @@ public final class ItemsImpl implements Items {
     private final ItemModelWiring wiring;
     private final ItemComponents components;
     private final Equipping equipping;
+    /** Null below 1.21.5, where an item's {@code tooltip:} is ignored. */
+    private final TooltipStacks tooltipStacks;
     private volatile Map<ContentId, ItemInfo> items;
 
     /**
@@ -63,7 +65,34 @@ public final class ItemsImpl implements Items {
         this.wiring = ItemModelWiring.forEra(compatibility.itemEra(), numbers);
         this.components = ItemComponents.forServer(compatibility);
         this.equipping = Equipping.forServer(compatibility);
+        this.tooltipStacks = compatibility.has(ai.resourcepack.engine.api.Feature.ITEM_TOOLTIPS)
+                ? new TooltipStacks() : null;
         this.items = Map.of();
+    }
+
+    /**
+     * The Studio tooltips this server holds, by {@code studio:<id>}: a lookup
+     * rather than a copy, because pushed and published packs change while it
+     * runs and every stack is made against the packs held at that moment.
+     */
+    private volatile java.util.function.Function<ContentId, ItemTooltip> tooltips = id -> null;
+
+    /**
+     * What has been said about an item's {@code tooltip:}, so each thing is said
+     * once rather than per stack. Emptied on a reload and whenever the Studio
+     * packs change, since the answer may have changed with them.
+     */
+    private final java.util.Set<String> toldTooltips = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** Wires up {@code tooltip:}, once the Studio packs exist. */
+    public void tooltips(java.util.function.Function<ContentId, ItemTooltip> lookup) {
+        this.tooltips = lookup == null ? id -> null : lookup;
+        toldTooltips.clear();
+    }
+
+    /** The Studio packs this server holds changed: a missing tooltip may be there now, and is said again if not. */
+    public void tooltipsChanged() {
+        toldTooltips.clear();
     }
 
     /** Puts a piece of a 3D armour set on an item that names one with {@code armor3d:}. */
@@ -88,6 +117,7 @@ public final class ItemsImpl implements Items {
     /** Replaces the catalogue, as a reload does. */
     public void replace(Map<ContentId, ItemInfo> loaded) {
         this.items = loaded == null ? Map.of() : Map.copyOf(loaded);
+        toldTooltips.clear();
     }
 
     @Override
@@ -139,13 +169,12 @@ public final class ItemsImpl implements Items {
         wiring.apply(meta, item.modelId());
         meta.getPersistentDataContainer().set(key, PersistentDataType.STRING, id.toString());
 
-        item.name().ifPresent(name -> meta.setDisplayName(colour(name)));
-        if (!item.lore().isEmpty()) {
-            List<String> lore = new ArrayList<>(item.lore().size());
-            for (String line : item.lore()) {
-                lore.add(colour(line));
-            }
-            meta.setLore(lore);
+        // A tooltip replaces the item's own name and lore: the picture IS the
+        // tooltip, and a name would be written over it. Without one (an old
+        // server, a pack that does not carry it) they are what it shows.
+        ItemTooltip tooltip = tooltipFor(item);
+        if (tooltip == null) {
+            nameAndLore(meta, item);
         }
         ItemComponents.Warner warner = warnerFor(item);
         item.armor().ifPresent(slot -> equipping.wearable(meta, item.id(), slot, warner));
@@ -171,7 +200,64 @@ public final class ItemsImpl implements Items {
         }
 
         stack.setItemMeta(meta);
+        if (tooltip != null) {
+            String[] problem = new String[1];
+            ItemStack worn = tooltipStacks.wear(stack, tooltip, problem);
+            if (worn != null) {
+                return Optional.of(worn);
+            }
+            tellOnce(item, "parser|" + tooltip.id(), "tooltip: " + tooltip.id()
+                    + " could not be put on it, so it shows its own name and lore (the server said: "
+                    + problem[0] + ")");
+            ItemMeta plain = stack.getItemMeta();
+            if (plain != null) {
+                nameAndLore(plain, item);
+                stack.setItemMeta(plain);
+            }
+        }
         return Optional.of(stack);
+    }
+
+    private static void nameAndLore(ItemMeta meta, ItemInfo item) {
+        item.name().ifPresent(name -> meta.setDisplayName(colour(name)));
+        if (!item.lore().isEmpty()) {
+            List<String> lore = new ArrayList<>(item.lore().size());
+            for (String line : item.lore()) {
+                lore.add(colour(line));
+            }
+            meta.setLore(lore);
+        }
+    }
+
+    /**
+     * The tooltip a stack of {@code item} wears, or null for none: when it
+     * names none, when the server is older than 1.21.5, or when no Studio
+     * pack this server holds has it. The last two are said once per item.
+     */
+    private ItemTooltip tooltipFor(ItemInfo item) {
+        ContentId wanted = item.tooltip().orElse(null);
+        if (wanted == null) {
+            return null;
+        }
+        if (tooltipStacks == null) {
+            tellOnce(item, "version", "tooltip: " + wanted + " needs Minecraft "
+                    + ai.resourcepack.engine.api.Feature.ITEM_TOOLTIPS.since()
+                    + " and this server is older, so the item shows its own name and lore");
+            return null;
+        }
+        ItemTooltip found = tooltips.apply(wanted);
+        if (found == null) {
+            tellOnce(item, "missing|" + wanted, "tooltip: no Studio pack this server holds (pushed, published or "
+                    + "in content/) has a Tooltip called " + wanted.path()
+                    + ", so the item shows its own name and lore");
+        }
+        return found;
+    }
+
+    private void tellOnce(ItemInfo item, String what, String problem) {
+        if (toldTooltips.add(item.id() + "|" + what)) {
+            warn(item, problem);
+        }
     }
 
     /**
