@@ -362,4 +362,30 @@ class DialogPlaceholdersTest {
         assertEquals(null, DialogPlaceholders.playerName(DialogPlaceholders.unescape("Bob\\\"s")));
         assertEquals(null, DialogPlaceholders.playerName("{target}"));
     }
+
+    /**
+     * A value lands where its placeholder is: words may hold a line break, a
+     * command may not (the game refuses the command, and the whole dialog with
+     * it), and neither may hold another control character.
+     */
+    @Test
+    void aValueIsCleanedForWhereItLands() {
+        String json = "{\"text\":\"Hi {who}\",\"click_event\":{\"action\":\"run_command\",\"command\":\"msg {who} hello\"},"
+                + "\"action\":{\"type\":\"minecraft:dynamic/run_command\",\"template\":\"pay {who} $(amount)\"}}";
+        Function<String, Optional<String>> lookup = name -> Optional.of("Bo\nb\u0007\u007f");
+        String filled = DialogPlaceholders.fill(json, lookup, false);
+        assertTrue(filled.contains("\"text\":\"Hi Bo\\nb\""), filled);
+        assertTrue(filled.contains("\"command\":\"msg Bo b hello\""), filled);
+        assertTrue(filled.contains("\"template\":\"pay Bo b $(amount)\""), filled);
+        assertFalse(filled.contains("\u0007"), filled);
+        assertFalse(filled.contains("\u007f"), filled);
+    }
+
+    @Test
+    void onlyACommandsOwnStringIsACommand() {
+        String json = "{\"command\":\"say {x}\",\"label\":\"{x}\",\"text\":\"a \\\"command\\\": {x}\"}";
+        assertTrue(DialogPlaceholders.inCommand(json, json.indexOf("{x}")));
+        assertFalse(DialogPlaceholders.inCommand(json, json.indexOf("{x}", json.indexOf("label"))));
+        assertFalse(DialogPlaceholders.inCommand(json, json.lastIndexOf("{x}")));
+    }
 }
