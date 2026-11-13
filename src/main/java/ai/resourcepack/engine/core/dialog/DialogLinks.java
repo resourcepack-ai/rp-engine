@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogPlaceholders;
 import ai.resourcepack.engine.api.ContentId;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;

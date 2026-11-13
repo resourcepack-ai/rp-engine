@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.font;
 
+import ai.resourcepack.dialogruntime.Placeholders;
 import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.engine.api.ContentId;

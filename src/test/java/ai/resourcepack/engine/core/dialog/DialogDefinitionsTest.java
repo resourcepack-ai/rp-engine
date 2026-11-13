@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogPlaceholders;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.ContentSource;
 import ai.resourcepack.engine.api.Diagnostic;

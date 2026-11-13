@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogConditions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

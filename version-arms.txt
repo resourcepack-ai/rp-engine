@@ -23,7 +23,10 @@ ai/resourcepack/engine/core/serve/StackedPackSending.java
 ai/resourcepack/engine/core/emote/NativeRigItems.java
 ai/resourcepack/engine/core/armor3d/PieceEquipping.java
 ai/resourcepack/engine/core/model/ComponentDiscs.java
-ai/resourcepack/engine/core/dialog/DialogItemModels.java
+# The drawn-dialog runtime's one arm (ai.resourcepack:dialog-runtime, shaded
+# and relocated here): read only for a dialog, which needs 1.21.6. The
+# bytecode half reads it under its relocated name.
+ai/resourcepack/engine/libs/dialogruntime/DialogItemModels.java
 ai/resourcepack/engine/core/armor3d/ArmourItemModels.java
 ai/resourcepack/engine/core/recipe/CrafterGuard.java
 ai/resourcepack/engine/core/object/ObjectItems.java

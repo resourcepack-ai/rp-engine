@@ -580,6 +580,12 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        // The drawn-dialog runtime (ai.resourcepack:dialog-runtime) logs as this
+        // plugin and asks this engine's version table what the server can do.
+        ai.resourcepack.dialogruntime.DialogHost.configure(getLogger(), "",
+                () -> ai.resourcepack.engine.api.McVersion.parse(ai.resourcepack.engine.core.version.Compatibility.readServerVersion())
+                        .map(ai.resourcepack.engine.api.Feature.TEXT_OBJECTS::on).orElse(false),
+                () -> ai.resourcepack.engine.core.version.Vanilla.maxHealth().orElse(null));
         banner = ai.resourcepack.common.banner.StartupBanner.begin(this)
                 .name("RP Engine")
                 .tagline("Custom items, models, emotes and screens from a folder of YAML.")
@@ -766,7 +772,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 compatibility.has(ai.resourcepack.engine.api.Feature.DIALOGS),
                 // Each player's own dialog settings: what a Studio dialog's
                 // bound switches and sliders show, and what /rp var sets.
-                new ai.resourcepack.engine.core.dialog.DialogVariables(this),
+                new ai.resourcepack.dialogruntime.DialogVariables(this),
                 // What plugins publish for a player. The overlays' own store:
                 // one set of values per player, printed by a HUD and a dialog.
                 overlayRuntime);
@@ -831,7 +837,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         .map(content -> content.vfx().containsKey(id)).orElse(false),
                 // A loop's condition reads what an overlay's does: what a plugin
                 // set for the player, the engine's own, then PlaceholderAPI.
-                (player, name) -> ai.resourcepack.engine.core.font.Placeholders.lookup(player, name,
+                (player, name) -> ai.resourcepack.dialogruntime.Placeholders.lookup(player, name,
                         player == null ? Map.of() : overlayRuntime.values(player)));
         vfxRuntime.maxSprites(getConfig().getInt("vfx.max-sprites",
                 ai.resourcepack.engine.core.vfx.VfxRuntime.DEFAULT_MAX_SPRITES));
