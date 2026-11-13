@@ -114,6 +114,30 @@ class InstantPagesTest {
     }
 
     @Test
+    void theFileNeverLinksToAPageWithAConditionOrAnIcon() {
+        // A permission-only condition carries no placeholder braces at all, and an
+        // icon is filled from the server's own list: neither page may be opened
+        // from the registry, or its hidden pieces show and its icon is blank.
+        String gated = "{\"type\":\"minecraft:notice\",\"title\":\"G\",\"body\":[{\"type\":\"minecraft:plain_message\","
+                + "\"contents\":{\"text\":\"\",\"extra\":[{\"text\":\"Staff only\",\"insertion\":\"rp:if:perm:shop.staff\"}]}}]}";
+        String iconed = "{\"type\":\"minecraft:notice\",\"title\":\"I\",\"body\":[{\"type\":\"minecraft:plain_message\","
+                + "\"contents\":{\"text\":\"\",\"extra\":[{\"text\":\"\\uE000\",\"font\":\"minecraft:dialog_space\","
+                + "\"insertion\":\"rp:icon:9:coin\"}]}}]}";
+        Map<ContentId, String> pages = new LinkedHashMap<>();
+        String from = page("F", "Pick", "studio:menu.g", "studio:menu.i");
+        pages.put(id("studio:menu"), from);
+        pages.put(id("studio:menu.g"), gated);
+        pages.put(id("studio:menu.i"), iconed);
+        assertTrue(DialogDatapack.servedOnly(gated));
+        assertTrue(DialogDatapack.servedOnly(iconed));
+        String file = DialogDatapack.fileContent(from, pages);
+        assertTrue(DialogLinks.opens(file, id("studio:menu.g")));
+        assertTrue(DialogLinks.opens(file, id("studio:menu.i")));
+        assertFalse(file.contains("\"dialog\":\"studio:menu.g\""));
+        assertFalse(file.contains("\"dialog\":\"studio:menu.i\""));
+    }
+
+    @Test
     void everyReachablePlainPageInTheRegistryTurnsOnTheClient() {
         DialogsImpl dialogs = engine(written(), true);
         assertEquals(Set.of(id("studio:menu"), id("studio:menu.b")), dialogs.instantPages(null, id("studio:menu"), MENU));

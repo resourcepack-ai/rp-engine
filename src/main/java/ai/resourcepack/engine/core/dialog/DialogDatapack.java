@@ -206,9 +206,21 @@ public final class DialogDatapack {
      * engine works out the same thing for each player to compare against.
      */
     public static String fileContent(String json, Map<ContentId, String> all) {
-        Predicate<ContentId> plain = page -> all.containsKey(page)
-                && !DialogPlaceholders.any(all.get(page)) && !DialogItems.perPlayer(all.get(page));
+        Predicate<ContentId> plain = page -> all.containsKey(page) && !servedOnly(all.get(page));
         return DialogLinks.swap(json, plain);
+    }
+
+    /**
+     * Whether a page has anything only the server can fill in as it is shown, so
+     * that the registry's copy of it is not what a player should see: a
+     * placeholder, a player's inventory in its slots, a piece only some players
+     * see, or one of the server's icons. Such a page is never turned to from the
+     * registry. The one rule both the file and {@code instantPages} go by, so a
+     * link in the file can never lead to a page the engine would not swap.
+     */
+    public static boolean servedOnly(String json) {
+        return DialogPlaceholders.any(json) || DialogItems.perPlayer(json)
+                || DialogConditions.any(json) || DialogIcons.any(json);
     }
 
     /**

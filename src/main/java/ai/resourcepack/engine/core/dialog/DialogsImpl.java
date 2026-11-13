@@ -480,10 +480,9 @@ public final class DialogsImpl implements Dialogs {
         Set<ContentId> out = new LinkedHashSet<>();
         for (Map.Entry<ContentId, String> page : pages.entrySet()) {
             // Nothing filled per player can come from the registry's copy: not a
-            // placeholder, not a player's inventory in a page's slots, and not a
-            // piece only some players see.
-            if (DialogPlaceholders.any(page.getValue()) || DialogItems.perPlayer(page.getValue())
-                    || DialogConditions.any(page.getValue())) {
+            // placeholder, not a player's inventory in a page's slots, not a
+            // piece only some players see, and not a server icon.
+            if (DialogDatapack.servedOnly(page.getValue())) {
                 continue;
             }
             if (!datapack.registered(page.getKey(), DialogDatapack.fileContent(page.getValue(), pages))) {
