@@ -248,6 +248,22 @@ class ItemsTest {
     }
 
     @Test
+    void aFlatSwordIsHeldAtAnAngleLikeAVanillaSword() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "flamesword:\n  material: IRON_SWORD\n  texture: item/flaming_sword\n"
+                + "hammer:\n  material: MACE\n");
+        write("mypack/assets/textures/item/flaming_sword.png", "PNG");
+        write("mypack/assets/textures/item/hammer.png", "PNG");
+
+        Map<String, String> zip = buildAndRead();
+
+        assertEquals("{\"parent\":\"minecraft:item/handheld\","
+                        + "\"textures\":{\"layer0\":\"mypack:item/flaming_sword\"}}",
+                zip.get("assets/mypack/models/item/flamesword.json"));
+        assertTrue(zip.get("assets/mypack/models/item/hammer.json").contains("minecraft:item/handheld_mace"));
+    }
+
+    @Test
     void aFirstPersonModelIsDrawnOnlyInTheHoldersOwnView() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "rifle:\n  material: PAPER\n"
