@@ -215,8 +215,9 @@ final class NexoOraxen {
      * layers) and Oraxen as {@code textures: [x]} with {@code generate_model};
      * a texture MAP is the slots of a generated model. Either way the plugin
      * builds a model out of {@code parent_model} and those textures. Here a
-     * flat item is already exactly that for {@code item/generated} and
-     * {@code item/handheld}, so the first layer is the item; any other parent
+     * flat item is already exactly that for {@code item/generated},
+     * {@code item/handheld} and {@code item/handheld_rod} (carried as
+     * {@code held:}), so the first layer is the item; any other parent
      * builds a shape this engine does not generate, and saying so beats a
      * flat sprite nobody can explain.
      */
@@ -232,7 +233,19 @@ final class NexoOraxen {
                         .ifPresent(texture -> out.put("texture", texture));
                 String parent = pack.string("parent_model").orElse("item/generated")
                         .replace("minecraft:", "");
-                if (!parent.equals("item/generated") && !parent.equals("item/handheld")) {
+                // Only when it was written: unstated, the material's own pose
+                // stays, as it always has.
+                if (pack.string("parent_model").isEmpty()) {
+                    // nothing
+                } else if (parent.equals("item/generated")) {
+                    out.put("held", "item");
+                } else if (parent.equals("item/handheld")) {
+                    out.put("held", "tool");
+                } else if (parent.equals("item/handheld_rod")) {
+                    out.put("held", "rod");
+                }
+                if (!parent.equals("item/generated") && !parent.equals("item/handheld")
+                        && !parent.equals("item/handheld_rod")) {
                     diagnostics.add(Diagnostic.warning(origin, id,
                             "Pack.parent_model " + parent + " is a model Nexo/Oraxen generate from its textures. "
                                     + "RP Engine draws a flat sprite from the first texture instead; export the model "
