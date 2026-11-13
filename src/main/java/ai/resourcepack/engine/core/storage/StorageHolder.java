@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.storage;
 
+import ai.resourcepack.dialogruntime.ItemBytes;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.IOException;

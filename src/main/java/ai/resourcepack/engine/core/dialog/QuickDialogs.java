@@ -1,5 +1,7 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogItems;
+import ai.resourcepack.dialogruntime.DialogPackets;
 import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.common.quick.JoinCopies;
 import ai.resourcepack.common.quick.QuickActionPack;

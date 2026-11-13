@@ -1,8 +1,8 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.dialogruntime.ItemBytes;
 import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
-import ai.resourcepack.engine.core.storage.ItemBytes;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Chunk;

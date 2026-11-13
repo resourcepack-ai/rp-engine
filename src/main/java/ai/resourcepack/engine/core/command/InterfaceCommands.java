@@ -198,7 +198,7 @@ public final class InterfaceCommands implements Area {
      * <p>Every player may run it, because the click is theirs; so it sets only
      * a variable the dialog they were last shown declares (or a page their
      * client turned to from it), and only to a value that dialog lists — see
-     * {@link ai.resourcepack.engine.core.dialog.DialogVariables}. A name only
+     * {@link ai.resourcepack.dialogruntime.DialogVariables}. A name only
      * some other dialog on the server declares is refused: it was never
      * offered to them.
      * Then it opens the dialog they were looking at again, which reads their
@@ -405,7 +405,7 @@ public final class InterfaceCommands implements Area {
      * {@code /rp slot <container/index>} — what a click on a slot of a dialog
      * whose items move runs, as the player who clicked it: the first picks a
      * stack up, the second puts it down. See
-     * {@link ai.resourcepack.engine.core.dialog.DialogSlots}.
+     * {@link ai.resourcepack.dialogruntime.DialogSlots}.
      *
      * <p>Every player may run it, for {@code /rp page}'s reason: it acts only on
      * a slot the dialog the player was last shown has a click for, and only on
@@ -428,8 +428,8 @@ public final class InterfaceCommands implements Area {
             Reply.to(sender, "/rp slot <slot>");
             return true;
         }
-        java.util.Optional<ai.resourcepack.engine.core.dialog.DialogSlots.Key> key =
-                ai.resourcepack.engine.core.dialog.DialogSlots.Key.parse(args[1]);
+        java.util.Optional<ai.resourcepack.dialogruntime.DialogSlots.Key> key =
+                ai.resourcepack.dialogruntime.DialogSlots.Key.parse(args[1]);
         java.util.Optional<ai.resourcepack.engine.core.dialog.DialogsImpl.Shown> shown = impl.lastShown(player);
         if (key.isEmpty() || shown.isEmpty() || !impl.holdsSlot(player, key.get())) {
             Reply.to(sender, shown.isPresent()
@@ -438,16 +438,16 @@ public final class InterfaceCommands implements Area {
             return true;
         }
         boolean wasHolding = impl.slots().held(player, shown.get().id()).isPresent();
-        ai.resourcepack.engine.core.dialog.DialogSlots.Result result =
+        ai.resourcepack.dialogruntime.DialogSlots.Result result =
                 impl.slots().click(player, shown.get().id(), key.get());
-        if (result == ai.resourcepack.engine.core.dialog.DialogSlots.Result.NO_SUCH_SLOT) {
+        if (result == ai.resourcepack.dialogruntime.DialogSlots.Result.NO_SUCH_SLOT) {
             Reply.to(sender, "There is no slot " + args[1] + " to move items in.");
             return true;
         }
         // Picked up, put down or put back — or a move refused, which puts the
         // light out — so the dialog again, as things now are. A click on an empty
         // slot with nothing picked up changes nothing on screen, and costs nothing.
-        if (result != ai.resourcepack.engine.core.dialog.DialogSlots.Result.NOTHING || wasHolding) {
+        if (result != ai.resourcepack.dialogruntime.DialogSlots.Result.NOTHING || wasHolding) {
             impl.reopen(player);
         }
         return true;

@@ -1,5 +1,15 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogBars;
+import ai.resourcepack.dialogruntime.DialogConditions;
+import ai.resourcepack.dialogruntime.DialogItems;
+import ai.resourcepack.dialogruntime.DialogPackets;
+import ai.resourcepack.dialogruntime.DialogPlaceholders;
+import ai.resourcepack.dialogruntime.DialogRows;
+import ai.resourcepack.dialogruntime.DialogSlots;
+import ai.resourcepack.dialogruntime.DialogSnbt;
+import ai.resourcepack.dialogruntime.DialogSorts;
+import ai.resourcepack.dialogruntime.DialogVariables;
 import ai.resourcepack.engine.core.Regions;
 import ai.resourcepack.common.scheduler.Tasks;
 import ai.resourcepack.engine.api.ContentId;
@@ -66,7 +76,7 @@ public final class DialogsImpl implements Dialogs {
      * containers a dialog's slots can show: see {@link DialogSlots}. Without
      * the plugin (a test) only the ones that keep nothing of their own.
      */
-    private volatile DialogSlots slots = new DialogSlots(null);
+    private volatile DialogSlots<ContentId> slots = new DialogSlots<>(null);
 
     /** The commands dialogs are opened with ({@code /shop}); null until {@link #attach}. */
     private volatile DialogCommands commands;
@@ -946,7 +956,7 @@ public final class DialogsImpl implements Dialogs {
             }
             // Published, built-in and PlaceholderAPI values before the player's
             // own settings, so a setting can never stand in for one: see filled().
-            Optional<String> known = ai.resourcepack.engine.core.font.Placeholders.lookup(viewer, name, plugins);
+            Optional<String> known = ai.resourcepack.dialogruntime.Placeholders.lookup(viewer, name, plugins);
             if (known.isPresent()) {
                 return known;
             }
@@ -961,7 +971,7 @@ public final class DialogsImpl implements Dialogs {
     }
 
     /** What players have picked up in dialogs whose items move, and the containers slots can show. */
-    public DialogSlots slots() {
+    public DialogSlots<ContentId> slots() {
         return slots;
     }
 
@@ -972,7 +982,15 @@ public final class DialogsImpl implements Dialogs {
      */
     public void attach(org.bukkit.plugin.Plugin plugin) {
         this.plugin = plugin;
-        this.slots = new DialogSlots(plugin);
+        DialogSlots<ContentId> made = new DialogSlots<>(plugin);
+        // A move a plugin may veto: the API's event, fired as it always was.
+        made.gate((player, dialog, from, to, moving, onto) -> {
+            ai.resourcepack.engine.api.event.DialogSlotMoveEvent event =
+                    new ai.resourcepack.engine.api.event.DialogSlotMoveEvent(player, dialog, from, to, moving, onto);
+            Bukkit.getPluginManager().callEvent(event);
+            return !event.isCancelled();
+        });
+        this.slots = made;
         // Dialogs that name a command are opened with it — only where they can open.
         this.commands = supported ? new DialogCommands(plugin, this) : null;
         if (supported) {
@@ -1022,7 +1040,28 @@ public final class DialogsImpl implements Dialogs {
 
     @Override
     public boolean container(String name, ai.resourcepack.engine.api.DialogContainer container) {
-        return slots.register(name, container);
+        // The API's type, handed to the runtime as its own: nothing in the API names the runtime.
+        return slots.register(name, container == null ? null : new ai.resourcepack.dialogruntime.SlotContainer() {
+            @Override
+            public org.bukkit.inventory.Inventory inventory(Player viewer) {
+                return container.inventory(viewer);
+            }
+
+            @Override
+            public boolean mayTake(Player viewer, int slot, org.bukkit.inventory.ItemStack stack) {
+                return container.mayTake(viewer, slot, stack);
+            }
+
+            @Override
+            public boolean mayPlace(Player viewer, int slot, org.bukkit.inventory.ItemStack stack) {
+                return container.mayPlace(viewer, slot, stack);
+            }
+
+            @Override
+            public void changed(Player viewer) {
+                container.changed(viewer);
+            }
+        });
     }
 
     /**

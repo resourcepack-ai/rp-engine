@@ -792,12 +792,12 @@ public final class StudioContent {
             Map<String, List<String>> vars = new LinkedHashMap<>();
             for (DialogVariable v : dialog.vars == null ? List.<DialogVariable>of() : dialog.vars) {
                 if (v == null || v.name == null || v.values == null
-                        || !ai.resourcepack.engine.core.dialog.DialogVariables.NAME.matcher(v.name).matches()) {
+                        || !ai.resourcepack.dialogruntime.DialogVariables.NAME.matcher(v.name).matches()) {
                     continue;
                 }
                 List<String> values = new ArrayList<>();
                 for (String value : v.values) {
-                    if (value != null && ai.resourcepack.engine.core.dialog.DialogVariables.VALUE.matcher(value).matches()) {
+                    if (value != null && ai.resourcepack.dialogruntime.DialogVariables.VALUE.matcher(value).matches()) {
                         values.add(value);
                     }
                 }
@@ -812,7 +812,7 @@ public final class StudioContent {
             if (dialog.itemIcons != null) {
                 dialog.itemIcons.forEach((model, cell) -> {
                     if (model != null && !model.isEmpty() && model.length() <= 128 && cell != null
-                            && ai.resourcepack.engine.core.dialog.DialogItems.packCell(cell)) {
+                            && ai.resourcepack.dialogruntime.DialogItems.packCell(cell)) {
                         icons.put(model, cell);
                     }
                 });

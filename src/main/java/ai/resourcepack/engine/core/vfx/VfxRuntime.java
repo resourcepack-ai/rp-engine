@@ -419,7 +419,7 @@ public final class VfxRuntime implements Vfx {
         }
 
         private boolean test(String condition, Player caster) {
-            return ai.resourcepack.engine.core.dialog.DialogConditions.test(condition,
+            return ai.resourcepack.dialogruntime.DialogConditions.test(condition,
                     name -> lookup.apply(caster, name),
                     permission -> caster != null && caster.hasPermission(permission));
         }

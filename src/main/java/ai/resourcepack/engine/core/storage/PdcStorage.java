@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.storage;
 
+import ai.resourcepack.dialogruntime.ItemBytes;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.inventory.ItemStack;

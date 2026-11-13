@@ -1,5 +1,10 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogConditions;
+import ai.resourcepack.dialogruntime.DialogItems;
+import ai.resourcepack.dialogruntime.DialogPackets;
+import ai.resourcepack.dialogruntime.DialogPlaceholders;
+import ai.resourcepack.dialogruntime.DialogSnbt;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.DialogInfo;
 import ai.resourcepack.common.datapack.DataPackFolder;

@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.storage;
 
+import ai.resourcepack.dialogruntime.ItemBytes;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.Sounds;
 import ai.resourcepack.engine.api.StorageSpec;

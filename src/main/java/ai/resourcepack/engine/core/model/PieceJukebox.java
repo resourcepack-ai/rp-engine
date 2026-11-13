@@ -1,7 +1,7 @@
 package ai.resourcepack.engine.core.model;
 
+import ai.resourcepack.dialogruntime.ItemBytes;
 import ai.resourcepack.engine.api.ModelInfo;
-import ai.resourcepack.engine.core.storage.ItemBytes;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;

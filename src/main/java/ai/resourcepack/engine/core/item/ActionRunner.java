@@ -175,7 +175,7 @@ public final class ActionRunner {
      * Opens a dialog for the user: {@code dialog: <id> [name=value ...]}. When
      * its slots show the item's own contents the item is a backpack, and the
      * stack used is the one they show — see
-     * {@link ai.resourcepack.engine.core.dialog.DialogSlots#openFrom}.
+     * {@link ai.resourcepack.dialogruntime.DialogSlots#openFrom}.
      */
     private void dialog(Player player, ItemAction step, ItemStack stack) {
         ai.resourcepack.engine.core.dialog.DialogsImpl open = dialogs;

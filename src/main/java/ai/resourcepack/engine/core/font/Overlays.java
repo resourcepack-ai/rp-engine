@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.font;
 
+import ai.resourcepack.dialogruntime.Placeholders;
 import ai.resourcepack.engine.api.ContentId;
 import ai.resourcepack.engine.api.OverlayInfo;
 import org.bukkit.Bukkit;
@@ -471,7 +472,7 @@ public final class Overlays {
         if (when == null || when.isEmpty()) {
             return true;
         }
-        return ai.resourcepack.engine.core.dialog.DialogConditions.test(when,
+        return ai.resourcepack.dialogruntime.DialogConditions.test(when,
                 name -> Placeholders.lookup(viewer, name, filled),
                 permission -> viewer != null && viewer.hasPermission(permission));
     }
