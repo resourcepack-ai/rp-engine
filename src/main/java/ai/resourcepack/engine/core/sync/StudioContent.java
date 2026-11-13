@@ -291,6 +291,22 @@ public final class StudioContent {
      * Studio export in {@code content/} brought its pictures and none of its
      * objects.
      */
+    /**
+     * What a pushed dialog may need that this engine does: everything the dialog
+     * runtime draws, and this engine's own commands, closing and Quick Actions
+     * key (the runtime's {@code DialogFeatures}; Studio's lib/dialogs/requires.ts).
+     */
+    static final java.util.Set<String> DIALOG_FEATURES;
+
+    static {
+        java.util.Set<String> features = new java.util.HashSet<>(ai.resourcepack.dialogruntime.DialogFeatures.DRAWING);
+        features.addAll(List.of(ai.resourcepack.dialogruntime.DialogFeatures.ICONS, ai.resourcepack.dialogruntime.DialogFeatures.PAGES,
+                ai.resourcepack.dialogruntime.DialogFeatures.CONSOLE, ai.resourcepack.dialogruntime.DialogFeatures.RUN,
+                ai.resourcepack.dialogruntime.DialogFeatures.SETTINGS, ai.resourcepack.dialogruntime.DialogFeatures.CLOSE_AFTER_CLICK,
+                ai.resourcepack.dialogruntime.DialogFeatures.QUICK_ACTION));
+        DIALOG_FEATURES = java.util.Set.copyOf(features);
+    }
+
     public static StudioContent read(String json, String where, Logger log) {
         StudioContent read = new StudioContent();
         MergeResult result = read.updateFromJson(json, log);
@@ -838,6 +854,12 @@ public final class StudioContent {
                         dropped[0]++;
                     }
                 }
+            }
+            // The handshake: what Studio says this page needs, against what this engine does.
+            List<String> lacking = ai.resourcepack.dialogruntime.DialogFeatures.missing(dialog.requires, DIALOG_FEATURES);
+            if (!lacking.isEmpty() && log != null) {
+                log.warning("The dialog " + dialog.id + " needs what this RP Engine cannot do (" + String.join(", ", lacking)
+                        + "). It opens without it: update RP Engine to show it as it was made.");
             }
             id(dialog.id, log, "dialog").ifPresent(id -> readDialogs.put(id,
                     ai.resourcepack.engine.api.DialogInfo.pushed(id, dialog.json.toString(), dialog.name, vars, icons)
