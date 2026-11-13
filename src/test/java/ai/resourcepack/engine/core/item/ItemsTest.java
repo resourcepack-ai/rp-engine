@@ -263,6 +263,58 @@ class ItemsTest {
         assertTrue(zip.get("assets/mypack/models/item/hammer.json").contains("minecraft:item/handheld_mace"));
     }
 
+    /** A 16x16 blade drawn corner to corner, three pixels thick. */
+    private void writeBlade(String path, boolean vanillaWay) throws IOException {
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(16, 16,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int i = 1; i < 15; i++) {
+            for (int d = -1; d <= 1; d++) {
+                int x = Math.max(0, Math.min(15, i + d));
+                image.setRGB(x, vanillaWay ? 15 - i : i, 0xFFAA5500 + i);
+            }
+        }
+        Path file = content.resolve(path);
+        Files.createDirectories(file.getParent());
+        Files.write(file, ai.resourcepack.engine.core.pack.Images.png(image));
+    }
+
+    @Test
+    void aSwordDrawnTheMirrorWayIsTurnedForTheHand() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", "backwards:\n  material: IRON_SWORD\n"
+                + "forwards:\n  material: IRON_SWORD\n"
+                + "flag:\n  material: PAPER\n  texture: item/backwards\n");
+        writeBlade("mypack/assets/textures/item/backwards.png", false);
+        writeBlade("mypack/assets/textures/item/forwards.png", true);
+
+        Map<String, String> zip = buildAndRead();
+
+        assertEquals("{\"parent\":\"minecraft:item/handheld\","
+                        + "\"textures\":{\"layer0\":\"mypack:item/backwards_held\"}}",
+                zip.get("assets/mypack/models/item/backwards.json"));
+        assertTrue(zip.containsKey("assets/mypack/textures/item/backwards_held.png"));
+        // Drawn like vanilla's: left alone.
+        assertTrue(zip.get("assets/mypack/models/item/forwards.json").contains("\"mypack:item/forwards\""));
+        assertFalse(zip.containsKey("assets/mypack/textures/item/forwards_held.png"));
+        // Held flat, a picture is shown as drawn whichever way it leans.
+        assertTrue(zip.get("assets/mypack/models/item/flag.json").contains("\"mypack:item/backwards\""));
+    }
+
+    @Test
+    void theDiagonalMeasureTellsTheTwoWaysApartAndLeavesRoundThingsAlone() throws IOException {
+        java.awt.image.BufferedImage round = new java.awt.image.BufferedImage(16, 16,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if ((x - 7.5) * (x - 7.5) + (y - 7.5) * (y - 7.5) < 40) {
+                    round.setRGB(x, y, 0xFF888888);
+                }
+            }
+        }
+        assertFalse(HeldSprites.drawnMirrored(round));
+        assertTrue(Math.abs(HeldSprites.diagonal(round)) < 0.1);
+    }
+
     @Test
     void aFirstPersonModelIsDrawnOnlyInTheHoldersOwnView() throws IOException {
         write("mypack/pack.yml", "{}\n");

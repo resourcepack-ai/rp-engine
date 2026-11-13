@@ -764,8 +764,12 @@ public final class ItemAssets implements PackContributor {
         // CraftEngine pack names minecraft:item/custom/ruby and ships the PNG
         // in its own resource pack folder.
         String texture = ModelSources.textureLocation(namespace, item.texture());
-        into.add(modelPath, json("{\"parent\":\"" + flatParent(item.material()) + "\","
-                + "\"textures\":{\"layer0\":\"" + texture + "\"}}"));
+        String parent = flatParent(item.material());
+        // A tool held at an angle points its picture's top-right corner
+        // forward; one drawn the mirror way round is turned for the hand.
+        String drawn = parent.startsWith("minecraft:item/handheld") ? HeldSprites.forHand(texture, into) : texture;
+        into.add(modelPath, json("{\"parent\":\"" + parent + "\","
+                + "\"textures\":{\"layer0\":\"" + drawn + "\"}}"));
         String textureNamespace = texture.substring(0, texture.indexOf(':'));
         // Only a texture a pack in this bundle is meant to ship can be missing;
         // one in another namespace may be the game's own.
