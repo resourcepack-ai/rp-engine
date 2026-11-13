@@ -20,6 +20,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 import org.yaml.snakeyaml.error.YAMLException;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -380,6 +381,7 @@ public final class ContentFolderLoader {
                 return;
             }
             packs.add(PackMeta.of(namespace, source, null, null, null, List.of()));
+            warnYamlInPlainPack(root, folder, namespace, diagnostics);
             return;
         }
 
@@ -855,6 +857,38 @@ public final class ContentFolderLoader {
         } catch (IOException e) {
             // An unreadable folder is reported by the builder when it copies it.
         }
+    }
+
+    /**
+     * A plain resource pack defines nothing, so a definition dropped into one
+     * (an item's YAML in {@code assets/minecraft/items/}, beside the game's
+     * own item JSON) is never read, and "No items loaded" was all anybody got
+     * to say so. The usual case is a Studio export unzipped here and then
+     * treated as the place for the server's own content.
+     */
+    static void warnYamlInPlainPack(Path root, Path folder, String namespace, List<Diagnostic> diagnostics) {
+        List<Path> yaml;
+        try (Stream<Path> files = Files.walk(folder, 8)) {
+            yaml = files.filter(Files::isRegularFile)
+                    .filter(file -> {
+                        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                        return name.endsWith(".yml") || name.endsWith(".yaml");
+                    })
+                    .sorted()
+                    .toList();
+        } catch (IOException | UncheckedIOException e) {
+            return;
+        }
+        if (yaml.isEmpty()) {
+            return;
+        }
+        String first = relative(root, yaml.get(0));
+        String more = yaml.size() == 2 ? " and 1 other YAML file" : yaml.size() > 2 ? " and " + (yaml.size() - 1) + " other YAML files" : "";
+        diagnostics.add(Diagnostic.warning(relative(root, folder),
+                "is a plain resource pack (pack.mcmeta and assets/), which RP Engine copies into the pack as art and "
+                        + "never reads definitions from, so " + first + more + " did nothing. Put items, models and "
+                        + "the rest in a content pack of their own: a new folder in content/ with a pack.yml and "
+                        + "an items/ folder, not inside " + namespace + "/."));
     }
 
     private static String claimMessage(String namespace, ClaimResult claim) {

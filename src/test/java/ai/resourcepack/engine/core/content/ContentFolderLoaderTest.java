@@ -77,6 +77,30 @@ class ContentFolderLoaderTest {
     }
 
     @Test
+    void yamlInsideAPlainResourcePackIsReportedRatherThanIgnoredSilently() throws IOException {
+        // A Studio export unzipped into content/, then an item's YAML put
+        // beside the game's own item JSON: a plain pack defines nothing.
+        write("legions/pack.mcmeta", "{\"pack\":{\"pack_format\":46,\"description\":\"\"}}\n");
+        write("legions/assets/minecraft/items/paper.json", "{}\n");
+        write("legions/assets/minecraft/items/flame_sword.yml", "flamesword:\n  material: IRON_SWORD\n");
+
+        LoadReport report = load();
+
+        assertTrue(ids(report).isEmpty());
+        List<String> warnings = messages(report, Diagnostic.Severity.WARNING);
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("plain resource pack")
+                && w.contains("flame_sword.yml") && w.contains("pack.yml")), warnings::toString);
+    }
+
+    @Test
+    void aPlainResourcePackWithoutYamlIsQuiet() throws IOException {
+        write("art/pack.mcmeta", "{\"pack\":{\"pack_format\":46,\"description\":\"\"}}\n");
+        write("art/assets/minecraft/items/paper.json", "{}\n");
+
+        assertTrue(messages(load(), Diagnostic.Severity.WARNING).isEmpty());
+    }
+
+    @Test
     void theFolderNameIsTheNamespace() throws IOException {
         // Even when pack.yml claims otherwise: the namespace is the thing a
         // server owner can see and rename.
