@@ -24,6 +24,9 @@ import java.util.Set;
  *
  * <ul>
  *   <li>the server as a whole ({@link #SERVER_WIDE}): the global region;</li>
+ *   <li>a dialog's click ({@code page}, {@code var}, {@code slot}, {@code click},
+ *   {@code run}, {@code quick}): the clicker's region, never a player its
+ *   words happen to name;</li>
  *   <li>an online player named in it: that player's region;</li>
  *   <li>a place given as three numbers: the region holding that place;</li>
  *   <li>anything else: where it was typed, which for a player is their own
@@ -59,6 +62,23 @@ final class CommandThreads {
         }
         if (SERVER_WIDE.contains(sub)) {
             Regions.global(plugin, work);
+            return;
+        }
+        if (EngineCommand.PLUMBING.contains(sub)) {
+            // A dialog's click: about the player who clicked, whatever its words
+            // say. "/rp var theme dark" is not about a player called dark, and
+            // running it anywhere but the clicker's own thread also lets the
+            // seamless close queued there overtake the reopen. Only /rp var's
+            // fourth word names somebody else.
+            Player about = sub.equals("var") && args.length > 3 && args[3].indexOf(':') < 0
+                    ? Bukkit.getPlayerExact(args[3]) : null;
+            if (about != null) {
+                Tasks.now(plugin, about, work);
+            } else if (sender instanceof Entity entity) {
+                Tasks.now(plugin, entity, work);
+            } else {
+                Regions.global(plugin, work);
+            }
             return;
         }
         Player named = namedPlayer(args);
