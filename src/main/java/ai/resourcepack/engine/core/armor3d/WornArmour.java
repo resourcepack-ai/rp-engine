@@ -23,6 +23,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MainHand;
@@ -384,6 +385,40 @@ public final class WornArmour implements Listener {
         }
     }
 
+    /**
+     * A teleport is never glided across, however short, and the displays go
+     * with the player in the same tick.
+     *
+     * <p>Distance alone missed the short ones (an ender pearl, a nearby /home,
+     * a plugin's dash): under {@link #SNAP_DISTANCE} they were carried like a
+     * step. And even a snap waited for the next tick of the loop, so the
+     * client drew the player at the destination and the suit where they had
+     * been for a frame or two. Moving the displays here puts their teleport in
+     * the same tick's packets as the player's. Off Folia only: there a display
+     * may belong to another region than the destination, and the loop's snap
+     * on the next tick is the safe answer.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent event) {
+        Wearer wearer = wearers.get(event.getPlayer().getUniqueId());
+        if (wearer == null) {
+            return;
+        }
+        wearer.teleported = true;
+        Location to = event.getTo();
+        if (to == null || Regions.folia() || to.getWorld() != event.getPlayer().getWorld()) {
+            return;
+        }
+        Location at = to.clone();
+        at.setYaw(0f);
+        at.setPitch(0f);
+        wearer.lead = new Vector();
+        wearer.shared.jumpTo(at);
+        if (wearer.own != null) {
+            wearer.own.jumpTo(at);
+        }
+    }
+
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         Wearer wearer = wearers.remove(event.getPlayer().getUniqueId());
@@ -425,6 +460,8 @@ public final class WornArmour implements Listener {
         Vector lead = new Vector();
         /** Whether this tick's move was a teleport, which nothing may glide across. */
         boolean jumped = true;
+        /** Set by a teleport event, taken by the next {@link #step}. */
+        volatile boolean teleported;
         long swingStart = Long.MIN_VALUE / 2;
         boolean swingLeft;
         boolean poseNow = true;
@@ -437,8 +474,9 @@ public final class WornArmour implements Listener {
         /** The client's own bookkeeping for this player, one tick on. */
         void step(Player player) {
             Location at = player.getLocation();
-            jumped = last == null || last.getWorld() != at.getWorld()
+            jumped = teleported || last == null || last.getWorld() != at.getWorld()
                     || last.distanceSquared(at) > SNAP_DISTANCE * SNAP_DISTANCE;
+            teleported = false;
             Vector moved = jumped ? new Vector() : at.toVector().subtract(last.toVector());
             last = at;
             dx = moved.getX();
@@ -666,6 +704,19 @@ public final class WornArmour implements Listener {
                 } else {
                     Regions.move(display, at);
                 }
+            }
+        }
+
+        /** Every display to {@code at} at once, with no glide: a teleport. */
+        void jumpTo(Location at) {
+            DisplayCarry carry = own ? ownGlide : glide;
+            for (ItemDisplay display : displays.values()) {
+                if (!display.isValid()) {
+                    continue;
+                }
+                snap.carry(display);
+                Regions.move(display, at);
+                carry.carry(display);
             }
         }
 
