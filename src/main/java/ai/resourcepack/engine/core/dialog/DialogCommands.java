@@ -217,6 +217,28 @@ public final class DialogCommands {
         }
     }
 
+    /** A plain name: letters, digits, {@code _}, and a Floodgate {@code .} prefix. Never a selector or a wildcard. */
+    private static final java.util.regex.Pattern TARGET = java.util.regex.Pattern.compile("[A-Za-z0-9_.][A-Za-z0-9_.-]{0,31}");
+
+    /**
+     * Whether a player may give {@code arg} as {@code {target}}, which is filled
+     * into the dialog's console buttons. A plain name always; anything else
+     * (a Bedrock name behind a prefix like {@code *}) only when it is exactly an
+     * online player's name, because EssentialsX, CMI and others read a bare
+     * {@code *} or {@code **} as "every player".
+     */
+    static boolean isTarget(String arg, java.util.function.Predicate<String> online) {
+        if (arg == null || arg.isEmpty() || arg.length() > 32) {
+            return false;
+        }
+        if (TARGET.matcher(arg).matches()) {
+            return true;
+        }
+        return arg.chars().noneMatch(c -> c <= ' ' || c == '@' || c == '"' || c == '\\' || c == '{' || c == '}')
+                && !arg.chars().allMatch(c -> c == '*')
+                && online.test(arg);
+    }
+
     /** {@code /shop}: the dialog that named it, on whoever typed it. */
     private final class OpenCommand extends Command {
 
@@ -233,9 +255,6 @@ public final class DialogCommands {
                 setPermission(dialogPermission);
             }
         }
-
-        /** What a player may give as {@code {target}}: a player's name (a Bedrock prefix included), never a selector. */
-        private static final java.util.regex.Pattern TARGET = java.util.regex.Pattern.compile("[A-Za-z0-9_.*-]{1,32}");
 
         @Override
         public boolean execute(CommandSender sender, String label, String[] args) {
@@ -254,7 +273,8 @@ public final class DialogCommands {
                 int eq = arg.indexOf('=');
                 if (eq > 0 && staff) {
                     values.put(arg.substring(0, eq), arg.substring(eq + 1));
-                } else if (eq < 0 && !values.containsKey("target") && TARGET.matcher(arg).matches()) {
+                } else if (eq < 0 && !values.containsKey("target")
+                        && isTarget(arg, name -> Bukkit.getPlayerExact(name) != null)) {
                     // A name and nothing else: {target} is filled into the
                     // dialog's console buttons, where "@a" would be everybody.
                     values.put("target", arg);
