@@ -250,6 +250,8 @@ public final class StudioContent {
     private volatile Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = Map.of();
+    /** The pushed Tooltips, as the components an item wears to show one; see {@link #tooltips()}. */
+    private volatile Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> tooltips = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
     /** The pushed mobs' skills, keyed as {@link #mobs}: only the mobs that have any. */
     private volatile Map<ContentId, PushedMobSkills> mobSkills = Map.of();
@@ -426,6 +428,7 @@ public final class StudioContent {
         copy.icons = icons;
         copy.vfx = vfx;
         copy.stingers = stingers;
+        copy.tooltips = tooltips;
         copy.mobs = mobs;
         copy.mobSkills = mobSkills;
         copy.packId = packId;
@@ -456,6 +459,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> tooltips = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
         String last = "";
@@ -477,6 +481,7 @@ public final class StudioContent {
             icons.putAll(pack.icons);
             vfx.putAll(pack.vfx);
             stingers.putAll(pack.stingers);
+            tooltips.putAll(pack.tooltips);
             // A mob's skills go with the mob: a later push of it with none
             // must not keep an earlier push's.
             pack.mobs.keySet().forEach(mobSkills::remove);
@@ -499,6 +504,7 @@ public final class StudioContent {
         all.icons = Map.copyOf(icons);
         all.vfx = Map.copyOf(vfx);
         all.stingers = Map.copyOf(stingers);
+        all.tooltips = Map.copyOf(tooltips);
         all.mobs = Map.copyOf(mobs);
         all.mobSkills = Map.copyOf(mobSkills);
         all.packId = last;
@@ -580,6 +586,15 @@ public final class StudioContent {
         return stingers;
     }
 
+    /**
+     * The pushed Tooltips, keyed by {@code studio:<id>}: what a content folder
+     * item names with {@code tooltip:}. The picture is the pack's own font; this
+     * is the components that show it, as Studio worked them out.
+     */
+    public Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> tooltips() {
+        return tooltips;
+    }
+
     /** The pushed custom mobs, keyed by {@code studio:<id>}. */
     public Map<ContentId, EntityInfo> mobs() {
         return mobs;
@@ -640,7 +655,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && variations.isEmpty() && works.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && icons.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && mobs.isEmpty();
+                && textEffects.isEmpty() && icons.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && tooltips.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -927,6 +942,24 @@ public final class StudioContent {
                                     ? stinger.auto.toLowerCase(Locale.ROOT) : null)));
         }
 
+        Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> readTooltips = new LinkedHashMap<>();
+        for (Tooltip tooltip : manifest.tooltips == null ? List.<Tooltip>of() : manifest.tooltips) {
+            if (tooltip == null) {
+                continue;
+            }
+            id(tooltip.id, log, "Tooltip").ifPresent(id -> {
+                String[] problem = new String[1];
+                ai.resourcepack.engine.core.item.ItemTooltip read = ai.resourcepack.engine.core.item.ItemTooltip.of(id, tooltip.name,
+                        tooltip.font, tooltip.text, tooltip.color, tooltip.emptyLines, tooltip.style, tooltip.hidden,
+                        Boolean.TRUE.equals(tooltip.glint), problem);
+                if (read != null) {
+                    readTooltips.put(id, read);
+                } else if (log != null) {
+                    log.warning("Pushed Tooltip " + tooltip.id + " was skipped: " + problem[0] + ".");
+                }
+            });
+        }
+
         Map<ContentId, EntityInfo> readMobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> readMobSkills = new LinkedHashMap<>();
         for (Mob mob : manifest.mobs == null ? List.<Mob>of() : manifest.mobs) {
@@ -964,13 +997,14 @@ public final class StudioContent {
         icons = Map.copyOf(readIcons);
         vfx = Map.copyOf(readVfx);
         stingers = Map.copyOf(readStingers);
+        tooltips = Map.copyOf(readTooltips);
         mobs = Map.copyOf(readMobs);
         mobSkills = Map.copyOf(readMobSkills);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
                         + armor3d.size() + objects.size() + textEffects.size() + icons.size() + vfx.size() + stingers.size()
-                        + mobs.size());
+                        + tooltips.size() + mobs.size());
     }
 
     /**
@@ -1704,6 +1738,24 @@ public final class StudioContent {
             out.soundIn = info.soundIn().orElse(null);
             out.soundOut = info.soundOut().orElse(null);
             manifest.stingers.add(out);
+        }
+        // Only when there are any, as Studio sends them: a server whose packs
+        // have no Tooltips writes the file it always did.
+        if (!tooltips.isEmpty()) {
+            manifest.tooltips = new ArrayList<>();
+            for (ai.resourcepack.engine.core.item.ItemTooltip info : tooltips.values()) {
+                Tooltip out = new Tooltip();
+                out.id = info.id().path();
+                out.name = info.name();
+                out.font = info.font();
+                out.text = info.text();
+                out.color = info.color();
+                out.emptyLines = info.emptyLines();
+                out.style = info.style();
+                out.hidden = new ArrayList<>(info.hidden());
+                out.glint = info.glint() ? Boolean.TRUE : null;
+                manifest.tooltips.add(out);
+            }
         }
         manifest.mobs = new ArrayList<>();
         for (EntityInfo info : mobs.values()) {

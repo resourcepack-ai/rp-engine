@@ -16,6 +16,7 @@
 ai/resourcepack/engine/core/item/DefinitionsWiring.java
 ai/resourcepack/engine/core/item/ModernItemComponents.java
 ai/resourcepack/engine/core/item/ComponentEquipping.java
+ai/resourcepack/engine/core/item/TooltipStacks.java
 ai/resourcepack/engine/core/model/DisplayCarry.java
 ai/resourcepack/engine/core/model/StringRigTags.java
 ai/resourcepack/engine/core/serve/StackedPackSending.java

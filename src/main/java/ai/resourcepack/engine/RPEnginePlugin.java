@@ -639,6 +639,21 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         textEffects.install();
         icons.install();
         items = new ItemsImpl(this, compatibility, modelNumbers);
+        // An item's tooltip: names a Studio Tooltip, looked up in every Studio
+        // pack in use as each stack is made (the latest first, as the union
+        // ranks them). Straight from the packs rather than the registered
+        // union, so a stack made while the content folder loads (a recipe's
+        // result) already finds a push the server kept from before a restart.
+        items.tooltips(id -> {
+            List<StudioContent> live = pushedPacks.live();
+            for (int i = live.size() - 1; i >= 0; i--) {
+                ai.resourcepack.engine.core.item.ItemTooltip found = live.get(i).tooltips().get(id);
+                if (found != null) {
+                    return found;
+                }
+            }
+            return null;
+        });
         actionRunner = new ActionRunner(items, sounds);
         // Emotes come over from the previous engine whole: the store, the
         // director and the maths. Host is the seam they were written against,
@@ -1417,6 +1432,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         StudioContent all = StudioContent.union(pushedPacks.live());
         pushedAll.release();
         pushedAll = all;
+        // A Tooltip an item names may have arrived or gone with them.
+        items.tooltipsChanged();
         all.register(registry, getLogger());
 
         Map<ContentId, SoundInfo> allSounds =
@@ -2908,6 +2925,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new ai.resourcepack.engine.core.vfx.VfxAssets(parsedVfx.effects(),
                         compatibility.has(ai.resourcepack.engine.api.Feature.VFX)));
 
+        // A Studio export dropped in as a resource pack carries what its art
+        // is (shader objects, screens, dialogs); read before the push
+        // content is registered, because it is registered with it, and
+        // before the recipes, whose results are stacks made now and may wear
+        // one of its Tooltips.
+        readFolderStudioContent(content, to);
+
         // After the items exist, because a recipe's ingredients and result are
         // resolved against them.
         RecipeDefinitions.Result parsedRecipes = RecipeDefinitions.parse(loaded);
@@ -2916,11 +2940,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (String problem : recipes.replace(parsedRecipes.recipes())) {
             getLogger().warning("recipe " + problem);
         }
-
-        // A Studio export dropped in as a resource pack carries what its art
-        // is (shader objects, screens, dialogs); read before the push
-        // content is registered, because it is registered with it.
-        readFolderStudioContent(content, to);
 
         // The content folder has just replaced the registry wholesale, which
         // knows nothing about the pack somebody is already wearing. Before the

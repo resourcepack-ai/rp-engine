@@ -37,6 +37,7 @@ public final class ItemInfo {
     private final boolean vanillaRecipes;
     private final String armor3d;
     private final Map<String, List<ContentId>> parts;
+    private final ContentId tooltip;
 
     private ItemInfo(ContentId id, String material, String name, List<String> lore,
                      String texture, String modelFile, ContentId copiedFrom, String permission, String armor,
@@ -45,7 +46,7 @@ public final class ItemInfo {
                      Map<String, AnimationSettings> animations, ItemStats stats,
                      boolean hat, boolean keepOnDeath, Map<String, Double> hitboxes,
                      ContentId liquid, String armorTexture, boolean vanillaRecipes, String armor3d,
-                     Map<String, List<ContentId>> parts) {
+                     Map<String, List<ContentId>> parts, ContentId tooltip) {
         this.id = id;
         this.material = material;
         this.name = name;
@@ -69,6 +70,7 @@ public final class ItemInfo {
         this.vanillaRecipes = vanillaRecipes;
         this.armor3d = armor3d;
         this.parts = parts;
+        this.tooltip = tooltip;
     }
 
     /** Engine internal; built by the item loader from a definition body. */
@@ -98,7 +100,8 @@ public final class ItemInfo {
                 "",
                 false,
                 "",
-                Map.of());
+                Map.of(),
+                null);
     }
 
     /**
@@ -113,7 +116,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable,
                 actions == null || actions.isEmpty() ? Map.of() : Map.copyOf(actions),
-                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                animations, stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /**
@@ -129,21 +132,21 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions,
                 animations == null || animations.isEmpty() ? Map.of() : Map.copyOf(animations), stats,
-                hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /** The same item, with the vanilla numbers it carries. */
     public ItemInfo withStats(ItemStats stats) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations,
-                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                stats == null ? ItemStats.none() : stats, hat, keepOnDeath, hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /** The same item, with the two small behaviours the engine does provide. */
     public ItemInfo withFlags(boolean hat, boolean keepOnDeath) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /** The same item, with what a hit on each of its bones is worth. */
@@ -151,7 +154,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
                 hitboxes == null || hitboxes.isEmpty() ? Map.of() : Map.copyOf(hitboxes),
-                liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /**
@@ -163,7 +166,7 @@ public final class ItemInfo {
     public ItemInfo withLiquid(ContentId liquid) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /**
@@ -177,7 +180,7 @@ public final class ItemInfo {
     public ItemInfo withArmorTexture(String armorTexture) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture == null ? "" : armorTexture, vanillaRecipes, armor3d, parts);
+                hitboxes, liquid, armorTexture == null ? "" : armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /**
@@ -356,7 +359,7 @@ public final class ItemInfo {
     public ItemInfo withArmor3d(String armor3d) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d == null ? "" : armor3d, parts);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d == null ? "" : armor3d, parts, tooltip);
     }
 
     /**
@@ -373,7 +376,7 @@ public final class ItemInfo {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
                 hitboxes, liquid, armorTexture, vanillaRecipes, armor3d,
-                copy.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(copy));
+                copy.isEmpty() ? Map.of() : java.util.Collections.unmodifiableMap(copy), tooltip);
     }
 
     /**
@@ -388,6 +391,23 @@ public final class ItemInfo {
      */
     public Map<String, List<ContentId>> parts() {
         return parts;
+    }
+
+    /**
+     * The same item, wearing a designed tooltip from a Studio pack:
+     * {@code tooltip:} in its definition, as {@code studio:<id>}. Every stack
+     * of it then shows that picture in place of its own name and lore, on
+     * Minecraft 1.21.5 and newer.
+     */
+    public ItemInfo withTooltip(ContentId tooltip) {
+        return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
+                armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
+    }
+
+    /** The Studio tooltip this item wears, as {@code studio:<id>}, or empty. */
+    public Optional<ContentId> tooltip() {
+        return Optional.ofNullable(tooltip);
     }
 
     /** The 3D armour set this item wears a piece of, as it was written, or empty. */
@@ -407,7 +427,7 @@ public final class ItemInfo {
     public ItemInfo withVanillaRecipes(boolean vanillaRecipes) {
         return new ItemInfo(id, material, name, lore, texture, modelFile, copiedFrom, permission,
                 armor, maxStack, glow, unbreakable, actions, animations, stats, hat, keepOnDeath,
-                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts);
+                hitboxes, liquid, armorTexture, vanillaRecipes, armor3d, parts, tooltip);
     }
 
     /**

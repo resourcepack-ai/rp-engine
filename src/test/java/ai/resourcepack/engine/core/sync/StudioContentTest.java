@@ -694,6 +694,40 @@ class StudioContentTest {
     }
 
     @Test
+    void aTooltipIsReadSavedAndReadBack(@TempDir Path dir) throws java.io.IOException {
+        // What Studio's content-manifest writer sends for a pack with two
+        // Tooltips, one of them broken in transit.
+        String json = "{\"packId\":\"p\",\"tooltips\":["
+                + "{\"id\":\"legendary\",\"name\":\"Legendary\",\"font\":\"rpai:tooltip/0a1b2c3d/legendary\","
+                + "\"text\":\"\\ue000\\ue003\",\"color\":\"#fdfefc\",\"emptyLines\":7,\"style\":\"rpai:clear\","
+                + "\"hidden\":[\"minecraft:attribute_modifiers\",\"minecraft:enchantments\"],\"glint\":true},"
+                + "{\"id\":\"broken\",\"name\":\"Broken\",\"font\":\"no font\",\"text\":\"x\",\"color\":\"#ffffff\","
+                + "\"emptyLines\":0,\"style\":\"rpai:clear\",\"hidden\":[]}]}";
+        StudioContent content = read(dir, json);
+        ContentId legendary = ContentId.parse("studio:legendary").orElseThrow();
+        assertEquals(1, content.tooltips().size(), "a tooltip with no usable font is skipped");
+        ai.resourcepack.engine.core.item.ItemTooltip tooltip = content.tooltips().get(legendary);
+        assertEquals("", tooltip.text());
+        assertEquals(7, tooltip.emptyLines());
+        assertTrue(tooltip.glint());
+        assertFalse(content.isEmpty());
+
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        ai.resourcepack.engine.core.item.ItemTooltip back = reloaded.tooltips().get(legendary);
+        assertEquals(tooltip.components(), back.components(), "a restart keeps every component");
+        assertEquals("Legendary", back.name());
+        assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).tooltips().size());
+
+        // A pack without any writes the file it always did.
+        StudioContent none = read(dir, MANIFEST);
+        none.save(LOG);
+        assertFalse(new String(java.nio.file.Files.readAllBytes(dir.resolve("studio-content.json")),
+                java.nio.charset.StandardCharsets.UTF_8).contains("tooltips"));
+    }
+
+    @Test
     void aPushedMobIsReadSavedAndReadBack(@TempDir Path dir) {
         String json = """
                 {"packId":"zoo",

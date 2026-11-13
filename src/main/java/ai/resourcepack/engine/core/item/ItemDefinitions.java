@@ -124,8 +124,47 @@ public final class ItemDefinitions {
                 .withArmorTexture(armorTexture(body, origin, where, diagnostics))
                 .withArmor3d(armor3d(body, origin, where, diagnostics))
                 .withVanillaRecipes(body.bool("vanilla-recipes").orElse(Boolean.FALSE))
-                .withParts(parts(body, definition.id(), origin, diagnostics)));
+                .withParts(parts(body, definition.id(), origin, diagnostics))
+                .withTooltip(tooltip(body, origin, where, diagnostics)));
     }
+
+    /**
+     * {@code tooltip:}, a designed tooltip from a Studio pack the server holds:
+     * its id ({@code legendary}) or that with the namespace pushed content lands
+     * in ({@code studio:legendary}). Checked for SHAPE only; whether a pack
+     * carries it is answered when a stack is made, because pushed and published
+     * packs come and go while the server runs.
+     */
+    static ContentId tooltip(DefinitionNode body, String origin, String where,
+                             List<Diagnostic> diagnostics) {
+        if (!body.has("tooltip")) {
+            return null;
+        }
+        Optional<String> declared = body.string("tooltip").map(String::trim).filter(value -> !value.isEmpty());
+        if (declared.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "tooltip: is the id of a Tooltip in a Studio pack, like tooltip: legendary. It was ignored."));
+            return null;
+        }
+        String written = declared.get().toLowerCase(Locale.ROOT);
+        Optional<ContentId> id = ContentId.parse(written.contains(":") ? written : TOOLTIP_NAMESPACE + ":" + written);
+        if (id.isEmpty()) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "tooltip: " + declared.get() + " is not a Tooltip id. It was ignored."));
+            return null;
+        }
+        if (!id.get().namespace().equals(TOOLTIP_NAMESPACE)) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "tooltip: " + declared.get() + " names a namespace of its own, but Tooltips come from Studio "
+                            + "packs: write tooltip: " + id.get().path() + " (or studio:" + id.get().path()
+                            + "). It was ignored."));
+            return null;
+        }
+        return id.get();
+    }
+
+    /** Where Studio content is named, pushed or published alike. */
+    private static final String TOOLTIP_NAMESPACE = "studio";
 
     /** Most slots an item may have, since each one is a layer drawn on every stack of it. */
     private static final int MAX_PARTS = 16;
