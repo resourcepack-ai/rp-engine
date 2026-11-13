@@ -373,6 +373,12 @@ final class StudioWire {
          */
         Boolean closeAfterClick;
         /**
+         * What an engine has to support to show this page as built, by name:
+         * the dialog runtime's {@code DialogFeatures}. Absent: nothing past
+         * showing the JSON.
+         */
+        List<String> requires;
+        /**
          * On the Quick Actions key (G) — see
          * {@link ai.resourcepack.engine.api.DialogInfo#quickAction()}. Absent:
          * not on it.
