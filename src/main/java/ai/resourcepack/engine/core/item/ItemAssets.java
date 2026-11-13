@@ -78,6 +78,8 @@ public final class ItemAssets implements PackContributor {
     private final Map<ContentId, String> armorArt = new LinkedHashMap<>();
     /** {@code first-person:}, read straight off the definitions like {@code armor-art:}. */
     private final Map<ContentId, String> firstPerson = new LinkedHashMap<>();
+    /** {@code held:}, the parent a flat item is held by when its author chose one; see {@link #readHeld}. */
+    private final Map<ContentId, String> held = new LinkedHashMap<>();
     /** {@code gui:}, the inventory's look, as {model, texture} with exactly one set; see {@link #readGui}. */
     private final Map<ContentId, String[]> gui = new LinkedHashMap<>();
     /** {@code pull:}, {@code charged:} and {@code charged-firework:}; see {@link UseStates}. */
@@ -177,6 +179,7 @@ public final class ItemAssets implements PackContributor {
         vanillaDrawn.clear();
         readArmorArt(loaded);
         readFirstPerson(loaded);
+        readHeld(loaded, into);
         readGui(loaded, into);
         readUseStates(loaded, into);
         ItemDefinitions.Result parsed = ItemDefinitions.parse(loaded);
@@ -256,6 +259,50 @@ public final class ItemAssets implements PackContributor {
                 firstPerson.put(definition.id(), model.trim());
             }
         }
+    }
+
+    /**
+     * {@code held:}: how a flat item is held, when the material's own pose is
+     * wrong for the picture. {@code item} is held flat like paper, {@code tool}
+     * at an angle like a sword, {@code rod} at the angle turned the other way
+     * like a fishing rod, which is what a flag or a staff drawn with its handle
+     * at the bottom right wants. Absent, the material decides
+     * ({@link #flatParent}).
+     */
+    private void readHeld(LoadReport loaded, Contribution into) {
+        held.clear();
+        if (loaded == null) {
+            return;
+        }
+        for (ContentDefinition definition : loaded.definitions(ContentKind.ITEM)) {
+            Optional<String> raw = definition.body().string("held");
+            if (raw.isEmpty()) {
+                continue;
+            }
+            String parent = heldParent(raw.get());
+            if (parent != null) {
+                held.put(definition.id(), parent);
+            } else if (into != null) {
+                into.warn(definition.id().namespace() + "/items", definition.id().path(),
+                        "held: is item, tool or rod, not \"" + raw.get().trim() + "\". The material's pose was used.");
+            }
+        }
+    }
+
+    /** The parent model a {@code held:} value names, or null when it names none. */
+    static String heldParent(String value) {
+        return switch (value.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "item", "flat" -> "minecraft:item/generated";
+            case "tool", "handheld" -> "minecraft:item/handheld";
+            case "rod", "handheld_rod" -> "minecraft:item/handheld_rod";
+            default -> null;
+        };
+    }
+
+    /** The parent this flat item is held by: its own {@code held:}, else its material's. */
+    private String parentOf(ItemInfo item) {
+        String chosen = held.get(item.id());
+        return chosen != null ? chosen : flatParent(item.material());
     }
 
     /**
@@ -764,10 +811,12 @@ public final class ItemAssets implements PackContributor {
         // CraftEngine pack names minecraft:item/custom/ruby and ships the PNG
         // in its own resource pack folder.
         String texture = ModelSources.textureLocation(namespace, item.texture());
-        String parent = flatParent(item.material());
+        String parent = parentOf(item);
         // A tool held at an angle points its picture's top-right corner
-        // forward; one drawn the mirror way round is turned for the hand.
-        String drawn = parent.startsWith("minecraft:item/handheld") ? HeldSprites.forHand(texture, into) : texture;
+        // forward; one drawn the mirror way round is turned for the hand. Not
+        // when the author said how it is held: then it is drawn as it is.
+        String drawn = parent.startsWith("minecraft:item/handheld") && !held.containsKey(item.id())
+                ? HeldSprites.forHand(texture, into) : texture;
         into.add(modelPath, json("{\"parent\":\"" + parent + "\","
                 + "\"textures\":{\"layer0\":\"" + drawn + "\"}}"));
         String textureNamespace = texture.substring(0, texture.indexOf(':'));
@@ -939,7 +988,7 @@ public final class ItemAssets implements PackContributor {
         String path = "assets/" + ref.substring(0, ref.indexOf(':')) + "/models/" + ref.substring(ref.indexOf(':') + 1) + ".json";
         if (texture != null) {
             String location = ModelSources.textureLocation(namespace, texture);
-            into.add(path, json("{\"parent\":\"" + flatParent(item.material()) + "\","
+            into.add(path, json("{\"parent\":\"" + parentOf(item) + "\","
                     + "\"textures\":{\"layer0\":\"" + location + "\"}}"));
             String textureNamespace = location.substring(0, location.indexOf(':'));
             if (!ModelSources.isLocation(texture) || bundle == null || bundle.namespaces().contains(textureNamespace)) {

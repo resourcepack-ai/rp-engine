@@ -206,6 +206,39 @@ class GeometryTest {
     }
 
     @Test
+    void heldChoosesHowAFlatItemIsHeld() throws IOException {
+        write("mypack/pack.yml", "{}\n");
+        write("mypack/items/a.yml", """
+                flag:
+                  material: PAPER
+                  held: rod
+                staff:
+                  material: PAPER
+                  held: tool
+                sheet:
+                  material: DIAMOND_SWORD
+                  held: item
+                odd:
+                  material: PAPER
+                  held: sideways
+                """);
+        for (String name : new String[]{"flag", "staff", "sheet", "odd"}) {
+            write("mypack/assets/textures/item/" + name + ".png", "PNG");
+        }
+
+        BuildReport report = build();
+        var zip = zip(report);
+
+        assertTrue(zip.get("assets/mypack/models/item/flag.json").contains("minecraft:item/handheld_rod"));
+        assertTrue(zip.get("assets/mypack/models/item/staff.json").contains("\"minecraft:item/handheld\""));
+        assertTrue(zip.get("assets/mypack/models/item/sheet.json").contains("minecraft:item/generated"));
+        // A word it does not know keeps the material's pose and says so.
+        assertTrue(zip.get("assets/mypack/models/item/odd.json").contains("minecraft:item/generated"));
+        assertTrue(report.diagnostics(Diagnostic.Severity.WARNING).stream()
+                .anyMatch(d -> d.message().contains("held: is item, tool or rod")));
+    }
+
+    @Test
     void aMissingModelFileFallsBackToTheSprite() throws IOException {
         write("mypack/pack.yml", "{}\n");
         write("mypack/items/a.yml", "sword:\n  material: DIAMOND_SWORD\n  model: nope\n");

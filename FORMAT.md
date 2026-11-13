@@ -83,6 +83,25 @@ and either form works:
   (File > Export > Java Block/Item model), with its PNGs shipped beside it.
 
 With no `model:` an item is a flat sprite, which is what a vanilla item is.
+It is held the way its material is: a sword, axe, pickaxe, shovel, hoe or
+stick at an angle, anything else flat. **`held:` says otherwise**:
+
+| `held:` | Held like | Parent model |
+|---|---|---|
+| `item` | paper: flat, upright | `minecraft:item/generated` |
+| `tool` | a sword: at an angle, the picture's bottom left in the hand | `minecraft:item/handheld` |
+| `rod` | a fishing rod: the same angle turned the other way | `minecraft:item/handheld_rod` |
+
+```yaml
+flag:
+  material: PAPER
+  texture: item/flag
+  held: rod
+```
+
+Given `held:`, the picture is drawn exactly as it is. Without it, a tool whose
+picture is drawn the mirror way round (handle bottom right) is turned for the
+hand automatically.
 
 What a `.bbmodel` loses on the way in, because the format cannot express it:
 meshes (convert them to cubes first), and rotations beyond one axis at one of
