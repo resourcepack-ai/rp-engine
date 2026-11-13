@@ -726,7 +726,34 @@ public final class ItemAssets implements PackContributor {
                 + texture.substring(colon + 1) + ".png";
     }
 
-    /** The vanilla case: a PNG extruded by {@code minecraft:item/generated}. */
+    /**
+     * The parent a flat item's model takes: the one its material's own vanilla
+     * model has, so a sword, axe or pickaxe is held at an angle like the real
+     * one and anything else is held flat. Every flat item used to be
+     * {@code item/generated}, which put a custom sword in the hand like a
+     * piece of paper.
+     */
+    static String flatParent(String material) {
+        String name = material == null ? "" : material.toLowerCase(java.util.Locale.ROOT);
+        if (name.startsWith("minecraft:")) {
+            name = name.substring("minecraft:".length());
+        }
+        if (name.equals("mace")) {
+            return "minecraft:item/handheld_mace";
+        }
+        if (name.equals("carrot_on_a_stick") || name.equals("warped_fungus_on_a_stick")) {
+            return "minecraft:item/handheld_rod";
+        }
+        if (name.endsWith("_sword") || name.endsWith("_axe") || name.endsWith("_pickaxe")
+                || name.endsWith("_shovel") || name.endsWith("_hoe")
+                || java.util.Set.of("stick", "blaze_rod", "breeze_rod", "bone", "bamboo", "debug_stick")
+                        .contains(name)) {
+            return "minecraft:item/handheld";
+        }
+        return "minecraft:item/generated";
+    }
+
+    /** The vanilla case: a PNG extruded by {@link #flatParent its material's} parent. */
     private void writeSprite(ItemInfo item, String namespace, String modelPath, Contribution into) {
         writeSprite(item, namespace, modelPath, true, into);
     }
@@ -737,7 +764,7 @@ public final class ItemAssets implements PackContributor {
         // CraftEngine pack names minecraft:item/custom/ruby and ships the PNG
         // in its own resource pack folder.
         String texture = ModelSources.textureLocation(namespace, item.texture());
-        into.add(modelPath, json("{\"parent\":\"minecraft:item/generated\","
+        into.add(modelPath, json("{\"parent\":\"" + flatParent(item.material()) + "\","
                 + "\"textures\":{\"layer0\":\"" + texture + "\"}}"));
         String textureNamespace = texture.substring(0, texture.indexOf(':'));
         // Only a texture a pack in this bundle is meant to ship can be missing;
@@ -908,7 +935,7 @@ public final class ItemAssets implements PackContributor {
         String path = "assets/" + ref.substring(0, ref.indexOf(':')) + "/models/" + ref.substring(ref.indexOf(':') + 1) + ".json";
         if (texture != null) {
             String location = ModelSources.textureLocation(namespace, texture);
-            into.add(path, json("{\"parent\":\"minecraft:item/generated\","
+            into.add(path, json("{\"parent\":\"" + flatParent(item.material()) + "\","
                     + "\"textures\":{\"layer0\":\"" + location + "\"}}"));
             String textureNamespace = location.substring(0, location.indexOf(':'));
             if (!ModelSources.isLocation(texture) || bundle == null || bundle.namespaces().contains(textureNamespace)) {

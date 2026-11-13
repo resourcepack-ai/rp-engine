@@ -217,7 +217,7 @@ class GeometryTest {
         // failure than one that renders wrong: the first loses whatever was in
         // somebody's chest.
         assertTrue(zip(report).get("assets/mypack/models/item/sword.json")
-                .contains("minecraft:item/generated"));
+                .contains("minecraft:item/handheld"));
         assertTrue(report.hasErrors());
         assertTrue(report.diagnostics(Diagnostic.Severity.ERROR).get(0).message().contains("assets/models/nope.json"));
     }
