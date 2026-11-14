@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -56,6 +57,8 @@ public final class ProxyBridge implements PluginMessageListener {
     private final Logger logger;
     /** SHA-1 -> the file, for every pack this server has offered the proxy. */
     private final Map<String, Path> files = new ConcurrentHashMap<>();
+    /** What each player's connection may still ask for. See {@link Owed}. */
+    private final Owed owed = new Owed();
     /** A served file's SHA-1 -> the SHA-1 of what was built, before PackSquash. See {@link #identity}. */
     private volatile Function<String, String> identity = Function.identity();
 
@@ -104,6 +107,7 @@ public final class ProxyBridge implements PluginMessageListener {
             }
             entries.add(new Entry(pack.uuid(), pack.sha1(), identity.apply(pack.sha1()), url.apply(pack), pack.size()));
         }
+        owed.offered(player.getUniqueId(), packs.stream().map(BuiltPack::sha1).toList());
         byte[] message = stackMessage(prompt, force, entries);
         player.sendPluginMessage(plugin, CHANNEL, message);
     }
@@ -138,6 +142,13 @@ public final class ProxyBridge implements PluginMessageListener {
      * a connection, and it is not a way to read any file by naming its hash.
      */
     private void sendPack(Player player, String sha1) throws IOException {
+        // Once per pack per stack this player was sent, which is all the proxy
+        // ever asks. Anything else is not the proxy: with no proxy in front, a
+        // player's own client can speak on this channel, and each request here
+        // reads a whole pack off the disk and sends it down their connection.
+        if (!owed.claim(player.getUniqueId(), sha1)) {
+            return;
+        }
         Path file = files.get(sha1);
         if (file == null || !Files.isRegularFile(file)) {
             logger.warning("The proxy asked for pack " + sha1.substring(0, Math.min(8, sha1.length()))
@@ -151,6 +162,38 @@ public final class ProxyBridge implements PluginMessageListener {
                 byte[] bytes = in.readNBytes(CHUNK_SIZE);
                 player.sendPluginMessage(plugin, CHANNEL, chunkMessage(sha1, index, total, bytes));
             }
+        }
+    }
+
+    /**
+     * The packs each player's connection may still ask this server for: the
+     * ones in the last stack it was sent, each once.
+     *
+     * <p>RPE Proxy asks for a pack only in answer to a stack, and once per pack
+     * it does not hold, so this refuses nothing a proxy sends. What it refuses is
+     * a request nobody was offered and the same request made over and over.
+     */
+    static final class Owed {
+
+        /** A player who leaves is forgotten when the table next fills, which bounds it without a quit listener. */
+        private static final int MOST_PLAYERS = 4096;
+
+        private final Map<UUID, Set<String>> byPlayer = new ConcurrentHashMap<>();
+
+        /** A stack went to {@code player}: these are what the proxy may now ask for, replacing any earlier offer. */
+        void offered(UUID player, List<String> sha1s) {
+            if (byPlayer.size() >= MOST_PLAYERS && !byPlayer.containsKey(player)) {
+                byPlayer.clear();
+            }
+            Set<String> open = ConcurrentHashMap.newKeySet();
+            open.addAll(sha1s);
+            byPlayer.put(player, open);
+        }
+
+        /** Whether {@code player} may be sent {@code sha1} now. True at most once per offer of it. */
+        boolean claim(UUID player, String sha1) {
+            Set<String> open = byPlayer.get(player);
+            return open != null && sha1 != null && open.remove(sha1);
         }
     }
 
