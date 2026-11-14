@@ -384,6 +384,8 @@ final class StudioWire {
     static final class DialogVariable {
         String name;
         List<String> values;
+        /** What a player who has never set it is shown. Absent from older dialogs. */
+        String fallback;
     }
 
     /** How a dialog is on the Quick Actions key: {@code launcher} true for the launcher, and the name its list shows. */
