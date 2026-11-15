@@ -46,10 +46,12 @@ final class AdventureBossBars {
     private final Method hide;
     private final Object white;
     private final Object progress;
+    private final Method actionBar;
     private final Map<UUID, Object> bars = new ConcurrentHashMap<>();
 
     private AdventureBossBars(Method deserialize, Object gson, Method create, Method rename,
-                              Method show, Method hide, Object white, Object progress) {
+                              Method show, Method hide, Object white, Object progress, Method actionBar) {
+        this.actionBar = actionBar;
         this.deserialize = deserialize;
         this.gson = gson;
         this.create = create;
@@ -83,7 +85,9 @@ final class AdventureBossBars {
             Method hide = audience.getMethod("hideBossBar", bar);
             Object white = color.getField("WHITE").get(null);
             Object progress = overlay.getField("PROGRESS").get(null);
-            return Optional.of(new AdventureBossBars(deserialize, gson, create, rename, show, hide, white, progress));
+            Method actionBar = audience.getMethod("sendActionBar", component);
+            return Optional.of(new AdventureBossBars(deserialize, gson, create, rename, show, hide, white, progress,
+                    actionBar));
         } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
             return Optional.empty();
         }
@@ -97,10 +101,17 @@ final class AdventureBossBars {
      * rather than a meter, the same bar the legacy path draws.
      */
     boolean show(Player viewer, BaseComponent[] title) {
+        return show(viewer, ComponentSerializer.toString(title));
+    }
+
+    /**
+     * The same, from the title as JSON: the one format both component models
+     * agree on exactly, fonts and hex colours included, and one that can carry
+     * a field Spigot's components have no room for ({@code shadow_color}).
+     */
+    boolean show(Player viewer, String titleJson) {
         try {
-            // Through JSON because that is the one format both component
-            // models agree on exactly, fonts and hex colours included.
-            Object name = deserialize.invoke(gson, ComponentSerializer.toString(title));
+            Object name = deserialize.invoke(gson, titleJson);
             Object bar = bars.get(viewer.getUniqueId());
             if (bar == null) {
                 bar = create.invoke(null, name, 0f, white, progress);
@@ -109,6 +120,22 @@ final class AdventureBossBars {
             } else {
                 rename.invoke(bar, name);
             }
+            return true;
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Puts this line, as JSON, on the player's action bar. False if Adventure
+     * refused, so the caller can send it the Spigot way instead.
+     *
+     * <p>Only for a line that needs something Spigot's components cannot say
+     * (a run with its shadow off); every other action bar goes the Spigot way.
+     */
+    boolean actionBar(Player viewer, String json) {
+        try {
+            actionBar.invoke(viewer, deserialize.invoke(gson, json));
             return true;
         } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
             return false;

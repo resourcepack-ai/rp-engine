@@ -267,6 +267,21 @@ public enum Feature {
                     + "pack carries none of their sprites."),
 
     /**
+     * A HUD run drawn without the game's drop shadow: {@code "shadow": false} on
+     * a run of a {@code json:} HUD.
+     *
+     * <p>The run goes out with {@code shadow_color: 0}, a text component field
+     * 1.21.4 added. An older server's component codec has no such field, so
+     * there the run is sent as it always was, shadow and all. Needs Paper too,
+     * since Spigot's chat components cannot carry the field either.
+     */
+    HUD_TEXT_WITHOUT_SHADOW(
+            McVersion.of(1, 21, 4),
+            "HUD text without a drop shadow",
+            "A HUD run written with \"shadow\": false still draws the game's drop shadow "
+                    + "under it. Everything else about the HUD is unchanged."),
+
+    /**
      * A designed tooltip from a Studio pack on an item: {@code tooltip:} in its
      * definition.
      *

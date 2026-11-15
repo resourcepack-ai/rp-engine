@@ -3963,6 +3963,16 @@ bar HUD needs **Paper** when its picture lives in a font of its own (the JSON's
 there the picture goes missing and the spacing characters draw as boxes. The
 action bar works on both.
 
+**A run can go without its drop shadow.** The game draws every line of text a
+second time, first, a quarter as bright and one GUI pixel down and to the right,
+which smears flat art and pixel lettering. `"shadow": false` on an entry of the
+JSON's `runs` sends that run with `shadow_color: 0`, which the client draws
+transparent. Absent (or `true`) keeps the shadow, so nothing written before
+changes. It needs Minecraft 1.21.4 (where `shadow_color` arrived) and Paper,
+because Spigot's chat components have no field for it: a HUD with such a run is
+sent through Adventure as JSON, on either surface. Anywhere else the run keeps
+its shadow.
+
 **A GUI is a real container wearing a picture.** The rows and the slots are
 vanilla's; only the backdrop is yours, so `container:` has to name one the game
 actually has. Anything else is refused at load with the list in the message,
