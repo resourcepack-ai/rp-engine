@@ -768,6 +768,11 @@ final class StudioWire {
         List<RunState> states;
         /** The placeholder whose answer names one of {@link #states}. */
         String state;
+        /**
+         * False sends this run with no drop shadow ({@code shadow_color: 0}).
+         * Absent is on. See {@link OverlayInfo.OverlayRun#shadow()}.
+         */
+        Boolean shadow;
     }
 
     /** One entry of {@link Run#states}. */

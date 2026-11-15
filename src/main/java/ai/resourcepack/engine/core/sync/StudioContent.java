@@ -2035,7 +2035,9 @@ public final class StudioContent {
             }
             out.add(new OverlayInfo.OverlayRun(run.shift, run.x, run.text, run.font, run.color,
                     run.advance, run.players == null ? Map.of() : Map.copyOf(run.players), bar(run.bar),
-                    run.align).live(run.when, states, run.state));
+                    run.align).live(run.when, states, run.state)
+                    // Absent is on: only an explicit false drops the shadow.
+                    .withShadow(!Boolean.FALSE.equals(run.shadow)));
         }
         return List.copyOf(out);
     }

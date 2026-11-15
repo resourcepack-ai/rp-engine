@@ -72,6 +72,7 @@ public final class OverlayInfo {
         private String when = "";
         private java.util.List<State> states = java.util.List.of();
         private String state = "";
+        private boolean shadow = true;
 
         /**
          * A colour the run can be switched to by name.
@@ -359,7 +360,30 @@ public final class OverlayInfo {
             copy.when = when == null ? "" : when.trim();
             copy.states = states == null ? java.util.List.of() : java.util.List.copyOf(states);
             copy.state = state == null ? "" : state.trim();
+            copy.shadow = this.shadow;
             return copy;
+        }
+
+        /**
+         * The same run, drawn with or without the game's drop shadow.
+         *
+         * <p>Minecraft draws every line of text twice, the second time first, a
+         * quarter as bright and one GUI pixel down and to the right. Over flat
+         * art and pixel lettering that copy smears; {@code false} sends the run
+         * with {@code shadow_color: 0}, which the client draws transparent.
+         * {@code shadow_color} is 1.21.4's, so on an older server the run keeps
+         * its shadow; and it needs a surface that takes JSON components, which on
+         * Spigot's legacy boss bar it is not, so there it does too.
+         */
+        public OverlayRun withShadow(boolean shadow) {
+            OverlayRun copy = live(when, states, state);
+            copy.shadow = shadow;
+            return copy;
+        }
+
+        /** Whether the game draws this run's drop shadow. True unless turned off. See {@link #withShadow}. */
+        public boolean shadow() {
+            return shadow;
         }
 
         /** When this run is drawn, or empty for always. See {@link #live}. */

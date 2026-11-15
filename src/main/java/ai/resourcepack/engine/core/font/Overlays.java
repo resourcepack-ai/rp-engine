@@ -83,6 +83,34 @@ public final class Overlays {
         this.pushedView = view;
     }
 
+    /**
+     * Whether this server's text components have {@code shadow_color}
+     * (1.21.4's), so a HUD run marked {@code "shadow": false} can be sent
+     * without its drop shadow. Off until the plugin says, which keeps every
+     * shadow: a field an older codec does not know is not worth the risk.
+     */
+    private volatile boolean shadowColors;
+
+    public void shadowColors(boolean available) {
+        this.shadowColors = available;
+    }
+
+    /**
+     * Whether this overlay should go out as JSON with some runs' shadows off:
+     * the server can say so, Adventure can carry it, and some run asks.
+     */
+    private boolean dropsShadows(OverlayInfo info) {
+        if (!shadowColors || adventure == null) {
+            return false;
+        }
+        for (OverlayInfo.OverlayRun run : info.runs()) {
+            if (!run.shadow()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Whether this player can see this overlay at all. See {@link #pushedView}. */
     /** Whether a player is on Bedrock (through Geyser). Set by the plugin when Geyser is there. */
     private volatile java.util.function.Predicate<java.util.UUID> bedrockViewer = id -> false;
@@ -339,6 +367,12 @@ public final class Overlays {
         // between two pushes would otherwise be drawn twice — once on the bar
         // nothing is updating any more, and once where it now lives.
         clear(viewer);
+        // A run without its shadow needs a field Spigot's components cannot
+        // carry, so that overlay goes through Adventure as JSON. Every other
+        // overlay is sent exactly as before.
+        if (dropsShadows(info) && adventure.actionBar(viewer, composeJson(info, filled, viewer))) {
+            return;
+        }
         viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                 compose(info, filled, viewer));
     }
@@ -359,7 +393,10 @@ public final class Overlays {
      */
     private void showBossBar(Player viewer, OverlayInfo info, java.util.Map<String, String> filled) {
         if (adventure != null) {
-            if (adventure.show(viewer, compose(info, filled, viewer))) {
+            String title = dropsShadows(info)
+                    ? composeJson(info, filled, viewer)
+                    : net.md_5.bungee.chat.ComponentSerializer.toString(compose(info, filled, viewer));
+            if (adventure.show(viewer, title)) {
                 // A legacy bar left over from before (it cannot happen today,
                 // but two bars drawing one overlay is the failure to rule out).
                 BossBar stale = bars.remove(viewer.getUniqueId());
@@ -691,6 +728,43 @@ public final class Overlays {
 
     /** The same, for one player — whose head is their own. See {@code OverlayRun.textFor}. */
     static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
+        return compose(info, filled, viewer, null);
+    }
+
+    /**
+     * The same composed line as JSON, with {@code shadow_color: 0} on every
+     * part drawn from a run whose shadow is off.
+     *
+     * <p>JSON because Spigot's chat components have no field for a shadow
+     * colour, and JSON is what Adventure reads (see {@link AdventureBossBars}).
+     * Each part is serialised on its own and the field added to its object,
+     * never spliced into a string, so nothing a run says can confuse it.
+     */
+    static String composeJson(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
+        java.util.Set<BaseComponent> shadowless =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        BaseComponent[] parts = compose(info, filled, viewer, shadowless);
+        com.google.gson.JsonArray extra = new com.google.gson.JsonArray();
+        for (BaseComponent part : parts) {
+            com.google.gson.JsonElement json = com.google.gson.JsonParser.parseString(
+                    net.md_5.bungee.chat.ComponentSerializer.toString(part));
+            if (shadowless.contains(part) && json.isJsonObject()) {
+                json.getAsJsonObject().addProperty("shadow_color", 0);
+            }
+            extra.add(json);
+        }
+        com.google.gson.JsonObject line = new com.google.gson.JsonObject();
+        line.addProperty("text", "");
+        line.add("extra", extra);
+        return line.toString();
+    }
+
+    /**
+     * The composed line, noting in {@code shadowless} (when given) each part
+     * drawn from a run whose shadow is off.
+     */
+    private static BaseComponent[] compose(OverlayInfo info, java.util.Map<String, String> filled, Player viewer,
+                                           java.util.Set<BaseComponent> shadowless) {
         java.util.List<BaseComponent> parts = new java.util.ArrayList<>();
         parts.add(component(info)[0]);
 
@@ -737,6 +811,9 @@ public final class Overlays {
                         ? net.md_5.bungee.api.ChatColor.WHITE
                         : net.md_5.bungee.api.ChatColor.of(tint));
                 parts.add(body);
+                if (shadowless != null && !run.shadow()) {
+                    shadowless.add(body);
+                }
                 cursor = start + drawn.advance();
             }
             // The action bar centres the FINAL advance, not the picture.

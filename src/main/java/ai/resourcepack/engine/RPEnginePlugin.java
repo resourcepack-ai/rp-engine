@@ -631,6 +631,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // Before anything can talk, including the load diagnostics below.
         EngineOptions.chatStyle(getConfig());
         EngineOptions.emotes(getConfig(), compatibility, this);
+        overlays.shadowColors(compatibility.has(ai.resourcepack.engine.api.Feature.HUD_TEXT_WITHOUT_SHADOW));
         // The allocator is only touched on versions that address models by
         // number, but it is loaded either way: a server that upgrades past
         // 1.21.4 and later comes back down must find the numbers it had.
