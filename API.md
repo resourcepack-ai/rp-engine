@@ -12,6 +12,8 @@ RPEnginePlugin engine = (RPEnginePlugin) Bukkit.getPluginManager().getPlugin("RP
 
 engine.items();     // custom items
 engine.models();    // studio models, and the rigs standing in your worlds
+engine.blocks();    // custom blocks: which one stands somewhere, placing one
+engine.liquids();   // custom liquids, and which one a player is in
 engine.emotes();    // emotes and stances
 engine.vehicles();  // vehicles, and the ones standing in your worlds
 engine.mobs();      // custom mobs: spawn one, animate one, give an egg
@@ -135,6 +137,66 @@ as it was. `grow()` is what it turns into over time; growing fires neither
 `ModelBreakEvent` nor `ModelPlaceEvent`, because nobody broke or placed
 anything.
 
+### Sitting somebody down
+
+```java
+engine.models().sit(player, bench);     // false if they are already sitting or riding
+engine.models().isSeated(player);       // on a chair, a seat bone, or sit()
+engine.models().stand(player);          // get them up
+```
+
+`sit` sits a player at a place the way a chair does, with no model needed: a
+`/sit` command, a bench that is only blocks, a cutscene. The location is the
+surface they sit on and its yaw is the way they face. It asks `ModelSeatEvent`
+like any other seat, and they get up by sneaking. A vehicle's seat is not one
+of these. Since 0.2.82.
+
+## Custom blocks
+
+A custom block is a real block in the world, so Bukkit's own `BlockPlaceEvent`
+and `BlockBreakEvent` fire for it like any other. What the API adds is the
+question those events cannot answer: is this block one of the pack's, and
+which one.
+
+```java
+Blocks blocks = engine.blocks();
+ContentId ruby = ContentId.parse("mypack:ruby_ore").orElseThrow();
+
+blocks.at(block);                 // Optional<BlockInfo>: the custom block standing here
+blocks.idAt(block);               // just its id
+blocks.is(block, ruby);           // is it this one?
+blocks.stateAt(block);            // "facing=north,lit=true", or "" for a block with one state
+blocks.place(block, ruby);        // put one here, replacing what stands there
+blocks.setProperty(block, "lit", "true");   // change one property, keep the rest
+
+@EventHandler
+public void onBreak(BlockBreakEvent event) {
+    if (engine.blocks().is(event.getBlock(), ruby)) {
+        quests.mined(event.getPlayer(), "ruby");
+    }
+}
+```
+
+`place` is a plain set: no event fires, no item is taken, no sound plays and
+the neighbours are not updated. It returns false when there is no such block or
+the pack has no state left for it. `setState` and `setProperty` return false
+for a shaped block (a stair, a slab, a door), whose state is the game's own
+block data. `BlockInfo.with(state, property, value)` works a state out without
+touching the world. Since 0.2.82.
+
+## Liquids
+
+```java
+engine.liquids().ids();               // every liquid
+engine.liquids().info(id);            // its base, effect and damage
+engine.liquids().at(location);        // the liquid whose pool this place is in
+engine.liquids().of(player);          // the liquid this player is in right now
+```
+
+`at` asks about the pool, so a bridge over the acid answers too. `of` is
+stricter: in a pool and actually wet, as the engine last saw it (it looks once
+a second). `PlayerLiquidEvent` reports the moment that changes. Since 0.2.82.
+
 ## Emotes
 
 ```java
@@ -142,6 +204,7 @@ engine.emotes().play(player, "wave", List.of());   // solo
 engine.emotes().play(lead, "hug", List.of(other)); // with a cast
 engine.emotes().stop(player);
 engine.emotes().isEmoting(player.getUniqueId());
+engine.emotes().playing(player);                   // Optional<String>: which one (0.2.82)
 ```
 
 **An emote with a cast moves the people it names.** If your plugin plays one,
@@ -335,6 +398,10 @@ engine.vehicles().near(location, 16);        // nearest first
 engine.vehicles().loaded();                  // every one in a loaded chunk
 engine.vehicles().isRiding(uuid);            // safe from any thread
 ```
+
+`spawn` asks `VehicleSpawnEvent` first and answers empty when a plugin cancels
+it; `Vehicle.remove()` fires `VehicleRemoveEvent` while the vehicle is still
+whole, which is the moment to read what you kept in its `data()` (both 0.2.82).
 
 A `Vehicle` is a handle on one standing in a world, occupied or not: what it
 is, where it is going, who is aboard, and the switches a plugin turns.
@@ -803,8 +870,44 @@ engine.dialogs().close(player);
 engine.dialogs().ids();                    // what this server has
 engine.dialogs().info(id);                 // what a pack said one is
 engine.dialogs().canShow(player, id);      // would show get as far as the client?
+engine.dialogs().showing(player);          // the dialog they were last shown, if it still counts
 engine.dialogs().info(id).flatMap(DialogInfo::command);   // "shop" when players open it with /shop
 ```
+
+`showing` is the dialog a player was last shown, until the server closes it or
+ten minutes pass with no click in it. A player who presses Escape tells nobody,
+so read it as "may still be clicking in it", not "is on their screen" (0.2.82).
+
+### Opening and clicking, as events
+
+A button runs a command, so the usual way to react to one is to own that
+command. Two events (0.2.82) are for rules that sit on top of a dialog that is
+not yours:
+
+```java
+@EventHandler
+public void onOpen(DialogOpenEvent event) {
+    if (combat.isTagged(event.getPlayer())) {
+        event.setCancelled(true);            // their screen stays as it is
+    }
+}
+
+@EventHandler
+public void onClick(DialogClickEvent event) {
+    // event.dialog() is the dialog, event.command() what the click runs ("buy sword")
+    if (event.command().startsWith("buy ") && !bank.canAfford(event.getPlayer())) {
+        event.setCancelled(true);            // the command never runs
+    }
+}
+```
+
+`DialogOpenEvent` fires every time a dialog is drawn, and a dialog is drawn
+again when a page turns, an item moves or a setting changes; `followed()` is
+true for those. `DialogClickEvent` is a click that reaches the server as a
+command, recognised because the dialog the player was shown holds exactly it. A
+click the client answers by itself (a URL, a copy, a page it already holds, a
+plain Close) never reaches the server and has no event. A refused click on a
+dialog the client is waiting on closes that dialog; any other stays as it was.
 
 A dialog may name a command players open it with themselves (`command:` in
 its file, or set in Studio); the engine registers it on the server and takes it
@@ -1135,7 +1238,11 @@ ContentId rhino = ContentId.parse("zoo:rhino").orElseThrow();
 
 mobs.info(rhino).ifPresent(info -> info.animations());   // state -> animation name
 Entity spawned = mobs.spawn(location, rhino).orElseThrow();
+mobs.spawn(location, rhino, 12);         // at level 12; 0 rolls its own level: range
 mobs.idOf(entity);                       // which custom mob this is, if any
+mobs.isMob(entity);                      // is it a custom mob at all?
+mobs.level(entity);                      // its level, 1 unless spawned at another
+mobs.near(location, 24);                 // every custom mob in reach, nearest first
 mobs.state(entity);                      // what it is showing: MobState.WALK, ...
 mobs.play(entity, MobState.ATTACK);      // as if it had happened: a one-shot, then back
 mobs.play(entity, "roar", 0);            // any animation of its model, for its own length
@@ -1158,6 +1265,13 @@ goes back to what it is doing.
 takes each, so a mob registered from code can have them too. A projectile a
 custom mob fired carries the damage it was given; setting a different damage
 on it in your own `EntityDamageByEntityEvent` at a priority above NORMAL wins.
+
+`MobSpawnEvent` (0.2.82, with `spawn(…, level)`, `isMob`, `level` and `near`)
+fires before a custom mob spawns, however it came: an egg, a spawner, a
+command, `spawn`, or the engine's own natural spawning (`natural()`). Cancel it
+for "none in the safe zone", or `setLevel` to change the level it comes at. The
+mob does not exist yet; it arrives a moment later in Bukkit's
+`CreatureSpawnEvent`, where `idOf` already names it.
 
 Listen for `MobStateChangeEvent` to follow it: it fires when what is PLAYING
 changes, so a state the mob has no animation for never appears.
@@ -1240,11 +1354,16 @@ All cancellable unless the row says otherwise.
 | `ModelAnimationEvent` | A rig is about to play an animation |
 | `ModelAnimationEndEvent` | One ended — finished, replaced or stopped. Not cancellable |
 | `ModelSeatEvent` | Somebody is about to sit on a chair, a seat bone, **or a vehicle seat**. `placement()` is the model it belongs to and `vehicle()` the vehicle, whichever applies. Cancelling leaves them standing |
+| `VehicleSpawnEvent` | A vehicle is about to be put down, by `/rp vehicle spawn` or a plugin's `Vehicles.spawn`. `id()`, `info()` and `location()`; there is no `Vehicle` yet. Cancelling means no vehicle. A parked one loading with its chunk does not fire it |
+| `VehicleRemoveEvent` | A vehicle is being removed for good, by `/rp vehicle remove` or `Vehicle.remove()`. Fires first, with its riders still seated and its `data()` readable. Not cancellable |
 | `VehicleEnterEvent` | Somebody is about to get into a vehicle — fires after `ModelSeatEvent` for the same seat, with the vehicle and the seat attached. "Is this your car" lives here |
 | `VehicleExitEvent` | Somebody got out, or was taken out. Carries why — dismounted, ejected, quit, reloaded, removed, unloaded, shutdown. Not cancellable: a player who cannot be let out is trapped. `RELOADED` is followed by them being put back a tick later, with no enter event |
 | `VehicleMoveEvent` | A vehicle is about to move — once per tick, only while it is going somewhere. Cancelling stops it dead, like a wall. The event for a region it may not enter; **not** the event for fuel, which is `Vehicle.setEnabled` |
 | `VehicleStateEvent` | What a vehicle is doing changed — set off, stopped, took off, went under. The same set that drives its animation, on the change rather than every tick. Not cancellable |
+| `VehicleImpactEvent` | A vehicle hit another vehicle, the world, or the ground. Not cancellable |
+| `VehicleBailEvent` | A bad landing is about to throw a rider off. Cancelling keeps them aboard |
 | `ModelBindEvent` | A model is going on an entity, or coming off one — a boss, an NPC, anything that is not ours |
+| `MobSpawnEvent` | A custom mob is about to spawn: an egg, a spawner, a command, a plugin, or naturally (`natural()`). `id()`, `info()`, `location()`, and `level()` with `setLevel`. There is no entity yet; it arrives in Bukkit's `CreatureSpawnEvent`, already marked. Cancelling means no mob |
 | `MobStateChangeEvent` | A custom mob's animation state changed: `previous()` and `state()`, null for its rest pose. Not cancellable |
 | `MobSkillEvent` | A custom mob is about to cast a skill: one of its own `skills:` lines its trigger set off (`skill()` is the line as written) or a metaskill (`skill()` is its id), with `trigger()` (`attack`, `timer`, `api`...) and `triggerEntity()`. Fires after the line's chance, health and conditions passed. Cancelling skips it and spends no cooldown |
 | `EntityDeathEvent` | A custom entity died. Says what it was, `killer()`, and `drops()`, Bukkit's own live list, so changing it changes the loot. Not cancellable |
@@ -1252,6 +1371,8 @@ All cancellable unless the row says otherwise.
 | `EmoteStartEvent` | An emote is about to start |
 | `EmoteEndEvent` | An emote ended. Carries why — finished, stopped, moved, damaged, quit, shutdown |
 | `EmoteRigSpawnEvent` | A rig's displays were spawned — it was put on, or a swap replaced its carried models. Carries the new entity ids, for re-mounting them. Not cancellable |
+| `DialogOpenEvent` | A dialog is about to be put on a player's screen. `dialog()`, `values()`, and `followed()`: true when they reached it from the dialog they were in (a page turned, an item moved, a setting changed), which a listener that greets or charges should ignore. Cancelling leaves their screen as it is |
+| `DialogClickEvent` | A player clicked something in a dialog that runs a command: `dialog()`, `values()` and `command()` (no leading slash). Cancelling stops the command running. A click the client answers by itself (a URL, a copy, a page it already holds, a plain Close) never reaches the server |
 | `DialogSlotMoveEvent` | A player is about to move a stack in a dialog whose items move — from one slot (`inv/5`, `ender/3`, `api.bank/0`) to another, onto an empty slot, the same item or a different one. Cancelling leaves both where they are |
 
 **The engine decides whether something can physically happen, never whether it

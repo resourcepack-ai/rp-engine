@@ -860,6 +860,42 @@ public final class CustomBlocks implements Listener {
         return placedAt(block).map(Placed::block);
     }
 
+    /** The API's view of all this: {@code RPEnginePlugin.blocks()}. */
+    public ai.resourcepack.engine.api.Blocks api() {
+        return new ai.resourcepack.engine.api.Blocks() {
+            @Override
+            public Collection<ContentId> ids() {
+                return CustomBlocks.this.ids();
+            }
+
+            @Override
+            public Optional<BlockInfo> info(ContentId id) {
+                return CustomBlocks.this.info(id);
+            }
+
+            @Override
+            public Optional<BlockInfo> at(Block block) {
+                return CustomBlocks.this.at(block);
+            }
+
+            @Override
+            public Optional<String> stateAt(Block block) {
+                return placedAt(block).map(Placed::state);
+            }
+
+            @Override
+            public boolean place(Block where, ContentId id) {
+                return where != null && id != null && turnInto(where, id);
+            }
+
+            @Override
+            public boolean setState(Block where, String state) {
+                Optional<BlockInfo> standing = CustomBlocks.this.at(where);
+                return standing.isPresent() && state != null && CustomBlocks.this.setState(where, standing.get(), state);
+            }
+        };
+    }
+
     /** Which of ours is standing here, and in which of its states. */
     public Optional<Placed> placedAt(Block block) {
         if (block == null) {

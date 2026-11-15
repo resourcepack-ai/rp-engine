@@ -243,6 +243,7 @@ public final class CustomEntities implements Listener, Mobs {
     }
 
     /** A custom mob's level: 1 unless it was spawned at another. */
+    @Override
     public int level(Entity entity) {
         Integer level = entity == null ? null
                 : entity.getPersistentDataContainer().get(levelKey, PersistentDataType.INTEGER);
@@ -368,6 +369,7 @@ public final class CustomEntities implements Listener, Mobs {
      * {@code level:} range when {@code level} is 0. On the thread that owns
      * {@code where}.
      */
+    @Override
     public Optional<Entity> spawn(Location where, ContentId id, int level) {
         return spawn(where, id, false, level);
     }
@@ -421,8 +423,16 @@ public final class CustomEntities implements Listener, Mobs {
         // listener already sees the mark and the name, and nobody ever sees a
         // bare zombie for a tick.
         MobOptions extra = optionsOf(id);
-        int level = asked > 0 ? Math.min(1000, asked) : extra.levelMin() + (extra.levelMax() > extra.levelMin()
+        int rolled = asked > 0 ? Math.min(1000, asked) : extra.levelMin() + (extra.levelMax() > extra.levelMin()
                 ? ThreadLocalRandom.current().nextInt(extra.levelMax() - extra.levelMin() + 1) : 0);
+        // A server's own rules about what may spawn where: the API's event.
+        ai.resourcepack.engine.api.event.MobSpawnEvent spawning =
+                new ai.resourcepack.engine.api.event.MobSpawnEvent(id, info, where, Math.max(1, rolled), natural);
+        plugin.getServer().getPluginManager().callEvent(spawning);
+        if (spawning.isCancelled()) {
+            return Optional.empty();
+        }
+        int level = spawning.level();
         Entity mob = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), where, kind,
                 spawned -> configure(spawned, id, info, natural, extra, level));
         if (mob instanceof LivingEntity) {

@@ -4,7 +4,10 @@ import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.inventory.ItemStack;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -22,11 +25,54 @@ public interface Mobs {
     /** What one is. */
     Optional<EntityInfo> info(ContentId id);
 
-    /** Spawns one, wearing its model, playing its spawn animation. Empty if there is no such mob. */
+    /**
+     * Spawns one, wearing its model, playing its spawn animation. Empty if
+     * there is no such mob, or a plugin cancelled its
+     * {@link ai.resourcepack.engine.api.event.MobSpawnEvent}.
+     */
     Optional<Entity> spawn(Location where, ContentId id);
+
+    /**
+     * Spawns one at {@code level} (1 and up), or at a level rolled from its
+     * own {@code level:} range when {@code level} is 0. Empty if there is no
+     * such mob, or a plugin cancelled its
+     * {@link ai.resourcepack.engine.api.event.MobSpawnEvent}.
+     */
+    default Optional<Entity> spawn(Location where, ContentId id, int level) {
+        return spawn(where, id);
+    }
 
     /** Which custom mob this is, or empty for anything else. */
     Optional<ContentId> idOf(Entity entity);
+
+    /** Whether this entity is a custom mob at all. */
+    default boolean isMob(Entity entity) {
+        return idOf(entity).isPresent();
+    }
+
+    /** A custom mob's level: 1 unless it was spawned at another, and for anything that is not one. */
+    default int level(Entity entity) {
+        return 1;
+    }
+
+    /**
+     * Every custom mob within {@code radius} blocks of a place, nearest first:
+     * the entities themselves, which {@link #idOf} names. For "is a boss
+     * already standing here" and for an ability that hits every one in reach.
+     */
+    default List<Entity> near(Location centre, double radius) {
+        if (centre == null || centre.getWorld() == null || radius <= 0) {
+            return List.of();
+        }
+        List<Entity> found = new ArrayList<>();
+        for (Entity entity : centre.getWorld().getNearbyEntities(centre, radius, radius, radius)) {
+            if (isMob(entity) && entity.getLocation().distanceSquared(centre) <= radius * radius) {
+                found.add(entity);
+            }
+        }
+        found.sort(Comparator.comparingDouble(entity -> entity.getLocation().distanceSquared(centre)));
+        return found;
+    }
 
     /** What it is doing, as far as its animations go. Empty for an entity that is not one. */
     Optional<MobState> state(Entity entity);

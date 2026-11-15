@@ -50,6 +50,21 @@ public final class DialogClicks implements Listener {
         // key opened without telling us, makes that the dialog they were shown.
         dialogs.adoptQuick(event.getPlayer(), event.getMessage());
         dialogs.noteCommand(event.getPlayer(), event.getMessage());
+        // A server's own rules about a click: the API's event, once the
+        // engine knows which page the click was on. A refused click runs
+        // nothing, here or in any other plugin.
+        java.util.Optional<DialogsImpl.Shown> clicked = dialogs.clicked(event.getPlayer(), event.getMessage());
+        if (clicked.isPresent()) {
+            String command = event.getMessage().startsWith("/") ? event.getMessage().substring(1) : event.getMessage();
+            ai.resourcepack.engine.api.event.DialogClickEvent click = new ai.resourcepack.engine.api.event.DialogClickEvent(
+                    event.getPlayer(), clicked.get().id(), clicked.get().values(), command);
+            org.bukkit.Bukkit.getPluginManager().callEvent(click);
+            if (click.isCancelled()) {
+                event.setCancelled(true);
+                dialogs.refuseClick(event.getPlayer());
+                return;
+            }
+        }
         // The game's own click, which a click on a dialog's picture does not
         // make by itself: its buttons click, a run of its body's text does not.
         // The dialog may have asked for another sound, or for none.

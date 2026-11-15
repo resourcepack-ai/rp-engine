@@ -1051,6 +1051,13 @@ public final class EmoteDirector implements Listener {
         return active.containsKey(playerId);
     }
 
+    /** The emote a player is in, by the name its manifest gives it. */
+    public java.util.Optional<String> playing(UUID playerId) {
+        Session session = playerId == null ? null : active.get(playerId);
+        return session == null || session.emote == null
+                ? java.util.Optional.empty() : java.util.Optional.ofNullable(session.emote.name);
+    }
+
     /**
      * Whether this player is being shown their own rig by request.
      *

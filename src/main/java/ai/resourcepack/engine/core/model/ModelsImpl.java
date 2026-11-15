@@ -56,6 +56,36 @@ public final class ModelsImpl implements Models {
      */
     private volatile BoundModels bound;
 
+    /** Set after construction, like {@link #bound}: chairs are built later than this. */
+    private volatile Seats seats;
+
+    /** Gives it the seats, for the API's sit and stand. */
+    public void seats(Seats seats) {
+        this.seats = seats;
+    }
+
+    @Override
+    public boolean sit(org.bukkit.entity.Player player, Location where) {
+        Host.requireMainThread();
+        Seats known = seats;
+        return known != null && known.sit(player, where);
+    }
+
+    @Override
+    public boolean isSeated(org.bukkit.entity.Player player) {
+        Seats known = seats;
+        return known != null && known.isSeated(player);
+    }
+
+    @Override
+    public void stand(org.bukkit.entity.Player player) {
+        Host.requireMainThread();
+        Seats known = seats;
+        if (known != null) {
+            known.stand(player);
+        }
+    }
+
     /**
      * The content folder's pieces: what an item's {@code place:} block puts
      * down. Set after construction for the reason {@link #bound} is; null

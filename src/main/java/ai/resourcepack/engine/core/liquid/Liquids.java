@@ -81,6 +81,36 @@ public final class Liquids {
                 .flatMap(this::info);
     }
 
+    /** The liquid a player was in on the last pass, or empty. */
+    public Optional<ContentId> of(java.util.UUID playerId) {
+        return playerId == null ? Optional.empty() : Optional.ofNullable(inside.get(playerId));
+    }
+
+    /** The API's view of all this: {@code RPEnginePlugin.liquids()}. */
+    public ai.resourcepack.engine.api.Liquids api() {
+        return new ai.resourcepack.engine.api.Liquids() {
+            @Override
+            public Collection<ContentId> ids() {
+                return Liquids.this.ids();
+            }
+
+            @Override
+            public Optional<LiquidInfo> info(ContentId id) {
+                return Liquids.this.info(id);
+            }
+
+            @Override
+            public Optional<LiquidInfo> at(Location where) {
+                return Liquids.this.at(where);
+            }
+
+            @Override
+            public Optional<ContentId> of(Player player) {
+                return player == null ? Optional.empty() : Liquids.this.of(player.getUniqueId());
+            }
+        };
+    }
+
     /** Starts the pass. */
     public void start() {
         stop();
