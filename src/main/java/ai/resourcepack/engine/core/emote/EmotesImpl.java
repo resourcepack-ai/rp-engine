@@ -77,6 +77,11 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public Optional<String> playing(Player player) {
+        return player == null ? Optional.empty() : director.playing(player.getUniqueId());
+    }
+
+    @Override
     public boolean canPerform(Player player) {
         // The rig, not the ground or the combat timer: this answers "could this
         // player ever emote in the pack they are wearing", which is the

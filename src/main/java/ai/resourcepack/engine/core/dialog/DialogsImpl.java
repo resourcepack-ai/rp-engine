@@ -333,6 +333,16 @@ public final class DialogsImpl implements Dialogs {
         if (info == null) {
             return false;
         }
+        // A server's own rules about when a dialog may open: the API's event.
+        // Only on a running server, which is what attach() says this is.
+        if (plugin != null) {
+            ai.resourcepack.engine.api.event.DialogOpenEvent asked =
+                    new ai.resourcepack.engine.api.event.DialogOpenEvent(viewer, id, values, followed);
+            Bukkit.getPluginManager().callEvent(asked);
+            if (asked.isCancelled()) {
+                return false;
+            }
+        }
         String named = id.namespace() + ":" + id.path();
         String json = filled(viewer, info.json(), values);
         // A Studio dialog's live progress bars, filled from the numbers the
@@ -573,6 +583,43 @@ public final class DialogsImpl implements Dialogs {
     /** The dialog a player was last shown, and what it was opened with. */
     public Optional<Shown> lastShown(Player viewer) {
         return Optional.ofNullable(current(viewer));
+    }
+
+    @Override
+    public Optional<ContentId> showing(Player viewer) {
+        return lastShown(viewer).map(Shown::id);
+    }
+
+    /**
+     * The dialog a command is a click in: the one the player was last shown,
+     * when a click in it (a button, an area of its picture, a button building
+     * its command from the dialog's inputs) runs exactly {@code command}. Empty
+     * for any other command.
+     */
+    public Optional<Shown> clicked(Player viewer, String command) {
+        Shown shown = command == null ? null : current(viewer);
+        if (shown == null) {
+            return Optional.empty();
+        }
+        DialogInfo info = info(viewer, shown.id()).orElse(null);
+        if (info == null || !DialogLinks.runsCommand(
+                visibleJson(viewer, shown.id(), shown.values()).orElse(info.json()), command)) {
+            return Optional.empty();
+        }
+        return Optional.of(shown);
+    }
+
+    /**
+     * Lets go of a player whose click a plugin refused. A dialog still on the
+     * screen stays there, as it was; one the client swapped for its "Waiting
+     * for Server" screen has to be answered, since nothing else will be.
+     */
+    public void refuseClick(Player viewer) {
+        Shown shown = current(viewer);
+        DialogInfo info = shown == null ? null : info(viewer, shown.id()).orElse(null);
+        if (info != null && waitsForResponse(info.json())) {
+            closeAnswered(viewer, true);
+        }
     }
 
     /**

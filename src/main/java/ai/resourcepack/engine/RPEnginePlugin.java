@@ -809,6 +809,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             return stack;
         });
         seats = new Seats(this, compatibility);
+        models.seats(seats);
         creatures = new CustomEntities(this, items,
                 ai.resourcepack.engine.core.model.RigTags.forServer(compatibility, this), sounds);
         // A hurt model's red tint and a shooter's hidden bow are 1.21.4 item
@@ -2386,6 +2387,19 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     public ai.resourcepack.engine.api.Dialogs dialogs() {
         return dialogs;
+    }
+
+    /**
+     * The custom blocks this server holds: which one stands somewhere, putting
+     * one down, changing the state it is in.
+     */
+    public ai.resourcepack.engine.api.Blocks blocks() {
+        return blocks.api();
+    }
+
+    /** The custom liquids this server holds, and which one a place or a player is in. */
+    public ai.resourcepack.engine.api.Liquids liquids() {
+        return liquids.api();
     }
 
     /** Background music: playlists of the pack's sounds, by place or on request. */

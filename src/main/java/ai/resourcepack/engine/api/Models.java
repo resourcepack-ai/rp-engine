@@ -3,6 +3,7 @@ package ai.resourcepack.engine.api;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
@@ -222,4 +223,26 @@ public interface Models {
      * @return the stack, or empty if this server holds no such model.
      */
     Optional<ItemStack> itemFor(String modelId, ItemOptions options);
+
+    /**
+     * Sits a player down at a place, the way a chair does: {@code where} is
+     * the surface they sit on and its yaw the way they face. For a
+     * {@code /sit}, a bench that is only blocks, a cutscene. It asks
+     * {@link ai.resourcepack.engine.api.event.ModelSeatEvent} like any other
+     * seat, and they get up the usual way, by sneaking.
+     *
+     * @return false when they are already sitting or riding something, or a plugin refused
+     */
+    default boolean sit(Player player, Location where) {
+        return false;
+    }
+
+    /** Whether this player is sitting on a seat of the engine's: a chair, a seat bone, or {@link #sit}. Not a vehicle's seat. */
+    default boolean isSeated(Player player) {
+        return false;
+    }
+
+    /** Gets a player up from a seat of the engine's, if they were sitting on one. */
+    default void stand(Player player) {
+    }
 }

@@ -933,6 +933,13 @@ public final class VehicleRuntime implements Listener {
         if (where == null || where.getWorld() == null || found.isEmpty()) {
             return Optional.empty();
         }
+        // A server's own rules about where a vehicle may stand: the API's event.
+        ai.resourcepack.engine.api.event.VehicleSpawnEvent asked =
+                new ai.resourcepack.engine.api.event.VehicleSpawnEvent(id, found.get(), where);
+        plugin.getServer().getPluginManager().callEvent(asked);
+        if (asked.isCancelled()) {
+            return Optional.empty();
+        }
         ArmorStand chassis = ai.resourcepack.engine.core.version.Spawning.spawn(where.getWorld(), where, ArmorStand.class, stand -> {
             stand.setMarker(true);
             stand.setVisible(false);
@@ -970,6 +977,9 @@ public final class VehicleRuntime implements Listener {
         if (idOf(chassis).isEmpty()) {
             return false;
         }
+        // Said first, while it is whole: its riders seated, its data readable.
+        plugin.getServer().getPluginManager().callEvent(
+                new ai.resourcepack.engine.api.event.VehicleRemoveEvent(new Handle(chassis.getUniqueId())));
         Ride ride = live.remove(chassis.getUniqueId());
         if (ride != null) {
             ride.evictAll(VehicleExitEvent.Cause.REMOVED);

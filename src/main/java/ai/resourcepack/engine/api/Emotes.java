@@ -87,6 +87,16 @@ public interface Emotes {
     boolean isEmoting(UUID playerId);
 
     /**
+     * The emote this player is in right now: the one they are performing, or
+     * the member of the set they are wearing that is playing (its walk, its
+     * idle). Its id, which {@link #info} describes. Empty when they are in
+     * none.
+     */
+    default Optional<String> playing(Player player) {
+        return Optional.empty();
+    }
+
+    /**
      * Whether this player has a rig in the pack they are wearing, and could
      * therefore emote at all.
      *

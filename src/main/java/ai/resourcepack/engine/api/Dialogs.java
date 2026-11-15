@@ -143,6 +143,20 @@ public interface Dialogs {
         return ContentId.parse(id).map(parsed -> show(viewer, parsed, values)).orElse(false);
     }
 
+    /**
+     * The dialog this player is looking at, as far as the server can know: the
+     * one they were last shown, until the server closes it or ten minutes pass
+     * with no click in it. Empty otherwise.
+     *
+     * <p>"As far as the server can know" is the honest limit. A player who
+     * presses Escape tells nobody, so a dialog they left that way still
+     * answers here until it runs out. Treat this as "may still be clicking in
+     * it", which is what the engine itself uses it for.
+     */
+    default Optional<ContentId> showing(Player viewer) {
+        return Optional.empty();
+    }
+
     /** Closes whatever dialog a player has open. */
     void close(Player viewer);
 
