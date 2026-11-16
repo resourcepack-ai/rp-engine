@@ -624,7 +624,7 @@ class StudioContentTest {
 
     @Test
     void aTransitionKeepsItsCharacterAndColoursAndSurvivesARestart(@TempDir Path dir) {
-        StudioContent content = read(dir, "{\"packId\":\"p\",\"stingers\":["
+        StudioContent content = read(dir, "{\"packId\":\"p\",\"transitions\":["
                 + "{\"id\":\"arena\",\"name\":\"Arena\",\"glyph\":\"\ue900\",\"in\":\"#ec04fc\","
                 + "\"out\":\"#ec08fc\",\"auto\":\"#ec0cfc\",\"inTicks\":10,\"holdTicks\":40,\"outTicks\":14,"
                 + "\"soundIn\":\"entity.player.attack.sweep\"},"
@@ -647,6 +647,18 @@ class StudioContentTest {
         assertEquals("", reloaded.transitions().get(arena).glyph());
         assertEquals(40, reloaded.transitions().get(arena).info().holdTicks());
         assertEquals(1, StudioContent.union(java.util.List.of(reloaded.snapshot())).transitions().size());
+    }
+
+    @Test
+    void aManifestWrittenBeforeTheRenameStillHasItsTransitions(@TempDir Path dir) {
+        StudioContent content = read(dir, "{\"packId\":\"p\",\"stingers\":["
+                + "{\"id\":\"arena\",\"name\":\"Arena\",\"glyph\":\"\",\"in\":\"#ec04fc\","
+                + "\"out\":\"#ec08fc\",\"inTicks\":10,\"holdTicks\":40,\"outTicks\":14}]}");
+        assertEquals(1, content.transitions().size());
+        content.save(LOG);
+        StudioContent reloaded = new StudioContent(dir.toFile());
+        reloaded.load(LOG);
+        assertEquals(1, reloaded.transitions().size());
     }
 
     @Test

@@ -36,7 +36,14 @@ final class StudioWire {
         List<ShaderObject> objects;
         List<TextEffect> textEffects;
         List<Vfx> vfx;
-        List<Stinger> stingers;
+        List<Transition> transitions;
+        /**
+         * What {@link #transitions} was called by Studio before 2026-11-16 and by
+         * RP Engine 0.2.63 to 0.2.86. Read only, never written: a Studio zip already
+         * dropped into {@code content/}, a published release's manifest, and a push
+         * this server saved before then all carry it.
+         */
+        List<Transition> stingers;
         List<Icon> icons;
         List<Tooltip> tooltips;
         List<Mob> mobs;
@@ -185,14 +192,14 @@ final class StudioWire {
     }
 
     /**
-     * A stinger transition: the character its title shows, the trigger
+     * A transition: the character its title shows, the trigger
      * colours that make the pack's text shader play each half, and how long
      * each half runs. The drawing is all in the pack; the engine only sends
      * titles ({@code core/transition/}).
      *
      * <p><strong>Boxed ticks</strong>: an absent one is Studio's default, never 0.
      */
-    static final class Stinger {
+    static final class Transition {
         String id;
         String name;
         String glyph;

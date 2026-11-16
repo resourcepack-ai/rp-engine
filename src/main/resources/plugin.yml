@@ -205,10 +205,10 @@ permissions:
     description: Play a VFX at any place, in any world, cast by nobody (/rp cast <name> at <x> <y> <z>).
     default: op
   rpengine.transitions:
-    description: List the transitions (also checked by the old /rp stingers).
+    description: List the transitions.
     default: op
   rpengine.transition:
-    description: Play a transition on your own screen (also checked by the old /rp stinger).
+    description: Play a transition on your own screen.
     default: op
   rpengine.transition.others:
     description: Play a transition on somebody else's screen, or on everybody's (@a).

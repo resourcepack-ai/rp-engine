@@ -249,7 +249,7 @@ public final class StudioContent {
     /** The pushed icons, so a server can list and name them; the pictures are the pack's own. */
     private volatile Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = Map.of();
     private volatile Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = Map.of();
-    private volatile Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = Map.of();
+    private volatile Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> transitions = Map.of();
     /** The pushed Tooltips, as the components an item wears to show one; see {@link #tooltips()}. */
     private volatile Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> tooltips = Map.of();
     private volatile Map<ContentId, EntityInfo> mobs = Map.of();
@@ -443,7 +443,7 @@ public final class StudioContent {
         copy.textEffects = textEffects;
         copy.icons = icons;
         copy.vfx = vfx;
-        copy.stingers = stingers;
+        copy.transitions = transitions;
         copy.tooltips = tooltips;
         copy.mobs = mobs;
         copy.mobSkills = mobSkills;
@@ -474,7 +474,7 @@ public final class StudioContent {
         Map<ContentId, ai.resourcepack.engine.api.TextEffectInfo> effects = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.api.IconInfo> icons = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.vfx.VfxEntry> vfx = new LinkedHashMap<>();
-        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> stingers = new LinkedHashMap<>();
+        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> transitions = new LinkedHashMap<>();
         Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> tooltips = new LinkedHashMap<>();
         Map<ContentId, EntityInfo> mobs = new LinkedHashMap<>();
         Map<ContentId, PushedMobSkills> mobSkills = new LinkedHashMap<>();
@@ -496,7 +496,7 @@ public final class StudioContent {
             effects.putAll(pack.textEffects);
             icons.putAll(pack.icons);
             vfx.putAll(pack.vfx);
-            stingers.putAll(pack.stingers);
+            transitions.putAll(pack.transitions);
             tooltips.putAll(pack.tooltips);
             // A mob's skills go with the mob: a later push of it with none
             // must not keep an earlier push's.
@@ -519,7 +519,7 @@ public final class StudioContent {
         all.textEffects = Map.copyOf(effects);
         all.icons = Map.copyOf(icons);
         all.vfx = Map.copyOf(vfx);
-        all.stingers = Map.copyOf(stingers);
+        all.transitions = Map.copyOf(transitions);
         all.tooltips = Map.copyOf(tooltips);
         all.mobs = Map.copyOf(mobs);
         all.mobSkills = Map.copyOf(mobSkills);
@@ -593,13 +593,9 @@ public final class StudioContent {
         return vfx;
     }
 
-    /**
-     * The pushed transitions, keyed by {@code studio:<id>}. Read from the
-     * manifest's {@code stingers} list, the name they shipped under (0.2.63)
-     * and still travel by.
-     */
+    /** The pushed transitions, keyed by {@code studio:<id>}. */
     public Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> transitions() {
-        return stingers;
+        return transitions;
     }
 
     /**
@@ -671,7 +667,7 @@ public final class StudioContent {
     public boolean isEmpty() {
         return sounds.isEmpty() && screens.isEmpty() && huds.isEmpty() && vehicles.isEmpty()
                 && vehiclePassable.isEmpty() && variations.isEmpty() && works.isEmpty() && dialogs.isEmpty() && armor3d.isEmpty() && objects.isEmpty()
-                && textEffects.isEmpty() && icons.isEmpty() && vfx.isEmpty() && stingers.isEmpty() && tooltips.isEmpty() && mobs.isEmpty();
+                && textEffects.isEmpty() && icons.isEmpty() && vfx.isEmpty() && transitions.isEmpty() && tooltips.isEmpty() && mobs.isEmpty();
     }
 
     /**
@@ -941,27 +937,29 @@ public final class StudioContent {
                             ai.resourcepack.engine.api.VfxInfo.Source.STUDIO, null), recipe)));
         }
 
-        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> readStingers = new LinkedHashMap<>();
-        for (Stinger stinger : manifest.stingers == null ? List.<Stinger>of() : manifest.stingers) {
-            // The character and the two phase colours are the whole stinger
+        Map<ContentId, ai.resourcepack.engine.core.transition.TransitionEntry> readTransitions = new LinkedHashMap<>();
+        List<Transition> pushedTransitions = manifest.transitions != null ? manifest.transitions
+                : manifest.stingers != null ? manifest.stingers : List.of();
+        for (Transition transition : pushedTransitions) {
+            // The character and the two phase colours are the whole transition
             // as far as the engine goes; without them it has nothing to send.
-            if (stinger == null || stinger.glyph == null || stinger.glyph.isEmpty()
-                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.in)
-                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.out)) {
-                if (log != null && stinger != null) log.warning("Pushed transition " + stinger.id
+            if (transition == null || transition.glyph == null || transition.glyph.isEmpty()
+                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(transition.in)
+                    || !ai.resourcepack.engine.core.transition.TransitionTitles.isColor(transition.out)) {
+                if (log != null && transition != null) log.warning("Pushed transition " + transition.id
                         + " is missing its character or a #rrggbb colour, so it was skipped.");
                 continue;
             }
-            id(stinger.id, log, "transition").ifPresent(id -> readStingers.put(id,
+            id(transition.id, log, "transition").ifPresent(id -> readTransitions.put(id,
                     new ai.resourcepack.engine.core.transition.TransitionEntry(
-                            new ai.resourcepack.engine.api.TransitionInfo(id, stinger.name,
-                                    stinger.inTicks == null ? 12 : stinger.inTicks,
-                                    stinger.holdTicks == null ? 30 : stinger.holdTicks,
-                                    stinger.outTicks == null ? 12 : stinger.outTicks,
-                                    stinger.soundIn, stinger.soundOut),
-                            stinger.glyph, stinger.in.toLowerCase(Locale.ROOT), stinger.out.toLowerCase(Locale.ROOT),
-                            ai.resourcepack.engine.core.transition.TransitionTitles.isColor(stinger.auto)
-                                    ? stinger.auto.toLowerCase(Locale.ROOT) : null)));
+                            new ai.resourcepack.engine.api.TransitionInfo(id, transition.name,
+                                    transition.inTicks == null ? 12 : transition.inTicks,
+                                    transition.holdTicks == null ? 30 : transition.holdTicks,
+                                    transition.outTicks == null ? 12 : transition.outTicks,
+                                    transition.soundIn, transition.soundOut),
+                            transition.glyph, transition.in.toLowerCase(Locale.ROOT), transition.out.toLowerCase(Locale.ROOT),
+                            ai.resourcepack.engine.core.transition.TransitionTitles.isColor(transition.auto)
+                                    ? transition.auto.toLowerCase(Locale.ROOT) : null)));
         }
 
         Map<ContentId, ai.resourcepack.engine.core.item.ItemTooltip> readTooltips = new LinkedHashMap<>();
@@ -1018,14 +1016,14 @@ public final class StudioContent {
         textEffects = Map.copyOf(readEffects);
         icons = Map.copyOf(readIcons);
         vfx = Map.copyOf(readVfx);
-        stingers = Map.copyOf(readStingers);
+        transitions = Map.copyOf(readTransitions);
         tooltips = Map.copyOf(readTooltips);
         mobs = Map.copyOf(readMobs);
         mobSkills = Map.copyOf(readMobSkills);
         packId = manifest.packId == null ? "" : manifest.packId;
         return MergeResult.ok(packId,
                 sounds.size() + screens.size() + huds.size() + vehicles.size() + dialogs.size()
-                        + armor3d.size() + objects.size() + textEffects.size() + icons.size() + vfx.size() + stingers.size()
+                        + armor3d.size() + objects.size() + textEffects.size() + icons.size() + vfx.size() + transitions.size()
                         + tooltips.size() + mobs.size());
     }
 
@@ -1744,9 +1742,9 @@ public final class StudioContent {
             effect.recipe = entry.recipe().toJson();
             manifest.vfx.add(effect);
         }
-        manifest.stingers = new ArrayList<>();
-        for (ai.resourcepack.engine.core.transition.TransitionEntry entry : stingers.values()) {
-            Stinger out = new Stinger();
+        manifest.transitions = new ArrayList<>();
+        for (ai.resourcepack.engine.core.transition.TransitionEntry entry : transitions.values()) {
+            Transition out = new Transition();
             ai.resourcepack.engine.api.TransitionInfo info = entry.info();
             out.id = info.id().path();
             out.name = info.name();
@@ -1759,7 +1757,7 @@ public final class StudioContent {
             out.outTicks = info.outTicks();
             out.soundIn = info.soundIn().orElse(null);
             out.soundOut = info.soundOut().orElse(null);
-            manifest.stingers.add(out);
+            manifest.transitions.add(out);
         }
         // Only when there are any, as Studio sends them: a server whose packs
         // have no Tooltips writes the file it always did.
