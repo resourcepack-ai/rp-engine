@@ -101,6 +101,19 @@ class BedrockGeometryTest {
     }
 
     @Test
+    void anAnimationIdIsTheSameOnAServerInAnyLanguage() {
+        // Turkish lower-cases I to a dotless one, which is not a letter an id keeps.
+        java.util.Locale before = java.util.Locale.getDefault();
+        java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
+        try {
+            assertEquals("animation.rpai.iron_golem.idle", BedrockGeometry.studioAnimationId("Iron Golem", "IDLE"));
+            assertEquals("animation.rpe.k.idle", BedrockGeometry.animationId("k", "IDLE"));
+        } finally {
+            java.util.Locale.setDefault(before);
+        }
+    }
+
+    @Test
     void aCompoundTurnIsTheSameRotationInBedrocksOrder() {
         float[] zyx = BedrockGeometry.eulerXyzToZyx(new float[] {30, 45, 60});
         // Rebuild both matrices and compare: Rx(30)Ry(45)Rz(60) == Rz(z)Ry(y)Rx(x).
