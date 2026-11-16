@@ -422,6 +422,17 @@ Two region flags, if WorldGuard is installed:
 covers using a custom item. Both allow by default, and anything that goes wrong
 allows too — a server should never be locked out of its own content by a hook.
 
+## Claims and other protection plugins
+
+Before a player puts a model down or breaks one, the engine asks every
+protection plugin on the server (GriefPrevention, Towny, Lands, Residence,
+PlotSquared, WorldGuard's own build rules) with a block place or break event at
+the model's block. If one of them says no, the model is not placed or broken.
+Nothing is placed or broken by the question itself.
+
+`models.protection-check: false` in `config.yml` turns it off. A logging plugin
+such as CoreProtect may record the question as a block placed or broken there.
+
 ## Icons in chat
 
 Set `chat.icons: true` in `config.yml` and anybody with `rpengine.chat.icons`

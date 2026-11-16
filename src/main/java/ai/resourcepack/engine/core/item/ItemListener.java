@@ -190,6 +190,9 @@ public final class ItemListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
         items.idOf(held).ifPresent(id -> {
             if (actions.run(event.getPlayer(), id, ItemAction.Trigger.BLOCK_BREAK, held)) {

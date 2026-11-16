@@ -112,6 +112,9 @@ public final class VanillaCopper implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         Material placed = event.getBlockPlaced().getType();
         if (!blocks.takenMaterials().contains(placed) || items.idOf(event.getItemInHand()).isPresent()) {
             return;
@@ -308,6 +311,9 @@ public final class VanillaCopper implements Listener {
     /** The mark goes when the block does, a tick later so the drop has read it first. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         forgetSoon(List.of(event.getBlock(), event.getBlock().getRelative(BlockFace.UP),
                 event.getBlock().getRelative(BlockFace.DOWN)));
     }

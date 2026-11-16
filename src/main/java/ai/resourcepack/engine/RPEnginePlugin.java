@@ -1207,6 +1207,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (optional("WorldGuard", () -> WorldGuardHook.listen(this))) {
             hooks.add("WorldGuard");
         }
+        // Every protection plugin, through the block events they all hear; see ProtectionCheck.
+        ai.resourcepack.engine.core.hook.ProtectionCheck.listen(this);
         if (optional("Citizens", () -> CitizensTrait.register(this, boundModels))) {
             // So a bind on an NPC survives it being despawned and respawned,
             // which Citizens does on every chunk unload and restart.
