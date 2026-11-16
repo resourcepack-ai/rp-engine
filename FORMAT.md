@@ -4674,8 +4674,9 @@ A Studio pack with its own shader objects or Text Effects, stacked over the
 server's bundle for one player, wins for that player, and the other way round.
 Another plugin's text shader is merged as usual (`shaders.merge`).
 
-Only text drawn flat on the screen wears an effect. Signs, name tags and text
-displays in the world are plain text in that colour.
+Text standing in the world (holograms, text displays, signs, name tags) wears
+the effect too, inside its letters only: an effect that draws outside its
+letters, like flames, is cut off at their edge there.
 
 ## VFX
 

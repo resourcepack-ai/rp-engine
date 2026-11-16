@@ -99,6 +99,29 @@ int rtx_corner() {
     return right ? (bottom ? 2 : 3) : (bottom ? 1 : 0);
 }
 
+// Text in the world (holograms, text displays, signs, name tags), which is
+// drawn with a perspective projection. A letter there is a quad turned and
+// scaled any way at all, and one vertex cannot see the others to tell which
+// way is across it, so nothing is grown: an effect stays inside its letter.
+// The fragment stage finds the pixel from the texture coordinate, which holds
+// however the letter is turned; the corners are still handed over, as where
+// the letter lands on screen measured at unit depth, because that is what
+// orders the letters along the line. A negative ink width says which kind of
+// letter it is.
+void rtx_world_vertex(ivec3 rgb) {
+    if (rgb.r == 63 && rgb.b == 62 && rtx_known(rgb.g)) {
+        gl_Position = vec4(-4.0, -4.0, 0.0, 1.0);
+        return;
+    }
+    if (rgb.r != 252 || rgb.b != 248 || (rgb.g & 3) != 0 || !rtx_known(rgb.g >> 2)) return;
+    int corner = rtx_corner();
+    vec2 at = gl_Position.xy / gl_Position.w / vec2(ProjMat[0][0], -ProjMat[1][1]);
+    rtxW = vec4(corner == 0 ? 1.0 : 0.0, corner == 2 ? 1.0 : 0.0, 0.0, 0.0);
+    if (corner == 0) rtxA0 = vec4(at, UV0);
+    if (corner == 2) rtxA2 = vec4(at, UV0);
+    rtxFlat = vec3(float(rgb.g >> 2), -rtx_ink_width(corner), Color.a);
+}
+
 
 // Runs after vanilla's main, so everything vanilla set is already set; only a
 // letter in a text effect's colour is changed.
@@ -107,9 +130,13 @@ void rtx_vertex() {
     rtxA2 = vec4(0.0);
     rtxW = vec4(0.0, 0.0, Position.xy);
     rtxFlat = vec3(0.0, 8.0, Color.a);
-    // GUI text only, which is drawn with an orthographic projection.
-    if (ProjMat[3][3] != 1.0) return;
     ivec3 rgb = ivec3(round(Color.rgb * 255.0));
+    // GUI text is drawn with an orthographic projection; everything else here
+    // is the GUI's alone.
+    if (ProjMat[3][3] != 1.0) {
+        rtx_world_vertex(rgb);
+        return;
+    }
     // A quarter of an effect's colour is its shadow, which the effect redraws
     // itself: this copy is moved off the screen.
     if (rgb.r == 63 && rgb.b == 62 && rtx_known(rgb.g)) {

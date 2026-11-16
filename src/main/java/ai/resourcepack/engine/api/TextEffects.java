@@ -17,10 +17,10 @@ import java.util.Optional;
  * that folder's namespace, drawn by this server's own pack) and Studio packs
  * (ids {@code studio:<id>}, drawn by that pack's shader).
  *
- * <p>Only text drawn flat on the screen wears an effect: chat, titles, the
- * action bar, item names and lore, scoreboards, menus. Text standing in the
- * world (signs, name tags, text displays) is drawn as plain text in that
- * colour.
+ * <p>Text on the screen wears an effect (chat, titles, the action bar, item
+ * names and lore, scoreboards, menus), and so does text standing in the world
+ * (holograms, text displays, signs, name tags), inside its letters only: an
+ * effect that draws outside its letters is cut off at their edge there.
  *
  * <p>Any thread.
  */
