@@ -2,7 +2,7 @@
 
 # Which of RP Engine's config updates this file has had. The plugin
 # sets it; leave it alone.
-config-version: 9
+config-version: 10
 
 # How players download the packs this server builds.
 host:
@@ -174,6 +174,13 @@ items:
   vanilla-recipes: false
 
 models:
+  # Ask the server's protection plugins (GriefPrevention, Towny, Lands,
+  # WorldGuard and the like) before a player puts a model down or breaks one,
+  # with the block events they already listen to. Off lets anybody place and
+  # break models in a claim that is not theirs. Logging plugins may record the
+  # question as a block placed or broken. Read at startup.
+  protection-check: true
+
   # Nudges every seat on the server up or down, in blocks. `seat:` in a pack
   # says where that piece's seat is; this corrects how the game DRAWS somebody
   # sitting, which is the same amount wrong for every chair.

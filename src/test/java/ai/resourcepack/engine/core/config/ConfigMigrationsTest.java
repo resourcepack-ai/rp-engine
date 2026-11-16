@@ -194,6 +194,24 @@ class ConfigMigrationsTest {
     }
 
     @Test
+    void addsTheProtectionCheckOnUnderModels() throws Exception {
+        String old = "config-version: 9\nmodels:\n  seat-offset: 0.25\n\nvehicles:\n  seat-offset: 0.0\n";
+        String migrated = ConfigMigrations.migrate(old).text();
+        YamlConfiguration after = yaml(migrated);
+        assertEquals(ConfigMigrations.latest(), after.getInt("config-version"));
+        assertTrue(after.getBoolean("models.protection-check"));
+        assertEquals(0.25, after.getDouble("models.seat-offset"));
+        assertTrue(after.contains("vehicles.seat-offset"));
+        assertTrue(migrated.indexOf("protection-check") < migrated.indexOf("seat-offset: 0.25"), migrated);
+
+        String off = "config-version: 9\nmodels:\n  protection-check: false\n";
+        assertFalse(yaml(ConfigMigrations.migrate(off).text()).getBoolean("models.protection-check"));
+
+        String none = "config-version: 9\nhost:\n  mode: upload\n";
+        assertTrue(yaml(ConfigMigrations.migrate(none).text()).getBoolean("models.protection-check"));
+    }
+
+    @Test
     void addsPackSquashOffUnderPack() throws Exception {
         String old = "config-version: 6\npack:\n  description: \"Mine\"\n\nsync:\n  enabled: true\n";
         YamlConfiguration after = yaml(ConfigMigrations.migrate(old).text());
