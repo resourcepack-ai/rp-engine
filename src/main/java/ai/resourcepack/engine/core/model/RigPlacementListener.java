@@ -452,6 +452,10 @@ public final class RigPlacementListener implements Listener {
         if (hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING)) return;
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
         if (modelId == null) return;
+        if (isCarriedAnchor(hitbox)) {
+            event.setCancelled(true);
+            return;
+        }
         // Bukkit fires this once per hand; the event is announced once.
         if (event.getHand() != EquipmentSlot.HAND) {
             if (animator.hasTrigger(modelId, RigAnimations.TRIGGER_RIGHT_CLICK)) event.setCancelled(true);
@@ -512,6 +516,7 @@ public final class RigPlacementListener implements Listener {
         String modelId = hitbox.getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
         if (modelId == null) return;
         event.setCancelled(true);
+        if (isCarriedAnchor(hitbox)) return;
         if (!(event.getDamager() instanceof Player)) return;
         Player player = (Player) event.getDamager();
 
@@ -534,6 +539,19 @@ public final class RigPlacementListener implements Listener {
         if (ask.isCancelled()) return;
 
         breakRig(hitbox, modelId, ask.isDropItem());
+    }
+
+    /**
+     * Whether {@code hitbox} is a carried rig's anchor (a vehicle's, or an emote
+     * prop's) rather than a placed model's hitbox. {@link RigCarrier} gives the
+     * anchor the model id too and makes it zero-sized so no client can click it,
+     * but a forged packet still names it: a bot punching the sleds in a race
+     * removed their anchors and dropped an item of the sled's art for each one,
+     * and the event it fired had no model to name. A placed rig's hitbox is
+     * never smaller than its scale.
+     */
+    static boolean isCarriedAnchor(Interaction hitbox) {
+        return hitbox.getInteractionWidth() <= 0f || hitbox.getInteractionHeight() <= 0f;
     }
 
     /**
