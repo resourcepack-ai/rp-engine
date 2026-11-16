@@ -85,7 +85,8 @@ import java.util.function.Function;
  * rather than tidy: an {@code Interaction} carrying a {@code model-id} is what
  * {@code RigPlacementListener} treats as a placed statue, so a full-sized one
  * would let any player punch a moving vehicle's bodywork off it. Nothing can
- * click a box with no width.
+ * click a box with no width, and a forged packet that names it anyway is
+ * refused by {@code RigPlacementListener.isCarriedAnchor}.
  */
 public final class RigCarrier {
 
