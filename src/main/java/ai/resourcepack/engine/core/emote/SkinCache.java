@@ -180,6 +180,8 @@ public final class SkinCache {
                         + ". They wear the default rig until it can be fetched.");
                 return;
             }
+            // Kept as the client draws it, so a pre-1.8 sheet is 64x64 on disk.
+            bytes = SkinSheets.asDrawn(bytes);
             // The cape is optional twice over: no URL means none, and a fetch
             // that fails costs the cape and nothing else.
             byte[] capeBytes = capeUrl.isEmpty() ? null : fetch(capeUrl);
@@ -284,7 +286,8 @@ public final class SkinCache {
 
     private RigBaker.Skin read(String key, File file) {
         try {
-            byte[] png = Files.readAllBytes(file.toPath());
+            // A legacy sheet kept before they were widened on arrival is widened here.
+            byte[] png = SkinSheets.asDrawn(Files.readAllBytes(file.toPath()));
             Path capeFile = folder.resolve(key + "_cape.png");
             byte[] cape = Files.isRegularFile(capeFile) ? Files.readAllBytes(capeFile) : null;
             String variant = RigGeometry.WIDE;
@@ -347,7 +350,7 @@ public final class SkinCache {
             byte[] bytes = null;
             if (modified >= 0) {
                 try {
-                    bytes = Files.readAllBytes(png);
+                    bytes = SkinSheets.asDrawn(Files.readAllBytes(png));
                 } catch (IOException ignored) {
                     bytes = null;
                 }
@@ -378,7 +381,7 @@ public final class SkinCache {
             return null;
         }
         // A skin is 64 wide; a hi-res one is a multiple, read at its own scale.
-        // The hat is in the top half, so an old 64x32 skin has one too.
+        // A legacy 64x32 sheet arrives here widened, its solid hat cleared.
         int scale = image.getWidth() / 64;
         int[] withHat = new int[64];
         int[] bare = new int[64];
@@ -442,9 +445,10 @@ public final class SkinCache {
             }
             try (InputStream in = connection.getInputStream()) {
                 byte[] bytes = readSheet(in);
-                // A sheet is a 64x64 PNG of a few kilobytes. Anything else is
-                // an error page or a legacy 64x32 sheet, and baking either
-                // would put a checkerboard on somebody's face.
+                // A sheet is a PNG of a few kilobytes (64x64, or 64x32 from
+                // before 1.8, which SkinSheets widens). Anything else is an
+                // error page, and baking it would put a checkerboard on
+                // somebody's face.
                 return bytes != null && bytes.length > 100 && isPng(bytes) ? bytes : null;
             }
         } catch (IOException | RuntimeException e) {
