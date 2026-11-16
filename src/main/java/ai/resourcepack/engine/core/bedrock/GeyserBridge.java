@@ -219,17 +219,6 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
         return new File(packsDir, xuid.replaceAll("[^0-9]", "") + ".mcpack");
     }
 
-    // Mirrors the name sanitiser in Studio's Bedrock geometry builder - the
-    // two must agree or animation/entity ids won't match the served pack.
-    static String sanitize(String name) {
-        String cleaned = name.toLowerCase()
-            .replaceAll("[\\s-]+", "_")
-            .replaceAll("[^a-z0-9_]", "")
-            .replaceAll("_{2,}", "_")
-            .replaceAll("^_+|_+$", "");
-        return cleaned.isEmpty() ? "unnamed" : cleaned;
-    }
-
     // --- Pack delivery -------------------------------------------------------
 
     private void onSessionLoadPacks(SessionLoadResourcePacksEvent event) {
@@ -761,7 +750,7 @@ public final class GeyserBridge implements ai.resourcepack.engine.core.distribut
             && hitbox.getPersistentDataContainer().has(authoredKey, PersistentDataType.STRING);
         String animationId = authored
             ? BedrockGeometry.animationId(BedrockContent.modelKey(modelId), animationName)
-            : "animation.rpai." + sanitize(modelId) + "." + sanitize(animationName);
+            : BedrockGeometry.studioAnimationId(modelId, animationName);
         spawned.forEach((playerId, entities) -> {
             Long geyserId = entities.get(hitboxId);
             if (geyserId == null) return;
