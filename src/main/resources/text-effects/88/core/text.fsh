@@ -247,20 +247,33 @@ vec4 rtx_fragment() {
     // glyph's position on screen a whole quarter of a GUI unit.
     vec4 a0 = rtxA0 / max(rtxW.x, 1e-6);
     vec4 a2 = rtxA2 / max(rtxW.y, 1e-6);
-    a0.xy = floor(a0.xy * 4.0 + 0.5) * 0.25;
-    a2.xy = floor(a2.xy * 4.0 + 0.5) * 0.25;
+    // A letter in the world (see rtx_world_vertex) is told apart by its ink
+    // width being negative.
+    bool world = rtxFlat.y < 0.0;
+    if (!world) {
+        a0.xy = floor(a0.xy * 4.0 + 0.5) * 0.25;
+        a2.xy = floor(a2.xy * 4.0 + 0.5) * 0.25;
+    }
     rtxRA = floor(a0.zw * rtxAt + 0.5);
     rtxRS = max(floor(a2.zw * rtxAt + 0.5) - rtxRA, vec2(1.0));
-    // GUI units per letter-pixel: the scale the text is drawn at.
-    float scale = max((a2.x - a0.x) / rtxRS.x, 1e-3);
     rtx_Fx f;
-    f.p = (rtxW.zw - a0.xy) / scale;
+    // Screen units per letter-pixel: the scale the text is drawn at. A
+    // letter in the world may be turned on screen, so it is measured
+    // corner to corner, and its pixel is read off the texture coordinate.
+    float scale;
+    if (world) {
+        scale = max(length(a2.xy - a0.xy) / length(rtxRS), 1e-7);
+        f.p = texCoord0 * rtxAt - rtxRA;
+    } else {
+        scale = max((a2.x - a0.x) / rtxRS.x, 1e-3);
+        f.p = (rtxW.zw - a0.xy) / scale;
+    }
     f.q = floor(f.p) + 0.5;
     f.size = rtxRS;
     f.o = floor(a0.xy / scale + 0.5);
     f.g = f.o + f.p;
     f.t = GameTime * 1200.0;
-    f.w = rtxFlat.y;
+    f.w = abs(rtxFlat.y);
     vec4 room = rtx_pad(id);
     if (f.p.x < -room.x || f.p.y < -room.y || f.p.x > f.size.x + room.z || f.p.y > f.size.y + room.w) return vec4(0.0);
     vec4 c = rtx_dispatch(id, f);
