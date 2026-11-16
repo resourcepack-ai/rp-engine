@@ -46,7 +46,7 @@ final class RigGeometry {
     /** How far above the feet the rig's displays sit, in px. See the class note. */
     static final int RIG_ORIGIN_PX = 16;
 
-    /** Every skin is 64 by 64; a legacy 64x32 sheet is a Studio import concern, not ours. */
+    /** Every skin baked is 64 by 64: {@link SkinSheets} widens a legacy 64x32 sheet first. */
     static final int SKIN_SIZE = 64;
 
     static final String WIDE = "wide";
