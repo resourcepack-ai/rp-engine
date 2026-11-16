@@ -56,6 +56,8 @@ public final class FontAssets implements PackContributor {
         List<IconInfo> ordered = new ArrayList<>(icons.icons().values());
         ordered.sort(java.util.Comparator.comparingInt(IconInfo::codepoint));
         java.util.Set<String> gifs = new java.util.TreeSet<>();
+        java.util.Map<Sheet.Cut, List<Sheet>> sheets = new java.util.HashMap<>();
+        List<Sheet> sheetOrder = new ArrayList<>();
         for (IconInfo icon : ordered) {
             if (!bundle.namespaces().contains(icon.id().namespace())) {
                 continue;
@@ -81,9 +83,11 @@ public final class FontAssets implements PackContributor {
             } else if (missing(texture, icon.id(), "fonts", into)) {
                 continue;
             }
-            providers.add(bitmap(textureNamespace, texturePathPart,
-                    icon.height(), icon.ascent(), chars(icon)));
+            place(icon, textureNamespace, texturePathPart, sheets, sheetOrder);
             measure(icon, texture, into);
+        }
+        for (Sheet sheet : sheetOrder) {
+            providers.add(sheet.provider());
         }
         // The GIFs themselves are source, not something the client reads: the
         // strip beside each is what the font draws. Shipping both would make
@@ -444,36 +448,113 @@ public final class FontAssets implements PackContributor {
     }
 
     /**
-     * The {@code chars} rows of an icon's provider, already quoted.
+     * One bitmap provider being filled: a PNG cut into a grid at one height
+     * and ascent, and the character each cell draws.
      *
-     * <p>One string for an ordinary icon. For one cell of a sheet, the game's
-     * own grid: a bitmap provider with several rows of several characters
-     * splits its PNG into that many equal cells, and a NUL (U+0000) in a cell
-     * means nothing is drawn from it. So each icon on a sheet is the same PNG
-     * with every cell but its own empty, and nothing is ever cropped - the
-     * sheet ships once, and the picture is exactly what was drawn.
+     * <p>The game's own grid does the cutting. A bitmap provider with several
+     * rows of several characters splits its PNG into that many equal cells,
+     * and a NUL (U+0000) in a cell means nothing is drawn from it. So an icon
+     * on a sheet is its character in its own cell, and nothing is ever
+     * cropped - the sheet ships once, and the picture is exactly what was
+     * drawn. An ordinary icon is a grid of one.
      *
      * <p>An animated icon is the same rule with more than one cell filled:
      * frame {@code k} is the cell {@code k} after the icon's own, at the
      * codepoint {@code k} after its own. So one provider declares every frame
      * of a strip, and the strip is cut once.
+     *
+     * <p><strong>Every icon cut from the same sheet the same way shares one
+     * provider.</strong> It used to be a provider an icon, each the whole
+     * sheet with one cell filled, and the game pays for a provider twice over
+     * when it loads a pack: it decodes the provider's PNG, whole, and it asks
+     * every provider in the default font about every character the font has,
+     * the game's own hundred thousand included. A lettering of 95 characters
+     * was its sheet decoded 95 times and 95 questions a character. A pack of
+     * 6,186 icons on 1,074 files took a client 64 seconds to load and comes to
+     * 1,185 providers and 7.5 seconds this way, with nothing drawn differently.
      */
-    static String chars(IconInfo icon) {
-        StringBuilder rows = new StringBuilder();
-        int first = icon.cell();
-        int last = icon.cell() + icon.frames() - 1;
-        int cell = 1;
-        for (int row = 0; row < icon.rows(); row++) {
-            if (row > 0) {
-                rows.append(", ");
-            }
-            rows.append('"');
-            for (int column = 0; column < icon.columns(); column++, cell++) {
-                rows.append(escape(cell >= first && cell <= last ? icon.codepoint() + (cell - first) : 0));
-            }
-            rows.append('"');
+    private static final class Sheet {
+        /** What has to match for two icons to be cells of one provider. */
+        record Cut(String texture, int height, int ascent, int rows, int columns) {
         }
-        return rows.toString();
+
+        final String namespace;
+        final String path;
+        final Cut cut;
+        /** The codepoint in each cell, row by row, 0 where nothing is. */
+        final int[] cells;
+
+        Sheet(String namespace, String path, Cut cut) {
+            this.namespace = namespace;
+            this.path = path;
+            this.cut = cut;
+            this.cells = new int[cut.rows() * cut.columns()];
+        }
+
+        /**
+         * @return false when one of the icon's cells is taken already. A cell
+         *         draws one character, so two icons declaring the same cell
+         *         cannot share a provider.
+         */
+        boolean place(IconInfo icon) {
+            int first = icon.cell() - 1;
+            int count = Math.max(1, icon.frames());
+            for (int frame = 0; frame < count; frame++) {
+                int cell = first + frame;
+                if (cell >= 0 && cell < cells.length && cells[cell] != 0) {
+                    return false;
+                }
+            }
+            for (int frame = 0; frame < count; frame++) {
+                int cell = first + frame;
+                if (cell >= 0 && cell < cells.length) {
+                    cells[cell] = icon.codepoint() + frame;
+                }
+            }
+            return true;
+        }
+
+        /** The {@code chars} rows, already quoted. */
+        String chars() {
+            StringBuilder rows = new StringBuilder();
+            for (int row = 0; row < cut.rows(); row++) {
+                if (row > 0) {
+                    rows.append(", ");
+                }
+                rows.append('"');
+                for (int column = 0; column < cut.columns(); column++) {
+                    rows.append(escape(cells[row * cut.columns() + column]));
+                }
+                rows.append('"');
+            }
+            return rows.toString();
+        }
+
+        String provider() {
+            return bitmap(namespace, path, cut.height(), cut.ascent(), chars());
+        }
+    }
+
+    /**
+     * Puts an icon in the provider its sheet already has, or starts one.
+     *
+     * <p>{@code order} is the order providers were started in, which is
+     * codepoint order, so the file is the same bytes for the same content.
+     */
+    private static void place(IconInfo icon, String namespace, String path,
+                              java.util.Map<Sheet.Cut, List<Sheet>> sheets, List<Sheet> order) {
+        Sheet.Cut cut = new Sheet.Cut(namespace + ':' + path, icon.height(), icon.ascent(),
+                Math.max(1, icon.rows()), Math.max(1, icon.columns()));
+        List<Sheet> same = sheets.computeIfAbsent(cut, key -> new ArrayList<>());
+        for (Sheet sheet : same) {
+            if (sheet.place(icon)) {
+                return;
+            }
+        }
+        Sheet sheet = new Sheet(namespace, path, cut);
+        sheet.place(icon);
+        same.add(sheet);
+        order.add(sheet);
     }
 
     /**

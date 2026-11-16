@@ -3665,6 +3665,12 @@ cell is exactly what was drawn. `height` and `ascent` are the cell's, not the
 sheet's. The PNG's width has to divide by the columns and its height by the
 rows, as for any font sheet.
 
+Icons cut from the same sheet with the same `height` and `ascent` cost a player
+the sheet once between them when the pack loads, so a set of pictures that are
+the same size is cheapest as one sheet. An icon in a file of its own, or at a
+height or ascent of its own, costs a whole one each, and a few thousand of those
+is a pack that takes the game most of a minute to load.
+
 Put one into any piece of text with `:namespace:id:`:
 
 ```

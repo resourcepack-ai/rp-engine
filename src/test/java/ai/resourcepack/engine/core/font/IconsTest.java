@@ -228,6 +228,72 @@ class IconsTest {
     }
 
     @Test
+    void iconsCutFromOneSheetTheSameWayShareOneProvider() throws IOException {
+        write("mypack/fonts/a.yml", """
+                a: { file: faces, grid: { rows: 2, columns: 2, cell: 1 } }
+                b: { file: faces, grid: { rows: 2, columns: 2, cell: 4 } }
+                c: { file: faces, grid: { rows: 2, columns: 2, cell: 2 } }
+                """);
+        write("mypack/assets/textures/font/faces.png", "PNG");
+
+        IconDefinitions.Result result = parse();
+        String font = zip().get("assets/minecraft/font/default.json");
+
+        // One provider, each icon's own character in its own cell. A provider
+        // an icon had the game decode the sheet once for each and ask each of
+        // them about every character in the default font, which is what made
+        // a pack of a few thousand letters take a minute to load.
+        assertEquals(1, count(font, "\"file\": \"mypack:font/faces.png\""), font);
+        assertTrue(font.contains("\"chars\": [\"" + escape(one(result, "mypack:a")) + escape(one(result, "mypack:c"))
+                + "\", \"\\u0000" + escape(one(result, "mypack:b")) + "\"]"), font);
+    }
+
+    @Test
+    void aSheetCutAtAnotherHeightOrAscentIsAProviderOfItsOwn() throws IOException {
+        write("mypack/fonts/a.yml", """
+                a: { file: faces, grid: { rows: 2, columns: 2, cell: 1 }, height: 8, ascent: 7 }
+                b: { file: faces, grid: { rows: 2, columns: 2, cell: 2 }, height: 8, ascent: 3 }
+                c: { file: faces, grid: { rows: 2, columns: 2, cell: 3 }, height: 16, ascent: 7 }
+                """);
+        write("mypack/assets/textures/font/faces.png", "PNG");
+
+        String font = zip().get("assets/minecraft/font/default.json");
+
+        // Height and ascent are a provider's, not a cell's.
+        assertEquals(3, count(font, "\"file\": \"mypack:font/faces.png\""), font);
+    }
+
+    @Test
+    void twoIconsOfTheSameCellKeepAProviderEach() throws IOException {
+        write("mypack/fonts/a.yml", """
+                a: { file: faces, grid: { rows: 2, columns: 2, cell: 3 } }
+                b: { file: faces, grid: { rows: 2, columns: 2, cell: 3 } }
+                """);
+        write("mypack/assets/textures/font/faces.png", "PNG");
+
+        IconDefinitions.Result result = parse();
+        String font = zip().get("assets/minecraft/font/default.json");
+
+        // A cell draws one character, so the second name for a picture cannot
+        // go in the first one's provider. Both still draw.
+        assertEquals(2, count(font, "\"file\": \"mypack:font/faces.png\""), font);
+        assertTrue(font.contains("\"\\u0000\\u0000\", \"" + escape(one(result, "mypack:a")) + "\\u0000\""), font);
+        assertTrue(font.contains("\"\\u0000\\u0000\", \"" + escape(one(result, "mypack:b")) + "\\u0000\""), font);
+    }
+
+    private static String escape(IconInfo icon) {
+        return String.format("\\u%04X", icon.codepoint());
+    }
+
+    private static int count(String text, String part) {
+        int found = 0;
+        for (int at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length())) {
+            found++;
+        }
+        return found;
+    }
+
+    @Test
     void aCellThatIsNotOnTheSheetIsTheWholePictureAndSaysSo() throws IOException {
         write("mypack/fonts/a.yml", "smile:\n  grid: { rows: 2, columns: 2, cell: 5 }\n");
 
