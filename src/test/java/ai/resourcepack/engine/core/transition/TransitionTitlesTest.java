@@ -12,7 +12,7 @@ class TransitionTitlesTest {
 
     @Test
     void aTriggerColourIsWrittenAsLegacyHex() {
-        // Studio's stingerColor(0, "in"): red 236, green 4, blue 252.
+        // Studio's transitionColor(0, "in"): red 236, green 4, blue 252.
         assertEquals("§x§e§c§0§4§f§c", TransitionTitles.legacyHex("#ec04fc"));
         assertEquals("§x§e§c§0§4§f§c", TransitionTitles.legacyHex("#EC04FC"));
         assertEquals("§x§e§c§0§4§f§c", TransitionTitles.title("#ec04fc", ""));
