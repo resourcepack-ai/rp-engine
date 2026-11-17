@@ -858,6 +858,24 @@ the engine's negative spaces, so it works in any text the game draws in the
 default font. A value starting with `space(n)` is a run of words that starts
 `n` pixels along, which is how one HUD run can be lined up against another.
 
+A value can carry a player's face too, eight pixels square (since 0.2.88):
+
+```java
+String face = o.head("\"Notch\"", "#ffffff");   // a profile as the game reads one, in JSON
+o.set(player, "leader", face + " Notch");
+```
+
+The profile is a name in JSON quotes, an object with `name`, `id` and the
+skin's `properties` (an online player's profile, so the client looks nothing
+up), or `{"texture":"entity/player/wide/steve"}` for one of the game's own
+skins. The colour tints the face, so a pack shader that places a run by its
+colour can read it; `#ffffff` is the skin as it is. The game draws faces from
+1.21.9 and only in a line sent as JSON, which on Paper is every overlay; on
+Spigot, on an older client and on Bedrock the face is a space as wide, so
+nothing after it moves. `width` measures it as 8. What `head` returns is only
+read as a face on the server that made it, so keep the string rather than
+storing it, and a player typing the same characters gets no face.
+
 ## Dialogs
 
 A dialog is the screen a server opens on a player — Minecraft 1.21.6 and newer.
