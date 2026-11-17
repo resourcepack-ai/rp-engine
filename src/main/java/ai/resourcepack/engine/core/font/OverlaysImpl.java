@@ -95,4 +95,9 @@ public final class OverlaysImpl implements ai.resourcepack.engine.api.Overlays {
     public String space(int pixels) {
         return Overlays.space(pixels);
     }
+
+    @Override
+    public String head(String player, String color) {
+        return Heads.token(player, color);
+    }
 }

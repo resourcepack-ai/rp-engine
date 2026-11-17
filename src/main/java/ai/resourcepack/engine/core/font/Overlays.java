@@ -158,8 +158,9 @@ public final class Overlays {
         return out.toString();
     }
 
-    /** Text with the characters only a Java pack can draw taken out, and its spaces tidied. */
+    /** Text with the characters only a Java pack can draw taken out, and its spaces tidied. A face (Heads) goes too. */
     static String withoutGlyphs(String text) {
+        text = Heads.flat(text);
         StringBuilder kept = new StringBuilder(text.length());
         text.codePoints().forEach(c -> {
             boolean ours = (c >= 0xE000 && c <= 0xF8FF)
@@ -373,8 +374,9 @@ public final class Overlays {
         if (dropsShadows(info) && adventure.actionBar(viewer, composeJson(info, filled, viewer))) {
             return;
         }
+        // Spigot's components have no face (Heads), so a face here is a space as wide.
         viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                compose(info, filled, viewer));
+                flatHeads(compose(info, filled, viewer)));
     }
 
     /**
@@ -395,7 +397,7 @@ public final class Overlays {
         if (adventure != null) {
             String title = dropsShadows(info)
                     ? composeJson(info, filled, viewer)
-                    : net.md_5.bungee.chat.ComponentSerializer.toString(compose(info, filled, viewer));
+                    : withHeads(net.md_5.bungee.chat.ComponentSerializer.toString(compose(info, filled, viewer)));
             if (adventure.show(viewer, title)) {
                 // A legacy bar left over from before (it cannot happen today,
                 // but two bars drawing one overlay is the failure to rule out).
@@ -409,7 +411,7 @@ public final class Overlays {
         }
         BossBar bar = bars.computeIfAbsent(viewer.getUniqueId(),
                 key -> Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID));
-        bar.setTitle(legacyComposed(info, filled, viewer));
+        bar.setTitle(Heads.flat(legacyComposed(info, filled, viewer)));
         // Invisible bar, visible art: the bar itself is a rendering surface
         // here rather than a meter.
         bar.setProgress(0d);
@@ -756,7 +758,22 @@ public final class Overlays {
         com.google.gson.JsonObject line = new com.google.gson.JsonObject();
         line.addProperty("text", "");
         line.add("extra", extra);
-        return line.toString();
+        return Heads.expand(line).toString();
+    }
+
+    /** A line of JSON with its faces (Heads) made the components that draw them. */
+    static String withHeads(String json) {
+        return Heads.has(json) ? Heads.expand(com.google.gson.JsonParser.parseString(json)).toString() : json;
+    }
+
+    /** Parts with each face (Heads) a space as wide, for a line that cannot carry one. */
+    static BaseComponent[] flatHeads(BaseComponent[] parts) {
+        for (BaseComponent part : parts) {
+            if (part instanceof TextComponent text && Heads.has(text.getText())) {
+                text.setText(Heads.flat(text.getText()));
+            }
+        }
+        return parts;
     }
 
     /**

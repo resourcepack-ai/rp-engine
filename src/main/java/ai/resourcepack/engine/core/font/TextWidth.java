@@ -71,6 +71,15 @@ public final class TextWidth {
         boolean bold = false;
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
+            if (c == Heads.OPEN) {
+                // A player's face (Heads): the game moves the cursor eight, with no gap.
+                int close = Heads.end(text, i);
+                if (close > 0) {
+                    width += Heads.WIDTH;
+                    i = close;
+                    continue;
+                }
+            }
             if (c == '§' && i + 1 < text.length()) {
                 char code = Character.toLowerCase(text.charAt(++i));
                 if (code == 'l') {

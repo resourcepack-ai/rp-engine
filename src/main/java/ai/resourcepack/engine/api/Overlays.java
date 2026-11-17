@@ -120,4 +120,23 @@ public interface Overlays {
      * and {@link #width} measures it exactly. Zero is the empty string.
      */
     String space(int pixels);
+
+    /**
+     * Characters that draw a player's face, eight pixels square, in an overlay's value.
+     *
+     * <p>The game draws a face as its own kind of text (an object component, from 1.21.9), so this
+     * is a token the engine makes into one as it sends the overlay, and {@link #width} measures it
+     * as the eight pixels the game moves the cursor by. {@code player} is the face's profile as
+     * the game reads one, in JSON: a name ({@code "\"Notch\""}), an object with a {@code name},
+     * an {@code id} and the skin's {@code properties} (what an online player's profile holds, so
+     * no lookup is needed), or a {@code texture}, one of the game's own skins
+     * ({@code {"texture":"entity/player/wide/steve"}}). {@code color} ({@code #rrggbb}) is what it
+     * is drawn in, which tints it, so a pack's text shader that places a run by its colour can read
+     * it; {@code #ffffff} for the skin as it is. Where an overlay cannot carry a face (a server
+     * with no Adventure) it is a space as wide.
+     *
+     * @throws IllegalArgumentException if {@code player} is not JSON of that shape or
+     *         {@code color} is not {@code #rrggbb}
+     */
+    String head(String player, String color);
 }
