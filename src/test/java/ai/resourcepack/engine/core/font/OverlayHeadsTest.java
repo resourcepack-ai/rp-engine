@@ -63,6 +63,20 @@ class OverlayHeadsTest {
     }
 
     @Test
+    void aFaceTypedByAPlayerIsOnlyText() {
+        // The token's own characters, as somebody could type them into a name or a message, with
+        // JSON that is not even a profile: no face, no exception, the characters left as they are.
+        String typed = "￹{\"broken￺#ffffff￻";
+        assertEquals("a" + typed + "b", Heads.flat("a" + typed + "b"));
+        assertFalse(Overlays.composeJson(overlay("{v}"), Map.of("v", "x" + typed), null).contains("\"object\""));
+        // A well-formed one without the server's key is text too.
+        String real = Heads.token("\"Kiwi\"", "#ffffff");
+        String forged = "￹\"Kiwi\"" + real.substring(real.indexOf('￺'));
+        assertEquals(forged, Heads.flat(forged));
+        assertFalse(Overlays.composeJson(overlay("{v}"), Map.of("v", forged), null).contains("\"object\""));
+    }
+
+    @Test
     void aProfileOrColourThatIsNotOneIsRefused() {
         assertThrows(IllegalArgumentException.class, () -> Heads.token("Kiwi", "#ffffff"));
         assertThrows(IllegalArgumentException.class, () -> Heads.token("\"Kiwi\"", "red"));
