@@ -1,0 +1,387 @@
+{
+  "overlays": [
+    {
+      "id": "boxes_three_panels",
+      "runs": [
+        {
+          "x": 1,
+          "text": "",
+          "bar": 85
+        },
+        {
+          "x": 5,
+          "text": "",
+          "advance": 17
+        },
+        {
+          "x": 25,
+          "text": "{player}"
+        },
+        {
+          "x": 25,
+          "text": "Rank {rank}"
+        },
+        {
+          "x": 92,
+          "text": "",
+          "bar": 41
+        },
+        {
+          "x": 100,
+          "text": "Coins"
+        },
+        {
+          "x": 96,
+          "text": "{coins}"
+        },
+        {
+          "x": 139,
+          "text": "",
+          "bar": 115
+        },
+        {
+          "x": 143,
+          "text": "Health"
+        },
+        {
+          "x": 143,
+          "text": "{health}/{health_max}"
+        },
+        {
+          "x": 143,
+          "text": "",
+          "bar": 56
+        },
+        {
+          "x": 143,
+          "text": "",
+          "bar": 56
+        }
+      ],
+      "boxes": [
+        {
+          "x": 128,
+          "pivot": 0.5,
+          "row": true,
+          "gap": 6,
+          "pad": 0,
+          "min": 0,
+          "align": 0,
+          "background": -1,
+          "items": [
+            {
+              "runs": [],
+              "box": 1
+            },
+            {
+              "runs": [],
+              "box": 3
+            },
+            {
+              "runs": [],
+              "box": 4
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": true,
+          "gap": 4,
+          "pad": 4,
+          "min": 0,
+          "align": 0,
+          "background": 0,
+          "items": [
+            {
+              "runs": [
+                1
+              ],
+              "box": -1
+            },
+            {
+              "runs": [],
+              "box": 2
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": false,
+          "gap": 2,
+          "pad": 0,
+          "min": 0,
+          "align": 0,
+          "background": -1,
+          "items": [
+            {
+              "runs": [
+                2
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                3
+              ],
+              "box": -1
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": false,
+          "gap": 3,
+          "pad": 4,
+          "min": 0,
+          "align": 0.5,
+          "background": 4,
+          "items": [
+            {
+              "runs": [
+                5
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                6
+              ],
+              "box": -1
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": false,
+          "gap": 3,
+          "pad": 4,
+          "min": 0,
+          "align": 0,
+          "background": 7,
+          "items": [
+            {
+              "runs": [
+                8
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                9
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                10,
+                11
+              ],
+              "box": -1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boxes_scoreboard",
+      "runs": [
+        {
+          "x": 30,
+          "text": "",
+          "bar": 94
+        },
+        {
+          "x": 91,
+          "text": "Match"
+        },
+        {
+          "x": 65,
+          "text": "Kills"
+        },
+        {
+          "x": 92,
+          "text": "{kills}"
+        },
+        {
+          "x": 36,
+          "text": "Deaths"
+        },
+        {
+          "x": 77,
+          "text": "{deaths}"
+        },
+        {
+          "x": 38,
+          "text": "Streak"
+        },
+        {
+          "x": 78,
+          "text": "{streak}"
+        }
+      ],
+      "boxes": [
+        {
+          "x": 124,
+          "pivot": 1,
+          "row": false,
+          "gap": 3,
+          "pad": 6,
+          "min": 72,
+          "align": 1,
+          "background": 0,
+          "items": [
+            {
+              "runs": [
+                1
+              ],
+              "box": -1
+            },
+            {
+              "runs": [],
+              "box": 1
+            },
+            {
+              "runs": [],
+              "box": 2
+            },
+            {
+              "runs": [],
+              "box": 3
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": true,
+          "gap": 8,
+          "pad": 0,
+          "min": 0,
+          "align": 0,
+          "background": -1,
+          "items": [
+            {
+              "runs": [
+                2
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                3
+              ],
+              "box": -1
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": true,
+          "gap": 8,
+          "pad": 0,
+          "min": 0,
+          "align": 0,
+          "background": -1,
+          "items": [
+            {
+              "runs": [
+                4
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                5
+              ],
+              "box": -1
+            }
+          ]
+        },
+        {
+          "x": 0,
+          "pivot": 0,
+          "row": true,
+          "gap": 8,
+          "pad": 0,
+          "min": 0,
+          "align": 0,
+          "background": -1,
+          "items": [
+            {
+              "runs": [
+                6
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                7
+              ],
+              "box": -1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boxes_toast",
+      "runs": [
+        {
+          "x": 41,
+          "text": "",
+          "bar": 110
+        },
+        {
+          "x": 47,
+          "text": "",
+          "advance": 9
+        },
+        {
+          "x": 60,
+          "text": "[{tag}]"
+        },
+        {
+          "x": 96,
+          "text": "{message}"
+        }
+      ],
+      "boxes": [
+        {
+          "x": 96,
+          "pivot": 0.5,
+          "row": true,
+          "gap": 5,
+          "pad": 6,
+          "min": 0,
+          "align": 0,
+          "background": 0,
+          "items": [
+            {
+              "runs": [
+                1
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                2
+              ],
+              "box": -1
+            },
+            {
+              "runs": [
+                3
+              ],
+              "box": -1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -441,12 +441,14 @@ public final class Overlays {
         StringBuilder out = new StringBuilder(legacy(info));
         boolean placeOurselves = info.positionsRuns();
         int cursor = info.advance();
-        for (OverlayInfo.OverlayRun run : info.runs()) {
-            Drawn drawn = drawnRun(info, run, filled, viewer);
+        Laid laid = laidOut(info, filled, viewer);
+        for (int i = 0; i < info.runs().size(); i++) {
+            OverlayInfo.OverlayRun run = info.runs().get(i);
+            Drawn drawn = laid.drawn()[i];
             if (drawn.text().isEmpty()) {
                 continue;
             }
-            int start = startOf(run, drawn.advance());
+            int start = laid.start(i, run, drawn);
             out.append(placeOurselves ? shiftTo(info, start - cursor) : run.shift());
             // A bar's fill can name its own colour — the mark for whichever
             // threshold the value fell under — and it wins over the run's,
@@ -468,6 +470,61 @@ public final class Overlays {
             out.append(shiftTo(info, info.advance() - cursor));
         }
         return out.toString();
+    }
+
+    /**
+     * Every run as drawn for one player, and where the containers put the ones
+     * in a container. See {@link OverlayBoxes}.
+     *
+     * @param starts each run's start from its container, or null for none at all
+     */
+    private record Laid(Drawn[] drawn, Integer[] starts) {
+        /** Where a run starts: its container's place for it, else its own x and alignment. */
+        int start(int index, OverlayInfo.OverlayRun run, Drawn drawn) {
+            Integer laid = starts == null ? null : starts[index];
+            return laid != null ? laid : startOf(run, drawn.advance());
+        }
+    }
+
+    /**
+     * Every run drawn, then the containers laid out from what they came to,
+     * each background rebuilt as wide as its container (or dropped with it).
+     * An overlay with no containers is exactly the runs it always was.
+     */
+    static Laid laidOut(OverlayInfo info, java.util.Map<String, String> filled, Player viewer) {
+        java.util.List<OverlayInfo.OverlayRun> runs = info.runs();
+        Drawn[] drawn = new Drawn[runs.size()];
+        for (int i = 0; i < drawn.length; i++) {
+            drawn[i] = drawnRun(info, runs.get(i), filled, viewer);
+        }
+        if (info.boxes().isEmpty() || !info.positionsRuns()) {
+            return new Laid(drawn, null);
+        }
+        int[] ink = new int[drawn.length];
+        boolean[] shown = new boolean[drawn.length];
+        for (int i = 0; i < drawn.length; i++) {
+            shown[i] = !drawn[i].text().isEmpty();
+            // A bar is assembled to exactly its pixels; anything else moves the
+            // cursor one past its last glyph.
+            ink[i] = runs.get(i).bar() != null ? drawn[i].advance() : Math.max(0, drawn[i].advance() - 1);
+        }
+        OverlayBoxes.Layout layout = OverlayBoxes.layout(info.boxes(), ink, shown);
+        Integer[] starts = layout.starts();
+        for (int b = 0; b < info.boxes().size(); b++) {
+            int bg = info.boxes().get(b).background();
+            if (bg < 0 || bg >= runs.size()) {
+                continue;
+            }
+            OverlayInfo.OverlayRun.Bar rects = runs.get(bg).bar();
+            if (!layout.shown()[b] || rects == null) {
+                drawn[bg] = new Drawn("", 0, null);
+                continue;
+            }
+            int width = layout.width()[b];
+            drawn[bg] = new Drawn(strip(info, rects, width), width, null);
+            starts[bg] = layout.left()[b];
+        }
+        return new Laid(drawn, starts);
     }
 
     /**
@@ -818,8 +875,10 @@ public final class Overlays {
             // still.
             boolean placeOurselves = info.positionsRuns();
             int cursor = info.advance();
-            for (OverlayInfo.OverlayRun run : info.runs()) {
-                Drawn drawn = drawnRun(info, run, filled, viewer);
+            Laid laid = laidOut(info, filled, viewer);
+            for (int i = 0; i < info.runs().size(); i++) {
+                OverlayInfo.OverlayRun run = info.runs().get(i);
+                Drawn drawn = laid.drawn()[i];
                 if (drawn.text().isEmpty()) {
                     continue;
                 }
@@ -827,7 +886,7 @@ public final class Overlays {
                 // their advances are declared — so it is its own component. Put
                 // them in the text's font and they are glyphs that font has
                 // never heard of.
-                int start = startOf(run, drawn.advance());
+                int start = laid.start(i, run, drawn);
                 String moveBy = placeOurselves ? shiftTo(info, start - cursor) : run.shift();
                 if (!moveBy.isEmpty()) {
                     TextComponent shift = new TextComponent(moveBy);

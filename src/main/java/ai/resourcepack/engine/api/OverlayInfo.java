@@ -48,6 +48,60 @@ public final class OverlayInfo {
     private final String shiftPlus;
     private final String shiftMinus;
     private final boolean pushed;
+    private java.util.List<Box> boxes = java.util.List.of();
+
+    /**
+     * A container: runs laid out side by side or one under another, the way an
+     * HTML {@code <div>} lays out what is in it.
+     *
+     * <p><b>Only the horizontal half is the engine's.</b> How tall everything
+     * is was known when the pack was built, so each run is already lifted to
+     * its row by the pack. How WIDE a run is depends on what its placeholders
+     * filled in with, so the engine lays every row out again per player: a
+     * container grows and shrinks with its contents, and a child whose
+     * condition fails takes no room. Each run's own {@link OverlayRun#x()} is
+     * the layout with every label as wide as it is written, which is what an
+     * engine without containers draws.
+     *
+     * @param x          where the pivot is, in pixels from the picture's left
+     *                   edge; read on an outermost container only
+     * @param pivot      how far across the container the pivot is: 0 its left
+     *                   edge, 0.5 its middle, 1 its right
+     * @param row        children side by side; false is one under another
+     * @param gap        pixels between one child and the next, in a row
+     * @param pad        pixels between each side and the children
+     * @param min        at least this wide
+     * @param align      where the children sit in spare width: the whole row,
+     *                   or each child of a column; 0, 0.5 or 1
+     * @param background the index in {@link #runs()} of its background, a run
+     *                   of rectangles drawn as wide as the container, or -1
+     * @param items      its children, first to last
+     */
+    public record Box(int x, double pivot, boolean row, int gap, int pad, int min, double align,
+                      int background, java.util.List<Item> items) {
+
+        public Box {
+            pivot = Double.isFinite(pivot) ? Math.max(0, Math.min(1, pivot)) : 0;
+            align = Double.isFinite(align) ? Math.max(0, Math.min(1, align)) : 0;
+            gap = Math.max(0, gap);
+            pad = Math.max(0, pad);
+            min = Math.max(0, min);
+            items = items == null ? java.util.List.of() : java.util.List.copyOf(items);
+        }
+
+        /**
+         * One child: the runs drawn at its place (a bar is two), or another
+         * container.
+         *
+         * @param runs indexes in {@link OverlayInfo#runs()}; empty for a container
+         * @param box  the index of a container in {@link OverlayInfo#boxes()}, or -1
+         */
+        public record Item(java.util.List<Integer> runs, int box) {
+            public Item {
+                runs = runs == null ? java.util.List.of() : java.util.List.copyOf(runs);
+            }
+        }
+    }
 
     /**
      * One positioned run of text within an overlay.
@@ -550,8 +604,27 @@ public final class OverlayInfo {
      * @param shiftMinus their negative twins
      */
     public OverlayInfo withCursor(int advance, String shiftPlus, String shiftMinus) {
-        return new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
+        OverlayInfo copy = new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
                 color, font, text, triggers, runs, pushed, advance, shiftPlus, shiftMinus);
+        copy.boxes = boxes;
+        return copy;
+    }
+
+    /**
+     * The same overlay, with containers laying its runs out. See {@link Box}.
+     * Laid out only when {@link #positionsRuns()}: without the cursor there is
+     * nothing to place a run with.
+     */
+    public OverlayInfo withBoxes(java.util.List<Box> boxes) {
+        OverlayInfo copy = new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
+                color, font, text, triggers, runs, pushed, advance, shiftPlus, shiftMinus);
+        copy.boxes = boxes == null ? java.util.List.of() : java.util.List.copyOf(boxes);
+        return copy;
+    }
+
+    /** Its containers, or empty. See {@link Box}. */
+    public java.util.List<Box> boxes() {
+        return boxes;
     }
 
     /**
@@ -564,8 +637,10 @@ public final class OverlayInfo {
      * whoever holds a particular push.
      */
     public OverlayInfo authored() {
-        return new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
+        OverlayInfo copy = new OverlayInfo(id, file, title, container, slot, height, ascent, offset, codepoint,
                 color, font, text, triggers, runs, false, advance, shiftPlus, shiftMinus);
+        copy.boxes = boxes;
+        return copy;
     }
 
     /**

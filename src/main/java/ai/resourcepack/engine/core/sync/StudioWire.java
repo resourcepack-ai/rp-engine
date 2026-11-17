@@ -698,12 +698,47 @@ final class StudioWire {
         /** What shows it with no plugin involved. See {@link OverlayTrigger}. */
         List<Trigger> triggers;
         /**
+         * A shader object's containers, laid out again per player. Null on every
+         * overlay without one. See {@link OverlayInfo.Box}.
+         */
+        List<Box> boxes;
+        /**
          * A SCREEN's player heads, drawn by {@code Overlays.open} from the
          * viewer's own skin. Null on a HUD and on any screen without one; a
          * screen with heads also carries {@link #advance} and the alphabet.
          * See {@link ai.resourcepack.engine.core.font.ScreenHeads}.
          */
         List<Head> heads;
+    }
+
+    /** One container of an overlay. See {@link Overlay#boxes}. */
+    static final class Box {
+        /** Where its pivot is, from the picture's left edge. Outermost containers only. */
+        int x;
+        /** How far across it the pivot is: 0 left, 0.5 middle, 1 right. */
+        double pivot;
+        /** Children side by side; false is one under another. */
+        boolean row;
+        /** Pixels between one child and the next, in a row. */
+        int gap;
+        /** Pixels between its left and right edges and the children. */
+        int pad;
+        /** At least this wide. */
+        int min;
+        /** Where the children sit in spare width: the row as one, or each child of a column. */
+        double align;
+        /** The index in the runs of its background, or -1 for none. */
+        int background;
+        /** Its children, first to last. */
+        List<BoxItem> items;
+    }
+
+    /** One child of a {@link Box}: its runs, or another container. */
+    static final class BoxItem {
+        /** Indexes in the runs, drawn at one place. Empty for a container. */
+        List<Integer> runs;
+        /** The index of a container in the boxes, or -1. */
+        int box;
     }
 
     /** One rule from {@link Overlay#triggers}. */
