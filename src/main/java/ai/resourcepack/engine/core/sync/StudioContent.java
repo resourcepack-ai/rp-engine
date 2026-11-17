@@ -767,7 +767,8 @@ public final class StudioContent {
                     readHuds.put(id, OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
                             hud.color, hud.font, hud.text, triggers(hud.triggers),
                             runs(hud.runs))
-                            .withCursor(hud.advance, hud.shiftPlus, hud.shiftMinus)));
+                            .withCursor(hud.advance, hud.shiftPlus, hud.shiftMinus)
+                            .withBoxes(boxes(hud.boxes, hud.runs))));
         }
 
         Map<ContentId, VehicleInfo> readVehicles = new LinkedHashMap<>();
@@ -1970,6 +1971,30 @@ public final class StudioContent {
             out.advance = info.advance();
             out.shiftPlus = info.shiftPlus().isEmpty() ? null : info.shiftPlus();
             out.shiftMinus = info.shiftMinus().isEmpty() ? null : info.shiftMinus();
+            // The containers beside the runs they index, which are written
+            // back above in the order they were read, so the indexes hold.
+            if (!info.boxes().isEmpty()) {
+                out.boxes = new ArrayList<>();
+                for (OverlayInfo.Box box : info.boxes()) {
+                    Box written = new Box();
+                    written.x = box.x();
+                    written.pivot = box.pivot();
+                    written.row = box.row();
+                    written.gap = box.gap();
+                    written.pad = box.pad();
+                    written.min = box.min();
+                    written.align = box.align();
+                    written.background = box.background();
+                    written.items = new ArrayList<>();
+                    for (OverlayInfo.Box.Item item : box.items()) {
+                        BoxItem one = new BoxItem();
+                        one.runs = new ArrayList<>(item.runs());
+                        one.box = item.box();
+                        written.items.add(one);
+                    }
+                    out.boxes.add(written);
+                }
+            }
         }
         if (!info.triggers().isEmpty()) {
             out.triggers = new ArrayList<>();
@@ -2008,7 +2033,61 @@ public final class StudioContent {
         return java.util.Optional.of(OverlayInfo.pushed(id, hud.title, "", slotOf(hud.slot),
                         hud.color, hud.font, hud.text, triggers(hud.triggers), runs(hud.runs))
                 .withCursor(hud.advance, hud.shiftPlus, hud.shiftMinus)
+                .withBoxes(boxes(hud.boxes, hud.runs))
                 .authored());
+    }
+
+    /** Whether {@link #runs} keeps a run: one with nothing to draw is dropped. */
+    private static boolean kept(Run run) {
+        // A bar carries no text of its own — the engine assembles it — so
+        // "nothing to draw" cannot be decided by looking at the string here.
+        return run != null && !((run.text == null || run.text.isEmpty()) && run.bar == null);
+    }
+
+    /**
+     * An overlay's containers, their run indexes moved to the list
+     * {@link #runs} keeps (which drops runs with nothing to draw). An index
+     * naming a dropped run is left out of its child; a child left with none is
+     * left out.
+     */
+    private static List<OverlayInfo.Box> boxes(List<Box> raw, List<Run> rawRuns) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        int size = rawRuns == null ? 0 : rawRuns.size();
+        int[] keptAt = new int[size];
+        int next = 0;
+        for (int i = 0; i < size; i++) {
+            keptAt[i] = kept(rawRuns.get(i)) ? next++ : -1;
+        }
+        java.util.function.IntUnaryOperator moved = i -> i >= 0 && i < size ? keptAt[i] : -1;
+        List<OverlayInfo.Box> out = new ArrayList<>();
+        for (Box box : raw) {
+            if (box == null) {
+                // Kept as an empty container, so the indexes after it hold.
+                out.add(new OverlayInfo.Box(0, 0, true, 0, 0, 0, 0, -1, List.of()));
+                continue;
+            }
+            List<OverlayInfo.Box.Item> items = new ArrayList<>();
+            for (BoxItem item : box.items == null ? List.<BoxItem>of() : box.items) {
+                if (item == null) {
+                    continue;
+                }
+                List<Integer> runs = new ArrayList<>();
+                for (Integer run : item.runs == null ? List.<Integer>of() : item.runs) {
+                    int at = run == null ? -1 : moved.applyAsInt(run);
+                    if (at >= 0) {
+                        runs.add(at);
+                    }
+                }
+                if (item.box >= 0 || !runs.isEmpty()) {
+                    items.add(new OverlayInfo.Box.Item(runs, item.box >= 0 ? item.box : -1));
+                }
+            }
+            out.add(new OverlayInfo.Box(box.x, box.pivot, box.row, box.gap, box.pad, box.min, box.align,
+                    moved.applyAsInt(box.background), items));
+        }
+        return List.copyOf(out);
     }
 
     private static List<OverlayInfo.OverlayRun> runs(List<Run> raw) {
@@ -2017,9 +2096,7 @@ public final class StudioContent {
         }
         List<OverlayInfo.OverlayRun> out = new ArrayList<>();
         for (Run run : raw) {
-            // A bar carries no text of its own — the engine assembles it — so
-            // "nothing to draw" cannot be decided by looking at the string here.
-            if (run == null || ((run.text == null || run.text.isEmpty()) && run.bar == null)) {
+            if (!kept(run)) {
                 continue;
             }
             List<OverlayInfo.OverlayRun.State> states = new ArrayList<>();
