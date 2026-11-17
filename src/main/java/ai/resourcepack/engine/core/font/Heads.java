@@ -15,20 +15,36 @@ import com.google.gson.JsonParser;
  * it is a string like any other: placeholders put it in place, and {@link TextWidth} measures it
  * as the eight pixels the game moves the cursor by.
  *
- * <p>The token is {@link #OPEN}, the face's profile as JSON, {@link #SPLIT}, the colour, and
- * {@link #CLOSE}: Unicode's interlinear annotation characters, which nobody types and no font
- * draws. Where an overlay is not sent as JSON (Spigot, with no Adventure) there is no way to draw
- * a face, and the token becomes a space as wide, so nothing after it moves.
+ * <p>The token is {@link #OPEN}, {@link #KEY}, the face's profile as JSON, {@link #SPLIT}, the
+ * colour, and {@link #CLOSE}: Unicode's interlinear annotation characters, which no font draws.
+ * They are not private-use characters, so a plugin that strips those from a player's text lets
+ * them through; {@link #KEY} is what stops a player typing a face of their own into a value. It is
+ * random for each start of the server and never leaves it (a token is a face or a space by the
+ * time anything is sent), so text that did not come from {@link #token} is never read as one and
+ * stays the characters it is. Where an overlay is not sent as JSON (Spigot, with no Adventure)
+ * there is no way to draw a face, and the token becomes a space as wide, so nothing after it moves.
  */
 public final class Heads {
     static final char OPEN = '\uFFF9';
     static final char SPLIT = '\uFFFA';
     static final char CLOSE = '\uFFFB';
 
+    /** Proof a token was made by {@link #token}: random per server start, see the class comment. */
+    static final String KEY = newKey();
+
     /** How far a face moves the cursor: the game's own glyph for one is eight wide, with no gap. */
     static final int WIDTH = 8;
 
     private Heads() {
+    }
+
+    private static String newKey() {
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder key = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            key.append((char) ('a' + random.nextInt(26)));
+        }
+        return key.toString();
     }
 
     /**
@@ -56,7 +72,12 @@ public final class Heads {
         if (color == null || !color.matches("#[0-9a-fA-F]{6}")) {
             throw new IllegalArgumentException("not a colour: " + color);
         }
-        return OPEN + profile.toString() + SPLIT + color.toLowerCase(java.util.Locale.ROOT) + CLOSE;
+        String json = profile.toString();
+        if (json.indexOf(OPEN) >= 0 || json.indexOf(SPLIT) >= 0 || json.indexOf(CLOSE) >= 0) {
+            // It would end the token early, and what followed would be read as text.
+            throw new IllegalArgumentException("not a profile: " + player);
+        }
+        return OPEN + KEY + json + SPLIT + color.toLowerCase(java.util.Locale.ROOT) + CLOSE;
     }
 
     /** Whether {@code text} holds a face. */
@@ -64,10 +85,16 @@ public final class Heads {
         return text != null && text.indexOf(OPEN) >= 0;
     }
 
-    /** Where the face starting at {@code open} ends, or -1 when it is not a whole token. */
+    /**
+     * Where the face starting at {@code open} ends, or -1 when it is not a whole token made by
+     * {@link #token} (one without {@link #KEY} is somebody's text, and stays text).
+     */
     static int end(String text, int open) {
+        if (!text.startsWith(KEY, open + 1)) {
+            return -1;
+        }
         int close = text.indexOf(CLOSE, open);
-        return close > 0 && text.lastIndexOf(SPLIT, close) > open ? close : -1;
+        return close > 0 && text.lastIndexOf(SPLIT, close) > open + KEY.length() ? close : -1;
     }
 
     /** {@code text} with each face a space as wide (the default font's), for a line that is not JSON. */
@@ -128,7 +155,7 @@ public final class Heads {
                 parts.add(plain(s.substring(at, open)));
             }
             int split = s.lastIndexOf(SPLIT, close);
-            parts.add(face(s.substring(open + 1, split), s.substring(split + 1, close)));
+            parts.add(face(s.substring(open + 1 + KEY.length(), split), s.substring(split + 1, close)));
             at = close + 1;
         }
         JsonArray extra = o.has("extra") ? o.getAsJsonArray("extra") : null;

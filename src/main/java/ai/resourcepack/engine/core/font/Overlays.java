@@ -374,9 +374,15 @@ public final class Overlays {
         if (dropsShadows(info) && adventure.actionBar(viewer, composeJson(info, filled, viewer))) {
             return;
         }
+        BaseComponent[] parts = compose(info, filled, viewer);
+        // A face (Heads) is a component Spigot's have no room for, so a line with one goes
+        // through Adventure as JSON too, where there is Adventure.
+        if (adventure != null && hasHeads(parts) && adventure.actionBar(viewer,
+                withHeads(net.md_5.bungee.chat.ComponentSerializer.toString(parts)))) {
+            return;
+        }
         // Spigot's components have no face (Heads), so a face here is a space as wide.
-        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
-                flatHeads(compose(info, filled, viewer)));
+        viewer.spigot().sendMessage(net.md_5.bungee.api.ChatMessageType.ACTION_BAR, flatHeads(parts));
     }
 
     /**
@@ -764,6 +770,16 @@ public final class Overlays {
     /** A line of JSON with its faces (Heads) made the components that draw them. */
     static String withHeads(String json) {
         return Heads.has(json) ? Heads.expand(com.google.gson.JsonParser.parseString(json)).toString() : json;
+    }
+
+    /** Whether any of these parts holds a face (Heads). */
+    static boolean hasHeads(BaseComponent[] parts) {
+        for (BaseComponent part : parts) {
+            if (part instanceof TextComponent text && Heads.has(text.getText())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Parts with each face (Heads) a space as wide, for a line that cannot carry one. */
