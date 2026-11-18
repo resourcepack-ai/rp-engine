@@ -162,6 +162,7 @@ public final class BlockDefinitions {
         }
         block = states(block, body, origin, where, diagnostics);
         block = behaviour(block, body, origin, where, diagnostics);
+        block = stateDrops(block, body, origin, where, diagnostics);
         Optional<Integer> light = body.integer("light");
         if (light.isPresent() && shape != BlockInfo.Shape.BULB && light.get() > 0) {
             if (light.get() > 15) {
@@ -591,6 +592,124 @@ public final class BlockDefinitions {
             falls = false;
         }
         return block.withBehaviour(new BlockInfo.Behaviour(strip, stripDrop, clickInto, falls, blastProof));
+    }
+
+    // ---- drops by state -------------------------------------------------
+
+    /**
+     * {@code drops:}, what breaking it gives, by the state it is in. A list is
+     * every state; a map is keyed by a state ({@code age=2}, or part of one),
+     * or for a block with {@code stages:} by a stage's number or its model's
+     * name, or {@code default} for every state. Each entry is one drop line
+     * or a list of them, in a mob's {@code drops:} grammar
+     * ({@code mypack:tomato 1to3 0.5}, {@code {item, min, max, chance}}); an
+     * empty list gives nothing. A state nothing matches gives {@code drop:}.
+     */
+    static BlockInfo stateDrops(BlockInfo block, DefinitionNode body, String origin, String where,
+                                List<Diagnostic> diagnostics) {
+        Object raw = body.raw("drops");
+        if (raw == null) {
+            return block;
+        }
+        List<BlockInfo.StateDrops> out = new ArrayList<>();
+        if (raw instanceof Map && !((Map<?, ?>) raw).containsKey("item")) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) raw).entrySet()) {
+                String key = String.valueOf(entry.getKey()).trim();
+                String state = dropState(block, body, key, origin, where, diagnostics);
+                if (state != null) {
+                    out.add(new BlockInfo.StateDrops(state,
+                            dropLines(entry.getValue(), where + ".drops." + key, origin, diagnostics)));
+                }
+            }
+        } else {
+            out.add(new BlockInfo.StateDrops("", dropLines(raw, where + ".drops", origin, diagnostics)));
+        }
+        if (body.has("drop") && out.stream().anyMatch(entry -> entry.state().isEmpty())) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "drop: is not used: drops: covers every state."));
+        }
+        return block.withStateDrops(out);
+    }
+
+    /** A {@code drops:} key as the state it stands for, or null (with a warning) when it is none of its states. */
+    private static String dropState(BlockInfo block, DefinitionNode body, String key, String origin, String where,
+                                    List<Diagnostic> diagnostics) {
+        String lowered = key.toLowerCase(Locale.ROOT);
+        if (lowered.isEmpty() || lowered.equals("default") || lowered.equals("*")) {
+            return "";
+        }
+        if (key.contains("=")) {
+            List<String> pairs = new ArrayList<>();
+            for (String pair : key.split(",")) {
+                String[] halves = pair.split("=", 2);
+                String name = halves[0].trim();
+                String value = halves.length > 1 ? halves[1].trim() : "";
+                Optional<BlockInfo.Property> property = block.properties().stream()
+                        .filter(known -> known.name().equals(name)).findFirst();
+                if (property.isEmpty() || !property.get().values().contains(value)) {
+                    diagnostics.add(Diagnostic.warning(origin, where,
+                            "drops: " + key + " is not one of its states ("
+                                    + (property.isEmpty() ? "it has no property " + name
+                                    : name + " is one of " + property.get().values())
+                                    + "), so those drops were skipped."));
+                    return null;
+                }
+                pairs.add(name + "=" + value);
+            }
+            return String.join(",", pairs);
+        }
+        // A stage, by its number or by the model it wears.
+        Object stagesRaw = body.raw("stages");
+        List<?> stages = stagesRaw instanceof List ? (List<?>) stagesRaw : List.of();
+        String stageProperty = block.growth().map(BlockInfo.Growth::property).orElse("age");
+        boolean staged = block.properties().stream().anyMatch(known -> known.name().equals("age"));
+        if (staged && !stages.isEmpty()) {
+            for (int i = 0; i < stages.size(); i++) {
+                Object stage = stages.get(i);
+                Object model = stage instanceof Map ? ((Map<?, ?>) stage).get("model") : stage;
+                if (model != null && String.valueOf(model).trim().equals(key)) {
+                    return "age=" + i;
+                }
+            }
+        }
+        Optional<BlockInfo.Property> stepping = block.properties().stream()
+                .filter(known -> known.name().equals(staged ? "age" : stageProperty)).findFirst();
+        if (stepping.isPresent() && stepping.get().values().contains(key)) {
+            return stepping.get().name() + "=" + key;
+        }
+        diagnostics.add(Diagnostic.warning(origin, where,
+                "drops: " + key + " is not one of its states. Write a state like age=2"
+                        + (stages.isEmpty() ? "" : ", a stage's number (0 to " + (stages.size() - 1)
+                        + ") or a stage's model name") + ", so those drops were skipped."));
+        return null;
+    }
+
+    /** One drop line or a list of them, as items. */
+    private static List<ai.resourcepack.engine.api.EntityDrop> dropLines(Object raw, String where, String origin,
+                                                                         List<Diagnostic> diagnostics) {
+        List<?> entries = raw instanceof List ? (List<?>) raw : raw == null ? List.of() : List.of(raw);
+        List<ai.resourcepack.engine.api.EntityDrop> out = new ArrayList<>();
+        for (int i = 0; i < entries.size(); i++) {
+            String at = where + (entries.size() > 1 || raw instanceof List ? "[" + (i + 1) + "]" : "");
+            List<String> problems = new ArrayList<>();
+            Optional<ai.resourcepack.engine.core.entity.MobLoot.Line> line =
+                    ai.resourcepack.engine.core.entity.MobLoot.line(entries.get(i), problems);
+            for (String problem : problems) {
+                diagnostics.add(Diagnostic.warning(origin, at, problem));
+            }
+            if (line.isEmpty() || line.get().kind == ai.resourcepack.engine.core.entity.MobLoot.Kind.NOTHING) {
+                continue;
+            }
+            if (line.get().kind != ai.resourcepack.engine.core.entity.MobLoot.Kind.ITEM) {
+                diagnostics.add(Diagnostic.warning(origin, at,
+                        "A block's drops are items; " + line.get().kind.name().toLowerCase(Locale.ROOT)
+                                + " lines are a mob's, so it was skipped."));
+                continue;
+            }
+            out.add(ai.resourcepack.engine.api.EntityDrop.of(line.get().what, line.get().min, line.get().max,
+                    line.get().third));
+        }
+        return out;
     }
 
     /** A block or item id, qualified by the block's own namespace when written bare. */

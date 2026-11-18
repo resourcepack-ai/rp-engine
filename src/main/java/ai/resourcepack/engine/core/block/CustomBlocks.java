@@ -674,6 +674,7 @@ public final class CustomBlocks implements Listener {
         BlockInfo block = found.get();
         event.setDropItems(false);
         breaking.stop(event.getPlayer());
+        String state = stateOf(event.getBlock());
         int count = dropCount(event.getBlock());
         List<ItemStack> contents = emptied(block, event.getBlock());
         douse(event.getBlock());
@@ -687,7 +688,12 @@ public final class CustomBlocks implements Listener {
                 // The wrong tool breaks it and gives nothing, which is what
                 // vanilla does with stone and a shovel.
                 && BlockBreaking.isCorrectTool(block, event.getPlayer().getInventory().getItemInMainHand());
-        drop(block, event.getBlock(), gives ? count : 0, contents);
+        drop(block, state, event.getBlock(), gives ? count : 0, contents);
+    }
+
+    /** The state the block of ours here is in, read before anything takes it away. */
+    private String stateOf(Block where) {
+        return placedAt(where).map(Placed::state).orElse("");
     }
 
     /**
@@ -695,10 +701,26 @@ public final class CustomBlocks implements Listener {
      * dropped item for a shulker that gives itself back, on the ground for
      * anything else - never lost, whoever broke it with what.
      */
-    private void drop(BlockInfo block, Block where, int count, List<ItemStack> contents) {
+    private void drop(BlockInfo block, String state, Block where, int count, List<ItemStack> contents) {
         org.bukkit.Location at = where.getLocation().add(0.5, 0.5, 0.5);
         boolean kept = false;
-        if (count > 0) {
+        Optional<List<ai.resourcepack.engine.api.EntityDrop>> byState =
+                count > 0 ? machine(block).dropsIn(state) : Optional.empty();
+        if (byState.isPresent()) {
+            // A crop's drops: say what this stage gives, each line rolled once
+            // per block it was (two for a double slab).
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            for (int i = 0; i < count; i++) {
+                for (ai.resourcepack.engine.api.EntityDrop line : byState.get()) {
+                    if (line.chance() < 1 && random.nextDouble() >= line.chance()) {
+                        continue;
+                    }
+                    int amount = line.min() + (line.max() > line.min()
+                            ? random.nextInt(line.max() - line.min() + 1) : 0);
+                    dropItems(block, line.item(), amount, where, at);
+                }
+            }
+        } else if (count > 0) {
             ContentId dropped = machine(block).drop().orElse(machine(block).id());
             Optional<ItemStack> made = items.create(dropped);
             if (made.isPresent()) {
@@ -719,6 +741,42 @@ public final class CustomBlocks implements Listener {
                     where.getWorld().dropItemNaturally(at, content);
                 }
             }
+        }
+    }
+
+    /**
+     * {@code amount} of a drop line's item, in stacks: a pack's item by id, a
+     * bare name the block's own pack has, or a vanilla item. One nobody has is
+     * logged and drops nothing.
+     */
+    private void dropItems(BlockInfo block, String item, int amount, Block where, org.bukkit.Location at) {
+        if (amount <= 0) {
+            return;
+        }
+        String written = item.trim();
+        Optional<ItemStack> made = Optional.empty();
+        Optional<ContentId> id = ContentId.parse(written.contains(":") ? written
+                : block.id().namespace() + ":" + written);
+        if (id.isPresent() && !"minecraft".equals(id.get().namespace())) {
+            made = items.create(id.get());
+        }
+        if (made.isEmpty()) {
+            Material material = Material.matchMaterial(written);
+            if (material != null && material.isItem()) {
+                made = Optional.of(new ItemStack(material));
+            }
+        }
+        if (made.isEmpty()) {
+            log.warning("Block " + block.id() + " drops " + written + ", which is no item here, so nothing dropped.");
+            return;
+        }
+        int left = amount;
+        while (left > 0) {
+            ItemStack stack = made.get().clone();
+            int count = Math.min(left, stack.getMaxStackSize());
+            stack.setAmount(count);
+            where.getWorld().dropItemNaturally(at, stack);
+            left -= count;
         }
     }
 
@@ -781,12 +839,13 @@ public final class CustomBlocks implements Listener {
                 block.setType(Material.AIR, false);
                 continue;
             }
+            String state = stateOf(block);
             int count = dropCount(block);
             List<ItemStack> contents = emptied(found.get(), block);
             douse(block);
             otherHalf(block).ifPresent(half -> half.setType(Material.AIR, false));
             block.setType(Material.AIR, false);
-            drop(found.get(), block, ThreadLocalRandom.current().nextFloat() < yield ? count : 0, contents);
+            drop(found.get(), state, block, ThreadLocalRandom.current().nextFloat() < yield ? count : 0, contents);
         }
     }
 

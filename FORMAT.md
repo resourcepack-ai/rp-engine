@@ -2886,7 +2886,7 @@ ruby_ore:
   model: ruby_ore      # assets/models/ruby_ore.bbmodel
   hardness: 3.0        # stone is 1.5
   tool: pickaxe        # what has to be held for the drop
-  drop: mypack:ruby    # default: itself
+  drop: mypack:ruby    # default: itself. drops: (below) for more, or by state
   sound: minecraft:block.stone.place
 ```
 
@@ -2997,6 +2997,38 @@ tomato:
 value until the last. The engine keeps the list of blocks that can still grow in
 each chunk's own data, so nothing is lost on a restart, and only loaded chunks
 grow, as in vanilla.
+
+### Drops by stage
+
+`drop:` is one item whatever state the block is in. **`drops:`** says what each
+stage gives, so a crop broken before it is ripe gives its seed back, or
+nothing:
+
+```yaml
+tomato:
+  base: plant
+  stages: [tomato_0, tomato_1, tomato_2]
+  grow: 2m
+  drops:
+    tomato_0: mypack:tomato_seeds          # a stage by its model's name...
+    "1": mypack:tomato_seeds               # ...or by its number
+    "2":                                   # ripe
+      - mypack:tomato 1to3                 # item, amount (or a range), chance
+      - {item: mypack:tomato_seeds, min: 1, max: 2, chance: 0.5}
+```
+
+A key is a stage's number or its model's name, or any state written the way
+`appearances:` writes one (`age=2`, `facing=north,lit=true`, or just part of
+one), or `default` for every state. When several match, the most specific wins.
+A value is one drop or a list of them, written as a [mob's
+drops](#entities) are (`minecraft:wheat_seeds`, `mypack:tomato 2`,
+`mypack:tomato 1to3 0.5`, or `{item, min, max, chance}`), and `[]` gives
+nothing. A bare name is the block's own pack's item if it has one, and a vanilla
+item otherwise. A state no key matches gives `drop:`, or the block itself.
+`drops:` written as a plain list is every state.
+
+The wrong tool and creative mode still give nothing, and an explosion rolls its
+own odds first, as for any block. Since 0.2.89.
 
 ### Stairs, slabs, doors and other shapes
 
