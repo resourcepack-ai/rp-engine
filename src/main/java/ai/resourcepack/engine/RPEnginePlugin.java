@@ -409,7 +409,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * The rigs as a pack of their own, stacked on the server's bundle, or null
      * where they ride inside it. See {@link #rigsApart}.
      */
-    private BuiltPack rigPack;
+    private volatile BuiltPack rigPack;
 
     /** Says when another plugin's pack replaces a core shader one of ours does. See {@link #checkShaderClashes}. */
     private final ai.resourcepack.engine.core.pack.ShaderClashWatch shaderClashes =
@@ -432,7 +432,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      * READS a bundle's files uses (the shader clash check, the Bedrock
      * conversion): a squashed zip may be one only the game can open.
      */
-    private List<BuiltPack> builtMerged = List.of();
+    private volatile List<BuiltPack> builtMerged = List.of();
     /** pack.packsquash. */
     private final ai.resourcepack.engine.core.pack.PackSquash packSquash =
             new ai.resourcepack.engine.core.pack.PackSquash(getLogger());
@@ -515,8 +515,50 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
     private PackHost packHost;
     private PackDelivery delivery;
-    private List<BuiltPack> built = List.of();
-    private String defaultBundle = "";
+    private volatile List<BuiltPack> built = List.of();
+    private volatile String defaultBundle = "";
+    /** Bundles players already have from a pack another plugin sent them. See {@link #packs()}. */
+    private final ai.resourcepack.engine.core.serve.HeldElsewhere heldElsewhere =
+            new ai.resourcepack.engine.core.serve.HeldElsewhere();
+    private final ai.resourcepack.engine.core.serve.PacksImpl packs =
+            new ai.resourcepack.engine.core.serve.PacksImpl(new ai.resourcepack.engine.core.serve.PacksImpl.Host() {
+                @Override
+                public List<BuiltPack> sent() {
+                    List<BuiltPack> all = new ArrayList<>(built);
+                    BuiltPack rigs = rigPack;
+                    if (rigs != null) {
+                        all.add(rigs);
+                    }
+                    return List.copyOf(all);
+                }
+
+                @Override
+                public List<BuiltPack> readable() {
+                    return builtMerged;
+                }
+
+                @Override
+                public String defaultBundle() {
+                    return defaultBundle;
+                }
+
+                @Override
+                public void marksChanged(UUID id) {
+                    Player player = getServer().getPlayer(id);
+                    if (player == null || !isEnabled()) {
+                        // Still logging in: the join's own send reads the mark.
+                        return;
+                    }
+                    Tasks.on(RPEnginePlugin.this, player, () -> {
+                        if (delivery == null || !player.isOnline() || stale(player)
+                                || holdingPacks.contains(id)
+                                || !(sendOnJoin || !sessions.held(id).isEmpty())) {
+                            return;
+                        }
+                        delivery.apply(player, desiredFor(player));
+                    });
+                }
+            }, heldElsewhere);
     /** Typing icons in chat; null until enable, which is after the first load. */
     private ChatIcons chatIcons;
 
@@ -1810,6 +1852,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         getLogger().info("Rebuilt the emote rigs pack: " + plural(rigAssets.count(), "rig")
                 + (rigPack == null ? "" : " (" + rigPack.sha1().substring(0, 8) + ")")
                 + "; the server's bundle is unchanged.");
+        getServer().getPluginManager().callEvent(packs.rebuilt());
         for (Player player : getServer().getOnlinePlayers()) {
             if (resend) {
                 delivery.apply(player, desiredFor(player));
@@ -2418,6 +2461,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return items;
     }
 
+    /** The packs this server builds, and which players already have them from another plugin's pack. */
+    public ai.resourcepack.engine.api.Packs packs() {
+        return packs;
+    }
+
     /** What host.public-address says when nobody has changed it. */
     private static final String DEFAULT_PUBLIC_ADDRESS = "http://127.0.0.1:8181";
     /** How often uploaded packs are touched to keep them on the pack host: every six hours. */
@@ -2487,7 +2535,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                     if (!isEnabled() || bedrock.isBedrock(player) || proxyBridge != null) {
                         return List.of();
                     }
-                    return delivery.preJoinPlan(player, desiredFor(null));
+                    return delivery.preJoinPlan(player, heldElsewhere.without(player, desiredFor(null)));
                 }
 
                 @Override
@@ -3031,6 +3079,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 to.sendMessage("[RPEngine] " + summary + ".");
             }
 
+            // Before the send below, so a listener's Packs.markExternal is
+            // honoured by it rather than undone after it.
+            getServer().getPluginManager().callEvent(packs.rebuilt());
+
             // Everybody online is holding a pack that may no longer exist, so they
             // are re-sent before they notice. Nothing is sent to a player whose
             // stack is already right.
@@ -3182,6 +3234,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         for (BuiltPack pack : built) {
             packHost.register(pack);
         }
+        getServer().getPluginManager().callEvent(packs.rebuilt());
         if (delivery != null) {
             for (Player player : getServer().getOnlinePlayers()) {
                 if (!holdingPacks.contains(player.getUniqueId())) {
@@ -3447,7 +3500,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // may be in a different world - so a pack under test is tried against
         // the server it will actually run on.
         BuiltPack pushedPack = player == null ? null : mergedPush(studioPacks.get(player.getUniqueId()));
-        return ServerStack.of(main, rigPack, ownRig, pushedPack);
+        List<BuiltPack> stack = ServerStack.of(main, rigPack, ownRig, pushedPack);
+        // Whatever another plugin's pack already gave them (Packs.markExternal)
+        // is left out; the rest sits on top of that pack instead of ours.
+        return player == null ? stack : heldElsewhere.without(player.getUniqueId(), stack);
     }
 
     /**
@@ -3725,6 +3781,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // A client drops its packs on disconnect, so believing otherwise would
         // mean sending nothing to somebody who has nothing.
         sessions.forget(event.getPlayer().getUniqueId());
+        heldElsewhere.forget(event.getPlayer().getUniqueId());
         delivery.loads().forget(event.getPlayer().getUniqueId());
         delivery.forget(event.getPlayer().getUniqueId());
         studioPacks.remove(event.getPlayer().getUniqueId());
