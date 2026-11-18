@@ -28,6 +28,7 @@ engine.vfx();       // VFX: play one where somebody stands
 engine.transitions(); // Transitions: cover a screen, do something, uncover it
 engine.overlays();  // HUD overlays: show one, hide one, feed it values
 engine.dialogs();   // dialogs: open one, feed it values, read player settings
+engine.packs();     // the built packs as files, and players who have them from elsewhere
 engine.registry();  // everything this server holds, by id
 engine.registration(); // and how to put content of your own into it
 ```
@@ -1358,6 +1359,57 @@ it, with no reload, where an unknown bare name is a typo and its line is
 skipped. Registering a name that exists replaces it, the engine's own
 included. Names are case-insensitive.
 
+## Resource packs
+
+`engine.packs()` is the packs this server builds, as files: for a plugin that
+builds one pack out of several plugins' (a network pack, a pack manager).
+
+```java
+Packs packs = engine.packs();
+packs.all();                       // every pack players are sent, bottom first
+packs.get("main");                 // Optional<BuiltPack>: file(), sha1(), size()
+packs.readable("main");            // the same pack before PackSquash: a zip any library opens
+packs.defaultBundle();             // the bundle a join sends ("" for none)
+```
+
+`sha1()` is the hash players are told. With `pack.packsquash` on, the file they
+are sent may be one only the game can open, so merge from `readable()`; with it
+off the two are the same file. Where packs stack (1.20.3+) and the engine serves
+its own packs, `all()` ends with the emote rigs pack (`rpengine-rigs`), which is
+rebuilt whenever a new skin arrives; elsewhere the rigs are inside the bundle.
+
+`PackBuildEvent` fires each time the packs are built again: startup, a reload,
+the rigs rebaked on their own, another plugin's text shader merged in again.
+`changed()` names the bundles whose SHA-1 moved, and is empty when a reload
+built the same bytes. It fires before players online are sent the new build. A
+plugin that enables after RP Engine misses the startup one, so read `all()` in
+`onEnable`.
+
+### A player who already has the pack
+
+Once you send a player a pack with RP Engine's files merged into it, say so, and
+RP Engine stops sending its own:
+
+```java
+@EventHandler(priority = EventPriority.LOWEST)
+public void onJoin(PlayerJoinEvent event) {
+    if (myPackHolders.contains(event.getPlayer().getUniqueId())) {
+        engine.packs().markExternal(event.getPlayer().getUniqueId(), "main");
+    }
+}
+```
+
+A marked bundle is never sent to that player, and is taken off them if it
+already was. Everything else still goes on top of your pack (the emote rigs, a
+player's own rig, a Studio push), and every feature works as though RP Engine
+had sent it. Mark before RP Engine sends at join: in `AsyncPlayerPreLoginEvent`,
+or in `PlayerJoinEvent` at `LOWEST`, as above. A later mark works too, but the
+player is sent the bundle first and then has it taken off. A mark lasts until
+the player leaves; `unmarkExternal` sends them RP Engine's own again.
+Keeping your pack current is yours to do: rebuild it on `PackBuildEvent`.
+`%rpengine_holds_<bundle>%` still answers only for packs RP Engine sent. Since
+0.2.90.
+
 ## Events
 
 All cancellable unless the row says otherwise.
@@ -1367,6 +1419,7 @@ All cancellable unless the row says otherwise.
 | `ContentLoadEvent` | Content finished loading and the packs are built. **Listen to this before anything else** — a reload replaces every definition. Not cancellable |
 | `PackSendEvent` | A pack went out to a player. `pack()` is the built pack: its `uuid()` is the id Bukkit's `PlayerResourcePackStatusEvent` reports (1.20.3+), so the two can be matched. Not cancellable |
 | `RigPackBuildEvent` | The emote rigs (one per player skin) were baked again: on every content load, and on their own when a new skin arrives or a plugin calls `reloadRigs()`. `alone()` says no content was reloaded; `separate()` says the rigs are a pack of their own stacked on the bundle (1.20.3+). Not cancellable |
+| `PackBuildEvent` | The packs were built again (startup, a reload, the rigs alone, a shader re-merge) and are on disk, before players online are sent them. `packs()` is `Packs.all()`; `changed()` the bundles whose SHA-1 moved. Not cancellable |
 | `ItemUseEvent` | A custom item was right- or left-clicked. `block()` and `face()` say what was clicked, null in the air. Cancelling also cancels the vanilla use |
 | `ModelPlaceEvent` | A model is about to be put down. `stack()` is the live stack in the player's hand it is placed from, to read what the item carries; null when a plugin placed it |
 | `ModelPlacedEvent` | A model was put down and is standing. `placement()` is its handle, `stack()` the stack it came from before one was taken off: where to move what the item carries onto the placement's `data()`. Not cancellable |
