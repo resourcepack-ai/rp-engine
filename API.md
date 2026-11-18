@@ -184,6 +184,11 @@ for a shaped block (a stair, a slab, a door), whose state is the game's own
 block data. `BlockInfo.with(state, property, value)` works a state out without
 touching the world. Since 0.2.82.
 
+A block's `drops:` are on its `BlockInfo`: `info.dropsIn(blocks.stateAt(block).orElse(""))`
+is what breaking it there would roll (each an `EntityDrop`: item, min, max,
+chance), empty when its `drops:` do not cover that state and it gives `drop()`
+or itself. `stateDrops()` is every entry as written. Since 0.2.89.
+
 ## Liquids
 
 ```java

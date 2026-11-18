@@ -393,6 +393,44 @@ public final class BlockInfo {
     private ModelInfo.Station station;
     private ContentId stationScreen;
     private int light;
+    private List<StateDrops> stateDrops = List.of();
+
+    /**
+     * What breaking a block gives in some of its states: a crop that gives
+     * back its seed until it is ripe, and three tomatoes once it is.
+     *
+     * <p>{@link #state()} is written the way an {@link Appearance}'s is
+     * ({@code age=2}), may name only some of the properties, and an empty one
+     * is every state. Of those that match the state a block was broken in, the
+     * most specific wins, and the later of a tie. A state none matches gives
+     * {@link #drop()}, or the block itself.
+     *
+     * @param state the state, or part of one, these are the drops of
+     * @param drops each rolled on its own; empty gives nothing
+     */
+    public record StateDrops(String state, List<EntityDrop> drops) {
+        public StateDrops {
+            state = state == null ? "" : state.trim();
+            drops = drops == null ? List.of() : List.copyOf(drops);
+        }
+
+        /** How many of its pairs are in {@code other}, or -1 if any is not. */
+        public int matches(String other) {
+            if (state.isEmpty()) {
+                return 0;
+            }
+            java.util.Set<String> pairs = new java.util.HashSet<>(
+                    List.of((other == null ? "" : other).split(",")));
+            int count = 0;
+            for (String pair : state.split(",")) {
+                if (!pairs.contains(pair)) {
+                    return -1;
+                }
+                count++;
+            }
+            return count;
+        }
+    }
 
     /**
      * The small things a block does that vanilla blocks do: fall like sand,
@@ -478,6 +516,7 @@ public final class BlockInfo {
         to.station = station;
         to.stationScreen = stationScreen;
         to.light = light;
+        to.stateDrops = stateDrops;
         return to;
     }
 
@@ -595,6 +634,37 @@ public final class BlockInfo {
     /** What it does beyond being placed, clicked and mined. */
     public Behaviour behaviour() {
         return behaviour;
+    }
+
+    /** Engine internal; the same block with drops that depend on its state. */
+    public BlockInfo withStateDrops(List<StateDrops> drops) {
+        BlockInfo changed = copy();
+        changed.stateDrops = drops == null ? List.of() : List.copyOf(drops);
+        return changed;
+    }
+
+    /** Its {@code drops:}, in the order written; empty when it has none. */
+    public List<StateDrops> stateDrops() {
+        return stateDrops;
+    }
+
+    /**
+     * What breaking it in {@code state} gives, when its {@code drops:} say:
+     * the most specific entry that matches, the later of a tie. Empty when
+     * none matches, and then it gives {@link #drop()} or itself. A present
+     * but empty list gives nothing.
+     */
+    public Optional<List<EntityDrop>> dropsIn(String state) {
+        StateDrops best = null;
+        int bestScore = -1;
+        for (StateDrops entry : stateDrops) {
+            int score = entry.matches(state);
+            if (score >= 0 && score >= bestScore) {
+                best = entry;
+                bestScore = score;
+            }
+        }
+        return best == null ? Optional.empty() : Optional.of(best.drops());
     }
 
     /** Engine internal; the same block, growing. */
@@ -818,7 +888,11 @@ public final class BlockInfo {
         return tool.isEmpty() ? Optional.empty() : Optional.of(tool);
     }
 
-    /** What breaking it gives back, or empty for the block itself. */
+    /**
+     * What breaking it gives back, or empty for the block itself. A block
+     * whose {@link #dropsIn(String) drops:} cover the state it was broken in
+     * gives those instead.
+     */
     public Optional<ContentId> drop() {
         return Optional.ofNullable(drop);
     }
