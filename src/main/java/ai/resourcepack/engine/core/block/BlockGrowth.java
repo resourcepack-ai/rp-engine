@@ -133,6 +133,9 @@ public final class BlockGrowth implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         Block block = event.getBlockPlaced();
         Tasks.at(plugin, block.getLocation(), () -> remember(block));
     }

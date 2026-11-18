@@ -577,6 +577,9 @@ public abstract class PieceMachines<S, L extends PieceMachines.Live<S>> implemen
     /** A hopper put down beside one wakes it, since nothing else would. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         if (!PieceHoppers.isHopper(event.getBlockPlaced())) {
             return;
         }
