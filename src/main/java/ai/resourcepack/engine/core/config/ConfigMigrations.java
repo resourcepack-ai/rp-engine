@@ -69,7 +69,10 @@ public final class ConfigMigrations {
             new Migration(8, "added pack.merge, which builds other plugins' resource packs into RP Engine's",
                     ConfigMigrations::packMerge),
             new Migration(9, "added proxy.enabled, which hands players' packs to RPE Proxy on a Velocity proxy",
-                    ConfigMigrations::proxy)
+                    ConfigMigrations::proxy),
+            new Migration(10, "added models.protection-check, which asks protection plugins before a model is"
+                    + " placed or broken",
+                    ConfigMigrations::protectionCheck)
     );
 
     /** The version a fully migrated file says it is at. */
@@ -454,6 +457,32 @@ public final class ConfigMigrations {
                 "  enabled: false",
                 "");
         return (text.endsWith("\n") || text.isEmpty() ? text : text + "\n") + section;
+    }
+
+    /**
+     * 10: {@code models.protection-check}, on, first under {@code models:}.
+     * On because the old behaviour let anybody furnish or strip somebody
+     * else's claim, which is the bug this fixes.
+     */
+    static String protectionCheck(String text, YamlConfiguration parsed) {
+        if (parsed.contains("models.protection-check")) {
+            return text;
+        }
+        String block = String.join("\n",
+                "# Ask the server's protection plugins (GriefPrevention, Towny, Lands,",
+                "# WorldGuard and the like) before a player puts a model down or breaks one,",
+                "# with the block events they already listen to. Off lets anybody place and",
+                "# break models in a claim that is not theirs. Logging plugins may record the",
+                "# question as a block placed or broken. Read at startup.",
+                "protection-check: true");
+        Matcher models = Pattern.compile("(?m)^models:[ \t]*(#[^\n]*)?$").matcher(text);
+        if (!models.find()) {
+            String section = "\nmodels:\n" + indent(block, "  ") + "\n";
+            return text.endsWith("\n") || text.isEmpty() ? text + section.substring(1) : text + section;
+        }
+        String indent = childIndent(text, models.end());
+        String rest = text.startsWith("\n", models.end()) ? text.substring(models.end() + 1) : text.substring(models.end());
+        return text.substring(0, models.end()) + "\n" + indent(block, indent) + "\n" + rest;
     }
 
     /** The indentation of the first key under the section whose line ends at {@code from}. */

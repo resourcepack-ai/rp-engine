@@ -371,6 +371,9 @@ public final class CustomBlocks implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         ItemStack held = event.getItemInHand();
         Optional<BlockInfo> found = items.idOf(held).flatMap(this::info);
         if (found.isEmpty()) {
@@ -667,6 +670,9 @@ public final class CustomBlocks implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
+        if (ai.resourcepack.engine.core.hook.ProtectionCheck.isProbe(event)) {
+            return;
+        }
         Optional<BlockInfo> found = at(event.getBlock());
         if (found.isEmpty()) {
             return;
