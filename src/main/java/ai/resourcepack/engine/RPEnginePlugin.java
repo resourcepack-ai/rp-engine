@@ -1147,7 +1147,10 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 (code, payload) -> studio.onPush(code, payload),
                 (code, payload) -> studio.onGive(code, payload),
                 (code, payload) -> studio.onSkin(code, payload),
-                (code, payload) -> studio.onTell(code, payload));
+                (code, payload) -> studio.onTell(code, payload),
+                // Who holds which code, kept so a restart relinks them rather
+                // than ending everybody's sync. See SyncClient.
+                getDataFolder().toPath().resolve("sync-claims.txt"));
         Path pushOutput = getDataFolder().toPath().resolve("output");
         // The pack a previous run was pushed is still the pack this server is
         // serving, and the models standing in its world are still that pack's —
@@ -1262,10 +1265,18 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         // an announcement down a socket that is not there is nothing at all.
         // The socket reopens itself when lost, and every open re-announces
         // whoever is here, so a /reload or a reconnect leaves nobody unseen.
-        sync.whenOpen(this::announceEveryone);
+        sync.whenOpen(() -> {
+            announceEveryone();
+            relinkEveryone();
+        });
+        sync.onDropped(this::syncEnded);
         if (sync.announcesPresence() && !sync.open()) {
             getLogger().warning("Could not reach studio, so this server is not announcing presence yet; retrying.");
         }
+        // Codes a previous run held are claimed back once the socket is up,
+        // each as its player joins. Off this thread: a Studio that is down
+        // must not hold up the server's start.
+        sync.resume();
 
         startHost();
         registerCommands();
@@ -3579,6 +3590,72 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         });
     }
 
+    /**
+     * Everybody online who holds a code, claimed back down a socket that has
+     * just opened. See {@link #relinkSync}.
+     */
+    private void relinkEveryone() {
+        Tasks.global(this, () -> {
+            for (Player player : getServer().getOnlinePlayers()) {
+                relinkSync(player);
+            }
+        });
+    }
+
+    /**
+     * Picks a player's sync back up: on a socket that has just opened, and as
+     * they join.
+     *
+     * <p>A claim outlives a quit (see {@code SyncClient}), but the sync group
+     * does not: it ends when its owner leaves, which is what takes the pack
+     * back off everybody they were sharing with. So the group is started
+     * again here, owner only, and its roster told to studio. The code goes
+     * down the socket again only if this socket has not said it yet, which is
+     * after a drop or a restart; studio's pairing service then hands it back
+     * to the same player.
+     *
+     * <p>On the global region, where every other touch of the group happens
+     * ({@code /rp sync} runs there too).
+     */
+    private void relinkSync(Player player) {
+        List<String> codes = sync.codesOf(player.getName());
+        if (codes.isEmpty()) {
+            return;
+        }
+        sync.relink(player.getName(), bedrock.isBedrock(player.getUniqueId()));
+        for (String code : codes) {
+            if (!group.owner(code).isPresent()) {
+                group.claim(code, player.getName()).ifPresent(old -> {
+                    // A uuid row (a trusted server's) is not unlinkable; its
+                    // roster is emptied instead, as /rp sync does.
+                    if (ai.resourcepack.engine.core.sync.SyncCodes.isUuid(old)) {
+                        announceMembers(old);
+                    }
+                });
+            }
+            announceMembers(code);
+        }
+    }
+
+    /**
+     * Studio's pairing service says {@code code} is over for good: ended in
+     * Studio, or lost too long ago to claim back. The group goes with it, and
+     * its owner is told how to start again rather than waiting on pushes that
+     * will never come.
+     */
+    private void syncEnded(String code, String name) {
+        Tasks.global(this, () -> {
+            if (group.owner(code).filter(owner -> owner.equalsIgnoreCase(name)).isPresent()) {
+                group.stop(name);
+            }
+            Player player = getServer().getPlayerExact(name);
+            if (player != null) {
+                EngineCommand.say(player, "Your Studio sync on code " + code
+                        + " has ended. Press Sync in Studio for a new code.");
+            }
+        });
+    }
+
     /** The longest a join waits for its skin before sending the packs without it: two seconds. */
     private static final long JOIN_SKIN_WAIT_TICKS = 40L;
 
@@ -3660,6 +3737,16 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             announcePresence(joined, true);
         } else {
             sendAtJoin(joined);
+        }
+        // Their Studio sync, if they had one when they left (or before a
+        // restart): the group back, and the code relinked if the socket to
+        // Studio dropped in the meantime.
+        if (sync != null && !sync.codesOf(joined.getName()).isEmpty()) {
+            Tasks.global(this, () -> {
+                if (joined.isOnline()) {
+                    relinkSync(joined);
+                }
+            });
         }
         // JOIN-triggered overlays, a tick later. The pack is still being
         // applied at this moment — `delivery.apply` above is what starts it —
@@ -3799,7 +3886,6 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         if (distribution != null) {
             distribution.forget(event.getPlayer().getUniqueId());
         }
-        // Studio stops offering to push to somebody who is not here.
         if (sync != null) {
             // If they owned a sync it ends and everybody on it loses the pack,
             // because nobody inherits one. That is the whole reason this is a
@@ -3807,7 +3893,14 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             for (String name : group.forget(event.getPlayer().getName())) {
                 unpush(name);
             }
-            sync.forget(event.getPlayer().getName());
+            // The CLAIM stays, so the pairing is still theirs when they come
+            // back (relinkSync): a push meanwhile fails as player-offline,
+            // which is the truth. It used to be unlinked here, which ended the
+            // sync on every quit. Its roster is emptied, since the friends on
+            // it have just lost the pack.
+            for (String code : sync.codesOf(event.getPlayer().getName())) {
+                announceMembers(code);
+            }
         }
     }
 

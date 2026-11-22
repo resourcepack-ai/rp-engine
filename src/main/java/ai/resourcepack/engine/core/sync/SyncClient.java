@@ -3,10 +3,19 @@ package ai.resourcepack.engine.core.sync;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -27,6 +36,20 @@ import java.util.logging.Logger;
  * <p>One socket per server, opened on the first {@code /link} and reused for
  * every code after it. Codes are not one to one with connections.
  *
+ * <p><strong>A claim outlives the socket, the session and the server.</strong>
+ * The far end forgets which socket held a code the moment that socket goes,
+ * and a socket goes all the time: the pairing service is redeployed, something
+ * in the middle closes an idle connection, the server restarts. Each of those
+ * used to cost the player their sync, and they had to fetch a new code and
+ * type it again. Now the far end keeps a lost pairing claimable for a while by
+ * the player who held it, and this side claims it back: it reopens the socket
+ * whenever it holds a code ({@link #scheduleReconnect}), re-sends
+ * {@code LINKED} for every claimer online when it does ({@link #relink}, from
+ * the plugin's {@link #whenOpen} hook) and for a claimer as they rejoin, and
+ * keeps the claims in a file so a restart picks them up. A player quitting is
+ * not the end of their sync any more; only {@link #unlink} (a stop, or a new
+ * code replacing the old) is.
+ *
  * <p>Studio being reachable is not something the engine depends on: this is a
  * convenience for whoever is building the pack, and a server with no pairing
  * behaves exactly as it did before this class existed.
@@ -42,6 +65,31 @@ public final class SyncClient {
     /** The longest that wait grows to, doubling each failure. */
     private static final int RECONNECT_MAX_SECONDS = 300;
 
+    /**
+     * How long a claim nothing has ever arrived for is offered back after a
+     * lost socket: a day, which is also how long the far end keeps a lost
+     * pairing claimable.
+     *
+     * <p>A code becomes {@link Claim#confirmed} the first time a push, give,
+     * skin or notification arrives for it, which proves the far end issued it
+     * and linked it here. Until then it may be a typo, and the far end counts
+     * every unknown code against this server's address; offering one for ever
+     * on every reconnect and every join would spend that budget on nothing.
+     */
+    static final long UNCONFIRMED_RELINK_MS = 24L * 60 * 60 * 1000;
+
+    /** The far end's word that a code is over for good (see {@link #handle}). */
+    static final String RELINK_REFUSED = "RELINK_REFUSED";
+
+    /** A code somebody claimed here: who, whether the far end has used it, and when. */
+    record Claim(String name, boolean confirmed, long claimedAt) {
+
+        /** Whether it is worth offering back after a lost socket. */
+        boolean offered(long now) {
+            return confirmed || now - claimedAt < UNCONFIRMED_RELINK_MS;
+        }
+    }
+
     private final String url;
     private final String serverToken;
     private final Logger logger;
@@ -50,8 +98,24 @@ public final class SyncClient {
     private final BiConsumer<String, String> onSkin;
     private final BiConsumer<String, String> onTell;
 
-    /** Codes claimed on this connection, and who claimed each. */
-    private final Map<String, String> claimed = new ConcurrentHashMap<>();
+    /** Codes claimed on this server, and who claimed each. Kept in {@link #claimsFile}. */
+    private final Map<String, Claim> claimed = new ConcurrentHashMap<>();
+
+    /**
+     * Codes already said ({@code LINKED}) down the CURRENT socket. Emptied
+     * whenever a socket opens or is lost, because the far end keys a pairing
+     * to the socket that claimed it, so a new socket has said nothing yet.
+     */
+    private final Set<String> announced = ConcurrentHashMap.newKeySet();
+
+    /** Where the claims are kept between runs, or null to keep them in memory only. */
+    private final Path claimsFile;
+
+    /** Serialises writes of {@link #claimsFile}. */
+    private final Object saveLock = new Object();
+
+    /** Told a code and its claimer when the far end says it is over for good. */
+    private volatile BiConsumer<String, String> onDropped = (code, name) -> { };
 
     private volatile WebSocketClient socket;
 
@@ -99,6 +163,18 @@ public final class SyncClient {
     public SyncClient(String url, String serverToken, Logger logger,
                       BiConsumer<String, String> onApply, BiConsumer<String, String> onGive,
                       BiConsumer<String, String> onSkin, BiConsumer<String, String> onTell) {
+        this(url, serverToken, logger, onApply, onGive, onSkin, onTell, null);
+    }
+
+    /**
+     * As above, keeping the claims in {@code claimsFile} and reading back any a
+     * previous run left there.
+     */
+    public SyncClient(String url, String serverToken, Logger logger,
+                      BiConsumer<String, String> onApply, BiConsumer<String, String> onGive,
+                      BiConsumer<String, String> onSkin, BiConsumer<String, String> onTell,
+                      Path claimsFile) {
+        this.claimsFile = claimsFile;
         this.url = url;
         this.serverToken = serverToken == null ? "" : serverToken;
         this.logger = logger;
@@ -106,6 +182,7 @@ public final class SyncClient {
         this.onGive = onGive;
         this.onSkin = onSkin;
         this.onTell = onTell;
+        load();
     }
 
     /**
@@ -129,10 +206,47 @@ public final class SyncClient {
         if (connect()) {
             return true;
         }
-        if (announcesPresence()) {
+        if (wantsSocket()) {
             scheduleReconnect();
         }
         return false;
+    }
+
+    /**
+     * Opens the socket soon, off the calling thread, if any code is claimed.
+     *
+     * <p>For startup: claims a previous run left behind are only worth anything
+     * once the socket is up to relink them, and blocking the server's start
+     * for a handshake to a service that may be down is not worth it.
+     */
+    public void resume() {
+        if (connected() || !wantsSocket()) {
+            return;
+        }
+        synchronized (reconnectLock) {
+            if (stopped || reconnectScheduled) {
+                return;
+            }
+            reconnectScheduled = true;
+            try {
+                reconnects.schedule(this::retryConnect, 0, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                reconnectScheduled = false;
+            }
+        }
+    }
+
+    /** Registers what to do when the far end says a claimed code is over for good. */
+    public void onDropped(BiConsumer<String, String> hook) {
+        this.onDropped = hook == null ? (code, name) -> { } : hook;
+    }
+
+    /**
+     * Whether a socket is worth keeping open: on a trusted server always, and
+     * anywhere else while somebody here holds a code.
+     */
+    private boolean wantsSocket() {
+        return announcesPresence() || !claimed.isEmpty();
     }
 
     /**
@@ -211,7 +325,67 @@ public final class SyncClient {
 
     /** Who claimed {@code code}, or null. */
     public String claimant(String code) {
-        return claimed.get(code);
+        Claim claim = code == null ? null : claimed.get(code);
+        return claim == null ? null : claim.name();
+    }
+
+    /** Every code {@code playerName} holds here, which is one unless something went wrong. */
+    public List<String> codesOf(String playerName) {
+        List<String> codes = new ArrayList<>();
+        if (playerName == null) {
+            return codes;
+        }
+        for (Map.Entry<String, Claim> entry : claimed.entrySet()) {
+            if (entry.getValue().name().equalsIgnoreCase(playerName)) {
+                codes.add(entry.getKey());
+            }
+        }
+        return codes;
+    }
+
+    /** Whether anybody here holds a code. */
+    public boolean hasClaims() {
+        return !claimed.isEmpty();
+    }
+
+    /**
+     * Claims back, down the current socket, every code {@code playerName}
+     * holds that it has not said yet.
+     *
+     * <p>Called for everybody online when a socket opens and for a player as
+     * they join. A code already said on this socket is skipped, so a join that
+     * follows no drop sends nothing. With no socket it sends nothing either
+     * and makes sure one is on its way; that open relinks whoever is online
+     * then.
+     *
+     * <p>The far end accepts it only from the player who held the code, and
+     * only for a while after the pairing was lost; past that it answers
+     * {@code RELINK_REFUSED} and the claim is dropped ({@link #handle}).
+     *
+     * @return the codes it sent, so the caller can report their rosters again
+     *         (the far end drops a lost pairing's roster with it)
+     */
+    public List<String> relink(String playerName, boolean bedrock) {
+        List<String> sent = new ArrayList<>();
+        if (playerName == null || claimed.isEmpty()) {
+            return sent;
+        }
+        if (!connected()) {
+            scheduleReconnect();
+            return sent;
+        }
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, Claim> entry : claimed.entrySet()) {
+            Claim claim = entry.getValue();
+            if (!claim.name().equalsIgnoreCase(playerName) || !claim.offered(now)) {
+                continue;
+            }
+            if (announced.add(entry.getKey())) {
+                send("LINKED " + entry.getKey() + " " + playerName + " " + (bedrock ? "bedrock" : "java"));
+                sent.add(entry.getKey());
+            }
+        }
+        return sent;
     }
 
     /**
@@ -241,24 +415,44 @@ public final class SyncClient {
         if (!connect()) {
             return false;
         }
-        claimed.put(code, playerName);
+        // A player holds one sync, so a new code ends the one before it, at the
+        // far end too: left claimed, it would be offered back after every
+        // reconnect for a pairing nobody is looking at.
+        for (String old : codesOf(playerName)) {
+            if (!old.equals(code)) {
+                unlink(old);
+            }
+        }
+        Claim was = claimed.get(code);
+        claimed.put(code, new Claim(playerName, was != null && was.confirmed(),
+                was != null ? was.claimedAt() : System.currentTimeMillis()));
+        announced.add(code);
         send("LINKED " + code + " " + playerName + " " + (bedrock ? "bedrock" : "java"));
+        save();
         return true;
     }
 
-    /** Drops a code, telling the far end so studio stops offering to push to it. */
+    /**
+     * Drops a code, telling the far end so studio stops offering to push to it.
+     * Final at the far end: unlike a lost socket, nothing claims it back.
+     */
     public void unlink(String code) {
         if (code != null && claimed.remove(code) != null) {
+            announced.remove(code);
             send("UNLINK " + code);
+            save();
         }
     }
 
-    /** Drops every code this player claimed. Called when they quit. */
+    /**
+     * Drops every code this player claimed. For {@code /rp sync stop}, never
+     * for a quit: a player who leaves keeps their claim, a push to them in the
+     * meantime fails as {@code player-offline} (which is true), and it is
+     * relinked when they come back.
+     */
     public void forget(String playerName) {
-        for (Map.Entry<String, String> entry : claimed.entrySet()) {
-            if (entry.getValue().equals(playerName)) {
-                unlink(entry.getKey());
-            }
+        for (String code : codesOf(playerName)) {
+            unlink(code);
         }
     }
 
@@ -319,7 +513,10 @@ public final class SyncClient {
         reconnects.shutdownNow();
         WebSocketClient current = socket;
         socket = null;
+        // Memory only: the file is what the next run relinks from, so a
+        // restart is not the end of anybody's sync.
         claimed.clear();
+        announced.clear();
         if (current != null) {
             current.close();
         }
@@ -340,7 +537,8 @@ public final class SyncClient {
             return;
         }
         socket = null;
-        if (announcesPresence()) {
+        announced.clear();
+        if (wantsSocket()) {
             scheduleReconnect();
         }
     }
@@ -348,14 +546,16 @@ public final class SyncClient {
     /**
      * Arranges one reconnect attempt, if one is not already pending.
      *
-     * <p>Only a trusted server does this: an ordinary one opens lazily on the
-     * next {@code /rp sync} and a socket that closed is simply how that flow
-     * works. Failures back off from five seconds to five minutes, so a studio
-     * that is down for an hour is asked a dozen times rather than a thousand.
+     * <p>A trusted server always does, and any other server while somebody
+     * here holds a code, so their pairing is claimed back rather than lost
+     * (see the class comment). A server nobody has synced on stays lazy and
+     * opens on the first {@code /rp sync}. Failures back off from five seconds
+     * to five minutes, so a studio that is down for an hour is asked a dozen
+     * times rather than a thousand.
      */
     private void scheduleReconnect() {
         synchronized (reconnectLock) {
-            if (stopped || reconnectScheduled || !announcesPresence()) {
+            if (stopped || reconnectScheduled || !wantsSocket()) {
                 return;
             }
             reconnectScheduled = true;
@@ -413,9 +613,9 @@ public final class SyncClient {
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
                     // Ordinary. A pairing socket is idle for long stretches and
-                    // something in the middle will eventually close it; the next
-                    // /link opens a new one — or, on a trusted server, `lost`
-                    // reopens it itself, because nobody there types a code.
+                    // something in the middle will eventually close it; `lost`
+                    // reopens it while anybody here holds a code (or always, on
+                    // a trusted server), and the open relinks them.
                     logger.info("Studio pairing closed" + (reason.isEmpty() ? "." : ": " + reason));
                     lost(this);
                 }
@@ -434,6 +634,8 @@ public final class SyncClient {
                 return false;
             }
             socket = client;
+            // A new socket has claimed nothing yet, whatever the last one did.
+            announced.clear();
             synchronized (reconnectLock) {
                 reconnectDelaySeconds = RECONNECT_FIRST_SECONDS;
             }
@@ -470,6 +672,21 @@ public final class SyncClient {
         String ref = parts[1];
         String payload = parts[2];
 
+        if (type.equals(RELINK_REFUSED)) {
+            // The far end's word that this code is over for good: ended on
+            // purpose in Studio, or lost too long ago to claim back. Sent only
+            // to a socket that named the code AND its claimer, so it is not
+            // something a stranger can say about somebody else's code.
+            Claim gone = claimed.remove(ref);
+            announced.remove(ref);
+            if (gone != null) {
+                save();
+                onDropped.accept(ref, gone.name());
+            }
+            return;
+        }
+        confirm(ref);
+
         switch (type) {
             case "APPLY":
                 onApply.accept(ref, payload);
@@ -493,6 +710,81 @@ public final class SyncClient {
                 // Everything else in the protocol is addressed at studio, or is
                 // a message type this plugin has no use for. Ignored rather
                 // than logged: an unknown frame is how a protocol grows.
+        }
+    }
+
+    /**
+     * Notes that the far end has used {@code ref}, which proves it issued the
+     * code and linked it here (see {@link #UNCONFIRMED_RELINK_MS}).
+     */
+    private void confirm(String ref) {
+        Claim claim = claimed.get(ref);
+        if (claim != null && !claim.confirmed()
+                && claimed.replace(ref, claim, new Claim(claim.name(), true, claim.claimedAt()))) {
+            save();
+        }
+    }
+
+    /**
+     * Reads back the claims a previous run kept: one per line, the code, the
+     * name, 1 or 0 for confirmed and when it was claimed, tab-separated. A
+     * line that does not parse is skipped, and an unconfirmed claim past its
+     * day is dropped, since it would not be offered anyway.
+     */
+    private void load() {
+        if (claimsFile == null || !Files.isRegularFile(claimsFile)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        try {
+            for (String line : Files.readAllLines(claimsFile, StandardCharsets.UTF_8)) {
+                String[] fields = line.split("\t");
+                if (fields.length < 4 || !SyncCodes.isCode(fields[0]) || !fields[1].matches("[A-Za-z0-9_.*-]{1,32}")) {
+                    continue;
+                }
+                long claimedAt;
+                try {
+                    claimedAt = Long.parseLong(fields[3].trim());
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                Claim claim = new Claim(fields[1], fields[2].equals("1"), claimedAt);
+                if (claim.offered(now)) {
+                    claimed.put(fields[0], claim);
+                }
+            }
+        } catch (IOException e) {
+            logger.warning("Could not read the Studio sync claims in " + claimsFile + ": " + e.getMessage());
+        }
+    }
+
+    /** Writes the claims down, replacing the file whole so a crash mid-write cannot leave half of it. */
+    private void save() {
+        if (claimsFile == null || stopped) {
+            return;
+        }
+        synchronized (saveLock) {
+            StringBuilder out = new StringBuilder();
+            for (Map.Entry<String, Claim> entry : claimed.entrySet()) {
+                Claim claim = entry.getValue();
+                out.append(entry.getKey()).append('\t').append(claim.name()).append('\t')
+                        .append(claim.confirmed() ? '1' : '0').append('\t').append(claim.claimedAt()).append('\n');
+            }
+            try {
+                Path parent = claimsFile.toAbsolutePath().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                Path temp = claimsFile.resolveSibling(claimsFile.getFileName() + ".tmp");
+                Files.writeString(temp, out, StandardCharsets.UTF_8);
+                try {
+                    Files.move(temp, claimsFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(temp, claimsFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException e) {
+                logger.warning("Could not save the Studio sync claims to " + claimsFile + ": " + e.getMessage());
+            }
         }
     }
 

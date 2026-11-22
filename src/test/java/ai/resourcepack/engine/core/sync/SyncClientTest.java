@@ -8,6 +8,7 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -187,5 +188,101 @@ class SyncClientTest {
         ordinary.present(java.util.UUID.randomUUID(), "Notch", false, "-", 0L);
         ordinary.close();
         assertFalse(ordinary.connected());
+    }
+
+    // ---- Claims that outlive the socket ----
+    // The far end keeps a lost pairing claimable by the player who held it, so
+    // a claim is kept in a file and offered back after a drop or a restart.
+
+    private SyncClient withClaims(java.nio.file.Path file) {
+        return new SyncClient("wss://example.invalid/connect", "", Logger.getLogger("test"),
+                (code, payload) -> applied.add(code),
+                (code, command) -> given.add(code),
+                (code, texture) -> skinned.add(code),
+                (code, json) -> told.add(code),
+                file);
+    }
+
+    private static String claimLine(String code, String name, boolean confirmed, long claimedAt) {
+        return code + "\t" + name + "\t" + (confirmed ? "1" : "0") + "\t" + claimedAt + "\n";
+    }
+
+    @Test
+    void claimsComeBackFromTheFile(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("sync-claims.txt");
+        long now = System.currentTimeMillis();
+        java.nio.file.Files.writeString(file,
+                claimLine("48213097", "Notch", true, now - 30L * 24 * 60 * 60 * 1000)
+                        + claimLine("11112222", "Steve", false, now)
+                        // Unconfirmed and older than a day: maybe a typo, and the
+                        // far end counts every unknown code against this server.
+                        + claimLine("33334444", "Alex", false, now - SyncClient.UNCONFIRMED_RELINK_MS - 1000)
+                        + "not a line\n"
+                        + claimLine("5555", "Short", true, now));
+
+        SyncClient client = withClaims(file);
+
+        assertEquals("Notch", client.claimant("48213097"));
+        assertEquals("Steve", client.claimant("11112222"));
+        assertNull(client.claimant("33334444"));
+        assertNull(client.claimant("5555"));
+        assertEquals(List.of("48213097"), client.codesOf("notch"));
+        assertTrue(client.hasClaims());
+        client.close();
+    }
+
+    @Test
+    void closingKeepsTheFileForTheNextRun(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("sync-claims.txt");
+        java.nio.file.Files.writeString(file, claimLine("48213097", "Notch", true, System.currentTimeMillis()));
+
+        withClaims(file).close();
+
+        assertEquals("Notch", withClaims(file).claimant("48213097"));
+    }
+
+    @Test
+    void aPushConfirmsAClaim(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("sync-claims.txt");
+        long claimedAt = System.currentTimeMillis() - 1000;
+        java.nio.file.Files.writeString(file, claimLine("48213097", "Notch", false, claimedAt));
+        SyncClient client = withClaims(file);
+
+        client.handle("APPLY 48213097 https://example.com/pack.zip");
+
+        // Confirmed, so it is kept however old it gets.
+        assertEquals(claimLine("48213097", "Notch", true, claimedAt), java.nio.file.Files.readString(file));
+        client.close();
+    }
+
+    @Test
+    void aRefusedRelinkLetsGoOfTheCode(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("sync-claims.txt");
+        java.nio.file.Files.writeString(file, claimLine("48213097", "Notch", true, System.currentTimeMillis()));
+        SyncClient client = withClaims(file);
+        List<String> dropped = new ArrayList<>();
+        client.onDropped((code, name) -> dropped.add(code + "|" + name));
+
+        client.handle("RELINK_REFUSED 48213097 expired");
+        // A code this server does not hold is nothing to drop.
+        client.handle("RELINK_REFUSED 99998888 unlinked");
+
+        assertEquals(List.of("48213097|Notch"), dropped);
+        assertNull(client.claimant("48213097"));
+        assertFalse(client.hasClaims());
+        assertNull(withClaims(file).claimant("48213097"));
+        client.close();
+    }
+
+    @Test
+    void relinkingWithNoSocketSendsNothing(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path file = dir.resolve("sync-claims.txt");
+        java.nio.file.Files.writeString(file, claimLine("48213097", "Notch", true, System.currentTimeMillis()));
+        SyncClient client = withClaims(file);
+
+        // No socket: the relink waits for the reconnect it schedules, whose
+        // open relinks whoever is online then.
+        assertTrue(client.relink("Notch", false).isEmpty());
+        client.close();
     }
 }
