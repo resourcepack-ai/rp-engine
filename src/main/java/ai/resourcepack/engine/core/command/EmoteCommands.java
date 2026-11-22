@@ -59,6 +59,7 @@ public final class EmoteCommands implements Area {
         List<String> all = new ArrayList<>(Area.super.signatures());
         all.add("<accept|deny> <token>");
         all.add("<name|stop> [player...]");
+        all.add("<player> <name|stop> [--showYourself]");
         return all;
     }
 
@@ -91,8 +92,7 @@ public final class EmoteCommands implements Area {
      */
     public boolean perform(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
-            Reply.to(sender, "/emote <name|stop> [player...], as a player.");
-            return true;
+            return performFor(sender, args);
         }
         Player player = (Player) sender;
         if (args.length == 0) {
@@ -139,6 +139,62 @@ public final class EmoteCommands implements Area {
         if (emotes.showingSelf(player.getUniqueId())) {
             for (String line : SHOW_YOURSELF_WARNING) Reply.to(player, line);
         }
+        return true;
+    }
+
+    /**
+     * {@code /emote <player> <name|stop> [--showYourself]} from the console or a
+     * command block: the emote played on that player, as if they had typed it.
+     *
+     * <p>This is how Studio's Test in game plays an emote (relayed through the
+     * console, naming {@code @p}), and how a server runs one from a command
+     * block or another plugin. <b>It never takes a cast</b>: an emote with
+     * performers teleports and holds the people it names, which is only ever
+     * started by somebody asking them, so words left after the name are
+     * refused rather than taken for players. A selector is resolved against the
+     * sender's position, which inside {@code execute at} is the player's.
+     */
+    private boolean performFor(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            Reply.to(sender, "/emote <player> <name|stop> [--showYourself], from the console.");
+            return true;
+        }
+        Player target = Targets.of(sender, args[0]);
+        if (target == null) {
+            Reply.error(sender, "Nobody called " + args[0] + " is online.");
+            return true;
+        }
+        boolean showYourself = hasShowYourself(args);
+        String[] rest = withoutFlags(Arrays.copyOfRange(args, 1, args.length));
+        if (rest.length == 0) {
+            Reply.to(sender, "/emote <player> <name|stop> [--showYourself], from the console.");
+            return true;
+        }
+        org.bukkit.plugin.Plugin plugin = org.bukkit.plugin.java.JavaPlugin.getProvidingPlugin(EmoteCommands.class);
+        // On the player's own thread, which on Folia a console command is not.
+        ai.resourcepack.common.scheduler.Tasks.now(plugin, target, () -> {
+            if (rest.length == 1 && rest[0].equalsIgnoreCase("stop")) {
+                emotes.stop(target, false, EmoteEndEvent.Cause.STOPPED);
+                return;
+            }
+            EmoteInvites.Request request = invites.resolve(rest);
+            if (request != null && !request.castNames().isEmpty()) {
+                Reply.error(sender, "An emote that names other players has to be started by a player.");
+                return;
+            }
+            EmoteResult result = emotes.perform(target, List.of(rest), showYourself);
+            if (!result.started()) {
+                // Told to the player too: when Studio relays this, they are the
+                // one who pressed the button, and the console is nobody.
+                String why = refusal(result);
+                Reply.error(target, why);
+                Reply.error(sender, target.getName() + ": " + why);
+                return;
+            }
+            if (emotes.showingSelf(target.getUniqueId())) {
+                for (String line : SHOW_YOURSELF_WARNING) Reply.to(target, line);
+            }
+        });
         return true;
     }
 
