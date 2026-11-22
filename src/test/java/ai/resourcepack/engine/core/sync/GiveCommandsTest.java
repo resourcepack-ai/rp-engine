@@ -29,6 +29,9 @@ class GiveCommandsTest {
         assertTrue(allowed("/rp cast studio:slash Steve"));
         assertTrue(allowed("/rp transition studio:arena @p"));
         assertTrue(allowed("/rp armor wear studio:knight Steve"));
+        assertTrue(allowed("/rp emote @p slow_clap"));
+        assertTrue(allowed("/rp emote Steve wave-2"));
+        assertTrue(allowed("/rp emote @p strut --showYourself"));
         assertTrue(allowed("execute as Steve at @s rotated ~ 0 run summon text_display ^ ^1.5 ^3 "
                 + "{billboard:\"center\",background:0,shadow:0b,see_through:0b,view_range:4f,"
                 + "text:{text:\"\\ue900\",color:\"#0a0b0c\"},transformation:{left_rotation:[0f,0f,0f,1f],"
@@ -52,6 +55,13 @@ class GiveCommandsTest {
         assertFalse(allowed("/rp reload"));
         assertFalse(allowed("/rp push everything"));
         assertFalse(allowed("/rp armor strip studio:knight Steve"));
+        // An emote on somebody else, a cast, a flag Studio never sends, or a name with words in it.
+        assertFalse(allowed("/rp emote Alex wave"));
+        assertFalse(allowed("/rp emote @p duet Alex"));
+        assertFalse(allowed("/rp emote @p wave --force"));
+        assertFalse(allowed("/rp emote @p stop"));
+        assertFalse(allowed("/rp emote @p"));
+        assertFalse(allowed("/rp emote @p studio:wave"));
         assertFalse(allowed("/item replace block 0 0 0 container.0 with diamond"));
         assertFalse(allowed(""));
         assertFalse(allowed("give Steve diamond\nop Steve"));

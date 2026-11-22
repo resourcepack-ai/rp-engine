@@ -56,6 +56,9 @@ public final class GiveCommands {
     /** A content id the way Studio writes one: {@code studio:<slug>}, a page suffix allowed. */
     private static final Pattern CONTENT_ID = Pattern.compile("^[a-z0-9_.-]+:[a-z0-9_./-]+$", Pattern.CASE_INSENSITIVE);
 
+    /** An emote's id the way Studio allocates one: a slug, never "stop". */
+    private static final Pattern EMOTE_ID = Pattern.compile("^(?!stop$)[a-z0-9_-]+$", Pattern.CASE_INSENSITIVE);
+
     /**
      * Why a relayed command may not run, or empty when it may.
      *
@@ -108,6 +111,15 @@ public final class GiveCommands {
             if (words.length != 4) return Optional.of("wrong shape for rp " + sub);
             if (!CONTENT_ID.matcher(words[2]).matches()) return Optional.of("bad content id");
             return target(words[3], player);
+        }
+        if (sub.equals("emote")) {
+            // rp emote <target> <id> [--showYourself]: an emote played on the
+            // player, by its id. Never a cast (the console form refuses one),
+            // and the id is one word, so nothing after it can name anybody.
+            boolean flag = words.length == 5 && words[4].equalsIgnoreCase("--showYourself");
+            if (words.length != 4 && !flag) return Optional.of("wrong shape for rp emote");
+            if (!EMOTE_ID.matcher(words[3]).matches()) return Optional.of("bad emote id");
+            return target(words[2], player);
         }
         if (sub.equals("armor")) {
             if (words.length != 5 || !words[2].equalsIgnoreCase("wear")) return Optional.of("only rp armor wear is allowed");
