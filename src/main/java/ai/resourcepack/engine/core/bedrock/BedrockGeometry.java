@@ -294,6 +294,14 @@ public final class BedrockGeometry {
         return "animation.rpe." + key + "." + sanitize(animation);
     }
 
+    /**
+     * The id of an animation in a Bedrock pack Studio built, which names it by
+     * the model's id rather than a key of ours.
+     */
+    public static String studioAnimationId(String modelId, String animation) {
+        return "animation.rpai." + sanitize(modelId) + "." + sanitize(animation);
+    }
+
     /** Studio's name sanitiser, which both ends of a Bedrock pack must agree on. */
     public static String sanitize(String name) {
         String cleaned = name.toLowerCase(Locale.ROOT)
