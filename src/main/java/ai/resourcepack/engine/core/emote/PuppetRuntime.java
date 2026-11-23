@@ -463,6 +463,29 @@ public final class PuppetRuntime implements Puppets {
         }
 
         @Override
+        public void glow(boolean on) {
+            for (ItemDisplay part : parts) {
+                if (part != null && part.isValid()) part.setGlowing(on);
+            }
+            if (mainHand != null) mainHand.setGlowing(on);
+            if (offHand != null) offHand.setGlowing(on);
+        }
+
+        @Override
+        public Optional<Entity> anchor() {
+            if (removed) return Optional.empty();
+            for (int i = 0; i < bones.size() && i < parts.size(); i++) {
+                if ("body".equalsIgnoreCase(bones.get(i).key) && parts.get(i) != null && parts.get(i).isValid()) {
+                    return Optional.of(parts.get(i));
+                }
+            }
+            for (ItemDisplay part : parts) {
+                if (part != null && part.isValid()) return Optional.of(part);
+            }
+            return Optional.empty();
+        }
+
+        @Override
         public void name(String name) {
             if (removed) {
                 return;

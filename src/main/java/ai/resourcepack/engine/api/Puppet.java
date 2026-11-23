@@ -65,6 +65,15 @@ public interface Puppet {
     /** Puts an item in a hand (null or air empties it). */
     void hold(boolean offHand, ItemStack item);
 
+    /** Outlines it, as the glowing effect outlines an entity. */
+    void glow(boolean on);
+
+    /**
+     * An entity that moves with it (its body), for anything that follows an
+     * entity: {@code VfxOptions.follow}, a particle trail. Empty once removed.
+     */
+    java.util.Optional<org.bukkit.entity.Entity> anchor();
+
     /** A name over its head, legacy colour codes allowed; null takes it away. */
     void name(String name);
 

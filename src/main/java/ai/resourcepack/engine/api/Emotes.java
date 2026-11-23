@@ -83,6 +83,15 @@ public interface Emotes {
      */
     Optional<EmoteInfo> info(String emoteId);
 
+    /**
+     * An emote's keyframes, in the shape a puppet plays: for showing it
+     * somewhere else (an editor's preview) exactly as it plays. Empty for an
+     * unknown name or a movement set, which has no keyframes of its own.
+     *
+     * @since 0.2.92
+     */
+    Optional<PuppetAnimation> keyframes(String emoteId);
+
     /** Whether this player is in an emote right now, as lead or as cast. */
     boolean isEmoting(UUID playerId);
 

@@ -1675,10 +1675,13 @@ public final class RigAnimator implements Listener {
      */
     boolean seek(Interaction hitbox, double seconds) {
         if (hitbox == null || !hitbox.isValid() || !Double.isFinite(seconds)) return false;
-        RigStore.Rig rig = rigOf(hitbox);
-        List<ItemDisplay> displays = displaysOf(hitbox);
-        if (displays.isEmpty()) return false;
-        long now = hitbox.getWorld().getGameTime();
+        return seekParts(displaysOf(hitbox), rigOf(hitbox), seconds);
+    }
+
+    /** {@link #seek}, for the part displays of any rig: a placed one's or a bound one's. */
+    boolean seekParts(List<ItemDisplay> displays, RigStore.Rig rig, double seconds) {
+        if (displays == null || displays.isEmpty() || rig == null || !Double.isFinite(seconds)) return false;
+        long now = displays.get(0).getWorld().getGameTime();
         boolean moved = false;
         for (ItemDisplay display : displays) {
             PersistentDataContainer pdc = display.getPersistentDataContainer();

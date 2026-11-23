@@ -40,6 +40,15 @@ public final class EmotesImpl implements Emotes {
     }
 
     @Override
+    public Optional<ai.resourcepack.engine.api.PuppetAnimation> keyframes(String emoteId) {
+        if (emoteId == null) return Optional.empty();
+        EmoteStore.Emote emote = store.find(emoteId);
+        if (emote == null) return Optional.empty();
+        return Optional.of(new ai.resourcepack.engine.api.PuppetAnimation(
+                emote.animators, emote.root, emote.length, emote.loop));
+    }
+
+    @Override
     public Optional<EmoteInfo> info(String emoteId) {
         if (emoteId == null) return Optional.empty();
         // Groups first, on the same terms the director resolves a typed name:

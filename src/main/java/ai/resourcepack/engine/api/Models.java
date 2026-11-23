@@ -112,6 +112,24 @@ public interface Models {
      */
     java.util.OptionalDouble animationLength(String modelId, String animation);
 
+    /**
+     * Whether one of a model's animations loops. False for an unknown one.
+     *
+     * @since 0.2.92
+     */
+    boolean animationLoops(String modelId, String animation);
+
+    /**
+     * Moves the playhead of what a bound model is playing to {@code seconds}
+     * in, without restarting it. For keeping a model on somebody else's clock
+     * (a cutscene jumping to a marker). Like {@link #animate}, only for a model
+     * put on with {@link #bind}.
+     *
+     * @return false if it wears nothing of ours or is playing nothing
+     * @since 0.2.92
+     */
+    boolean seek(Entity host, double seconds);
+
     /** Takes the model off and gives the entity its own body back. */
     boolean unbind(Entity host);
 

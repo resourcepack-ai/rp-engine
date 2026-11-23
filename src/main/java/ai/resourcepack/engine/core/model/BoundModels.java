@@ -372,6 +372,16 @@ public final class BoundModels {
         return started;
     }
 
+    /** Moves the playhead of what it is playing; see {@code Models.seek}. */
+    public boolean seek(Entity host, double seconds) {
+        List<ItemDisplay> parts = partsOf(host);
+        if (parts.isEmpty()) {
+            return false;
+        }
+        String rigId = parts.get(0).getPersistentDataContainer().get(modelKey, PersistentDataType.STRING);
+        return animator.seekParts(parts, rigs.get(rigId), seconds);
+    }
+
     /** Stops it, back to rest or to its idle loop. */
     public boolean stop(Entity host) {
         List<ItemDisplay> parts = partsOf(host);

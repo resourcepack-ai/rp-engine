@@ -149,6 +149,9 @@ moves a host and the model it wears exactly, keeping the parts on (they ride
 it as passengers, and a plain teleport of a ridden entity is refused on some
 servers); with an invisible display as the host and a move every tick, it is a
 model you can fly along a path.
+`animationLength(model, name)` and `animationLoops(model, name)` describe a
+model's animations for a timeline, and `seek(host, seconds)` moves a bound
+model's playhead without restarting what it plays.
 
 What a pack's `place:` block said is a `ModelInfo`, read-only. Beside the
 facing, scale, seat, light and the rest, `storage()` is the container the piece
@@ -301,6 +304,11 @@ guard.look(30f, 10f);                 // head on top of the animation: right 30,
 guard.hold(false, new ItemStack(Material.IRON_SWORD));
 guard.remove();
 ```
+
+`glow(true)` outlines it; `anchor()` is an entity that moves with it, for
+`VfxOptions.follow` and the like. `engine.emotes().keyframes(name)` hands back
+any emote's keyframes in the same shape, for showing it elsewhere exactly as it
+plays.
 
 `play(PuppetAnimation, ...)` takes keyframes instead of a name, in an emote
 file's own shape (`animators` by bone, plus `root`), so a pose drawn in Studio

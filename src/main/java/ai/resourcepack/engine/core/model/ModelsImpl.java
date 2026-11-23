@@ -150,6 +150,22 @@ public final class ModelsImpl implements Models {
     }
 
     @Override
+    public boolean animationLoops(String modelId, String animation) {
+        RigStore.Rig rig = rigs.get(modelId);
+        if (rig == null || rig.animations == null || animation == null) return false;
+        for (RigStore.Animation a : rig.animations) {
+            if (a != null && animation.equalsIgnoreCase(a.name)) return RigAnimations.loops(a);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean seek(org.bukkit.entity.Entity host, double seconds) {
+        BoundModels models = bound;
+        return models != null && models.seek(host, seconds);
+    }
+
+    @Override
     public boolean unbind(org.bukkit.entity.Entity host) {
         BoundModels models = bound;
         return models != null && models.unbind(host);
