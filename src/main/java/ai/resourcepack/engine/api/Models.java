@@ -104,6 +104,14 @@ public interface Models {
      */
     boolean move(Entity host, Location to, int glideTicks);
 
+    /**
+     * How long one of a model's animations is, in seconds, for laying it out
+     * on a timeline. Empty when the model or the animation is unknown.
+     *
+     * @since 0.2.92
+     */
+    java.util.OptionalDouble animationLength(String modelId, String animation);
+
     /** Takes the model off and gives the entity its own body back. */
     boolean unbind(Entity host);
 

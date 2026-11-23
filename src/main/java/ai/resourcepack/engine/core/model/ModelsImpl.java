@@ -136,6 +136,20 @@ public final class ModelsImpl implements Models {
     }
 
     @Override
+    public java.util.OptionalDouble animationLength(String modelId, String animation) {
+        RigStore.Rig rig = rigs.get(modelId);
+        if (rig == null || rig.animations == null || animation == null) {
+            return java.util.OptionalDouble.empty();
+        }
+        for (RigStore.Animation a : rig.animations) {
+            if (a != null && animation.equalsIgnoreCase(a.name)) {
+                return java.util.OptionalDouble.of(Math.max(0, a.length));
+            }
+        }
+        return java.util.OptionalDouble.empty();
+    }
+
+    @Override
     public boolean unbind(org.bukkit.entity.Entity host) {
         BoundModels models = bound;
         return models != null && models.unbind(host);
