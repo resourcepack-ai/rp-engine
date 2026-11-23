@@ -374,7 +374,7 @@ legend_blade:
   tooltip: legendary         # or studio:legendary
 ```
 
-The id is the Tooltip's id in Studio, in the `studio` namespace that pushed
+The id is the Tooltip's id in Studio, in the `studio-engine` namespace that pushed
 content lands in (a bare id means that namespace; any other is a load warning
 and the key is ignored). The Studio pack it comes from has to be one the server
 holds: pushed to it, published to it, or exported and dropped into the content

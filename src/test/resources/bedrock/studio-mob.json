@@ -1,5 +1,5 @@
 {
-  "about": "Written by studio/scripts/gen-mob-bedrock.mjs from lib/bedrock-geometry.ts: what Studio's .mcpack holds for one pushed mob. Read by StudioMobBedrockTest.",
+  "about": "Written by studio-engine/scripts/gen-mob-bedrock.mjs from lib/bedrock-geometry.ts: what Studio's .mcpack holds for one pushed mob. Read by StudioMobBedrockTest.",
   "modelId": "golem_king",
   "slot": 7,
   "turn": 270,
