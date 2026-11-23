@@ -258,6 +258,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
      */
     private SkinCache skinCache;
     private EmoteDirector emotes;
+    private ai.resourcepack.engine.core.emote.PuppetRuntime puppets;
     private EmoteInvites invites;
     /**
      * The pack id the content folder's own rigs are stored under.
@@ -633,6 +634,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .tagline("Custom items, models, emotes and screens from a folder of YAML.")
                 .docs("https://resourcepack.ai/docs/rp-engine");
         hooks.clear();
+        // Who shows an audience-scoped spawn to its viewers; see Spawning.forAudience.
+        ai.resourcepack.engine.core.version.Spawning.owner(this);
         saveDefaultConfig();
         // Before anything reads it: a file from an older release gets the
         // settings added since, written in, so its owner can see them.
@@ -1221,6 +1224,13 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(emotes, this);
         emotes.start();
+        // Player rigs a plugin owns (a cutscene's actors): the emote store's rigs,
+        // posed without a player behind them. See Puppets.
+        puppets = new ai.resourcepack.engine.core.emote.PuppetRuntime(this, emoteStore, skinCache,
+                () -> getConfig().getBoolean("emotes.rigs", true)
+                        && compatibility.has(ai.resourcepack.engine.api.Feature.BAKED_EMOTE_RIGS),
+                this::reloadRigs);
+        puppets.start();
         getServer().getPluginManager().registerEvents(distribution, this);
         distribution.start();
         // WHO MAY BE SHOWN A PUSHED OVERLAY, AND WHICH VERSION OF IT.
@@ -2200,6 +2210,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         return models;
     }
 
+    /** Player rigs with nobody behind them, for a plugin to stand up and pose. Since 0.2.92. */
+    public ai.resourcepack.engine.api.Puppets puppets() {
+        return puppets;
+    }
+
     /** The emotes this server holds. */
     public Emotes emotes() {
         return new EmotesImpl(emotes, emoteStore);
@@ -2300,6 +2315,9 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
             // where that cannot happen here, they are put back as they next
             // join: see EmoteDirector.restoreIfStranded.)
             emotes.stop();
+        }
+        if (puppets != null) {
+            puppets.stop(worldStopped);
         }
         if (emoteStore != null) {
             emoteStore.save(getLogger());

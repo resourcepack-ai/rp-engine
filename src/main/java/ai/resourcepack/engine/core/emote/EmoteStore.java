@@ -495,6 +495,30 @@ public final class EmoteStore {
         return nativeDefault != null ? nativeDefault : byPlayer.get(DEFAULT_PLAYER);
     }
 
+    /**
+     * The rig for a skin key (a player's, or a puppet's from
+     * {@link SkinCache#pin}), else the shared default, native before pushed
+     * for the reason {@link #rigFor} gives.
+     */
+    PlayerRig rigForKey(String key) {
+        if (key != null) {
+            String k = key.toLowerCase(Locale.ROOT);
+            PlayerRig nativeOwn = nativePlayers.get(k);
+            if (nativeOwn != null) return nativeOwn;
+            PlayerRig own = byPlayer.get(k);
+            if (own != null) return own;
+        }
+        PlayerRig nativeDefault = nativePlayers.get(DEFAULT_PLAYER);
+        return nativeDefault != null ? nativeDefault : byPlayer.get(DEFAULT_PLAYER);
+    }
+
+    /** Whether a rig of its own is baked or pushed for this key. */
+    boolean hasRigFor(String key) {
+        if (key == null) return false;
+        String k = key.toLowerCase(Locale.ROOT);
+        return nativePlayers.containsKey(k) || byPlayer.containsKey(k);
+    }
+
     /** Whether any rig exists at all — pushed or baked here — see the /emote diagnostics. */
     public boolean hasAnyRig() {
         return !byPlayer.isEmpty() || !nativePlayers.isEmpty();

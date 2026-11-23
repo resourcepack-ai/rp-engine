@@ -45,7 +45,7 @@ import java.lang.reflect.Method;
  * <p>Which arm a server got is worth knowing when a rider drifts, so
  * {@link #describe()} says.
  */
-final class PassengerTeleport {
+public final class PassengerTeleport {
 
     /** {@code Entity#teleport(Location, TeleportFlag...)}, or null off Paper. */
     private final Method withFlags;
@@ -67,7 +67,7 @@ final class PassengerTeleport {
      * <p>Never throws and never returns null: a server with none of this still
      * gets an object, and it falls through to the plain teleport.
      */
-    static PassengerTeleport forServer() {
+    public static PassengerTeleport forServer() {
         try {
             Class<?> flag = Class.forName("io.papermc.paper.entity.TeleportFlag");
             Class<?> entityState = Class.forName("io.papermc.paper.entity.TeleportFlag$EntityState");
@@ -106,7 +106,7 @@ final class PassengerTeleport {
      * @return whether it arrived. False means the caller should fall back to
      *         something lossy, and means this server can do neither.
      */
-    boolean move(Entity entity, Location target) {
+    public boolean move(Entity entity, Location target) {
         if (withFlags != null && Regions.folia()) {
             try {
                 // Started, and answered later; see Regions.move.

@@ -1,6 +1,10 @@
 package ai.resourcepack.engine.api;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 import org.bukkit.entity.Entity;
@@ -64,6 +68,7 @@ public final class VfxOptions {
     private final boolean sounds;
     private final double volume;
     private final Viewers viewers;
+    private final Set<UUID> audience;
     private final String tag;
 
     private VfxOptions(Builder b) {
@@ -87,6 +92,7 @@ public final class VfxOptions {
         this.sounds = b.sounds;
         this.volume = b.volume;
         this.viewers = b.viewers;
+        this.audience = b.audience == null ? null : Set.copyOf(b.audience);
         this.tag = b.tag;
     }
 
@@ -117,6 +123,7 @@ public final class VfxOptions {
         b.sounds = sounds;
         b.volume = volume;
         b.viewers = viewers;
+        b.audience = audience == null ? null : new LinkedHashSet<>(audience);
         b.tag = tag;
         return b;
     }
@@ -222,6 +229,16 @@ public final class VfxOptions {
         return viewers;
     }
 
+    /**
+     * The exact players who see it, or null when {@link #viewers} decides.
+     * Set by {@link Builder#audience}.
+     *
+     * @since 0.2.92
+     */
+    public Set<UUID> audience() {
+        return audience;
+    }
+
     /** A name to stop it by ({@link Vfx#stop(String)}), or null. */
     public String tag() {
         return tag;
@@ -248,6 +265,7 @@ public final class VfxOptions {
         private boolean sounds = true;
         private double volume = 1;
         private Viewers viewers = Viewers.EVERYONE;
+        private Set<UUID> audience;
         private String tag;
 
         private Builder() {
@@ -390,6 +408,28 @@ public final class VfxOptions {
 
         public Builder viewers(Viewers viewers) {
             this.viewers = Objects.requireNonNull(viewers, "viewers");
+            return this;
+        }
+
+        /**
+         * Exactly these players see it and hear it, and nobody else, wherever
+         * they stand: a scene staged for some players. Overrides
+         * {@link #viewers}. Null goes back to {@link #viewers} deciding.
+         *
+         * @since 0.2.92
+         */
+        public Builder audience(Collection<? extends org.bukkit.entity.Player> players) {
+            if (players == null) {
+                this.audience = null;
+                return this;
+            }
+            Set<UUID> ids = new LinkedHashSet<>();
+            for (org.bukkit.entity.Player p : players) {
+                if (p != null) {
+                    ids.add(p.getUniqueId());
+                }
+            }
+            this.audience = ids;
             return this;
         }
 

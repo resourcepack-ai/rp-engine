@@ -303,9 +303,13 @@ public final class VfxRuntime implements Vfx {
             this.player = new VfxPlayer(entry.recipe(), options.seed());
             place(at);
             boolean everyone = entry.info().source() == VfxInfo.Source.CONTENT
-                    && options.viewers() == VfxOptions.Viewers.EVERYONE;
+                    && options.viewers() == VfxOptions.Viewers.EVERYONE
+                    && options.audience() == null;
             this.shared = everyone;
-            if (everyone) {
+            if (options.audience() != null) {
+                // A staged scene: exactly these players, near or not.
+                this.viewers = new HashSet<>(options.audience());
+            } else if (everyone) {
                 this.viewers = null;
             } else {
                 this.viewers = new HashSet<>();

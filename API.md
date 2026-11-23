@@ -142,6 +142,14 @@ it: for one of those, including the hitbox a right-click hands you, it is
 `at(entity)` and `play` on the placement, as above. `play(name, true)` starts
 the animation over even if it is already running.
 
+`bind(entity, model, scale, audience)` (0.2.92) spawns every part hidden and
+shows it only to those players, for a scene staged for some of them; hide the
+host yourself with `setVisibleByDefault(false)`. `move(host, to, glideTicks)`
+moves a host and the model it wears exactly, keeping the parts on (they ride
+it as passengers, and a plain teleport of a ridden entity is refused on some
+servers); with an invisible display as the host and a move every tick, it is a
+model you can fly along a path.
+
 What a pack's `place:` block said is a `ModelInfo`, read-only. Beside the
 facing, scale, seat, light and the rest, `storage()` is the container the piece
 is, as a `StorageSpec` (type, rows, title, sounds), or empty; `jukebox()` the
@@ -269,6 +277,37 @@ they are riding while their head is their own. Pass the direction the seat
 points, **every tick** — a vehicle turns — and `null` to hand the rig back to
 their look. It only moves a rig that arrived through your `wear`, so somebody
 who was already mid-emote when they sat down keeps it.
+
+### Puppets: a rig with nobody behind it (0.2.92)
+
+`engine.puppets()` stands up player-shaped figures that a plugin owns
+outright: a cutscene's actors, a quest-giver, a statue that waves. A puppet is
+the same rig an emote uses, posed by the same arithmetic from the same
+keyframes, but nothing moves it except you.
+
+```java
+Puppets puppets = engine.puppets();
+String skin = puppets.skin("guard", pngBytes, false).orElse(null); // kept and always baked
+puppets.bake();                       // once, after registering a batch: rebuilds the rigs pack
+
+Puppet guard = puppets.spawn(feet, PuppetOptions.builder()
+        .skin(skin)                   // or puppets.skinOf(player.getUniqueId())
+        .audience(List.of(viewer))    // only these players see it; leave out for everyone
+        .name("§eGuard")
+        .build()).orElseThrow();
+guard.play("wave", 0, 1, null, 4);    // an emote by name, from 0 s, speed 1, own loop, 4-tick blend
+guard.move(next, 2);                  // every tick for a walk: glides over 2 ticks
+guard.look(30f, 10f);                 // head on top of the animation: right 30, down 10
+guard.hold(false, new ItemStack(Material.IRON_SWORD));
+guard.remove();
+```
+
+`play(PuppetAnimation, ...)` takes keyframes instead of a name, in an emote
+file's own shape (`animators` by bone, plus `root`), so a pose drawn in Studio
+plays without being installed. **A skin is baked, so a new one waits for
+`bake()`**; until then the puppet wears the default rig, and `ready(key)` says
+which. Needs baked rigs (1.21.4+, `emotes.rigs` on): `available()`. Puppets
+draw no cape, shadow or props.
 
 ### A prop that turns because its wearer moved
 
@@ -1211,7 +1250,9 @@ vfx.stop("aura");          // by tag; vfx.stop(player) by caster
 
 `VfxOptions` holds every `/rp cast` option (loop, loopFor, loopTimes, until,
 whileTrue, stopWhen, checkEvery, end, speed, scale, turn, offset, follow, delay,
-vary, seed, sounds, volume, viewers, tag). A loop goes round the recipe's loop
+vary, seed, sounds, volume, viewers, audience, tag). `audience(players)` (0.2.92)
+shows and plays it to exactly those players wherever they stand, for a scene
+staged for some of them. A loop goes round the recipe's loop
 section when it has one, the whole effect when not; `VfxPlay.finish()` plays
 the fade, `stop()` ends now.
 

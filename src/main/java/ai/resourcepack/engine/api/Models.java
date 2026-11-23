@@ -76,6 +76,34 @@ public interface Models {
     /** As above, at a size multiplier. */
     boolean bind(Entity host, ContentId model, float scale);
 
+    /**
+     * As above, seen only by {@code audience}: every part is spawned hidden
+     * and shown to those players alone, so a scene staged for some players
+     * (a cutscene) is not seen by anybody else nearby. Null is everyone,
+     * which is the ordinary bind. Players who join later do not see it.
+     *
+     * <p>Hide the host from everyone else yourself
+     * ({@code setVisibleByDefault(false)}) if it is visible at all; an
+     * invisible display makes a good one.
+     *
+     * @since 0.2.92
+     */
+    boolean bind(Entity host, ContentId model, float scale, java.util.Collection<? extends org.bukkit.entity.Player> audience);
+
+    /**
+     * Moves a host and the model it wears, exactly, with the client gliding
+     * between the old place and the new over {@code glideTicks} (0 to 59).
+     *
+     * <p>A bound model's parts ride the host as passengers, and a plain
+     * teleport of an entity somebody rides is refused on some servers; this
+     * keeps them on. A display host also gets {@code glideTicks} as its
+     * teleport duration, which is what makes a move every tick look smooth.
+     *
+     * @return false if the host is gone or the server refused the move
+     * @since 0.2.92
+     */
+    boolean move(Entity host, Location to, int glideTicks);
+
     /** Takes the model off and gives the entity its own body back. */
     boolean unbind(Entity host);
 

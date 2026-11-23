@@ -1,15 +1,23 @@
 package ai.resourcepack.engine.core.version;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * {@code World.spawn} with a function that dresses the entity before it is
@@ -41,7 +49,94 @@ public final class Spawning {
     }
 
     public static <T extends Entity> T spawn(World world, Location where, Class<T> type, Consumer<? super T> dress) {
-        return ARM.spawn(world, where, type, dress);
+        Audience audience = AUDIENCE.get();
+        if (audience == null) {
+            return ARM.spawn(world, where, type, dress);
+        }
+        T entity = ARM.spawn(world, where, type, e -> {
+            dress.accept(e);
+            // Before it is added, so nobody outside the audience is ever sent it.
+            e.setVisibleByDefault(false);
+        });
+        audience.show(entity);
+        return entity;
+    }
+
+    // ---- an audience: who may see what is spawned -----------------------
+    //
+    // A cutscene (or anything else that stages a scene for some players) wants
+    // the engine's own content - a bound model's parts, a mob, a rig - seen by
+    // its viewers and nobody else. Every display the engine spawns comes
+    // through spawn() above, so the rule is applied HERE, once, for the length
+    // of a call, rather than taught to each of the twenty call sites. What a
+    // runtime spawns later on its own (a part respawned after a chunk reload)
+    // is outside the call and is seen by everybody; that is the stated limit.
+
+    /** Who may see what is spawned while a {@link #forAudience} call runs. */
+    private static final ThreadLocal<Audience> AUDIENCE = new ThreadLocal<>();
+
+    /** The plugin entity visibility is granted under. Set once at enable. */
+    private static volatile Plugin owner;
+
+    /** Called once at enable: visibility is per plugin, and this engine owns what it spawns. */
+    public static void owner(Plugin plugin) {
+        owner = plugin;
+    }
+
+    /** The players a scope shows its spawns to. */
+    public static final class Audience {
+        private final Set<UUID> viewers;
+
+        private Audience(Collection<? extends Player> players) {
+            this.viewers = new LinkedHashSet<>();
+            if (players != null) {
+                for (Player player : players) {
+                    if (player != null) {
+                        viewers.add(player.getUniqueId());
+                    }
+                }
+            }
+        }
+
+        void show(Entity entity) {
+            Plugin plugin = owner;
+            if (plugin == null || entity == null) {
+                return;
+            }
+            for (UUID id : viewers) {
+                Player player = Bukkit.getPlayer(id);
+                if (player != null) {
+                    player.showEntity(plugin, entity);
+                }
+            }
+        }
+    }
+
+    /**
+     * Runs {@code body} with everything it spawns hidden from everybody but
+     * {@code viewers}. Null viewers runs it unchanged: seen by everyone.
+     * Nesting replaces the outer audience for the inner call.
+     */
+    public static <R> R forAudience(Collection<? extends Player> viewers, Supplier<R> body) {
+        if (viewers == null) {
+            return body.get();
+        }
+        Audience before = AUDIENCE.get();
+        AUDIENCE.set(new Audience(viewers));
+        try {
+            return body.get();
+        } finally {
+            if (before == null) {
+                AUDIENCE.remove();
+            } else {
+                AUDIENCE.set(before);
+            }
+        }
+    }
+
+    /** Whether a {@link #forAudience} call is running on this thread. */
+    public static boolean scoped() {
+        return AUDIENCE.get() != null;
     }
 
     private interface Arm {

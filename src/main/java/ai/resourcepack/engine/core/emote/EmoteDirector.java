@@ -284,7 +284,7 @@ public final class EmoteDirector implements Listener {
      * uniform, it commutes with the yaw rotation beside it, so where it sits in
      * that one line does not matter — where it sits in the CHAIN does.
      */
-    private static final float PLAYER_SCALE = 0.9375f;
+    static final float PLAYER_SCALE = 0.9375f;
 
     /**
      * How far above the feet the rig's displays are anchored, in blocks.
@@ -300,7 +300,7 @@ public final class EmoteDirector implements Listener {
      * point here, so this number moving moves their riders too. They read it
      * rather than copy it, which is what lets it move at all.
      */
-    private static final double RIG_BASE_Y = PLAYER_SCALE;
+    static final double RIG_BASE_Y = PLAYER_SCALE;
 
     /**
      * How wide the rig's shadow is — vanilla's own for a player.
@@ -404,7 +404,7 @@ public final class EmoteDirector implements Listener {
      * vehicle's model is judged against the RIDER sitting on it, which has to
      * match {@link DisplayLatency#TRACKED_ENTITY_TICKS} instead.
      */
-    private static final int INTERPOLATION_TICKS =
+    static final int INTERPOLATION_TICKS =
             ai.resourcepack.engine.core.model.DisplayLatency.glideTicks(PERIOD_TICKS);
 
     /**
@@ -4559,7 +4559,7 @@ public final class EmoteDirector implements Listener {
         return emote.loop ? elapsed % emote.length : Math.min(elapsed, emote.length);
     }
 
-    private static ItemStack boneItem(String modelData) {
+    static ItemStack boneItem(String modelData) {
         // A rig this server baked itself reaches its model by name rather
         // than through vanilla paper's model file, which a pushed pack may
         // own. See NativeRigItems.

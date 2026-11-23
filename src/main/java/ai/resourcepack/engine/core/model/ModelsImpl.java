@@ -115,6 +115,27 @@ public final class ModelsImpl implements Models {
     }
 
     @Override
+    public boolean bind(org.bukkit.entity.Entity host, ai.resourcepack.engine.api.ContentId model, float scale,
+                        java.util.Collection<? extends org.bukkit.entity.Player> audience) {
+        return ai.resourcepack.engine.core.version.Spawning.forAudience(audience, () -> bind(host, model, scale));
+    }
+
+    /** Moves bound hosts with their parts; see {@link Models#move}. */
+    private final ai.resourcepack.engine.core.vehicle.PassengerTeleport mover =
+            ai.resourcepack.engine.core.vehicle.PassengerTeleport.forServer();
+
+    @Override
+    public boolean move(org.bukkit.entity.Entity host, Location to, int glideTicks) {
+        if (host == null || to == null || to.getWorld() == null || !host.isValid()) {
+            return false;
+        }
+        if (host instanceof org.bukkit.entity.Display display) {
+            DisplayGlide.set(display, glideTicks);
+        }
+        return mover.move(host, to);
+    }
+
+    @Override
     public boolean unbind(org.bukkit.entity.Entity host) {
         BoundModels models = bound;
         return models != null && models.unbind(host);

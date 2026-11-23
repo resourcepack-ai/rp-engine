@@ -230,6 +230,58 @@ public final class SkinCache {
         baked = Set.copyOf(keys);
     }
 
+    /** Whether the last bake covered this key. */
+    public boolean isBaked(String key) {
+        return key != null && baked.contains(key.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Keeps a skin that no player wears, for a puppet, and answers its key:
+     * the first 32 hex digits of the sheet's SHA-1, so the same picture is
+     * kept once. A {@code <key>.pin} beside it is what makes {@link #snapshot}
+     * bake it whatever {@code emotes.rig-days} and {@code rig-players} say:
+     * nobody joins as a puppet, so nothing would ever refresh its stamp.
+     *
+     * @return the key, or null for bytes that are not a PNG or a write that failed
+     */
+    public String pin(String label, byte[] png, boolean slim) {
+        if (png == null || png.length < 100 || !isPng(png)) {
+            return null;
+        }
+        byte[] drawn = SkinSheets.asDrawn(png);
+        String key;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-1").digest(drawn);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) {
+                hex.append(String.format("%02x", b));
+            }
+            key = hex.substring(0, 32);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
+        try {
+            Files.createDirectories(folder);
+            Path file = folder.resolve(key + ".png");
+            if (!Files.isRegularFile(file)) {
+                Path part = folder.resolve(key + ".png.part");
+                Files.write(part, drawn);
+                Files.move(part, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            }
+            String variant = slim ? RigGeometry.SLIM : RigGeometry.WIDE;
+            Files.writeString(folder.resolve(key + ".txt"),
+                    variant + "\npuppet\n" + (label == null ? "" : label) + "\n", StandardCharsets.UTF_8);
+            Path pin = folder.resolve(key + ".pin");
+            if (!Files.isRegularFile(pin)) {
+                Files.writeString(pin, label == null ? "" : label, StandardCharsets.UTF_8);
+            }
+            return key;
+        } catch (IOException e) {
+            log.warning("Could not keep the puppet skin " + label + ": " + e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * The skins to bake plus the default, ready to bake: the players seen in
      * the last {@code emotes.rig-days} days, newest first, at most
@@ -270,6 +322,14 @@ public final class SkinCache {
             File meta = folder.resolve(key + ".txt").toFile();
             long last = meta.isFile() ? meta.lastModified() : file.lastModified();
             if (days > 0 && now - last > days * 86_400_000L) {
+                continue;
+            }
+            if (Files.isRegularFile(folder.resolve(key + ".pin"))) {
+                // A puppet's skin: always baked, never counted against the limits.
+                RigBaker.Skin pinned = read(key, file);
+                if (pinned != null) {
+                    skins.add(pinned);
+                }
                 continue;
             }
             seen.add(new Object[]{last, key, file});
