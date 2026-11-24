@@ -255,6 +255,43 @@ class BlockShapesTest {
     }
 
     @Test
+    void aVanillaMushroomStemStaysAWholeBlock() throws IOException {
+        write("mypack/pack.yml", "name: mine\n");
+        write("mypack/blocks/blocks.yml", """
+                crate:
+                  base: mushroom_stem
+                  model: kiln
+                """);
+        write("mypack/assets/models/kiln.json", """
+                {"parent": "minecraft:block/cube_all", "textures": {"all": "block/kiln"}}
+                """);
+        LoadReport report = load();
+        BlockStates states = new BlockStates(out.resolve("state").toFile());
+        BlockInfo crate = BlockDefinitions.parse(report).blocks().get(id("mypack:crate"));
+        int number = states.numberFor(crate).orElseThrow();
+        Map<String, String> zip = read(new PackBuilder().with(new ItemAssets()).with(new BlockAssets(states))
+                .build(content, out.resolve("build"), report));
+
+        JsonObject variants = JsonParser.parseString(zip.get("assets/minecraft/blockstates/mushroom_stem.json"))
+                .getAsJsonObject().getAsJsonObject("variants");
+        assertEquals(64, variants.size());
+        assertEquals("mypack:block/crate", variants.getAsJsonObject(
+                BlockStates.identityOf(BlockInfo.Base.MUSHROOM_STEM, number)).get("model").getAsString());
+        // A placed stem, and the stem of a huge mushroom: whole cubes, not
+        // vanilla's one-faced part model, which left a hole in the world.
+        String placed = variants.getAsJsonObject("north=true,east=true,south=true,west=true,up=true,down=true")
+                .get("model").getAsString();
+        assertEquals("minecraft:block/rpengine/mushroom_stem_111111", placed);
+        JsonObject model = JsonParser.parseString(zip.get("assets/minecraft/models/block/rpengine/"
+                + "mushroom_stem_111100.json")).getAsJsonObject();
+        assertEquals("minecraft:block/cube", model.get("parent").getAsString());
+        JsonObject textures = model.getAsJsonObject("textures");
+        assertEquals("minecraft:block/mushroom_stem", textures.get("north").getAsString());
+        assertEquals("minecraft:block/mushroom_block_inside", textures.get("up").getAsString());
+        assertEquals("minecraft:block/mushroom_block_inside", textures.get("down").getAsString());
+    }
+
+    @Test
     void aPlantIsADisarmedTripwireTwoWithoutTheFreezeThirtyTwoWithIt() throws IOException {
         Map<ContentId, BlockInfo> blocks = blocks("""
                 daisy:
