@@ -3021,7 +3021,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 .with(new ai.resourcepack.engine.core.textfx.TextEffectAssets(parsedEffects.effects(), effectIndices,
                         compatibility.packFormat()))
                 .with(new ai.resourcepack.engine.core.vfx.VfxAssets(parsedVfx.effects(),
-                        compatibility.has(ai.resourcepack.engine.api.Feature.VFX)));
+                        compatibility.has(ai.resourcepack.engine.api.Feature.VFX)))
+                .with(new ai.resourcepack.engine.core.dialog.HiddenButtonAssets(parsedDialogs.hiddenButtons()));
 
         // A Studio export dropped in as a resource pack carries what its art
         // is (shader objects, screens, dialogs); read before the push

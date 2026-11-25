@@ -137,7 +137,7 @@ dependencies {
     // Dialog Engine used to copy those classes out of this tree and patch
     // their text; both now shade one versioned library. Built from source
     // beside this directory, like common (settings.gradle).
-    implementation 'ai.resourcepack:dialog-runtime:0.1.0'
+    implementation 'ai.resourcepack:dialog-runtime:0.2.0'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'

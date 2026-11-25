@@ -4102,6 +4102,18 @@ closes it. A notice with no button gets a Done that closes it. A `json:` dialog
 whose file says `"after_action": "none"` can be closed the same way with
 `close-after-click: true` beside `json:`.
 
+**Hide button** (0.2.93+): `hide-button: true` hides the button at the bottom of
+a dialog with one button or none (the hidden one then closes it, as Done
+would). **It is still there**: the game opens no dialog without one, so it is
+sent two pixels wide with no words and the pack's sprite shader throws it away.
+Esc still presses it, so does a click on those two pixels at the bottom middle,
+the empty strip it sat in stays, and a player without the pack sees a sliver.
+With two or more buttons it does nothing and is warned about; on a `json:`
+dialog it is warned about too (give the file's button an empty label and a
+width of 2). The shader goes into a bundle only when one of its dialogs asks,
+in the `rpai_dialog_v*` overlays, as Studio ships it for a dialog whose footer
+is "None".
+
 **A dialog can have a command of its own**, so players open it themselves:
 
 ```yaml

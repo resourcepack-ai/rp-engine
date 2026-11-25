@@ -1,5 +1,6 @@
 package ai.resourcepack.engine.core.dialog;
 
+import ai.resourcepack.dialogruntime.DialogHiddenButton;
 import ai.resourcepack.dialogruntime.DialogPlaceholders;
 import ai.resourcepack.dialogruntime.DialogVariables;
 import ai.resourcepack.engine.api.ContentDefinition;
@@ -50,16 +51,18 @@ public final class DialogDefinitions {
         if (loaded == null) {
             return new Result(Map.of(), List.of());
         }
+        Set<ContentId> hiddenButtons = new java.util.HashSet<>();
         for (ContentDefinition definition : loaded.definitions(ContentKind.DIALOG)) {
-            parseOne(definition, readFile, diagnostics)
+            parseOne(definition, readFile, diagnostics, hiddenButtons)
                     .ifPresent(dialog -> dialogs.put(dialog.id(), dialog));
         }
-        return new Result(Map.copyOf(dialogs), List.copyOf(diagnostics));
+        hiddenButtons.retainAll(dialogs.keySet());
+        return new Result(Map.copyOf(dialogs), List.copyOf(diagnostics), Set.copyOf(hiddenButtons));
     }
 
     private static Optional<DialogInfo> parseOne(ContentDefinition definition,
                                                  java.util.function.Function<String, String> readFile,
-                                                 List<Diagnostic> diagnostics) {
+                                                 List<Diagnostic> diagnostics, Set<ContentId> hiddenButtons) {
         DefinitionNode body = definition.body();
         String origin = definition.origin();
         String where = definition.id().path();
@@ -69,6 +72,11 @@ public final class DialogDefinitions {
         // nothing below applies to it.
         Optional<String> file = body.string("json");
         if (file.isPresent()) {
+            if (body.bool("hide-button").orElse(false)) {
+                diagnostics.add(Diagnostic.warning(origin, where,
+                        "hide-button: does nothing on a json: dialog, whose buttons are the file's. Give the button an "
+                                + "empty label and a width of " + DialogHiddenButton.WIDTH + " there instead."));
+            }
             String json = readFile == null ? null : readFile.apply(file.get());
             if (json == null || json.isBlank()) {
                 diagnostics.add(Diagnostic.error(origin, where,
@@ -85,6 +93,17 @@ public final class DialogDefinitions {
 
         List<String> lines = body.strings("body");
         List<DefinitionNode> buttons = body.nodes("buttons");
+        // The button at the bottom, there but not seen (DialogHiddenButton):
+        // the game opens no dialog without one, so it is sent two pixels wide
+        // with no words and the pack's sprite shader throws it away. Only a
+        // notice's one button: the shader knows that button by where it sits.
+        boolean hideButton = body.bool("hide-button").orElse(false);
+        if (hideButton && buttons.size() > 1) {
+            diagnostics.add(Diagnostic.warning(origin, where,
+                    "hide-button: hides a dialog's one button at the bottom, and this one has " + buttons.size()
+                            + ", so they all show. Keep one button, or none."));
+            hideButton = false;
+        }
         if (buttons.isEmpty() && !body.bool("can_close_with_escape").orElse(Boolean.TRUE)) {
             // A screen with no button and no escape is a screen nobody can
             // leave. Refused rather than warned about: the cost of being wrong
@@ -136,7 +155,20 @@ public final class DialogDefinitions {
         for (DefinitionNode button : buttons) {
             rendered.add(button(button, consoles, origin, where, diagnostics));
         }
-        if (type.equals("notice")) {
+        if (type.equals("notice") && hideButton) {
+            // The author's button with its words and width taken off, or, with
+            // none, one that does what the game's Ok would have.
+            com.google.gson.JsonObject action = null;
+            if (!rendered.isEmpty()) {
+                com.google.gson.JsonObject theirs = com.google.gson.JsonParser.parseString(rendered.get(0)).getAsJsonObject();
+                action = theirs.has("action") ? theirs.getAsJsonObject("action") : null;
+            } else if (seamless) {
+                action = com.google.gson.JsonParser.parseString(
+                        "{ \"type\": \"minecraft:run_command\", \"command\": \"rp page close\" }").getAsJsonObject();
+            }
+            json.append("  \"action\": ").append(DialogHiddenButton.button(action)).append("\n");
+            hiddenButtons.add(definition.id());
+        } else if (type.equals("notice")) {
             if (!rendered.isEmpty()) {
                 json.append("  \"action\": ").append(rendered.get(0)).append("\n");
             } else if (seamless) {
@@ -543,7 +575,15 @@ public final class DialogDefinitions {
         return out.append('"').toString();
     }
 
-    /** What a parse produced, and what went wrong doing it. */
-    public record Result(Map<ContentId, DialogInfo> dialogs, List<Diagnostic> diagnostics) {
+    /**
+     * What a parse produced, and what went wrong doing it. {@code hiddenButtons}
+     * are the dialogs written with {@code hide-button: true}, whose bundles
+     * carry the shader that hides it ({@link HiddenButtonAssets}).
+     */
+    public record Result(Map<ContentId, DialogInfo> dialogs, List<Diagnostic> diagnostics, Set<ContentId> hiddenButtons) {
+
+        public Result(Map<ContentId, DialogInfo> dialogs, List<Diagnostic> diagnostics) {
+            this(dialogs, diagnostics, Set.of());
+        }
     }
 }

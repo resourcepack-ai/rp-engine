@@ -431,4 +431,44 @@ class DialogDefinitionsTest {
         assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("console-commands")),
                 result.diagnostics().toString());
     }
+
+    @Test
+    void aHiddenButtonIsSentTwoPixelsWideWithNoWordsAndKeepsItsAction() throws IOException {
+        write("mypack/dialogs/menus.yml",
+                "intro:\n"
+                        + "  title: Hello\n"
+                        + "  hide-button: true\n"
+                        + "  buttons:\n"
+                        + "    - label: Continue\n"
+                        + "      command: spawn\n"
+                        + "plain:\n"
+                        + "  title: Hello\n"
+                        + "  hide-button: true\n");
+        DialogDefinitions.Result result = parse();
+        com.google.gson.JsonObject intro = com.google.gson.JsonParser.parseString(one(result, "mypack:intro").json()).getAsJsonObject();
+        com.google.gson.JsonObject action = intro.getAsJsonObject("action");
+        assertEquals("", action.get("label").getAsString());
+        assertEquals(ai.resourcepack.dialogruntime.DialogHiddenButton.WIDTH, action.get("width").getAsInt());
+        assertEquals("spawn", action.getAsJsonObject("action").get("command").getAsString());
+        // No button of the author's: one that closes, as the game's Ok would.
+        com.google.gson.JsonObject plain = com.google.gson.JsonParser.parseString(one(result, "mypack:plain").json()).getAsJsonObject();
+        assertEquals("rp page close", plain.getAsJsonObject("action").getAsJsonObject("action").get("command").getAsString());
+        assertEquals(java.util.Set.of(ContentId.parse("mypack:intro").orElseThrow(), ContentId.parse("mypack:plain").orElseThrow()),
+                result.hiddenButtons());
+    }
+
+    @Test
+    void hideButtonWithSeveralButtonsIsWarnedAboutAndShowsThem() throws IOException {
+        write("mypack/dialogs/menus.yml",
+                "quit:\n"
+                        + "  title: Sure?\n"
+                        + "  hide-button: true\n"
+                        + "  buttons:\n"
+                        + "    - label: Buy\n"
+                        + "    - label: Back\n");
+        DialogDefinitions.Result result = parse();
+        assertTrue(one(result, "mypack:quit").json().contains("\"label\": \"Buy\""));
+        assertTrue(result.hiddenButtons().isEmpty());
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().startsWith("hide-button:")), result.diagnostics().toString());
+    }
 }
