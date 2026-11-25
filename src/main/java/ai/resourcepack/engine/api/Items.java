@@ -98,4 +98,31 @@ public interface Items {
      *         that slot's options. Main thread only.
      */
     Optional<ItemStack> withParts(ItemStack stack, java.util.Map<String, ContentId> parts);
+
+    /**
+     * A copy of {@code stack} wearing a Studio Tooltip: any stack, not only a
+     * custom item's, so a plugin decides which stacks get which picture. Two
+     * papers with different {@code custom_model_data} can wear two Tooltips,
+     * and a paper nobody passed through here wears none.
+     *
+     * <pre>{@code
+     * ItemStack ticket = new ItemStack(Material.PAPER);
+     * // ... your own custom_model_data, persistent data and so on
+     * ticket = items.withTooltip(ticket, "golden_ticket").orElse(ticket);
+     * }</pre>
+     *
+     * The Tooltip replaces the stack's name and lore while it wears one (the
+     * picture IS its tooltip), and hides the lines the game would add.
+     * Everything else on the stack (its model, its persistent data, its
+     * enchantments) is kept.
+     *
+     * @param tooltip the Tooltip's id in Studio ({@code golden_ticket}), or that
+     *                in the namespace Studio content lands in
+     *                ({@code studio:golden_ticket})
+     * @return the new stack, or empty when the server is older than Minecraft
+     *         1.21.5, no Studio pack the server holds (pushed, published or in
+     *         {@code content/}) has that Tooltip, or the server's item parser
+     *         refused the result. Main thread only.
+     */
+    Optional<ItemStack> withTooltip(ItemStack stack, String tooltip);
 }

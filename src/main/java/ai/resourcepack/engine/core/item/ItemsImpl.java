@@ -218,6 +218,26 @@ public final class ItemsImpl implements Items {
         return Optional.of(stack);
     }
 
+    @Override
+    public Optional<ItemStack> withTooltip(ItemStack stack, String tooltip) {
+        if (stack == null || stack.getType().isAir() || tooltip == null || tooltipStacks == null) {
+            return Optional.empty();
+        }
+        String written = tooltip.trim().toLowerCase(Locale.ROOT);
+        if (written.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<ContentId> id = ContentId.parse(written.contains(":") ? written : "studio:" + written);
+        if (id.isEmpty() || !id.get().namespace().equals("studio")) {
+            return Optional.empty();
+        }
+        ItemTooltip found = tooltips.apply(id.get());
+        if (found == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(tooltipStacks.wear(stack.clone(), found, new String[1]));
+    }
+
     private static void nameAndLore(ItemMeta meta, ItemInfo item) {
         item.name().ifPresent(name -> meta.setDisplayName(colour(name)));
         if (!item.lore().isEmpty()) {

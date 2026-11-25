@@ -87,6 +87,21 @@ of that slot's options. `partsOf` always answers every slot, with the first
 option for a slot never set. `ItemInfo.parts()` lists the slots and their
 options. Only the look and the record change; name, lore and stats are yours.
 
+### Tooltips from code
+
+```java
+ItemStack ticket = new ItemStack(Material.PAPER);
+ticket = engine.items().withTooltip(ticket, "golden_ticket").orElse(ticket);
+```
+
+Puts a Studio Tooltip (`golden_ticket` or `studio:golden_ticket`) on any stack,
+not only a custom item's, so a plugin decides which stacks wear which picture:
+two papers with different `custom_model_data` can wear two Tooltips. A changed
+copy, with the Tooltip in place of the name and lore and the game's own lines
+hidden; the rest of the stack is kept. Empty below Minecraft 1.21.5, when no
+Studio pack the server holds has that Tooltip, or when the server's item
+parser refuses the result. Main thread only.
+
 ## Models
 
 ```java
