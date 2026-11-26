@@ -137,7 +137,7 @@ dependencies {
     // Dialog Engine used to copy those classes out of this tree and patch
     // their text; both now shade one versioned library. Built from source
     // beside this directory, like common (settings.gradle).
-    implementation 'ai.resourcepack:dialog-runtime:0.2.0'
+    implementation 'ai.resourcepack:dialog-runtime:0.3.0'
 
     // FastBoard (MIT), for scoreboards: a sidebar sent as packets to one
     // player, so the server's own scoreboard and its teams are left alone and
@@ -190,19 +190,22 @@ build {
 // production deploys are a different problem and do not belong in a Gradle
 // task somebody could run by accident.
 //
-// The path is overridable so this is not hardcoded to one machine:
+// Say where the server is, as a property or in the environment:
 //   ./gradlew deployToServer -PserverDir="D:/servers/test"
 //   RPENGINE_SERVER=/srv/test ./gradlew deployToServer
-def serverDir = project.findProperty('serverDir')
-        ?: System.getenv('RPENGINE_SERVER')
-        ?: '/path/to/test-server'
+def serverDir = project.findProperty('serverDir') ?: System.getenv('RPENGINE_SERVER')
 
 tasks.register('deployToServer', Copy) {
     group = 'rp-engine'
     description = 'Builds the plugin and copies it into a local test server.'
     dependsOn shadowJar
     from shadowJar.archiveFile
-    into file("${serverDir}/plugins")
+    into(serverDir ? file("${serverDir}/plugins") : layout.buildDirectory.dir('deployToServer'))
+    doFirst {
+        if (!serverDir) {
+            throw new GradleException('Where is the test server? Pass -PserverDir=<folder> or set RPENGINE_SERVER.')
+        }
+    }
     // A fixed name, so a version bump does not leave two jars in the folder
     // and a server loading both.
     rename { 'RPEngine.jar' }
