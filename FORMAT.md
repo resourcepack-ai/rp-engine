@@ -4033,15 +4033,17 @@ lines, and if you ask for one, a background of your own behind them.
 ```yaml
 # scoreboards/main.yml
 main:
-  title: "&b&lMY SERVER"
+  title: "&a&lSURVIVAL"
   lines:
-    - "&f➜ Your rank"
-    - " %rpengine_tag% &f{name}"
+    - "%rpengine_tag% &f{name}"
     - ""
-    - "&f➜ Coins  &e{coins}"
-    - " :mypack:coin: &7{online} online"
+    - "&7Balance"
+    - ":mypack:coin: &e{coins}"
     - ""
-    - { text: "&7play.example.com", align: center }   # or right
+    - "&7Players online"
+    - "&f{online}&7/{max_online}"
+    - ""
+    - { text: "&8play.example.com", align: center }   # or right
   background:                # leave it out for the game's own grey box
     color: "#10121a"
     opacity: 78              # percent
