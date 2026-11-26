@@ -92,6 +92,26 @@ class ScoreboardTest {
     }
 
     @Test
+    void aBigRadiusIsSmoothedAndGivenRoomAboveAndBelow() {
+        ScoreboardPanel panel = ScoreboardPanel.builder().lines(4).padding(5, 5, 5, 5).radius(10)
+                .fill(0xFF203040).build();
+        // Six tenths of the radius, where the padding alone would have left four and three.
+        assertEquals(6, panel.outTop());
+        assertEquals(6, panel.outBottom());
+        BufferedImage left = panel.left(null);
+        assertEquals(0, left.getRGB(0, 0) >>> 24);
+        // Along the curve a pixel is partly covered: neither clear nor solid.
+        boolean partly = false;
+        for (int x = 0; x < 10; x++) {
+            int alpha = left.getRGB(x, 1) >>> 24;
+            partly |= alpha > 0 && alpha < 255;
+        }
+        assertTrue(partly);
+        // And past the corner the edge is solid again.
+        assertEquals(0xFF203040, left.getRGB(0, 12));
+    }
+
+    @Test
     void aPanelCutFromAPictureKeepsItsCorners() {
         BufferedImage source = new BufferedImage(12, 12, BufferedImage.TYPE_INT_ARGB);
         for (int x = 0; x < 12; x++) {

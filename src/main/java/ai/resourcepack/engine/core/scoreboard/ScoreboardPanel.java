@@ -197,12 +197,27 @@ public final class ScoreboardPanel {
 
     /** How far it reaches above the game's rectangle. The rectangle is already a row above the title. */
     public int outTop() {
-        return Math.max(0, padTop - 1);
+        return Math.max(Math.max(0, padTop - 1), cornerRoom());
     }
 
     /** How far it reaches below. The last line's own row leaves two under its letters. */
     public int outBottom() {
-        return Math.max(0, padBottom - 2);
+        return Math.max(Math.max(0, padBottom - 2), cornerRoom());
+    }
+
+    /**
+     * The least a drawn panel reaches above and below the game's rectangle,
+     * whatever its padding says, so its rounded corners have somewhere to be.
+     *
+     * <p>On the right the panel ends where the game's rectangle does, so the
+     * part of a corner that is cut away shows that rectangle's square corner
+     * through it. Six tenths of the radius up, the curve has come within a
+     * twelfth of the radius of the edge, which is under a pixel for any radius
+     * allowed; with the rectangle starting no higher than that, nothing of it
+     * is left outside the curve to see.
+     */
+    private int cornerRoom() {
+        return texture != null ? 0 : (int) Math.ceil(radius * 0.6);
     }
 
     /**
@@ -363,19 +378,17 @@ public final class ScoreboardPanel {
         // How far in from the nearest side edge, and from the top or bottom.
         int fromSide = column == Column.MIDDLE ? Integer.MAX_VALUE : index;
         int fromEnd = Math.min(y, height - 1 - y);
-        boolean edge = fromEnd < borderWidth || fromSide < borderWidth;
         if (fromSide < radius && fromEnd < radius) {
-            double dx = radius - fromSide - 0.5;
-            double dy = radius - fromEnd - 0.5;
-            double distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > radius) {
-                return 0;
-            }
-            edge = distance > radius - borderWidth;
+            return corner(column, index, y, fromSide, fromEnd);
         }
-        if (edge && borderWidth > 0) {
+        if (borderWidth > 0 && (fromEnd < borderWidth || fromSide < borderWidth)) {
             return border;
         }
+        return inside(column, index, y);
+    }
+
+    /** What a pixel is inside the border: the stripe, the header's band or the fill. */
+    private int inside(Column column, int index, int y) {
         if (column == Column.LEFT && stripeWidth > 0 && index < borderWidth + stripeWidth) {
             return stripe;
         }
@@ -383,6 +396,45 @@ public final class ScoreboardPanel {
             return header;
         }
         return fill;
+    }
+
+    /** How finely a corner pixel is sampled each way to find how much of it the curve covers. */
+    private static final int SAMPLES = 4;
+
+    /**
+     * A pixel in a rounded corner, smoothed: the curve crosses a pixel at an
+     * angle, so the pixel is sampled sixteen times and drawn as much as the
+     * curve covers it. A corner cut in whole pixels reads as a staircase once
+     * the radius is more than a few pixels, which is what a GUI pixel being
+     * three or four screen pixels wide makes of it.
+     */
+    private int corner(Column column, int index, int y, int fromSide, int fromEnd) {
+        int within = inside(column, index, y);
+        double a = 0;
+        double r = 0;
+        double g = 0;
+        double b = 0;
+        for (int sx = 0; sx < SAMPLES; sx++) {
+            for (int sy = 0; sy < SAMPLES; sy++) {
+                double dx = radius - fromSide - (sx + 0.5) / SAMPLES;
+                double dy = radius - fromEnd - (sy + 0.5) / SAMPLES;
+                double distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > radius) {
+                    continue;
+                }
+                int argb = borderWidth > 0 && distance > radius - borderWidth ? border : within;
+                double alpha = (argb >>> 24) / 255.0;
+                a += alpha;
+                r += ((argb >> 16) & 0xFF) * alpha;
+                g += ((argb >> 8) & 0xFF) * alpha;
+                b += (argb & 0xFF) * alpha;
+            }
+        }
+        if (a <= 0) {
+            return 0;
+        }
+        int alpha = (int) Math.round(a / (SAMPLES * SAMPLES) * 255);
+        return (alpha << 24) | ((int) Math.round(r / a) << 16) | ((int) Math.round(g / a) << 8) | (int) Math.round(b / a);
     }
 
     /** A pixel of a panel cut from the pack's picture: corners kept, the rest stretched. */

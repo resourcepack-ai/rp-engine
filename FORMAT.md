@@ -4047,7 +4047,7 @@ main:
   background:                # leave it out for the game's own grey box
     color: "#10121a"
     opacity: 78              # percent
-    radius: 3                # rounded corners, 0 to 16
+    radius: 3                # rounded corners, 0 to 16, smoothed
     padding: 5               # room round the text; or [top, right, bottom, left]
     border: "#3b82f6"        # an outline, with border-width: and border-opacity:
     header: "#1d4ed8"        # a band of another colour behind the title
@@ -4088,6 +4088,12 @@ alphabets and for another pack's glyphs, and a line measured short leaves the
 panel that far out of place. A translucent background comes out as the colour
 you wrote for a player on default settings; one who has set Text Background to
 Everywhere sees the game's own box through it.
+
+For the game's own gray box with rounded corners and nothing else, write
+`color: "#000000"`, `opacity: 50` and a `radius`. A big radius wants more
+`padding`; the panel keeps at least six tenths of the radius clear above and
+below the text whatever the padding says, so the game's own box stays inside
+the curve.
 
 Your own picture works too. It is cut into nine, corners kept and the rest
 stretched, so one small PNG fits any size:
