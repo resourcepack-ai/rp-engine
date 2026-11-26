@@ -1046,7 +1046,7 @@ public final class Overlays {
      * <p>Built out of powers of two — see {@link FontAssets} — so any shift is
      * at most nine characters rather than one per pixel.
      */
-    static String shift(int pixels) {
+    public static String shift(int pixels) {
         if (pixels <= 0) {
             return "";
         }
@@ -1068,7 +1068,7 @@ public final class Overlays {
      * {@link #shift} back for what it overshot. Behind
      * {@link ai.resourcepack.engine.api.Overlays#space}.
      */
-    static String space(int pixels) {
+    public static String space(int pixels) {
         if (pixels <= 0) {
             return shift(-pixels);
         }

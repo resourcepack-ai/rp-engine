@@ -115,5 +115,12 @@ public enum ContentKind {
      * Read in {@code spawners/}; {@code /rp spawner create} keeps its own in
      * the plugin's data folder.
      */
-    SPAWNER
+    SPAWNER,
+
+    /**
+     * A scoreboard: the sidebar on the right of the screen, with lines of the
+     * server's own and, if it asks for one, a panel drawn behind them. Read in
+     * {@code scoreboards/}. See {@link Scoreboards}.
+     */
+    SCOREBOARD
 }

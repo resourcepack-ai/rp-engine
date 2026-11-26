@@ -45,7 +45,15 @@ public final class GlyphAllocator {
     public static final int LAST_CODEPOINT = 0xF8FF;
 
     /** Every kind that becomes a picture in the font, in allocation order. */
-    static final ContentKind[] GLYPH_KINDS = {ContentKind.SCREEN, ContentKind.HUD, ContentKind.FONT};
+    static final ContentKind[] GLYPH_KINDS = {ContentKind.SCREEN, ContentKind.HUD, ContentKind.SCOREBOARD, ContentKind.FONT};
+
+    /**
+     * How many glyphs a scoreboard takes: the pieces of the panel behind it
+     * (see {@code ScoreboardPanel}). The same for every scoreboard, with a
+     * panel or without, so like a screen's or a HUD's its number depends on
+     * nothing but which definitions exist, and it can go before the icons.
+     */
+    public static final int SCOREBOARD_GLYPHS = 10;
 
     private GlyphAllocator() {
     }
@@ -92,7 +100,8 @@ public final class GlyphAllocator {
                 sorted.put(definition.id(), definition);
             }
             for (ContentDefinition definition : sorted.values()) {
-                int wanted = kind == ContentKind.FONT ? Math.max(1, glyphs.applyAsInt(definition)) : 1;
+                int wanted = kind == ContentKind.FONT ? Math.max(1, glyphs.applyAsInt(definition))
+                        : kind == ContentKind.SCOREBOARD ? SCOREBOARD_GLYPHS : 1;
                 next = free(next, wanted, taken);
                 if (next + wanted - 1 > LAST_CODEPOINT) {
                     return Map.copyOf(allocated);
@@ -123,7 +132,7 @@ public final class GlyphAllocator {
         }
         int wanted = 0;
         for (ContentKind kind : GLYPH_KINDS) {
-            wanted += loaded.definitions(kind).size();
+            wanted += loaded.definitions(kind).size() * (kind == ContentKind.SCOREBOARD ? SCOREBOARD_GLYPHS : 1);
         }
         for (int codepoint : loaded.takenCodepoints()) {
             if (codepoint >= FIRST_CODEPOINT && codepoint <= LAST_CODEPOINT) {

@@ -4025,6 +4025,94 @@ The `offset:` is negative space, built from powers of two, so any shift is at
 most nine characters rather than one per pixel. Without it a backdrop starts
 where the title text starts, which is not where the window is.
 
+## Scoreboards
+
+A scoreboard is the sidebar on the right of the screen: a title, up to fifteen
+lines, and if you ask for one, a background of your own behind them.
+
+```yaml
+# scoreboards/main.yml
+main:
+  title: "&b&lMY SERVER"
+  lines:
+    - "&f➜ Your rank"
+    - " %rpengine_tag% &f{name}"
+    - ""
+    - "&f➜ Coins  &e{coins}"
+    - " :mypack:coin: &7{online} online"
+    - ""
+    - { text: "&7play.example.com", align: center }   # or right
+  background:                # leave it out for the game's own grey box
+    color: "#10121a"
+    opacity: 78              # percent
+    radius: 3                # rounded corners, 0 to 16
+    padding: 5               # room round the text; or [top, right, bottom, left]
+    border: "#3b82f6"        # an outline, with border-width: and border-opacity:
+    header: "#1d4ed8"        # a band of another colour behind the title
+    stripe: "#3b82f6"        # a stripe down the left edge, with stripe-width:
+  update: 20                 # ticks between fills, 1 to 1200. Default 20
+  width: 0                   # the narrowest the text may be, in pixels
+  worlds: [lobby]            # leave it out for every world
+  permission: myserver.vip   # leave it out for everybody
+  priority: 0                # the higher wins where a player could see several
+  auto: true                 # false shows it only by command or plugin
+```
+
+**A line is ordinary text.** `&` colour codes, `&#rrggbb`, the tags
+`<red>`, `<#fa4943>`, `<bold>` and `<gradient:#9055FF:#13E2DA>`, a Text
+Effect (`<fx:fire>`), an icon or rank tag as `:pack:name:`, and placeholders:
+the built-in `{name}`, `{world}`, `{online}`, `{max_online}`, `{ping}`,
+`{health}` and the rest, anything a plugin publishes with `Overlays.set`, and
+PlaceholderAPI's as `%placeholder%` when the server has it. Each player's is
+filled in for them, every `update` ticks; an animated icon moves at that rate.
+An empty line is a gap.
+
+**A player sees one scoreboard at a time**: what `/rp scoreboard show` or
+`Scoreboards.show` set for them, otherwise the highest-`priority` one that
+shows in their world and whose `permission` they hold, otherwise none.
+`/rp scoreboard auto` ends what `show` set. `/rp scoreboard toggle` hides a
+player's own, and it stays hidden across worlds and restarts until they bring
+it back.
+
+**It is sent to that player alone**, as packets, so your server's own
+scoreboard, its teams and other plugins' name tags are left as they were. Two
+plugins both drawing a sidebar still fight over the one sidebar a screen has.
+
+**The background is drawn by the pack**, so players need it loaded. It grows
+and shrinks with the text, and its right edge is the game's own, a pixel in
+from the edge of the screen. Its width comes from measuring each line: exact
+for Minecraft's own letters and for this server's icons, an estimate for other
+alphabets and for another pack's glyphs, and a line measured short leaves the
+panel that far out of place. A translucent background comes out as the colour
+you wrote for a player on default settings; one who has set Text Background to
+Everywhere sees the game's own box through it.
+
+Your own picture works too. It is cut into nine, corners kept and the rest
+stretched, so one small PNG fits any size:
+
+```yaml
+quests:
+  title: "&6&lQUESTS"
+  lines: ["&fDaily", " &7Mine 64 stone"]
+  background:
+    texture: board           # assets/textures/gui/board.png
+    slice: 5                 # how much of each edge is corner; or [top, right, bottom, left]
+    padding: 7
+```
+
+A logo is an icon in the title: give the icon a `height:` taller than a line
+and an `ascent:` that lifts it, and it stands above the panel.
+
+**Minecraft 1.20.3 and newer** for the background and for hiding the numbers.
+On an older server a scoreboard is shown in the game's own box with the red
+numbers down its right, and everything else works. A Bedrock player is sent
+the lines without the background.
+
+Each verb has its own node: `rpengine.scoreboard` (the list, and parent of the
+rest), `rpengine.scoreboard.show`, `.hide`, `.auto` and `.toggle`, and
+`rpengine.scoreboard.others` to aim one at somebody else. All op by default
+except `toggle`, which every player has.
+
 ## Dialogs
 
 A dialog is the screen a server opens on a player — 1.21.6 and newer. Unlike a

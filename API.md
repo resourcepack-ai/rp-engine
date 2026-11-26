@@ -22,6 +22,7 @@ engine.shaderObjects(); // 3D shader objects: place them and drive them
 engine.armor();     // 3D armour sets, and putting them on people
 engine.sounds();    // custom sounds
 engine.music();     // background music
+engine.scoreboards(); // scoreboards: show one, hide one
 engine.icons();     // icons, and putting one into a piece of text
 engine.textEffects(); // Text Effects, and writing a piece of text in one
 engine.vfx();       // VFX: play one where somebody stands
@@ -455,6 +456,22 @@ music.track(player);        // and the track
 start its own and `stop` it when the boss dies, and the area's music picks up
 again. `ids()` and `info()` are safe from any thread; the rest are main thread
 only. See FORMAT.md for how a piece is written and where it plays by itself.
+
+## Scoreboards
+
+```java
+Scoreboards scoreboards = engine.scoreboards();
+scoreboards.show(player, id);          // this one, wherever they are, until reset
+scoreboards.reset(player);             // back to the scoreboard of where they are
+scoreboards.setHidden(player, true);   // none at all, until shown again
+scoreboards.showing(player);           // the one they are being shown, if any
+```
+
+A scoreboard's lines print the values you publish with `Overlays.set`, as a
+HUD's do: `engine.overlays().set(player, "coins", "1,250")` fills `{coins}`
+the next time that player's scoreboard is filled in. `ids()` and `info()` are
+safe from any thread; the rest are main thread only. See FORMAT.md for how one
+is written.
 
 ## Vehicles
 

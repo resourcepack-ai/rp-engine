@@ -514,6 +514,17 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     private final ai.resourcepack.engine.api.Overlays overlayApi =
             new ai.resourcepack.engine.core.font.OverlaysImpl(overlays, overlayRuntime);
 
+    /**
+     * Scoreboards. A Bedrock player is sent the lines and no panel, which is
+     * font glyphs their client has no pictures for, and so is everybody on a
+     * server too old to put one behind the lines.
+     */
+    private final ai.resourcepack.engine.core.scoreboard.ScoreboardRuntime scoreboards =
+            new ai.resourcepack.engine.core.scoreboard.ScoreboardRuntime(this, icons, overlayRuntime,
+                    id -> bedrock.isBedrock(id),
+                    () -> compatibility == null
+                            || compatibility.has(ai.resourcepack.engine.api.Feature.SCOREBOARD_BACKGROUNDS));
+
     private PackHost packHost;
     private PackDelivery delivery;
     private volatile List<BuiltPack> built = List.of();
@@ -875,6 +886,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                         : null);
         getServer().getPluginManager().registerEvents(objectRuntime, this);
         getServer().getPluginManager().registerEvents(music, this);
+        getServer().getPluginManager().registerEvents(scoreboards, this);
         // A Studio effect's sprites are only in the packs of the players
         // holding that push, so its displays are shown to them alone: the
         // same per-player lookup a pushed screen is answered by.
@@ -1382,7 +1394,8 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 new ai.resourcepack.engine.core.command.TextEffectCommands(textEffects),
                 new ai.resourcepack.engine.core.command.VfxCommands(vfxCatalogue, vfxRuntime),
                 new ai.resourcepack.engine.core.command.TransitionCommands(transitionRuntime),
-                new ai.resourcepack.engine.core.command.MusicCommands(music));
+                new ai.resourcepack.engine.core.command.MusicCommands(music),
+                new ai.resourcepack.engine.core.command.ScoreboardCommands(scoreboards));
 
         // /emote is optional. A server that wants everything under /rp —
         // because /emote collides with something it already has, or because it
@@ -2266,6 +2279,7 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
         ai.resourcepack.engine.core.textfx.TextEffectCatalogue.uninstall();
         IconsImpl.uninstall();
         music.shutdown();
+        scoreboards.shutdown();
         if (heartbeat != null) {
             heartbeat.stop();
         }
@@ -2478,6 +2492,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
     /** Background music: playlists of the pack's sounds, by place or on request. */
     public ai.resourcepack.engine.api.Music music() {
         return music;
+    }
+
+    /** Scoreboards: the sidebar each player is shown, with the pack's own panel behind it. */
+    public ai.resourcepack.engine.api.Scoreboards scoreboards() {
+        return scoreboards;
     }
 
     /** The custom sounds this server holds. */
@@ -2919,6 +2938,11 @@ public final class RPEnginePlugin extends JavaPlugin implements Listener {
                 ai.resourcepack.engine.core.music.MusicDefinitions.parse(loaded, authoredSounds);
         report(to, "music", parsedMusic.diagnostics());
         music.replace(parsedMusic);
+
+        ai.resourcepack.engine.core.scoreboard.ScoreboardDefinitions.Result parsedScoreboards =
+                ai.resourcepack.engine.core.scoreboard.ScoreboardDefinitions.parse(loaded);
+        report(to, "scoreboards", parsedScoreboards.diagnostics());
+        scoreboards.replace(parsedScoreboards);
 
         // With the content folder, because a GIF icon's frame count is its
         // number of codepoints and only the GIF knows it. The build reads the

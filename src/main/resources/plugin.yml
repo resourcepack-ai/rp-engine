@@ -10,7 +10,7 @@ softdepend: [Geyser-Spigot, PlaceholderAPI, MythicMobs, WorldGuard, Citizens]
 commands:
   rpengine:
     description: Manage RP Engine content.
-    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|icons|say|effects|effect|vfx|cast|transitions|transition|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|run|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
+    usage: /<command> <reload|info|bundles|items|item|give|blocks|models|purge|sounds|sound|music|scoreboard|icons|say|effects|effect|vfx|cast|transitions|transition|screens|screen|hud|shaders|shader|dialogs|dialog|var|page|slot|click|run|quick|recipes|emote|emotes|entities|spawn|egg|spawner|bind|unbind|liquid|vehicles|vehicle|objects|object|armor|edit|sync|distribute|push>
     aliases: [rpe, rp]
     # No permission on the command itself. Each subcommand checks its
     # own rpengine.<name>; see permissionFor in RPEnginePlugin.
@@ -45,6 +45,11 @@ permissions:
       rpengine.music.play: true
       rpengine.music.stop: true
       rpengine.music.skip: true
+      rpengine.scoreboard: true
+      rpengine.scoreboard.show: true
+      rpengine.scoreboard.hide: true
+      rpengine.scoreboard.auto: true
+      rpengine.scoreboard.toggle: true
       rpengine.icons: true
       rpengine.say: true
       rpengine.effects: true
@@ -105,6 +110,7 @@ permissions:
       rpengine.emote.force: true
       rpengine.sound.others: true
       rpengine.music.others: true
+      rpengine.scoreboard.others: true
       rpengine.screen.others: true
       rpengine.hud.others: true
       rpengine.shader.others: true
@@ -179,6 +185,29 @@ permissions:
     default: op
   rpengine.music.others:
     description: Start, stop or skip the music for somebody else.
+    default: op
+  rpengine.scoreboard:
+    description: List the scoreboards. Every /rp scoreboard verb also has its own node.
+    default: op
+    children:
+      rpengine.scoreboard.show: true
+      rpengine.scoreboard.hide: true
+      rpengine.scoreboard.auto: true
+      rpengine.scoreboard.toggle: true
+  rpengine.scoreboard.show:
+    description: Show yourself a scoreboard of your choosing.
+    default: op
+  rpengine.scoreboard.hide:
+    description: Hide your scoreboard.
+    default: op
+  rpengine.scoreboard.auto:
+    description: Go back to the scoreboard of where you are.
+    default: op
+  rpengine.scoreboard.toggle:
+    description: Hide your own scoreboard, or bring it back.
+    default: true
+  rpengine.scoreboard.others:
+    description: Show, hide or reset the scoreboard of somebody else.
     default: op
   rpengine.icons:
     description: List the icons.

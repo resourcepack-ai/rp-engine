@@ -2,9 +2,9 @@
 
 A custom content engine for Spigot, Paper and Folia servers. Custom items, blocks,
 furniture you can place and sit on, animated model rigs, player emotes,
-sounds, chat icons, GUI screens, HUD overlays, recipes, entities and liquids —
-all defined in a folder of YAML on your own server, and all served to players
-as a resource pack the plugin builds for you.
+sounds, chat icons, GUI screens, HUD overlays, scoreboards, recipes, entities
+and liquids — all defined in a folder of YAML on your own server, and all
+served to players as a resource pack the plugin builds for you.
 
 You write the content. The engine writes the pack.
 
@@ -143,7 +143,8 @@ nothing but the pushing.
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
 
 The jar bundles [Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket)
-(MIT) and [night-config](https://github.com/TheElectronWill/night-config)
-(LGPL-3.0), both relocated so this plugin cannot break another plugin's copy.
+(MIT), [FastBoard](https://github.com/MrMicky-FR/FastBoard) (MIT) and
+[night-config](https://github.com/TheElectronWill/night-config) (LGPL-3.0),
+all relocated so this plugin cannot break another plugin's copy.
 Everything else — the Spigot API, Geyser, PlaceholderAPI, MythicMobs,
 WorldGuard, Citizens — is compile-only and comes from the server at runtime.

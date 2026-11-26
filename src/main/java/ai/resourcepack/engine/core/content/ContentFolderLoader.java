@@ -178,6 +178,8 @@ public final class ContentFolderLoader {
         map.put("droptables", ContentKind.DROP_TABLE);
         // Fixed-point mob spawners; see Spawners.
         map.put("spawners", ContentKind.SPAWNER);
+        // Scoreboards, a sidebar each; see ScoreboardDefinitions.
+        map.put("scoreboards", ContentKind.SCOREBOARD);
         return Map.copyOf(map);
     }
 

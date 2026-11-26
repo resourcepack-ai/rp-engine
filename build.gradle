@@ -8,7 +8,7 @@ plugins {
 group = 'ai.resourcepack'
 // Bump this before deploying a release: the deploy refuses to overwrite a
 // published RPEngine-<version>.jar, and the versioned key is immutable.
-version = '0.2.93'
+version = '0.2.94'
 
 java {
     toolchain {
@@ -139,6 +139,12 @@ dependencies {
     // beside this directory, like common (settings.gradle).
     implementation 'ai.resourcepack:dialog-runtime:0.2.0'
 
+    // FastBoard (MIT), for scoreboards: a sidebar sent as packets to one
+    // player, so the server's own scoreboard and its teams are left alone and
+    // Folia, where a plugin cannot make a scoreboard, works too. Shaded and
+    // relocated, as its README asks.
+    implementation 'fr.mrmicky:fastboard:2.2.2'
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.0'
     testImplementation 'org.spigotmc:spigot-api:1.21.4-R0.1-SNAPSHOT'
 }
@@ -170,6 +176,7 @@ shadowJar {
     relocate 'com.electronwill.nightconfig', 'ai.resourcepack.engine.libs.nightconfig'
     relocate 'ai.resourcepack.common', 'ai.resourcepack.engine.libs.common'
     relocate 'ai.resourcepack.dialogruntime', 'ai.resourcepack.engine.libs.dialogruntime'
+    relocate 'fr.mrmicky.fastboard', 'ai.resourcepack.engine.libs.fastboard'
     // ai.resourcepack.engine.* is deliberately NOT relocated: a third-party
     // plugin compiles against ai.resourcepack.engine.api and needs the classes
     // where its imports say they are.

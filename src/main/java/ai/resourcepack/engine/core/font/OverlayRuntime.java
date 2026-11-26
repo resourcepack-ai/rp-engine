@@ -504,7 +504,7 @@ public final class OverlayRuntime {
      * questions the server can answer about a player on its own and then hands
      * anything left to PlaceholderAPI.
      */
-    static String fill(String text, Map<String, String> values, org.bukkit.entity.Player viewer) {
+    public static String fill(String text, Map<String, String> values, org.bukkit.entity.Player viewer) {
         if (text == null || text.isEmpty()) {
             return text == null ? "" : text;
         }

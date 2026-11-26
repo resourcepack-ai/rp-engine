@@ -53,7 +53,7 @@ class PluginYmlTest {
      * to a command is a decision this test makes somebody take.
      */
     private static final Set<String> ACT_ON_OTHERS =
-            Set.of("sound", "music", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg", "transition");
+            Set.of("sound", "music", "scoreboard", "screen", "hud", "shader", "dialog", "var", "armor", "bind", "unbind", "cast", "egg", "transition");
 
     private static String pluginYml() throws IOException {
         return Files.readString(Path.of("src", "main", "resources", "plugin.yml"));
@@ -104,6 +104,9 @@ class PluginYmlTest {
             }
             if (sub.startsWith("music.")) {
                 sub = "music";
+            }
+            if (sub.startsWith("scoreboard.")) {
+                sub = "scoreboard";
             }
             if (sub.startsWith("spawner.")) {
                 sub = "spawner";

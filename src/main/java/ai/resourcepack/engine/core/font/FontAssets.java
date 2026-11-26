@@ -104,7 +104,12 @@ public final class FontAssets implements PackContributor {
             addOverlay(overlay, "huds", bundle, into, providers);
         }
 
-        if (providers.isEmpty()) {
+        // A scoreboard's panel, as pieces of the title it is drawn in. One
+        // with no panel still needs the spaces below, to set a line in the
+        // middle or on the right.
+        providers.addAll(ai.resourcepack.engine.core.scoreboard.ScoreboardAssets.contribute(bundle, loaded, into));
+
+        if (providers.isEmpty() && !ai.resourcepack.engine.core.scoreboard.ScoreboardAssets.any(bundle, loaded)) {
             return;
         }
 

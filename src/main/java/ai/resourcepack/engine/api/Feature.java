@@ -322,7 +322,22 @@ public enum Feature {
             McVersion.of(1, 21, 0),
             "Keeping custom items out of the crafter's vanilla recipes",
             "Handled: there is no crafter before this version.",
-            false);
+            false),
+
+    /**
+     * A scoreboard's own background, and its numbers hidden.
+     *
+     * <p>The background is part of the sidebar's title, which only lands
+     * behind the lines because the game draws the title before them. Before
+     * 1.20.3 it drew the title last, so the same picture would cover every
+     * line; and that is also the version a server could first hide the red
+     * numbers down the right.
+     */
+    SCOREBOARD_BACKGROUNDS(
+            McVersion.of(1, 20, 3),
+            "A scoreboard's own background",
+            "A scoreboard is shown in the game's own grey box, with the red numbers "
+                    + "down its right. Its title, lines, icons and placeholders are unchanged.");
 
     private final McVersion since;
     private final String label;
