@@ -33,8 +33,11 @@ import org.bukkit.plugin.Plugin;
  * hear it too. They skip anything {@link #isProbe} says is one of these, so a
  * question never runs an item's break action or adopts a hopper.
  *
- * <p>Logging plugins (CoreProtect and the like) may record the question as a
- * placement or a break at that spot. A server that minds can turn it off.
+ * <p>Off unless a server turns it on. Every plugin hears the question, not
+ * only protection plugins: a logging plugin (CoreProtect and the like) records
+ * it as a block placed or broken, which a rollback would then act on, and a
+ * plugin that rewards placing or breaking blocks (Jobs, mcMMO) may pay for it.
+ * Nothing about a server changes until its owner decides that is a fair price.
  */
 public final class ProtectionCheck implements Listener {
 
@@ -62,7 +65,7 @@ public final class ProtectionCheck implements Listener {
 
     /** Starts asking, from {@code onEnable}. Read once: a change takes a restart. */
     public static boolean listen(Plugin plugin) {
-        if (!plugin.getConfig().getBoolean("models.protection-check", true)) {
+        if (!plugin.getConfig().getBoolean("models.protection-check", false)) {
             return false;
         }
         plugin.getServer().getPluginManager().registerEvents(new ProtectionCheck(plugin), plugin);

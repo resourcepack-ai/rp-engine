@@ -460,9 +460,9 @@ public final class ConfigMigrations {
     }
 
     /**
-     * 10: {@code models.protection-check}, on, first under {@code models:}.
-     * On because the old behaviour let anybody furnish or strip somebody
-     * else's claim, which is the bug this fixes.
+     * 10: {@code models.protection-check}, off, first under {@code models:}.
+     * Off because the question is a block event every plugin hears, loggers
+     * and reward plugins included, so it is the owner's to turn on.
      */
     static String protectionCheck(String text, YamlConfiguration parsed) {
         if (parsed.contains("models.protection-check")) {
@@ -470,11 +470,12 @@ public final class ConfigMigrations {
         }
         String block = String.join("\n",
                 "# Ask the server's protection plugins (GriefPrevention, Towny, Lands,",
-                "# WorldGuard and the like) before a player puts a model down or breaks one,",
-                "# with the block events they already listen to. Off lets anybody place and",
-                "# break models in a claim that is not theirs. Logging plugins may record the",
-                "# question as a block placed or broken. Read at startup.",
-                "protection-check: true");
+                "# Residence, PlotSquared) before a player puts a model down or breaks one,",
+                "# so nobody can furnish or strip a claim that is not theirs. It asks with a",
+                "# block place or break event, which EVERY plugin hears: CoreProtect logs it",
+                "# as a real block (and a rollback acts on it), and Jobs or mcMMO may pay for",
+                "# it. Off by default for that reason. Read at startup.",
+                "protection-check: false");
         Matcher models = Pattern.compile("(?m)^models:[ \t]*(#[^\n]*)?$").matcher(text);
         if (!models.find()) {
             String section = "\nmodels:\n" + indent(block, "  ") + "\n";

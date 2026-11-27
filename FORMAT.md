@@ -424,14 +424,23 @@ allows too — a server should never be locked out of its own content by a hook.
 
 ## Claims and other protection plugins
 
-Before a player puts a model down or breaks one, the engine asks every
-protection plugin on the server (GriefPrevention, Towny, Lands, Residence,
-PlotSquared, WorldGuard's own build rules) with a block place or break event at
-the model's block. If one of them says no, the model is not placed or broken.
-Nothing is placed or broken by the question itself.
+A placed model is not a block, so claim plugins (GriefPrevention, Towny, Lands,
+Residence, PlotSquared) do not stop somebody placing or breaking one in a claim
+that is not theirs. `models.protection-check: true` in `config.yml` fixes that:
+before a player puts a model down or breaks one, the engine asks with a block
+place or break event at the model's block, and if a protection plugin says no,
+the model is not placed or broken. Nothing is placed or broken by the question
+itself. It is read at startup.
 
-`models.protection-check: false` in `config.yml` turns it off. A logging plugin
-such as CoreProtect may record the question as a block placed or broken there.
+It is **off by default**, because every plugin hears that event, not only the
+claim plugins:
+
+- A logging plugin such as CoreProtect records it as a real block placed or
+  broken, and a rollback of that player then acts on it.
+- A plugin that rewards placing or breaking blocks (Jobs, mcMMO) may pay for it,
+  so placing and picking up a model could be farmed.
+
+WorldGuard needs none of this: its `rpengine-place` flag is asked directly.
 
 ## Icons in chat
 
